@@ -236,6 +236,44 @@ both at once: a doorway with a hole where its arch should be, that you could
 also walk through. `patchLevel` (default 3) is how many quads along each side
 of each biquadratic piece.
 
+**A collision polygon is only as good as its worst edge, and the run-time face
+test never says so.** `CheckSphereBetweenPoints` walks a face's points in
+order, crosses each edge's direction with the face normal and rejects the
+contact if it is outside any of them. That is a correct test for a convex
+polygon whose edges all have a meaningful direction, and it fails **silently
+and catastrophically** for one that does not: a face with a bad edge does not
+misbehave near that edge, it rejects most of its own interior and the surface
+is simply not there. `MK_BlockFort` -- geometry from 3DS Max, clipped with
+`s_common/modelclip` -- arrived with both ways of getting it wrong at once,
+and the report was "you walk through the outside wall and fall out of the
+map". Two fixes, both in `Q3Import`:
+
+- **`Clip` clamps the crossing parameter to 0..1.** A point is kept when it is
+  inside the plane *or within epsilon of it*, while the crossing between two
+  points is solved for where the plane is rather than for where epsilon is, so
+  a pair straddling that gap solves to a `t` outside 0..1 -- and the sheet
+  being clipped starts 131,072 units across, so "just past the end of the
+  edge" is thousands of units away. The polygon comes out with a vertex out of
+  order, i.e. a bowtie. 19 of that level's brush sides, among them every
+  fort's ramp and its middle floor's corner.
+- **`Weld`'s tolerance scales with the polygon.** The clipping runs at a
+  magnitude where a float carries about 0.008 of a unit and half a dozen clips
+  compound it, so a corner two clips arrive at separately lands twice, some
+  0.08 of a unit apart -- four times the old fixed tolerance of 0.02. The pair
+  survives into the collision file as an edge a thousandth of a unit long
+  whose direction is whichever way the rounding fell, and on the arena's east
+  wall it fell along the wall: the lower half of an 82 x 9 unit wall rejected
+  everything more than 0.03 units below its top edge, so **half of every one
+  of that level's four outside walls had no collision at all**. 113 of its
+  collision edges were shorter than a unit; 12 survive this, all of them real.
+  A thousandth of the polygon's own extent is far above the clipping error at
+  any size and far below anything an author drew.
+
+The check that finds this is cheap and worth reaching for whenever a surface
+"is not there": take the generated `_Collision.bin`, sample each face's own
+interior, and run the engine's edge test against the face the points came
+from. A face that rejects its own middle is broken. Both maps now read zero.
+
 **Buried brush sides are dropped**, and that is what makes a real level fit.
 A level's walls are stacks of brushes, so most brush sides face into another
 brush and nothing outside the solid can ever touch them -- on df_dust2, 6,119
