@@ -864,6 +864,18 @@ namespace MphRead.Mods
                 return true;
             }
 
+            // Everything wrong with a map's collision, said before it is
+            // generated: the format's limits, faces that reject their own
+            // interior, what hurts, and every drawn surface with nothing solid
+            // behind it. Since collision is something a person edits by hand
+            // now, and none of those look like anything in a 3D tool.
+            string? mapCheck = ValueAfter(args, "mapcheck");
+            if (mapCheck != null)
+            {
+                Environment.ExitCode = MapGen.MapCheck.Run(mapCheck);
+                return true;
+            }
+
             // What pickups a level already holds, as the "items" block a
             // recipe would carry. The level's own were always imported
             // silently; this is what lets an author write them down, turn

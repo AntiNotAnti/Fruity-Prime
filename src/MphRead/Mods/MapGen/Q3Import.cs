@@ -128,6 +128,7 @@ namespace MphRead.Mods.MapGen
                     if (sky)
                     {
                         ProjectSky(built, width * SkyTiles / Math.Max(1f, skySpan));
+                        built.Sky = true;
                     }
                     map.Faces.Add(built);
                     if (patch)

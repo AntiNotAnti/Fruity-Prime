@@ -405,6 +405,140 @@ guide: df_dust2's crates are 128 and 192 units, which are de_dust2's 64 and 96
 was arrived at by measuring the crates. It puts the small one at 1.56 units
 against Samus's 1.6 -- waist-high, which is what a crate is.
 
+## Collision a person edits: the OBJ round trip
+
+```bash
+python tools/collision-to-obj.py dust2 --files FILES --group terrain   # out
+# edit dust2_Collision.obj in Blender
+FruityPrime -mapcheck "DUST2"      # what it will be
+FruityPrime -mapgen "DUST2"        # in
+```
+
+with, in the recipe:
+
+```jsonc
+"collision": { "source": "dust2_collision.obj", "zUp": false }
+```
+
+**It replaces the collision the geometry makes, rather than adding to it**,
+and that is the point rather than a limitation. The reason to reach for this
+is that a converted level's collision is a by-product of somebody else's
+level: every brush side survives, including the ones nobody can ever touch,
+because the buried-face test only drops a side that is *inside another brush*,
+not one that is merely somewhere no player can go. On df_dust2 that is **372
+faces and 20,359 square units -- about a quarter of the room's collision area
+and a seventh of its grid references** -- and no importer can fix it, because
+the faces really are in the source. Which of them are worth keeping is a
+judgement about the map. Adding could never delete one.
+
+`map.Solid` and `map.Faces` are separate lists, so a map is still *drawn* from
+the converted level; only what stops you comes from the mesh. `MapNodePacker`
+reads the same list, so the bots' waypoints follow an edit with nothing else
+to do.
+
+**Winding is the whole contract.** A collision face is one-sided --
+`CheckSphereBetweenPoints` refuses a contact that starts behind the plane -- so
+the polygon's own normal is the side it blocks from, and a face flipped in
+Blender is a face you walk through. The exporter winds every face to agree with
+its stored plane, and `CollisionObj` derives the plane from the winding by the
+same Newell sum. `vn` is read by neither: a tool that writes a normal
+disagreeing with its own winding would otherwise get to decide which side of a
+wall you can walk through.
+
+### The material name is the whole per-face vocabulary
+
+`<terrain>[_attribute...]`, because a material name is the only per-face
+channel an OBJ has and everything the collision format holds per face fits in
+one:
+
+| | |
+|---|---|
+| terrain | `metal` `orangeholo` `greenholo` `blueholo` `ice` `snow` `sand` `rock` `lava` `acid` `gorea` |
+| attributes | `slip0`-`slip3`, `damaging`, `reflect`, `noplayers`, `nobeams`, `noscan` |
+
+So `sand`, `rock_slip1`, `lava_damaging`, `metal_nobeams`. Terrain decides the
+footstep, landing and sliding sounds (`Metadata.TerrainSfx`), the footstep
+effects, the beam impact splats, and the debug view's colours; `Lava` is
+behaviour -- `PlayerFlags1.OnLava`, and the AI avoids it. **`nobeams` is the
+one that earns its keep on a converted level**: a Quake player-clip brush is a
+wall shots are meant to fly through, and without it every clip in the level
+stops bullets. The cartridge's own MP3 PROVING GROUND uses it on four faces.
+
+A face with **no material at all is plain metal**, no attributes -- which is
+what an ordinary OBJ out of a tool nobody asked to write materials means, and
+is also what every converted map is today, since nothing in the importer has
+ever set a terrain. A name that is *not* one of these is **refused**, never
+ignored: a misspelt `damaging` would silently be an ordinary floor, and a
+misspelt anything on a lava face is a floor that kills without saying so.
+Blender's `.001` suffix on a renamed material is stripped.
+
+### Numbers, and what a round trip is exact about
+
+Coordinates are snapped to 1/4096 on the way in, which is what the file stores.
+Without it a number that has been through decimal text lands a fraction off the
+one beside it and the packer, which deduplicates points by exact equality,
+writes two points where the mesh had one. `Fixed.ToInt` **truncates** rather
+than rounds, and anything comparing a built face against a written one has to
+do the same or every corner reads as moved.
+
+The Newell sum is taken **in double and about the polygon's own centre**. In
+single precision, on a wall fifty units from the origin whose own edges are a
+fraction of a unit long, cancellation eats most of the answer: a face that
+should have been (1, 0, 0) came out (0.9998, 0, 0), which is a different plane,
+and df_dust2 ended up with 2,879 planes where it had 2,716.
+
+Measured, exporting df_dust2's collision and generating from it unedited:
+
+```
+kept      5468 faces
+removed    100 faces  (0 u2)     <- the ones that enclose no area
+added        0 faces
+```
+
+and 10,308 points down to **7,829**, because the file itself holds 2,479
+duplicate points: the packer deduplicates before quantising, so two patch
+vertices a millionth apart are two points that get written as the same three
+integers. Snapping first removes them. 399,896 bytes to 357,312.
+
+## Checking one before it is generated
+
+```bash
+FruityPrime -mapcheck "ROOM"
+```
+
+Builds the map in memory, writes nothing, and reports five things. It exists
+because every way of getting hand-edited collision wrong is invisible: a face
+turned inside out is a wall you walk through, a concave polygon rejects part of
+its own interior, a floor deleted by accident is a hole you fall down, and a
+material name with `damaging` in it that should not be there is a floor that
+kills. None of those look like anything in Blender, and the first three do not
+look like anything in the game either until somebody walks into them.
+
+1. **Against the format's limits** -- faces, distinct points, and grid
+   references, which is the one that bites first: the grid lists every face in
+   every cell it reaches and indexes those listings with sixteen bits.
+   df_dust2 sits at 36% of it.
+2. **Shape** -- faces enclosing no area, and faces that **reject part of their
+   own interior**, which is `GetEdgeDotDifference` transcribed with its own
+   `-0.03125` margin rather than an approximation of it. This is what catches a
+   concave polygon, which is what a 3D tool produces the moment somebody drags
+   a vertex past its neighbours.
+3. **What the surfaces are** -- the terrain census, and the count of faces that
+   hurt on its own line whether or not it is zero, because "lava" where "rock"
+   was meant is not an error and never will be.
+4. **What the .obj changed**, against the collision the geometry would have
+   made: kept, removed with their area, added. The most useful line once a map
+   has a mesh, because the edit is not visible anywhere else -- the recipe says
+   a filename, the .obj is thousands of numbers, and a face deleted on purpose
+   and a face deleted by a stray click look exactly alike.
+5. **Drawn surfaces with nothing solid behind them**, sampled half a unit apart
+   over every drawn polygon. Read as places to look at rather than as faults: a
+   level draws plenty that was never meant to stop anybody, and a converted
+   level's collision is often a coarser version of what is drawn -- a
+   `modelclip` ramp arrives as a staircase of flat plates -- so the check
+   allows a unit behind the drawn surface and a quarter in front and still
+   reports the trim.
+
 ## Pickups a custom map may use
 
 `MapBuilder.MultiplayerItems`, enforced when the map is built rather than
@@ -466,6 +600,8 @@ FruityPrime -mapgen                       # generate every map in maps/
 FruityPrime -mapgen "LONGEST YARD"        # just one
 FruityPrime -mapmaterials "MP3 PROVING GROUND"   # what textures can be borrowed
 FruityPrime -mapitems "DUST2"             # what pickups the level already holds
+FruityPrime -mapcheck "DUST2"             # what its collision will be, before generating
+python tools/collision-to-obj.py dust2 --files FILES --group terrain   # collision out, to edit
 FruityPrime -maptest "LONGEST YARD" -players 8 -seconds 22
 FruityPrime -thumbnail "LONGEST YARD"     # the launcher's picture
 ```

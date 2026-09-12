@@ -167,9 +167,21 @@ def group_of(kind: str, normal, flags: int, layer_mask: int) -> str:
         # which the run-time point-on-face test reads to pick its projection.
         return f"axis{layer_mask & 3}"
     if kind == "terrain":
+        # The round-trip name. Everything the format holds per face goes in
+        # it, because a material name is the only per-face channel an OBJ has
+        # and `CollisionObj.Surface.Parse` is the other end of this grammar:
+        # <terrain>[_attribute...]. Anything dropped here is lost on the way
+        # back, so nothing is dropped.
         terrain = (flags & 0x1E0) >> 5
         name = _TERRAIN[terrain] if terrain < len(_TERRAIN) else f"terrain{terrain}"
-        return name + ("-damaging" if flags & 0x1 else "")
+        slip = (flags & 0x18) >> 3
+        if slip:
+            name += f"_slip{slip}"
+        for bit, word in ((0x1, "damaging"), (0x200, "reflect"), (0x2000, "noplayers"),
+                          (0x4000, "nobeams"), (0x8000, "noscan")):
+            if flags & bit:
+                name += f"_{word}"
+        return name
     raise ValueError(kind)
 
 
@@ -183,8 +195,33 @@ _COLORS = {
     "axis0": (0.85, 0.40, 0.40),
     "axis1": (0.45, 0.80, 0.45),
     "axis2": (0.40, 0.55, 0.90),
+    # --group terrain, by the terrain the name starts with. The three that
+    # hurt you are the loud ones: a face you did not mean to make damaging is
+    # the mistake this whole grammar is arranged to make visible.
+    "metal": (0.72, 0.74, 0.78),
+    "orangeholo": (0.90, 0.60, 0.25),
+    "greenholo": (0.35, 0.85, 0.45),
+    "blueholo": (0.35, 0.60, 0.95),
+    "ice": (0.70, 0.90, 0.95),
+    "snow": (0.95, 0.95, 0.95),
+    "sand": (0.85, 0.75, 0.45),
+    "rock": (0.55, 0.48, 0.42),
+    "lava": (1.00, 0.25, 0.05),
+    "acid": (0.55, 0.95, 0.15),
+    "gorea": (0.75, 0.25, 0.75),
 }
 _FALLBACK = (0.70, 0.70, 0.70)
+
+
+def color_of(name: str):
+    """A group's colour, ignoring whatever attributes follow the terrain.
+
+    Except that `damaging` is not an attribute you want to have to read: it
+    goes red whatever it is attached to.
+    """
+    if "_damaging" in name:
+        return (1.00, 0.15, 0.15)
+    return _COLORS.get(name.split("_")[0], _FALLBACK)
 
 
 def find_room(name: str, files_root: Path) -> Path:
@@ -223,7 +260,10 @@ def main(argv=None) -> int:
                              "(default: $MPH_FILES)")
     parser.add_argument("--group", default="slope",
                         choices=["slope", "none", "axis", "terrain"],
-                        help="how to split the OBJ into groups (default: slope)")
+                        help="how to split the OBJ into groups (default: slope). "
+                             "`terrain` is the one a map can be generated from "
+                             "again: it names each material <terrain>[_attribute...], "
+                             "which is what the recipe's \"collision\" key reads back")
     parser.add_argument("--zup", action="store_true",
                         help="rotate to Z up, for Blender and friends")
     parser.add_argument("--no-mtl", action="store_true",
@@ -318,7 +358,7 @@ def main(argv=None) -> int:
         with mtl_path.open("w", encoding="utf-8", newline="\n") as mtl:
             mtl.write(f"# colours for {out_path.name}\n")
             for name in sorted(groups):
-                r, g, b = _COLORS.get(name, _FALLBACK)
+                r, g, b = color_of(name)
                 mtl.write(f"newmtl {name}\n")
                 mtl.write(f"Kd {r:.3f} {g:.3f} {b:.3f}\n")
                 mtl.write("Ka 0.000 0.000 0.000\n")
@@ -335,6 +375,14 @@ def main(argv=None) -> int:
         print(f"  {reversed_count} faces rewound to agree with their plane")
     if degenerate:
         print(f"  {degenerate} faces skipped as degenerate (no area of their own)")
+    if args.group != "terrain":
+        # Saying so here rather than leaving it to fail later: the round trip
+        # refuses a material it cannot read, on purpose, and "floor" is not a
+        # terrain. An export made to look at is not one to edit and put back.
+        print("  to edit this and put it back, export again with --group terrain:")
+        print("  those names are the ones a recipe's \"collision\" key reads.")
+    elif args.zup:
+        print("  edited and put back, this needs \"zUp\": true in the recipe's \"collision\".")
     return 0
 
 

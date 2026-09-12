@@ -55,6 +55,12 @@ namespace MphRead.Mods.MapGen
         /// <summary>Set to convert a level from another engine instead of building from brushes.</summary>
         public MapImport? Import { get; set; }
 
+        /// <summary>
+        /// Collision read from a Wavefront OBJ, replacing whatever the
+        /// geometry would have produced. See <see cref="MapCollision"/>.
+        /// </summary>
+        public MapCollision? Collision { get; set; }
+
         /// <summary>Where to stand the camera for the launcher's map picture.</summary>
         public MapPreview? Preview { get; set; }
 
@@ -118,6 +124,11 @@ namespace MphRead.Mods.MapGen
                 result.Import.BaseDirectory = result.BaseDirectory;
                 result.Import.BundlePath = result.BundlePath;
             }
+            if (result.Collision != null)
+            {
+                result.Collision.BaseDirectory = result.BaseDirectory;
+                result.Collision.BundlePath = result.BundlePath;
+            }
             return result;
         }
 
@@ -142,6 +153,93 @@ namespace MphRead.Mods.MapGen
     {
         public float[] Position { get; set; } = new float[3];
         public float[] Target { get; set; } = new float[3];
+    }
+
+    /// <summary>
+    /// Collision read from a Wavefront OBJ rather than derived from the
+    /// geometry.
+    ///
+    /// It **replaces** what the geometry produced rather than adding to it,
+    /// and that is the whole point: the reason to reach for this is that a
+    /// converted level carries collision nobody can ever touch -- on df_dust2,
+    /// 372 faces and about a quarter of the room's collision area, outside the
+    /// part of the map anyone can reach -- and adding could never delete one
+    /// of them. Export with `tools/collision-to-obj.py`, edit, name it here.
+    ///
+    /// Writing a whole room's collision from nothing is not what this is for
+    /// and would be miserable; the OBJ to start from is the one the exporter
+    /// writes.
+    /// </summary>
+    public class MapCollision
+    {
+        /// <summary>
+        /// The .obj, looked for beside the recipe, then in maps/, then beside
+        /// the game files -- the same places a level and a texture pack are.
+        /// </summary>
+        public string Source { get; set; } = "";
+
+        /// <summary>
+        /// Set when the file was written with the exporter's `--zup`, which is
+        /// what Blender and most other tools want. The game is Y up and so is
+        /// the exporter by default.
+        /// </summary>
+        public bool ZUp { get; set; }
+
+        [JsonIgnore]
+        public string? BaseDirectory { get; set; }
+        [JsonIgnore]
+        public string? BundlePath { get; set; }
+
+        /// <summary>The bytes, out of the bundle or off the disk, or null when
+        /// the file is not on this machine.</summary>
+        public byte[]? ReadBytes()
+        {
+            if (Source.Length == 0)
+            {
+                return null;
+            }
+            if (BundlePath != null)
+            {
+                byte[]? bundled = MapBundle.ReadEntry(BundlePath, Source);
+                if (bundled != null)
+                {
+                    return bundled;
+                }
+            }
+            string? path = Resolve();
+            return path == null ? null : File.ReadAllBytes(path);
+        }
+
+        public string? Resolve()
+        {
+            if (Source.Length == 0)
+            {
+                return null;
+            }
+            foreach (string candidate in Candidates())
+            {
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+            }
+            return null;
+        }
+
+        private IEnumerable<string> Candidates()
+        {
+            yield return Source;
+            if (Path.IsPathRooted(Source))
+            {
+                yield break;
+            }
+            if (BaseDirectory != null)
+            {
+                yield return Path.Combine(BaseDirectory, Source);
+            }
+            yield return Path.Combine(CustomRooms.MapDirectory, Source);
+            yield return Path.Combine(Mods.Launcher.GameFiles.Root, Source);
+        }
     }
 
     /// <summary>
