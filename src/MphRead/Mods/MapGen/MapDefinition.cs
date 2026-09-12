@@ -67,6 +67,11 @@ namespace MphRead.Mods.MapGen
         private static readonly JsonSerializerOptions _options = new JsonSerializerOptions()
         {
             PropertyNameCaseInsensitive = true,
+            // Every recipe in the repository is camelCase, having been written
+            // by hand before anything generated one. Reading is
+            // case-insensitive either way; this is so a recipe a command
+            // writes looks like the ones beside it.
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             ReadCommentHandling = JsonCommentHandling.Skip,
             AllowTrailingCommas = true,
             WriteIndented = true,
@@ -340,6 +345,23 @@ namespace MphRead.Mods.MapGen
         /// it off and the map file's own spawns are the only ones.
         /// </summary>
         public bool KeepSpawns { get; set; } = true;
+
+        /// <summary>
+        /// Take the level's own pickups -- its health, armour, ammo and
+        /// weapons -- as items, on top of whatever the recipe's own
+        /// <see cref="MapDefinition.Items"/> lists.
+        ///
+        /// True is what every map did before there was a choice, and is
+        /// therefore the default: an existing recipe still generates the room
+        /// it was generating. False makes the recipe the only answer to where
+        /// the pickups are, which is what you want once they are written down
+        /// -- otherwise moving one in the recipe leaves the level's original
+        /// where it was and the map has both.
+        ///
+        /// `-mapitems "ROOM"` prints the level's pickups as an `items` block
+        /// to paste in, which is the other half of turning this off.
+        /// </summary>
+        public bool KeepItems { get; set; } = true;
     }
 
     /// <summary>

@@ -1044,27 +1044,86 @@ namespace MphRead.Mods.MapGen
                     });
                     pads++;
                 }
-                else if (entity.TryGetValue("origin", out string? itemOrigin))
+            }
+            // The level's own pickups, after the loop rather than inside it,
+            // because whether they are wanted at all is one question about the
+            // level and not a question about each entity.
+            List<Q3Pickup> pickups = Pickups(bsp, import.UnitsPerUnit).ToList();
+            if (import.KeepItems)
+            {
+                foreach (Q3Pickup pickup in pickups)
                 {
-                    ItemType type = MapItemType(classname);
-                    if (type == ItemType.None)
-                    {
-                        continue;
-                    }
-                    Vector3 position = ToWorld(ParseVector(itemOrigin), import.UnitsPerUnit);
                     def.Items.Add(new MapItem()
                     {
-                        Position = new[] { position.X, position.Y, position.Z },
-                        Type = type.ToString()
+                        Position = new[] { pickup.Position.X, pickup.Position.Y, pickup.Position.Z },
+                        Type = pickup.Type.ToString()
                     });
                     items++;
                 }
             }
             if (verbose)
             {
-                Console.WriteLine($"  {def.Spawns.Count} spawns, {pads} jump pads, {items} items");
+                string note = import.KeepItems
+                    ? (items > 0 ? $" ({items} of them the level's own)" : "")
+                    : (pickups.Count > 0 ? $", the level's {pickups.Count} ignored" : "");
+                Console.WriteLine($"  {def.Spawns.Count} spawns, {pads} jump pads,"
+                    + $" {def.Items.Count} items{note}");
             }
             MapBuilder.AddEntities(map, def);
+        }
+
+        /// <summary>
+        /// One of the level's pickups: what it is in Quake, what this game has
+        /// in its place, and where that lands in world units.
+        /// </summary>
+        public readonly struct Q3Pickup
+        {
+            public Q3Pickup(string classname, ItemType type, Vector3 position, string? targetName)
+            {
+                Classname = classname;
+                Type = type;
+                Position = position;
+                TargetName = targetName;
+            }
+
+            public string Classname { get; }
+            public ItemType Type { get; }
+            public Vector3 Position { get; }
+
+            /// <summary>
+            /// Set when the level's own scripts name this entity: a
+            /// `target_give` hands it out rather than the player walking over
+            /// it, and a mapper usually puts one of those in a closet nobody
+            /// can reach. It is still an item standing in the world, so
+            /// nothing is dropped on account of it -- but it is the one an
+            /// author most often wants to delete, so it is reported.
+            /// </summary>
+            public string? TargetName { get; }
+        }
+
+        /// <summary>
+        /// The level's pickups, in world units. One definition of what counts
+        /// as one and where it is, read by the importer, by the converter
+        /// writing a recipe, and by `-mapitems` printing one to paste.
+        /// </summary>
+        public static IEnumerable<Q3Pickup> Pickups(Q3Bsp bsp, float unitsPerUnit)
+        {
+            foreach (Dictionary<string, string> entity in bsp.Entities)
+            {
+                if (!entity.TryGetValue("classname", out string? classname)
+                    || !entity.TryGetValue("origin", out string? origin))
+                {
+                    continue;
+                }
+                ItemType type = MapItemType(classname);
+                if (type == ItemType.None)
+                {
+                    continue;
+                }
+                entity.TryGetValue("targetname", out string? targetName);
+                yield return new Q3Pickup(classname, type,
+                    ToWorld(ParseVector(origin), unitsPerUnit), targetName);
+            }
         }
 
         /// <summary>

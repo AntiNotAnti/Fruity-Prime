@@ -845,7 +845,7 @@ namespace MphRead.Mods
                 {
                     Environment.ExitCode = MapGen.Q3Convert.Run(q3Convert, ValueAfter(args, "map"),
                         ValueAfter(args, "name"), ValueAfter(args, "out"), HasFlag(args, "noclip"),
-                        scale, textureSize);
+                        HasFlag(args, "noitems"), scale, textureSize);
                 }
                 catch (Exception ex)
                 {
@@ -861,6 +861,25 @@ namespace MphRead.Mods
             if (q3Shaders != null)
             {
                 Environment.ExitCode = MapGen.MapReport.ListShaders(q3Shaders, ValueAfter(args, "map"));
+                return true;
+            }
+
+            // What pickups a level already holds, as the "items" block a
+            // recipe would carry. The level's own were always imported
+            // silently; this is what lets an author write them down, turn
+            // keepItems off, and own them. Reads and prints -- a recipe can
+            // carry comments and is nobody's to rewrite.
+            string? mapItems = ValueAfter(args, "mapitems");
+            if (mapItems != null)
+            {
+                float? itemScale = null;
+                if (Single.TryParse(ValueAfter(args, "scale"), System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out float parsedItemScale)
+                    && parsedItemScale > 0)
+                {
+                    itemScale = parsedItemScale;
+                }
+                Environment.ExitCode = MapGen.MapReport.ListItems(mapItems, ValueAfter(args, "map"), itemScale);
                 return true;
             }
 

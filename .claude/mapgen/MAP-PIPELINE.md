@@ -295,6 +295,49 @@ a race level has one start, often on a ledge sealed off from the course, and a
 player who spawns there is stuck. Turn it off and the map file's spawns are
 the only ones.
 
+`keepItems` (default true) says whether to take the level's own pickups --
+health, armour, ammo, weapons -- on top of the recipe's own `items`.
+
+**The default is true because that is what every map did before there was a
+choice**, and an existing recipe has to keep generating the room it was
+generating. It is the wrong answer for a map anybody is working on, and the
+reason is that the level's pickups were arriving *invisibly*: they are read
+out of the `.bsp` on every generation, so a recipe listing three items could
+produce a room holding thirty, and an author who wanted one of the level's own
+moved or gone had nowhere to say so. `-mapitems` writes them out, `keepItems:
+false` stops them arriving twice, and the recipe is then the only answer to
+what the map holds -- which is the point of there being a recipe.
+
+`-q3convert` now does both halves itself: it transcribes what it finds into
+`items` and sets `keepItems` to false, so a freshly converted map is already
+in that state. `-noitems` writes none and still sets it false.
+
+### What a level already holds
+
+```bash
+FruityPrime -mapitems "ROOM"                       # from the recipe
+FruityPrime -mapitems level.pk3 -map NAME [-scale N]   # before there is one
+```
+
+Prints the level's pickups as the `items` block a recipe would carry -- one
+line each, in world units, with the Quake classname each came from and what
+this game puts in its place. Given a room name it reads that map's recipe, so
+the scale is the one the room is actually built at and the count it prints is
+the count the room actually has.
+
+**It writes nothing.** A recipe is allowed `//` comments -- every one in the
+repository opens with a line saying where to get the level -- and serializing
+one back over itself would throw those away along with whatever the author had
+laid out by hand. So the block is printed to paste and the file stays theirs.
+
+It also says which pickups carry a `targetname`. Those are handed out by the
+level's own scripts (`target_give`) rather than walked over, and a mapper
+usually stands them in a closet nobody can reach: df_dust2's rocket launcher
+and its ammo are one of these, 0.6 units apart behind the architecture. They
+are still items standing in the world, so nothing is dropped on their account
+-- but they are the ones an author most often wants to delete, so they are
+marked.
+
 ### Verified against a real level
 
 OpenArena's `wrackdm17` -- its homage to The Longest Yard, freely licensed --
@@ -325,19 +368,26 @@ available.
 ## Converting a level, in one command
 
 ```bash
-FruityPrime -q3convert path/to/level.pk3 -map LEVELNAME -name ROOM [-noclip]
+FruityPrime -q3convert path/to/level.pk3 -map LEVELNAME -name ROOM [-noclip] [-noitems]
 ```
 
 Bakes the textures, picks the scale, the extents, the kill height and the
-vertex precision from the level's own geometry, writes the spawns from its
-entities, copies the `.pk3` in beside the result, and leaves a
+vertex precision from the level's own geometry, writes the spawns and the
+pickups from its entities, copies the `.pk3` in beside the result, and leaves a
 `maps/<room>/<room>.json` that `-mapgen` can build. `-scale N` overrides the
 scale, `-texsize N` the texture size, `-out DIR` where it lands.
 
-It does **not** place weapons or powerups. Where those go is a judgement about
-how the map plays -- which routes meet, what is worth contesting -- and a
-generator that scattered them evenly would produce a map worse than one with
-none. It prints the list of pickups a custom map may use and stops there.
+It does **not** *place* weapons or powerups. Where those go is a judgement
+about how the map plays -- which routes meet, what is worth contesting -- and
+a generator that scattered them evenly would produce a map worse than one with
+none. It prints the list of pickups a custom map may use, and leaves choosing
+to a person.
+
+It does write down the ones the level's own author placed, which is a
+different thing. Those were being read out of the `.bsp` on every generation
+anyway; listing them under `items` and setting `keepItems` to false only moves
+them somewhere an author can edit them. `-noitems` writes none and still sets
+the flag, for a level whose pickups are nothing you want.
 
 The texture baking is in `MapTextureBake.cs` now, not only in
 `tools/bake-textures.py`: the archive is a zip, the decoder is the one the
@@ -415,6 +465,7 @@ FruityPrime -q3shaders path/to/pak.pk3 -map wrackdm17   # what it draws with
 FruityPrime -mapgen                       # generate every map in maps/
 FruityPrime -mapgen "LONGEST YARD"        # just one
 FruityPrime -mapmaterials "MP3 PROVING GROUND"   # what textures can be borrowed
+FruityPrime -mapitems "DUST2"             # what pickups the level already holds
 FruityPrime -maptest "LONGEST YARD" -players 8 -seconds 22
 FruityPrime -thumbnail "LONGEST YARD"     # the launcher's picture
 ```
