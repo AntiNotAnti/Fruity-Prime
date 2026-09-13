@@ -36,6 +36,10 @@
   ],
   "BattleTimeLimit": 12600,
   "PointLimit": 7,
+  "collision": {
+    "source": "mk_blockfort_collision.obj",
+    "zUp": false
+  },
   "Import": {
     "Source": "MK_BlockFort.pk3",
     "MapName": "MK_BlockFort_s",
@@ -57,17 +61,27 @@
   "JumpPads": [],
   "//items": "The level's own 12 item_health_mega, written out by FruityPrime -mapitems \"MK_BLOCKFORT\" and taken over here: keepItems is off, so these are the only ones.",
   "Items": [
-    { "Position": [ 15.21, 0, 5.04 ], "Type": "HealthBig" },
-    { "Position": [ 32, -2.37, 5.43 ], "Type": "HealthBig" },
-    { "Position": [ 5.43, 4.64, -18.86 ], "Type": "HealthBig" },
-    { "Position": [ 49.19, -2.07, -31.9 ], "Type": "HealthBig" },
-    { "Position": [ 64.69, -3.46, 27.26 ], "Type": "HealthBig" },
-    { "Position": [ 23.8, 4.35, 22.52 ], "Type": "HealthBig" },
-    { "Position": [ -5.23, 2.57, 11.65 ], "Type": "HealthBig" },
-    { "Position": [ 19.46, -3.65, -30.81 ], "Type": "HealthBig" },
-    { "Position": [ -12.64, -3.36, -0.3 ], "Type": "HealthBig" },
-    { "Position": [ 3.16, 0.3, -40.69 ], "Type": "HealthBig" },
-    { "Position": [ 24.99, -0.89, 0 ], "Type": "HealthBig" },
-    { "Position": [ -15.51, -3.75, 40.59 ], "Type": "HealthBig" }
+    { "Position": [ 24.99, -0.89, 0 ], "Type": "DoubleDamage" },
+    
+    { "Position": [ 46.152 , 3.58007,  21.694], "Type": "Imperialist" },
+    { "Position": [ 46.1526, 3.58007, -21.0779], "Type": "Imperialist" },
+    { "Position": [ 3.38072, 3.58007, -21.0784], "Type": "Imperialist" },
+    { "Position": [ 3.38072, 3.58007,  21.6934], "Type": "Imperialist" },
+    
+    { "Position": [  34.3391, -0.506108, 9.88113], "Type": "VoltDriver" },
+    { "Position": [  34.3397, -0.506108, -9.265], "Type": "VoltDriver" },
+    { "Position": [  15.1936, -0.506108, -9.26558], "Type": "VoltDriver" },
+    { "Position": [  15.193 , -0.506108,  9.88055], "Type": "VoltDriver" },
+
+    { "Position": [ 52.3406, -0.506107, 27.8982], "Type": "Judicator" },
+    { "Position": [ 52.3568, -0.506107, -27.2665], "Type": "Judicator" },
+    { "Position": [ -2.80789, -0.506107, -27.2826], "Type": "Judicator" },
+    { "Position": [ -2.82406, -0.506107, 27.8826], "Type": "Judicator" },
+
+    { "Position": [ 62.1411, -4.68734, 37.4394], "Type": "HealthMedium" },
+    { "Position": [ 62.1411, -4.68734, 37.4394], "Type": "HealthMedium" },
+    { "Position": [ -12.6084, -4.68734, -36.8238], "Type": "HealthMedium" },
+    { "Position": [ -12.6084, -4.68734, 37.6825], "Type": "HealthMedium" }
+
   ]
 }
