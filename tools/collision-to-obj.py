@@ -167,22 +167,34 @@ def group_of(kind: str, normal, flags: int, layer_mask: int) -> str:
         # which the run-time point-on-face test reads to pick its projection.
         return f"axis{layer_mask & 3}"
     if kind == "terrain":
-        # The round-trip name. Everything the format holds per face goes in
-        # it, because a material name is the only per-face channel an OBJ has
-        # and `CollisionObj.Surface.Parse` is the other end of this grammar:
-        # <terrain>[_attribute...]. Anything dropped here is lost on the way
-        # back, so nothing is dropped.
-        terrain = (flags & 0x1E0) >> 5
-        name = _TERRAIN[terrain] if terrain < len(_TERRAIN) else f"terrain{terrain}"
-        slip = (flags & 0x18) >> 3
-        if slip:
-            name += f"_slip{slip}"
-        for bit, word in ((0x1, "damaging"), (0x200, "reflect"), (0x2000, "noplayers"),
-                          (0x4000, "nobeams"), (0x8000, "noscan")):
-            if flags & bit:
-                name += f"_{word}"
-        return name
+        return material_of(flags)
     raise ValueError(kind)
+
+
+def material_of(flags: int) -> str:
+    """What this face is, as the name a recipe's "collision" key reads back.
+
+    Everything the format holds per face goes in it, because a material name
+    is the only per-face channel an OBJ has and `CollisionObj.Surface.Parse`
+    is the other end of this grammar: <terrain>[_attribute...]. Anything
+    dropped here is lost on the way back, so nothing is dropped.
+
+    Written whatever --group says, so that an export made to look at is also
+    one that can be edited and put back. The group and the material are
+    separate things in an OBJ: `g floor` is a handle for selecting the floor
+    in a 3D tool, `usemtl sand` is what the floor is made of, and a file
+    carries both without either costing the other.
+    """
+    terrain = (flags & 0x1E0) >> 5
+    name = _TERRAIN[terrain] if terrain < len(_TERRAIN) else f"terrain{terrain}"
+    slip = (flags & 0x18) >> 3
+    if slip:
+        name += f"_slip{slip}"
+    for bit, word in ((0x1, "damaging"), (0x200, "reflect"), (0x2000, "noplayers"),
+                      (0x4000, "nobeams"), (0x8000, "noscan")):
+        if flags & bit:
+            name += f"_{word}"
+    return name
 
 
 # Something to tell the groups apart by at a glance. A 3D tool will not read
@@ -319,7 +331,7 @@ def main(argv=None) -> int:
         if not args.keep_winding and _dot(area2, normal) < 0:
             order.reverse()
             reversed_count += 1
-        name = group_of(args.group, normal, face[2], face[3])
+        name = (group_of(args.group, normal, face[2], face[3]), material_of(face[2]))
         key = tuple(round(v, 6) for v in place(normal))
         if key not in normal_ids:
             normal_ids[key] = len(normals) + 1
@@ -344,10 +356,19 @@ def main(argv=None) -> int:
             obj.write(f"v {x:.6f} {y:.6f} {z:.6f}\n")
         for normal in normals:
             obj.write(f"vn {normal[0]:.6f} {normal[1]:.6f} {normal[2]:.6f}\n")
+        written_group = None
+        written_material = None
         for name in sorted(groups):
-            obj.write(f"g {name}\n")
-            if not args.no_mtl:
-                obj.write(f"usemtl {name}\n")
+            group, material = name
+            # An OBJ states a group and a material independently and keeps
+            # whichever it was last told until it is told again, so a file
+            # carries both and neither costs the other.
+            if group != written_group:
+                obj.write(f"g {group}\n")
+                written_group = group
+            if not args.no_mtl and material != written_material:
+                obj.write(f"usemtl {material}\n")
+                written_material = material
             for indices, normal_id in groups[name]:
                 # OBJ counts from one, and every vertex of a collision face
                 # shares the face's normal.
@@ -357,7 +378,7 @@ def main(argv=None) -> int:
     if not args.no_mtl:
         with mtl_path.open("w", encoding="utf-8", newline="\n") as mtl:
             mtl.write(f"# colours for {out_path.name}\n")
-            for name in sorted(groups):
+            for name in sorted({material for _, material in groups}):
                 r, g, b = color_of(name)
                 mtl.write(f"newmtl {name}\n")
                 mtl.write(f"Kd {r:.3f} {g:.3f} {b:.3f}\n")
@@ -368,20 +389,14 @@ def main(argv=None) -> int:
     print(f"{path.name} -> {out_path}")
     print(f"  {written} faces, {len(collision.points)} points, {len(normals)} distinct normals")
     if not args.no_mtl:
-        print(f"  {mtl_path.name} colours the groups")
+        print(f"  {mtl_path.name} colours the materials")
     for name in sorted(groups):
-        print(f"    {name:>22}: {len(groups[name])}")
+        print(f"    {name[0]:>12} / {name[1]:<24} {len(groups[name])}")
     if reversed_count:
         print(f"  {reversed_count} faces rewound to agree with their plane")
     if degenerate:
         print(f"  {degenerate} faces skipped as degenerate (no area of their own)")
-    if args.group != "terrain":
-        # Saying so here rather than leaving it to fail later: the round trip
-        # refuses a material it cannot read, on purpose, and "floor" is not a
-        # terrain. An export made to look at is not one to edit and put back.
-        print("  to edit this and put it back, export again with --group terrain:")
-        print("  those names are the ones a recipe's \"collision\" key reads.")
-    elif args.zup:
+    if args.zup:
         print("  edited and put back, this needs \"zUp\": true in the recipe's \"collision\".")
     return 0
 
