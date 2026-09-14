@@ -167,6 +167,87 @@ namespace MphRead.Mods.Launcher.Gui
         public static double BakeScale { get; set; } = 1;
 
         /// <summary>
+        /// How much bigger than its own layout a box this tall draws the
+        /// screens.
+        ///
+        /// Here rather than in <see cref="UiSurface"/>, where it was written,
+        /// because it is not the desktop's rule -- it is the launcher's, and
+        /// there are two heads. The desktop asks about the game window and
+        /// scales the surface it composites; Android asks about the view the
+        /// activity was given and scales that. A phone that skips this gets
+        /// laid out in its own ~400 point height, which is a third of what
+        /// every screen here is authored for: the well is wider than the
+        /// screen, the server list is arranged off the side of it, and the
+        /// result looks nothing like the same program.
+        ///
+        /// One rule for every screen -- the front screen, the pause menu, the
+        /// settings, in a match or not. Two of them had different scales for a
+        /// build and the difference is exactly what got reported: the menus in
+        /// a match were readable and the front screen that came back when the
+        /// match ended "went small again". A menu is a menu.
+        ///
+        /// It is not linear in the window's height, and that is deliberate.
+        /// Straight proportion keeps text the same *fraction* of the picture,
+        /// which is right for a HUD and wrong for something you read: a
+        /// 1280x768 window sits an arm's length away on a desk, and a
+        /// fullscreen 1080p or 4K picture is usually a bigger screen further
+        /// off, wanting more than proportionally larger type. The exponent is
+        /// what carries that -- a window twice as tall draws the screens about
+        /// 2.8 times as large -- and 720 is the height at which they are drawn
+        /// as they were authored.
+        ///
+        /// Both ends were reported, from the same build, in the same
+        /// sentence: too big in the window it opens in, too small in
+        /// fullscreen. The numbers below are the two anchors that came out of
+        /// that -- about 1.1 at 1280x768, about 1.85 at 1080p.
+        ///
+        /// Eighth steps: a drag would otherwise relayout the whole screen on
+        /// every pixel, and quarters were a visible jump at the boundary.
+        ///
+        /// The height is what the curve is drawn from, but it is not the only
+        /// thing that decides: the screens also have to *fit*. A window wider
+        /// than it is tall is the ordinary case and it is the one the height
+        /// alone got wrong -- 1440p asked for 2.875, which leaves the screens
+        /// 890 by 500 points to lay themselves out in, and they are authored
+        /// for something near <see cref="MinBoxWidth"/> by <see cref="MinBoxHeight"/>. The type then looks
+        /// enormous because everything around it has been squeezed, and the
+        /// column of settings beside the list runs off the bottom of its own
+        /// grid row and is drawn straight over the tick in the corner. So the
+        /// curve is capped by what the window can actually hold, and the
+        /// layout box never goes below the size the screens were drawn for.
+        /// </summary>
+        public static double Factor(double width, double height)
+        {
+            double room = Math.Max(height, 1) / 720.0;
+            double raw = Math.Pow(room, 1.5);
+            double fits = Math.Min(Math.Max(width, 1) / MinBoxWidth,
+                Math.Max(height, 1) / MinBoxHeight);
+            // The curve rounds to the nearest eighth and the cap rounds down
+            // to one: a cap rounded to the nearest is a cap that can be
+            // exceeded, which is the one thing it is there to stop.
+            double stepped = Math.Min(Math.Round(raw * 8), Math.Floor(fits * 8)) / 8;
+            // Down to 0.6, because the smallest window this program allows is
+            // shorter than the space the screens are drawn in and the menu has
+            // to fit inside it; up to four, past which nothing is legible for
+            // a different reason.
+            return Math.Clamp(stepped, 0.6, 4);
+        }
+
+        /// <summary>
+        /// The smallest layout box the screens are allowed to be given, in
+        /// their own points -- roughly the launcher window that used to open.
+        ///
+        /// It is the floor under <see cref="Factor"/> and nothing else: a
+        /// window smaller than this in real pixels still gets the 0.6 clamp
+        /// and a box smaller than this, because there is nothing else to do
+        /// with it. A phone in landscape is exactly that case and is why the
+        /// clamp matters on the other head: 829 by 393 points asks for 0.375
+        /// off the curve and gets 0.6, which still fits a 1382 by 655 box.
+        /// </summary>
+        public const double MinBoxWidth = 960;
+        public const double MinBoxHeight = 600;
+
+        /// <summary>
         /// The column itself: what the screen is called, the strip of pages or
         /// sources under it, and the screen's own content under that.
         ///

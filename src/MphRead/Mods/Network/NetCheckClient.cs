@@ -680,6 +680,7 @@ namespace MphRead.Mods.Network
             // weapon resolving differently on the authority is invisible in an
             // aggregate dominated by whatever was fired most.
             Console.WriteLine($"  {NetHitPrediction.DescribeHealth()}");
+            Console.WriteLine($"  {NetHitPrediction.DescribeDamageLedger()}");
             foreach (string line in NetHitPrediction.DescribeByWeapon().Split('\n'))
             {
                 Console.WriteLine($"  {line}");

@@ -285,6 +285,26 @@ namespace MphRead.Mods.Network
         public static long FloorLifted { get; private set; }
 
         /// <summary>
+        /// Points of damage this machine predicted onto each slot, against the
+        /// points the authority's own number actually came down by.
+        ///
+        /// <b>The direct answer to "is it counted twice".</b> Every other line
+        /// here counts events -- hits predicted, hits confirmed -- and a hit
+        /// counted once but worth twice as much looks perfect in all of them.
+        /// These two are points, and with one client shooting (which is what
+        /// <c>-hitrig missile</c> arranges) the authority's drop is this
+        /// client's damage and nobody else's, so the ratio is the whole
+        /// measurement.
+        ///
+        /// The authority's drop counts everything that hurt that player,
+        /// including their own splash and the void, so in an ordinary match
+        /// it is an upper bound rather than a comparison. Read it from a rig
+        /// run.
+        /// </summary>
+        private static readonly long[] _predictedPoints = new long[Slots];
+        private static readonly long[] _authorityDrop = new long[Slots];
+
+        /// <summary>
         /// How long a prediction is allowed to hold the picture: one measured
         /// round trip, a snapshot's gap, and a margin.
         ///
@@ -581,6 +601,8 @@ namespace MphRead.Mods.Network
             HealthOverWorst = 0;
             FloorLifted = 0;
             Array.Clear(_lastAuthorityHealth);
+            Array.Clear(_predictedPoints);
+            Array.Clear(_authorityDrop);
             FloorHeld = 0;
             FloorHeldPoints = 0;
             FloorWorst = 0;
@@ -781,7 +803,29 @@ namespace MphRead.Mods.Network
                     LethalHeld++;
                     lethal = false;
                 }
+                if (lethal && !self && NetLog.Enabled)
+                {
+                    // The one line that separates "the client killed somebody
+                    // the authority had at full health" from "the authority
+                    // simply never reported the death". Both come out as
+                    // DeathsUndone and they are different faults.
+                    NetLog.Event($"[predict] lethal on slot {victim.SlotIndex} with {beam}: "
+                        + $"{damage} damage, drawn health {victim.Health}, debit "
+                        + $"{Debit(victim.SlotIndex)}, authority last said "
+                        + $"{_lastAuthorityHealth[victim.SlotIndex]}");
+                }
                 bool headshot = flags.TestFlag(DamageFlags.Headshot);
+                if (!self)
+                {
+                    // Capped at what is actually there to take, because that
+                    // is all the authority's own number can come down by: a
+                    // 32-damage Missile into a victim on 3 health removes 3.
+                    // Counting the 32 made every kill look like a hit worth a
+                    // third more than it was, which is how this ledger first
+                    // read x1.21 on a run whose damage was exact.
+                    _predictedPoints[victim.SlotIndex] +=
+                        Math.Min((int)damage, Math.Max(0, victim.Health));
+                }
                 int at = Push(victim.SlotIndex, NetSession.NetFrame, (int)damage,
                     lethal, headshot, beam, self);
                 // And tell the authority, which may not find this hit itself:
@@ -1009,6 +1053,14 @@ namespace MphRead.Mods.Network
                 if (_pendingLethal[slot, at])
                 {
                     DeathsUndone++;
+                    if (NetLog.Enabled)
+                    {
+                        NetLog.Event($"[predict] kill on slot {slot} undone: the authority "
+                            + $"spawned them without ever reporting the death; prediction was "
+                            + $"{NetSession.NetFrame - _pendingFrame[slot, at]} frame(s) old, "
+                            + $"hold is {HoldFrames}, authority last said "
+                            + $"{_lastAuthorityHealth[slot]}");
+                    }
                     int bucket = _pendingSelf[slot, at] ? -1 : _pendingBeam[slot, at];
                     if (bucket >= 0 && bucket < BeamBuckets)
                     {
@@ -1149,6 +1201,10 @@ namespace MphRead.Mods.Network
                 _shownHealth[slot] = 0;
                 FloorLifted++;
             }
+            if (_lastAuthorityHealth[slot] > authorityHealth && authorityHealth > 0)
+            {
+                _authorityDrop[slot] += _lastAuthorityHealth[slot] - authorityHealth;
+            }
             _lastAuthorityHealth[slot] = authorityHealth;
             int debit = Debit(slot);
             int health = debit > 0 && authorityHealth > 1
@@ -1234,6 +1290,31 @@ namespace MphRead.Mods.Network
         public static int FloorWorst { get; private set; }
         public static long DebitPoints { get; private set; }
         public static int DebitWorst { get; private set; }
+
+        /// <summary>
+        /// Points predicted against points the authority actually removed, per
+        /// slot. The line that says whether a hit is being counted twice --
+        /// see <see cref="_predictedPoints"/> for how to read it.
+        /// </summary>
+        public static string DescribeDamageLedger()
+        {
+            var text = new System.Text.StringBuilder();
+            text.Append("damage ledger (predicted / authority removed):");
+            bool any = false;
+            for (int slot = 0; slot < Slots; slot++)
+            {
+                if (_predictedPoints[slot] == 0 && _authorityDrop[slot] == 0)
+                {
+                    continue;
+                }
+                any = true;
+                string ratio = _authorityDrop[slot] > 0
+                    ? $" x{_predictedPoints[slot] / (double)_authorityDrop[slot]:F2}"
+                    : "";
+                text.Append($" slot {slot} {_predictedPoints[slot]}/{_authorityDrop[slot]}{ratio};");
+            }
+            return any ? text.ToString() : "damage ledger: nothing predicted onto anybody";
+        }
 
         /// <summary>One line for the report: the two bars, side by side.</summary>
         public static string DescribeHealth()

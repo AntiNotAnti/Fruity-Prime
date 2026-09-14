@@ -42,7 +42,16 @@ namespace MphRead.Droid
         {
             if (ApplicationLifetime is ISingleViewApplicationLifetime single)
             {
-                single.MainView = Home = BuildHome();
+                // Wrapped, not handed over bare. The screens in
+                // Mods/Launcher/Gui are authored for a box near 960x600 points
+                // and a phone in landscape is about 830x390, so without the
+                // scale host every one of them is laid out three times too
+                // large for the view it is in -- which is a front screen with
+                // its words off the edges and a server browser arranged
+                // somewhere off the side of the display. The desktop scales
+                // the same screens the same way; see UiScaleHost.
+                Home = BuildHome();
+                single.MainView = new UiScaleHost(Home);
             }
             base.OnFrameworkInitializationCompleted();
         }

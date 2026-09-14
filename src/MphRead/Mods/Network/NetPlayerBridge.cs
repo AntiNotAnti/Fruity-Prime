@@ -46,6 +46,8 @@ namespace MphRead.Mods.Network
         /// said, 1 biped, 2 alt.
         /// </summary>
         private static readonly byte[] _formSaid = new byte[PlayerEntity.SlotCapacity];
+        private static readonly byte[] _lastSaidSpawned = new byte[PlayerEntity.SlotCapacity];
+        private static readonly ushort[] _lastSaidHealth = new ushort[PlayerEntity.SlotCapacity];
 
         public static string FormSaidByAuthority()
         {
@@ -628,6 +630,23 @@ namespace MphRead.Mods.Network
             bool spawned = (state.Flags & PlayerState.FlagSpawned) != 0;
             bool wasInPlay = player.LoadFlags.TestFlag(LoadFlags.Spawned) && player.Health > 0;
             int slot = player.SlotIndex;
+            // Every change in what the authority says about a player being on
+            // the map, and how much health they have. A predicted kill that is
+            // counted undone is a statement about this stream and nothing
+            // else, and it cannot be read from the outside: the report says
+            // the prediction expired, not what the authority was saying while
+            // it did.
+            if (NetLog.Enabled && slot >= 0 && slot < _lastSaidSpawned.Length
+                && (_lastSaidSpawned[slot] != (spawned ? 1 : 0)
+                    || _lastSaidHealth[slot] != state.Health))
+            {
+                NetLog.Event($"[state] slot {slot}: authority says spawned={spawned} "
+                    + $"health={state.Health} (was spawned={_lastSaidSpawned[slot] == 1} "
+                    + $"health={_lastSaidHealth[slot]}); here spawned="
+                    + $"{player.LoadFlags.TestFlag(LoadFlags.Spawned)} health={player.Health}");
+                _lastSaidSpawned[slot] = (byte)(spawned ? 1 : 0);
+                _lastSaidHealth[slot] = state.Health;
+            }
             if (slot >= 0 && slot < _formSaid.Length)
             {
                 _formSaid[slot] = (byte)((state.Flags & PlayerState.FlagAltForm) != 0 ? 2 : 1);

@@ -642,6 +642,38 @@ part of Fast Deployment."* The build succeeds, the APK installs, and it is
 hollow. `-p:EmbedAssembliesIntoApk=true` is what makes a debug APK someone can
 be handed; it is ~110 MB rather than 20.
 
+**Nothing scaled the launcher's screens here, and the phone is the one head
+that cannot do without it.** Every screen in `Mods/Launcher/Gui` is authored
+for a box near 960x600 of its own points; a phone in landscape hands Avalonia
+about **830x390** (1080x2280 pixels at 2.75x density), and the well alone is
+820 points wide. So the screens were laid out about three times too large for
+the view they were in: the front screen's words ran off both edges, the marks
+at the foot were below the glass, and the server browser -- which was laying
+out perfectly correctly -- did it off the side of the display, which is what
+"the servers are invisible" was. The desktop never showed any of this because
+`UiSurface` has scaled them since it was written; the rule it used lives in
+`UiLayout.Factor` now, and `UiScaleHost` is the twenty lines that apply it on
+this head. Two heads with two curves is the failure that was already on
+record, one screen at a time, so there is one curve.
+
+**The activity asks for landscape, from the icon onwards.** It used to ask
+only for a match, so the program opened portrait, turned sideways to play and
+turned back at the end -- two rotations a match that nobody asked for, each of
+them a full re-measure of the Avalonia tree and a re-bake of the backdrop,
+since the activity handles its own configuration changes. It is also the shape
+the screens want: portrait gives the scale host the least of both axes and
+lands on the 0.6 clamp with the box no bigger for it.
+
+**Check a glyph against Roboto-Bold's cmap before drawing it.** Avalonia here
+does not reach Android's own fallback chain the way the desktop reaches the
+system's, so a character the shipped font lacks is an empty box rather than a
+substitute. `UiTabs` drew its strip arrows as U+25C4/U+25BA, which Roboto-Bold
+does not have: two tofu boxes either side of every tab strip on the phone and
+a correct arrow on the desktop. They are U+2039/U+203A now, which is in the
+font we ship. The rows' arrows never had the problem because they are geometry
+rather than text (`Rows.Arrow`), which is the other way out. Still unchecked on
+a device: U+2197 on Settings -> Player's *Share logs* and U+2615 on Credits.
+
 **An asset the shared sources name is not in this package unless this csproj
 says so, and a missing *font* is fatal.** The two csprojs carry their own
 `AvaloniaResource` lists -- the desktop's names files under `Assets\`, this one

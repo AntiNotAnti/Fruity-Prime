@@ -131,9 +131,22 @@ namespace MphRead.Mods.Launcher.Gui
             }
         }
 
+        /// <summary>
+        /// The strip's own arrows, in a glyph the embedded font actually has.
+        ///
+        /// They were U+25C4/U+25BA (the geometric pointers) and Roboto-Bold
+        /// contains neither, so both were drawn by whatever the toolkit fell
+        /// back to -- which on the desktop is a system face that has them and
+        /// on Android is nothing at all: two empty boxes either side of every
+        /// tab strip in the program. The single angle quotes are in the font
+        /// we ship, so they are the same picture on every platform and depend
+        /// on no fallback. Anything drawn here in future wants checking
+        /// against Roboto-Bold's cmap first; the rows' own arrows dodge the
+        /// question entirely by being geometry rather than text (Rows.Arrow).
+        /// </summary>
         private static Control Arrow(bool pointsLeft, Action go)
         {
-            var word = new UiWord(pointsLeft ? "\u25c4" : "\u25ba", 13,
+            var word = new UiWord(pointsLeft ? "\u2039" : "\u203a", 15,
                 colour: GuiTheme.TextDim);
             word.Click += (_, _) => go();
             return word;
