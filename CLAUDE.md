@@ -1160,6 +1160,38 @@ choice. Weavel's halfturret health is
 the one left, and a hit split with a turret is therefore not allowed to predict
 a death.
 
+**But the error a player actually sees was in the health bar, not the damage.**
+Measured against the Japan server at 250 ms: the drawn bar sat a mean 26 and a
+worst **61** points *below* the authority's, and never above it -- the client
+always overestimated, never under. `lethal` is decided against that drawn
+number and `HealthFor` floors it at 1, so that is a client killing people the
+authority refuses to kill. Both causes were the `_shownHealth` floor: it
+refused a rise the *authority itself* was reporting (a health pickup, a
+respawn) and it is re-armed by every predicted hit, so on a fast or continuous
+weapon it never lifted; and a `Duplicate` verdict dropped the debit half a
+round trip before the snapshot carrying the lower health arrived, leaving the
+bar on the floor alone. The floor now lifts on any rise the authority reports,
+and a confirmed verdict settles the books while the **snapshot** settles the
+picture. Worst gap 61 -> 0/6/1 points across three clients, with `floor held`
+falling from 120/218/172 samples to 0/1/5. `DescribeHealth` prints the two bars
+side by side and is what found it.
+
+**And the arbitration is about when the trigger was pulled, not when the round
+landed.** A claim carries two frames -- `AckFrame`, the world the shooter's
+screen was showing when the hit *resolved*, and `LaunchFrame`, the world the
+shot was *fired* in -- and the rule "a shot counts unless its shooter had
+already been put down by a hit aimed at a strictly earlier world" was reading
+the first. For a Missile, which is in the air for the better part of a second,
+that asks whether you were dead when your rocket landed rather than when you
+fired it, and voids a shot that left the gun before the shot that killed you
+had even been aimed. It is invisible on a fast weapon, whose two frames are a
+frame apart -- which is the shape the complaint came in: kills undone with the
+Missile and the Magmaul, none with the Power Beam or the Imperialist.
+`void (dead shooter)` went **20 -> 0** against Japan at 250 ms. The authority's
+own side had the same error: a victim's death was stamped with the attacker's
+ack at *impact*, so a slow projectile's kill recorded the wrong world in the
+number every later claim on that player is judged against.
+
 **And a prediction is retired by name.** The snapshot carries a count of hits
 on a victim and the slot of only the *last* attacker, so a client's own hit
 followed inside one snapshot window by somebody else's was never matched: its

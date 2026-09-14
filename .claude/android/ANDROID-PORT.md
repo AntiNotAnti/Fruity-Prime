@@ -642,6 +642,23 @@ part of Fast Deployment."* The build succeeds, the APK installs, and it is
 hollow. `-p:EmbedAssembliesIntoApk=true` is what makes a debug APK someone can
 be handed; it is ~110 MB rather than 20.
 
+**An asset the shared sources name is not in this package unless this csproj
+says so, and a missing *font* is fatal.** The two csprojs carry their own
+`AvaloniaResource` lists -- the desktop's names files under `Assets\`, this one
+names the same files under `..\MphRead\Assets\` with a `Link` that puts them
+back at the same path -- so a new asset added for the launcher lands on the
+desktop and nowhere else, and the head that does not have it is the head nobody
+is looking at. `GuiTheme`'s two faces arrived that way with the minimal-UI
+launcher, and Avalonia does **not** fall back for a font family it cannot
+resolve: it throws `InvalidOperationException: Could not create glyphTypeface.
+Font family: Roboto (key: avares://FruityPrime/Assets/Fonts/Roboto-Bold.ttf)`
+out of the *measure pass*, which is an uncaught exception inside
+`AvaloniaActivity.GlobalLayoutListener.OnGlobalLayout` and kills the process
+before the front screen draws a pixel. The pictures next to them are guarded
+(`UiLayout.Load` catches and returns null, so a build missing one gets no
+photograph rather than no launcher); the fonts are not. The check when anything
+under `src/MphRead/Assets/` is added: does `MphRead.Android.csproj` name it too.
+
 **The synchronous `HttpClient.Send` does not exist here.** .NET for Android
 defaults `UseNativeHttpHandler` to true, which puts
 `Xamarin.Android.Net.AndroidMessageHandler` behind every `HttpClient` -- and

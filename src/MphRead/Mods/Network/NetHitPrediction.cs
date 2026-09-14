@@ -265,6 +265,26 @@ namespace MphRead.Mods.Network
         private static readonly uint[] _predictedFrame = new uint[Slots];
 
         /// <summary>
+        /// The authority's health for each slot as of the last snapshot, so a
+        /// <b>rise</b> in it can be recognised.
+        ///
+        /// This is what the floor above must never refuse. A victim who picks
+        /// up health, or respawns, is a victim whose bar has gone up for a
+        /// reason that has nothing to do with this machine's predictions --
+        /// and the floor, which is armed again by every hit predicted on that
+        /// slot, will hold the old low number for as long as the shooting
+        /// lasts. Measured against the Japan server at 257 ms: the drawn bar
+        /// sat a mean 26 points and a worst **61** below the authority's, and
+        /// every one of those points was the floor. On a continuous weapon it
+        /// never lifts at all, because a Shock Coil predicts a hit every other
+        /// frame.
+        /// </summary>
+        private static readonly int[] _lastAuthorityHealth = new int[Slots];
+
+        /// <summary>How often a rise in the authority's number lifted the floor.</summary>
+        public static long FloorLifted { get; private set; }
+
+        /// <summary>
         /// How long a prediction is allowed to hold the picture: one measured
         /// round trip, a snapshot's gap, and a margin.
         ///
@@ -553,6 +573,19 @@ namespace MphRead.Mods.Network
             DeathsUndone = 0;
             Array.Clear(_shownHealth);
             Array.Clear(_predictedFrame);
+            HealthSamples = 0;
+            HealthDisagreed = 0;
+            HealthUnderPoints = 0;
+            HealthUnderWorst = 0;
+            HealthOverPoints = 0;
+            HealthOverWorst = 0;
+            FloorLifted = 0;
+            Array.Clear(_lastAuthorityHealth);
+            FloorHeld = 0;
+            FloorHeldPoints = 0;
+            FloorWorst = 0;
+            DebitPoints = 0;
+            DebitWorst = 0;
             DrainPredicted = 0;
             HeadshotsPredicted = 0;
             HeadshotsAgreed = 0;
@@ -947,6 +980,7 @@ namespace MphRead.Mods.Network
             _settledCredit[slot] = 0;
             _shownHealth[slot] = 0;
             _predictedFrame[slot] = 0;
+            _lastAuthorityHealth[slot] = 0;
         }
 
         /// <summary>
@@ -1105,10 +1139,22 @@ namespace MphRead.Mods.Network
             {
                 return authorityHealth;
             }
+            // A rise in the authority's own number is a heal or a respawn,
+            // and the floor may not refuse it: it exists to stop a bar
+            // climbing back because this machine's *own* predictions were
+            // retired faster than it could make new ones, not to hide what the
+            // authority is reporting. See _lastAuthorityHealth.
+            if (authorityHealth > _lastAuthorityHealth[slot] && _shownHealth[slot] > 0)
+            {
+                _shownHealth[slot] = 0;
+                FloorLifted++;
+            }
+            _lastAuthorityHealth[slot] = authorityHealth;
             int debit = Debit(slot);
             int health = debit > 0 && authorityHealth > 1
                 ? Math.Max(1, authorityHealth - debit)
                 : authorityHealth;
+            int owed = health;
             // Nothing this machine has taken down goes back up while it is
             // still shooting. See _shownHealth: with a continuous beam the
             // debit is retired by the authority faster than it is built, so
@@ -1121,8 +1167,88 @@ namespace MphRead.Mods.Network
                 health = Math.Min(health, _shownHealth[slot]);
                 health = Math.Max(1, health);
             }
+            // What the two bars actually say, sampled where both numbers are
+            // in the same hand. "The client kills him and the server does not"
+            // is a statement about this difference and nothing else, and
+            // before this there was no line anywhere that printed it.
+            //
+            // Three quantities, because they answer different questions:
+            // the debit is the prediction doing its job, the floor is the
+            // guard against a bar climbing back, and a gap with *neither*
+            // outstanding is a straight disagreement -- a hit counted twice
+            // here, or one the authority never had.
+            if (authorityHealth > 0)
+            {
+                HealthSamples++;
+                if (health < owed)
+                {
+                    FloorHeld++;
+                    FloorHeldPoints += owed - health;
+                    FloorWorst = Math.Max(FloorWorst, owed - health);
+                }
+                if (debit == 0 && health != authorityHealth)
+                {
+                    HealthDisagreed++;
+                    int gap = authorityHealth - health;
+                    if (gap > 0)
+                    {
+                        HealthUnderPoints += gap;
+                        HealthUnderWorst = Math.Max(HealthUnderWorst, gap);
+                    }
+                    else
+                    {
+                        HealthOverPoints += -gap;
+                        HealthOverWorst = Math.Max(HealthOverWorst, -gap);
+                    }
+                }
+                DebitPoints += debit;
+                DebitWorst = Math.Max(DebitWorst, debit);
+            }
             _shownHealth[slot] = health;
             return health;
+        }
+
+        /// <summary>
+        /// The client's health bar against the authority's, sampled on every
+        /// snapshot applied to a remote player.
+        ///
+        /// <see cref="HealthDisagreed"/> is the number that matters: nothing
+        /// outstanding and the two still differ. Everything else here is the
+        /// mechanism working -- a debit is a hit this machine has landed and
+        /// not had answered, and the floor is what stops a bar climbing back
+        /// while the trigger is still down.
+        /// </summary>
+        public static long HealthSamples { get; private set; }
+        public static long HealthDisagreed { get; private set; }
+        /// <summary>
+        /// Points the drawn bar sat <b>below</b> the authority's with nothing
+        /// outstanding -- the direction that predicts kills the authority
+        /// refuses -- and above it, which is the harmless one.
+        /// </summary>
+        public static long HealthUnderPoints { get; private set; }
+        public static int HealthUnderWorst { get; private set; }
+        public static long HealthOverPoints { get; private set; }
+        public static int HealthOverWorst { get; private set; }
+        public static long FloorHeld { get; private set; }
+        public static long FloorHeldPoints { get; private set; }
+        public static int FloorWorst { get; private set; }
+        public static long DebitPoints { get; private set; }
+        public static int DebitWorst { get; private set; }
+
+        /// <summary>One line for the report: the two bars, side by side.</summary>
+        public static string DescribeHealth()
+        {
+            if (HealthSamples == 0)
+            {
+                return "health bars: nothing drawn for anybody else";
+            }
+            return $"health bars: {HealthSamples} sample(s); debit mean "
+                + $"{DebitPoints / (double)HealthSamples:F2} worst {DebitWorst}; "
+                + $"floor held {FloorHeld} ({FloorHeldPoints} point(s), worst {FloorWorst}), "
+                + $"lifted {FloorLifted}; disagreed with nothing outstanding "
+                + $"{HealthDisagreed} -- drawn low by {HealthUnderPoints} point(s) "
+                + $"(worst {HealthUnderWorst}), high by {HealthOverPoints} "
+                + $"(worst {HealthOverWorst})";
         }
 
         /// <summary>
@@ -1408,17 +1534,36 @@ namespace MphRead.Mods.Network
                     // up, so the floor under the drawn health goes with it.
                     _shownHealth[slot] = 0;
                 }
-                // Out of the middle of the ring: the entry is emptied rather
-                // than removed, since the ones in front of it are still
-                // outstanding and the ones behind it are still owed answers.
+                // Answered, so nothing may count it again -- but marked, not
+                // removed: the entries in front of it are still outstanding
+                // and the ones behind it are still owed answers.
+                _pendingClaim[slot, at] = 0;
+                _pendingSpent[slot, at] = true;
+                if (confirmed)
+                {
+                    // <b>The verdict settles the books, not the picture.</b>
+                    // "The authority has this hit" and "the authority has told
+                    // this machine what the victim's health is now" are half a
+                    // round trip apart: the verdict is flushed the frame the
+                    // claim is matched, the health rides the next snapshot.
+                    // Dropping the debit here left the bar standing on the
+                    // floor alone for that window -- measured at 250 ms as the
+                    // drawn bar sitting a charged missile's 48 points above
+                    // where it belonged, with nothing outstanding to explain
+                    // it. So the damage stays in the debit and the entry is
+                    // retired by the snapshot that actually carries the health
+                    // (Confirm, walking the head) or by ageing out of the hold
+                    // window, exactly as it was before claims existed.
+                    return;
+                }
+                // A refusal is different: the prediction is wrong, and the
+                // sooner its damage leaves the picture the shorter the wrong
+                // bar lasts. That is the whole point of a verdict.
                 _pendingDamage[slot, at] = 0;
                 _pendingLethal[slot, at] = false;
                 _pendingHeadshot[slot, at] = false;
-                _pendingClaim[slot, at] = 0;
-                _pendingSpent[slot, at] = true;
-                // Then walk the head past anything already answered, so the
-                // ring does not fill with spent entries.
-                while (_pendingCount[slot] > 0 && _pendingSpent[slot, _pendingHead[slot]])
+                while (_pendingCount[slot] > 0 && _pendingSpent[slot, _pendingHead[slot]]
+                    && _pendingDamage[slot, _pendingHead[slot]] == 0)
                 {
                     _pendingSpent[slot, _pendingHead[slot]] = false;
                     _pendingHead[slot] = (_pendingHead[slot] + 1) % PendingCapacity;

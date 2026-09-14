@@ -285,6 +285,51 @@ than counted as a second event -- without it every claim answered by its
 verdict first read as "the authority credited a hit this machine never
 predicted", and `Unpredicted` climbed to roughly the size of `Confirmed`.
 
+### The floor was where the error actually lived
+
+Measured against the Japan server at 250 ms with three clients, before any of
+this: **the drawn bar sat a mean 26 and a worst 61 points below the
+authority's**, and it was never above it -- the client always overestimated the
+damage, never under. Since `lethal` in `NoteHit` is decided against that drawn
+number, and `HealthFor` floors it at 1, that is a client that kills people the
+authority refuses to kill. Reported as *"la prédiction est mauvaise comparé à
+ce que j'ai avec mon client"*, and it is not a damage calculation at all.
+
+Two causes, both in the floor, and the tally splits them: `floor held` is how
+much the floor lowered the drawn number, and `disagreed with nothing
+outstanding` is how much of that was left when the debit was empty. The two
+were the same number.
+
+- **The floor refused a rise the authority itself was reporting.** A victim who
+  picks up health or respawns has a bar that went up for a reason that has
+  nothing to do with this machine's predictions -- and the floor is re-armed by
+  every hit predicted on that slot, so with a fast or continuous weapon it
+  never lifts at all. `_lastAuthorityHealth` now lifts it the moment the
+  authority's own number rises.
+- **A verdict settled the picture as well as the books.** `Duplicate` means the
+  authority resolved the shot itself; it does *not* mean the snapshot carrying
+  the lower health has arrived, and those are half a round trip apart. Dropping
+  the debit on the verdict left the bar standing on the floor alone for that
+  window -- a charged missile's 48 points of it. A confirmed settle now marks
+  the entry answered and **keeps its damage in the debit**, to be retired by
+  the snapshot that actually carries the health. A refusal still empties it at
+  once, which is the whole point of a verdict.
+
+| run (Japan, 250 ms, 3 clients) | JP-A | JP-B | JP-C (Shock Coil) |
+|---|---|---|---|
+| before | 2770 pts, worst 48 | 4369 pts, worst 61 | 4193 pts, worst 32 |
+| floor lifted on a rise | 5301, worst 48 | 137, worst 18 | 2118, worst 10 |
+| + debit kept to the snapshot | **0, worst 0** | **6, worst 6** | **3, worst 1** |
+
+`floor held` fell from 120/218/172 samples to 0/1/5: with the debit doing its
+job properly the floor is very nearly never needed, which is the sign that it
+was covering for the imprecise retirement all along. 0 kills undone, scoreboards
+agree, 90-100% of predictions confirmed.
+
+**`DescribeHealth` is the line that found this**, and nothing before it printed
+the two bars side by side. Read `drawn low by` first: it is the direction that
+predicts kills the authority refuses, and `high by` is the harmless one.
+
 ### Not through a halfturret
 
 Weavel's lower half takes part of every hit that reaches him, and how much

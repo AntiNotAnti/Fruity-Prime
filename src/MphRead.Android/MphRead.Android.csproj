@@ -123,6 +123,21 @@
                       Link="Assets\fruity-prime-logo.png" />
     <AvaloniaResource Include="..\MphRead\Assets\fruity-prime-mark.png"
                       Link="Assets\fruity-prime-mark.png" />
+    <!-- The launcher's two faces and its backdrop, and they are not optional
+         here: GuiTheme names the fonts by avares:// URI, and Avalonia does
+         not fall back when one of those cannot be resolved. It throws
+         `Could not create glyphTypeface` out of the measure pass, which on
+         this head is a crash on the front screen before anything is drawn.
+         The pictures are guarded (UiLayout.Load catches and draws nothing);
+         the fonts are not. The Link paths have to match the desktop's
+         Assets\... layout exactly, since the URI is the same string in the
+         same file on both platforms. ~940 KB in the package. -->
+    <AvaloniaResource Include="..\MphRead\Assets\Fonts\heyNovember.ttf"
+                      Link="Assets\Fonts\heyNovember.ttf" />
+    <AvaloniaResource Include="..\MphRead\Assets\Fonts\Roboto-Bold.ttf"
+                      Link="Assets\Fonts\Roboto-Bold.ttf" />
+    <AvaloniaResource Include="..\MphRead\Assets\Backgrounds\launcher-bg.jpg"
+                      Link="Assets\Backgrounds\launcher-bg.jpg" />
   </ItemGroup>
 
   <ItemGroup>

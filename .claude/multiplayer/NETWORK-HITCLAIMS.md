@@ -181,6 +181,44 @@ These runs shared the box with an unrelated 27-room sweep for part of the
 afternoon, and three earlier arms were killed outright by the memory pressure.
 Treat the timing figures as indicative and the counts as exact.
 
+## The arbitration is about when the trigger was pulled
+
+A claim carries two frames and they are not the same question:
+
+| | what it names | used for |
+|---|---|---|
+| `AckFrame` | the world the shooter's screen was showing when the hit **resolved** | looking the victim up in the authority's history, and the age check |
+| `LaunchFrame` | the world the shot was **fired** in (`BeamProjectileEntity.ModLaunchFrame`) | pairing the claim with the authority's own hit, and **the arbitration** |
+
+The arbitration used the ack, and that is wrong for anything that travels. A
+Missile is in the air for the better part of a second: judging it by the ack
+asks *"were you already dead when your rocket landed"* instead of *"were you
+already dead when you fired it"*, and voids a shot that left the gun before the
+shot that killed its shooter had even been aimed.
+
+**It is invisible on a fast weapon**, whose two frames are within a frame of
+each other, which is exactly the shape the complaint arrived in: kills undone
+with the Missile and the Magmaul, none with the Power Beam or the Imperialist.
+Measured against the Japan server at 250 ms, `void (dead shooter)` went from
+**20 to 0** in a three-minute run.
+
+The same error had a second half on the authority's own side.
+`NoteAuthorityHit` stamped a victim's death with `FireFrameOf(attacker)` --
+the attacker's ack *now*, at impact -- so a slow projectile's kill recorded the
+wrong world in `_lastHitFire`, and that number is what every later claim on
+that player is judged against. It takes the launch frame too.
+
+`LaunchFrameFor` produces the same quantity on both machines, which is what
+makes the comparison sound: the authority's rewind target for somebody else's
+shot, and the playout read point for this machine's own -- the same number the
+intent acks.
+
+**What is left in that bucket is a different question.** `void (victim down)`
+is now the largest refusal (11 in the same run) and it is not arbitration: it
+is `TakeDamage` refusing to hurt a corpse, judged at the moment the claim
+arrives. It decides who gets the *credit* for a kill that happened either way,
+not whether a body gets up, and it has not been touched.
+
 ## Two things a verdict is also good for
 
 ### Retiring the shooter's prediction exactly

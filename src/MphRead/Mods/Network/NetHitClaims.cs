@@ -938,8 +938,13 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
+            // The world this hit was aimed in. For a beam that is the frame it
+            // was launched in, not the frame its shooter's screen was showing
+            // when it arrived -- see the arbitration in Judge for why the
+            // difference is the whole of the Missile and Magmaul complaint.
+            // FireFrameOf is the fallback for a hit with no beam behind it.
             uint fire = FireFrameOf(attackerSlot);
-            _lastHitFire[victimSlot] = fire;
+            _lastHitFire[victimSlot] = launchFrame != 0 ? launchFrame : fire;
             if (attackerSlot >= 0 && attackerSlot < Slots)
             {
                 // Filed under the world-frame the shooter was looking at, which
@@ -1119,7 +1124,23 @@ namespace MphRead.Mods.Network
             // happened, and that is the whole point. The test is whether
             // somebody put them down in a world strictly earlier than the one
             // they fired in.
-            if (_dead[shooterSlot] && _deathFire[shooterSlot] < claim.AckFrame)
+            //
+            // <b>Fired in, which is the launch frame and not the ack.</b> A
+            // claim's AckFrame is the world its shooter was reading when the
+            // hit *resolved*, and for anything that travels that is a long way
+            // after the trigger: a Missile is in the air for the better part
+            // of a second. Judging it by the ack asks "were you already dead
+            // when your rocket landed", which voids a shot that left the gun
+            // before the shot that killed you was even aimed -- and it is
+            // invisible on a Power Beam or an Imperialist, whose rounds arrive
+            // in about a frame, which is exactly the shape the complaint came
+            // in: kills undone with the Missile and the Magmaul, none with the
+            // other two. LaunchFrame is the same quantity as _deathFire on
+            // both machines (NetUnlagged.LaunchFrameFor), so this is a
+            // comparison of like with like; the ack is the fallback for the
+            // hits that carry no stamp, where the two coincide anyway.
+            uint fired = claim.LaunchFrame != 0 ? claim.LaunchFrame : claim.AckFrame;
+            if (_dead[shooterSlot] && _deathFire[shooterSlot] < fired)
             {
                 VoidedDeadShooter++;
                 return HitVerdictPacket.ResultDeadShooter;

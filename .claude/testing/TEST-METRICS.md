@@ -179,6 +179,24 @@ running, produced one `damage-taken` mismatch. That is the paragraph below,
 not a regression: read a mismatch count here only against a same-day run of
 the build being compared with.
 
+### Verified 2026-09-14 against the Japan server (250 ms, 3 clients)
+
+`run-jap.sh 180 Samus Weavel Sylux` against `13.78.14.98:27892`, which is the
+run that matters: loopback cannot fail the prediction tests, because every
+input is identical on both ends at 1 ms.
+
+```
+JP-A  21 predicted, 19 confirmed (90.5%), 2 denied, 2 kills predicted, 0 undone
+JP-B  35 predicted, 35 confirmed (100%),  0 denied, 3 kills predicted, 0 undone
+JP-C  89 predicted, 89 confirmed (100%),  0 denied, 2 kills predicted, 0 undone
+0 mismatches, scoreboards agree
+health bars: drawn low by 0 / 6 / 3 points (worst 0 / 6 / 1), high by 0
+```
+
+Against the same run before the floor was fixed: **2770 / 4369 / 4193 points
+low, worst 48 / 61 / 32**. See `NETWORK-PREDICTION.md`, *The floor was where the
+error actually lived*.
+
 ### The 6-client mismatch count on this box measures the box
 
 Worth writing down because it cost an hour and will cost it again. Running

@@ -679,6 +679,7 @@ namespace MphRead.Mods.Network
             // of it that can answer "the prediction is wrong with X": one
             // weapon resolving differently on the authority is invisible in an
             // aggregate dominated by whatever was fired most.
+            Console.WriteLine($"  {NetHitPrediction.DescribeHealth()}");
             foreach (string line in NetHitPrediction.DescribeByWeapon().Split('\n'))
             {
                 Console.WriteLine($"  {line}");
