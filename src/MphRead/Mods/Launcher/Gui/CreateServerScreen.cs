@@ -81,6 +81,25 @@ namespace MphRead.Mods.Launcher.Gui
         /// <summary>Hosted first: it is the one that needs nothing opening.</summary>
         private static readonly string[] _kinds = { "Hosted", "Dedicated server" };
 
+        /// <summary>
+        /// Whether running the server on *this* machine is an answer at all.
+        ///
+        /// It is not on Android, and not for one reason but for four, any one
+        /// of which is enough. The package holds no server binary and there is
+        /// none published for the platform, so <see cref="LocalServer.Ready"/>
+        /// is false and the install mark has nothing to fetch. A dedicated
+        /// server is a second process that outlives the client, which is not
+        /// something an app may start on Android. A phone is behind carrier
+        /// NAT, so there is no port to forward even if it could. And the
+        /// process would be killed the moment the player switched away.
+        ///
+        /// So the row is not drawn there rather than drawn and refused. A
+        /// choice with one answer is not a choice, and the rest of this
+        /// launcher does not draw rows that can never be used -- which is the
+        /// same rule <see cref="Refresh"/> applies to the Host on row.
+        /// </summary>
+        internal static bool CanRunHere => !OperatingSystem.IsAndroid();
+
         private readonly List<string> _rooms;
 
         /// <summary>The maps, in the order they will be played.</summary>
@@ -155,7 +174,10 @@ namespace MphRead.Mods.Launcher.Gui
             _form.Children.Add(_hunter);
             _form.Children.Add(_maps);
             _form.Children.Add(_host);
-            _form.Children.Add(_kind);
+            if (CanRunHere)
+            {
+                _form.Children.Add(_kind);
+            }
             _form.Children.Add(_progress);
             _form.Children.Add(_note);
 
@@ -235,7 +257,7 @@ namespace MphRead.Mods.Launcher.Gui
             base.OnKeyDown(e);
         }
 
-        private bool Dedicated => _kind.Index == 1;
+        private bool Dedicated => CanRunHere && _kind.Index == 1;
 
         private void Leave()
         {
@@ -276,8 +298,14 @@ namespace MphRead.Mods.Launcher.Gui
                 }
                 else
                 {
-                    Say("No server will open one for you. Pick Dedicated server to run "
-                        + "it here.", GuiTheme.Warm);
+                    Say(CanRunHere
+                        ? "No server will open one for you. Pick Dedicated server to run "
+                            + "it here."
+                        // Nothing for the player to do about it on a phone,
+                        // which cannot run one itself -- so say what is true
+                        // rather than name a row that is not on the screen.
+                        : "No server will open one for you. Try again in a moment, or "
+                            + "join somebody else's from the browser.", GuiTheme.Warm);
                 }
                 return;
             }
@@ -624,8 +652,11 @@ namespace MphRead.Mods.Launcher.Gui
         {
             if (_chosen == null)
             {
-                Say("No server will open one for you. Pick Dedicated server to run it "
-                    + "here.", GuiTheme.Warm);
+                Say(CanRunHere
+                    ? "No server will open one for you. Pick Dedicated server to run it "
+                        + "here."
+                    : "No server will open one for you. Try again in a moment, or join "
+                        + "somebody else's from the browser.", GuiTheme.Warm);
                 return;
             }
             string host = _chosen.Value.Host;
@@ -875,8 +906,11 @@ namespace MphRead.Mods.Launcher.Gui
                 ? $"{usable.ToString(CultureInfo.InvariantCulture)} can run a match for you. "
                     + "A server can open one when its admin allows it a port range."
                 : asking ? "" :
-                    "None of these will open a new game. Dedicated server runs one on "
-                    + "your own machine instead.";
+                    CreateServerScreen.CanRunHere
+                        ? "None of these will open a new game. Dedicated server runs one on "
+                            + "your own machine instead."
+                        : "None of these will open a new game. There is nothing to pick "
+                            + "here yet.";
             _note.Foreground = usable > 0 ? GuiTheme.TextDimBrush : GuiTheme.WarmBrush;
             // Only the first time. This is called again for every answer that
             // lands while the page is open, and taking the keyboard back to

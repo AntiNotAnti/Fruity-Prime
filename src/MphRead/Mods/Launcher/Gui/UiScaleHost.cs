@@ -32,9 +32,25 @@ namespace MphRead.Mods.Launcher.Gui
     /// screen at exactly (view / factor): the screens get their box back and
     /// Skia still draws every glyph at the panel's real resolution. It is the
     /// same control the desktop surface uses, for the same reason.
+    ///
+    /// What it must *not* do is squeeze them until they fit, which is what the
+    /// first version did -- see the unit note in <see cref="Apply"/>. A phone
+    /// gets 1.0 here, the size the screens were drawn at, and the box it
+    /// leaves is narrower than the widest well; <see cref="UiLayout.WellGutter"/>
+    /// is the other half of that and lets the well give way instead.
     /// </summary>
     internal sealed class UiScaleHost : Decorator
     {
+        /// <summary>
+        /// Android's layout unit in the unit the screens are authored in:
+        /// 1/160 inch against 1/96, so 5/3.
+        ///
+        /// It is a fixed ratio rather than anything read off the display,
+        /// which is the point of dp -- the density is already divided out, so
+        /// this is the same number on every phone and every tablet.
+        /// </summary>
+        private const double DipsPerPoint = 160.0 / 96.0;
+
         private readonly LayoutTransformControl _host;
         private double _factor = -1;
 
@@ -85,7 +101,28 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 return;
             }
-            double factor = UiLayout.Factor(size.Width, size.Height);
+            // Asked in the screens' own points and then given back in this
+            // platform's, which is the whole of what was wrong with the first
+            // version of this.
+            //
+            // A layout point here is Android's dp, defined as 1/160 inch; the
+            // point the screens are drawn in is the desktop's, 1/96. So the
+            // *same number* is 0.6 of the physical size on a phone that it is
+            // on a monitor, and a curve that treats the two as the same unit
+            // asks a 830-point-wide view to hold a 960-point layout and scales
+            // everything down to 0.6 to make it -- which is 0.36 of the size
+            // the text is on a desktop, on the screen held closest to the
+            // face. That is "bien trop petit", and it is not a taste question:
+            // it is a unit error.
+            //
+            // So the view is converted into the authored unit, the shared
+            // curve is asked about *that*, and the answer is converted back.
+            // A phone lands on the curve's own 0.6 floor, which comes back
+            // here as exactly 1.0 -- the size the screens were drawn at, and
+            // what the last release put on screen. A tablet has more of them
+            // and climbs above it, as a bigger window does on the desktop.
+            double factor = UiLayout.Factor(size.Width / DipsPerPoint,
+                size.Height / DipsPerPoint) * DipsPerPoint;
             // Device pixels per layout point, for the one control that cuts
             // its own bitmap. Two multiplications here, not one: the view's
             // points are already the display's pixels divided by its density,

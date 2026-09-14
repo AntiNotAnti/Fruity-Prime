@@ -102,6 +102,19 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly StackPanel _options = new() { Spacing = 2, Width = 300 };
         private readonly Image _preview = new() { Stretch = Stretch.UniformToFill };
         private readonly Border _previewBox;
+
+        /// <summary>The three things the well holds, kept so the shape can change.</summary>
+        private readonly Grid _body;
+        private readonly ScrollViewer _side;
+        private bool _compact;
+
+        /// <summary>
+        /// Whether this face has a picture to show, as against whether it is
+        /// being drawn. Two questions since the compact arrangement exists:
+        /// every face still says what it wants, and the box says whether
+        /// there is room for it.
+        /// </summary>
+        private bool _previewWanted;
         private readonly Note _note = new("");
         private readonly UiMark _go;
         private readonly UiMark _back;
@@ -118,6 +131,72 @@ namespace MphRead.Mods.Launcher.Gui
         private ChoiceRow? _resume;
         private FieldRow? _name;
         private FieldRow? _address;
+
+        /// <summary>
+        /// Picture above the list, or options beside it.
+        ///
+        /// The stacked arrangement -- what you are choosing at the top, with
+        /// its picture, and everything else underneath -- wants about 190
+        /// points before the list gets any, and it is the right shape
+        /// wherever there is height for it. A phone in landscape has 390
+        /// points in total (see <c>UiScaleHost</c>), so the top block and the
+        /// well's own margins took all of it and the list was arranged one
+        /// row tall behind the footer: a server browser with no servers in
+        /// it, again, for a different reason than the last one.
+        ///
+        /// So on a short box the two swap axes. The options go down the right
+        /// at the width they were drawn for and the list takes the whole
+        /// height on the left, which is the arrangement this screen had
+        /// before the picture was made big -- and the picture is what goes,
+        /// since it is the one thing here that is nice rather than necessary.
+        /// Keyed on the height actually handed over rather than on the
+        /// platform: a tablet in landscape has the room and gets the picture.
+        /// </summary>
+        private void SetCompact(bool compact)
+        {
+            if (compact == _compact)
+            {
+                return;
+            }
+            _compact = compact;
+            _previewBox.IsVisible = _previewWanted && !compact;
+            if (compact)
+            {
+                _side.MaxHeight = Double.PositiveInfinity;
+                Grid.SetRow(_side, 0);
+                Grid.SetRowSpan(_side, 2);
+                Grid.SetRow(_list, 0);
+                Grid.SetRowSpan(_list, 2);
+                Grid.SetColumnSpan(_list, 1);
+                _side.Margin = new Thickness(18, 0, 0, 0);
+            }
+            else
+            {
+                _side.MaxHeight = 190;
+                Grid.SetRow(_side, 0);
+                Grid.SetRowSpan(_side, 1);
+                Grid.SetRow(_list, 1);
+                Grid.SetRowSpan(_list, 1);
+                Grid.SetColumnSpan(_list, 2);
+                _side.Margin = new Thickness(0);
+            }
+        }
+
+        /// <summary>This face wants the picture; whether it gets it is the box's.</summary>
+        private void WantPreview(bool wanted)
+        {
+            _previewWanted = wanted;
+            _previewBox.IsVisible = wanted && !_compact;
+        }
+
+        protected override Size MeasureOverride(Size availableSize)
+        {
+            if (!Double.IsInfinity(availableSize.Height) && availableSize.Height > 0)
+            {
+                SetCompact(availableSize.Height < UiLayout.ShortBox);
+            }
+            return base.MeasureOverride(availableSize);
+        }
 
         public PlayScreen(MenuSettings settings, IReadOnlyList<string> rooms,
             Face face = Face.Online, bool overGame = false)
@@ -158,6 +237,7 @@ namespace MphRead.Mods.Launcher.Gui
                 ColumnDefinitions = new ColumnDefinitions("*,Auto"),
                 RowDefinitions = new RowDefinitions("Auto,*,Auto")
             };
+            _body = body;
             _previewBox.Margin = new Thickness(0, 0, 24, 14);
             Grid.SetColumn(_previewBox, 0);
             Grid.SetRow(_previewBox, 0);
@@ -175,6 +255,7 @@ namespace MphRead.Mods.Launcher.Gui
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto
             };
+            _side = side;
             Grid.SetColumn(side, 1);
             Grid.SetRow(side, 0);
             body.Children.Add(side);
@@ -326,7 +407,7 @@ namespace MphRead.Mods.Launcher.Gui
             _note.Foreground = GuiTheme.TextDimBrush;
             _hunter = _mode = _bots = _skill = _resume = null;
             _name = _address = null;
-            _previewBox.IsVisible = false;
+            WantPreview(false);
             _create.IsVisible = Current == Face.Online;
 
             switch (Current)
@@ -382,7 +463,7 @@ namespace MphRead.Mods.Launcher.Gui
             // it is running and the map is most of what decides whether to
             // join, so the one screen that had the name without the picture
             // was the one where the picture would have answered the question.
-            _previewBox.IsVisible = true;
+            WantPreview(true);
             var refresh = new UiWord("Refresh", 15, colour: GuiTheme.TextDim)
             {
                 Margin = new Thickness(4, 10, 0, 0)
@@ -615,7 +696,7 @@ namespace MphRead.Mods.Launcher.Gui
             _skill = new ChoiceRow("Bot skill", new[] { "Easy", "Normal", "Hard", "Insane" },
                 LauncherPrefs.BotLevel);
             _options.Children.Add(_skill);
-            _previewBox.IsVisible = true;
+            WantPreview(true);
         }
 
         private void FillRooms(string? current)
@@ -890,7 +971,7 @@ namespace MphRead.Mods.Launcher.Gui
         {
             _go.Label = "call the vote";
             FillRooms(NetSession.ServerMatch?.RoomKey);
-            _previewBox.IsVisible = true;
+            WantPreview(true);
         }
 
         // -------------------------------------------------------------- shared

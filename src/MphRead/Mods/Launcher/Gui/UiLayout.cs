@@ -88,6 +88,21 @@ namespace MphRead.Mods.Launcher.Gui
         public const double WellTop = 44;
         public const double WellBottom = 84;
 
+        /// <summary>
+        /// The least ground either side of the well.
+        ///
+        /// The widths above are fixed on purpose and a wider box gives the
+        /// photograph the difference, not the content -- but a box *narrower*
+        /// than the well is a different question, and it has one answer: the
+        /// well has to give way, or it is drawn off both edges of the screen.
+        /// That is not a case the desktop reaches (the surface never hands out
+        /// a box under 960 points and the widest well is 820), and it is the
+        /// ordinary case on a phone, which is about 830 points across in
+        /// landscape. So the width is a maximum rather than a size, and this
+        /// is what is kept clear when it binds.
+        /// </summary>
+        public const double WellGutter = 20;
+
         /// <summary>Where the pair of marks sits, and how far apart.</summary>
         public const double MarksBottom = 28;
         public const double MarksGap = 64;
@@ -255,6 +270,66 @@ namespace MphRead.Mods.Launcher.Gui
         /// well -- a menu, a question. A list or a page of settings wants the
         /// height it is given, so it stretches.
         /// </summary>
+        /// <summary>
+        /// How short a box has to be before the well stops spending a third of
+        /// it on its own margins.
+        ///
+        /// A desktop window is 600 points tall or more and 44 above plus 84
+        /// below is a comfortable seventh of it. A phone in landscape is about
+        /// 390 (see <c>UiScaleHost</c>), where the same two numbers are a
+        /// third of the screen given to nothing -- and the thing they take it
+        /// from is the list, which is what the screen is for.
+        /// </summary>
+        public const double ShortBox = 560;
+
+        /// <summary>
+        /// The well, which gives its margins back when there is no height to
+        /// spare.
+        ///
+        /// A Grid that reads the height it is being measured with, because
+        /// there is nowhere else to read it: the box comes from the window on
+        /// one head and the activity's view on the other, and by the time this
+        /// is built neither has said anything.
+        /// </summary>
+        private sealed class WellGrid : Grid
+        {
+            private readonly double _top;
+            private readonly double _bottom;
+            private bool _short;
+
+            public WellGrid(double top, double bottom)
+            {
+                _top = top;
+                _bottom = bottom;
+                Margin = new Thickness(WellGutter, top, WellGutter, bottom);
+            }
+
+            protected override Size MeasureOverride(Size availableSize)
+            {
+                if (!Double.IsInfinity(availableSize.Height) && availableSize.Height > 0)
+                {
+                    // The full margin plus the height it is inside: what the
+                    // box would have been. Compared against the threshold
+                    // rather than the arrived-at height, or the answer would
+                    // flip every time it changed.
+                    bool tight = availableSize.Height + _top + _bottom < ShortBox;
+                    if (tight != _short)
+                    {
+                        _short = tight;
+                        // Still enough under the well for the marks (a mark is
+                        // about 26 and sits MarksBottom off the floor); the
+                        // rest of both numbers is breathing room, and a short
+                        // screen has none to lend.
+                        Margin = tight
+                            ? new Thickness(WellGutter, 16, WellGutter,
+                                _bottom > _top ? 58 : 16)
+                            : new Thickness(WellGutter, _top, WellGutter, _bottom);
+                    }
+                }
+                return base.MeasureOverride(availableSize);
+            }
+        }
+
         public static Grid Well(double width, string heading, Control? strip,
             Control body, bool centreBody = false, bool room = true)
         {
@@ -273,14 +348,18 @@ namespace MphRead.Mods.Launcher.Gui
                 strip.HorizontalAlignment = HorizontalAlignment.Center;
                 strip.Margin = new Thickness(0, 0, 0, 22);
             }
-            var well = new Grid
+            // The foot only has to clear the marks when there are any. A
+            // screen with none -- the pause menu -- was being pushed into the
+            // top half of the frame by a gap left for nothing.
+            var well = new WellGrid(WellTop, room ? WellBottom : WellTop)
             {
-                Width = width,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                // The foot only has to clear the marks when there are any.
-                // A screen with none -- the pause menu -- was being pushed
-                // into the top half of the frame by a gap left for nothing.
-                Margin = new Thickness(0, WellTop, 0, room ? WellBottom : WellTop)
+                // A maximum, not a size, and stretched rather than centred:
+                // stretch-with-a-maximum is the one combination that fills the
+                // box up to the width asked for and centres what is left over,
+                // which is "820 points wherever there is room for it and the
+                // screen's width where there is not". See WellGutter.
+                MaxWidth = width,
+                HorizontalAlignment = HorizontalAlignment.Stretch
             };
             if (centreBody)
             {

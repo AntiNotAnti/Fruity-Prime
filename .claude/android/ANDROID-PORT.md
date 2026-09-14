@@ -656,6 +656,51 @@ out perfectly correctly -- did it off the side of the display, which is what
 this head. Two heads with two curves is the failure that was already on
 record, one screen at a time, so there is one curve.
 
+**And the curve has to be asked in the right unit, which is what the first
+version of it got wrong.** Android's layout point is dp, 1/160 inch; the one
+the screens are drawn in is the desktop's, 1/96. The same number is therefore
+**0.6** of the physical size on a phone that it is on a monitor, so feeding
+the view's dp straight into the curve asks an 830-point view to hold a
+960-point layout, lands on the curve's own 0.6 floor, and draws the text at
+0.36 of desktop size on the screen held closest to the face -- reported,
+correctly, as *"bien trop petit comparé à la dernière release qui était
+parfaitement lisible"*. `UiScaleHost` converts into the authored unit, asks,
+and converts back; a phone comes out at exactly **1.0**, which is the size
+that release drew.
+
+**A phone is short, not small, and that difference is the whole layout
+question.** At 1.0 the box is about 830x390 -- wider than the desktop's own
+minimum and barely half its height. Two things follow, both keyed on the
+height handed over rather than on the platform, so a tablet keeps the desktop
+shape:
+
+- `UiLayout.Well` gives its margins back below `ShortBox`: 44 above and 84
+  below is a comfortable seventh of a desktop window and a third of a phone.
+  And the well's width is a **maximum** now rather than a size
+  (`UiLayout.WellGutter`), so it shrinks to the screen instead of being drawn
+  off both edges of it -- stretch-with-a-maximum, which fills up to the width
+  asked for and centres the remainder.
+- `PlayScreen` swaps axes on a short box: the options go down the right at the
+  width they were drawn for, the list takes the full height on the left, and
+  the map picture -- the one thing on that screen that is nice rather than
+  necessary -- goes. Stacked, the top block wanted 190 points before the list
+  got any, which on a phone left the list one row tall behind the footer.
+
+**Selection is drawn, not inferred.** The rows worked their highlight out from
+hover and focus, which is right on a desktop and empty on a touchscreen: a
+finger hovers nothing and a tap does not reliably leave focus behind, so the
+selected server was drawn like every other row while the address box and JOIN
+were all about it. `UiList` pushes `IsSelected` onto the rows instead.
+
+**The dedicated half of Create server is not offered here.** The package holds
+no server binary and none is published for the platform, an app may not start
+a second process that outlives it, a phone is behind carrier NAT, and the
+process would be killed the moment the player switched away.
+`CreateServerScreen.CanRunHere` is false on Android and the Server type row is
+not drawn at all -- a choice with one answer is not a choice -- with the two
+messages that used to say "pick Dedicated server" saying something true there
+instead.
+
 **The activity asks for landscape, from the icon onwards.** It used to ask
 only for a match, so the program opened portrait, turned sideways to play and
 turned back at the end -- two rotations a match that nobody asked for, each of

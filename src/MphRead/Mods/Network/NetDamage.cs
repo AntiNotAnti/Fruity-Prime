@@ -435,6 +435,17 @@ namespace MphRead.Mods.Network
             }
             _sequence[slot]++;
             Resolved[slot]++;
+            if (NetLog.Enabled)
+            {
+                // Every hit the machine running the match resolves, with the
+                // stamp that identifies the shot. The only way to line a
+                // client's claims up against what the authority actually did
+                // with the same shots -- a client's own report can say it hit
+                // and the authority's silence cannot be read from outside.
+                NetLog.Event($"[resolve] slot {(attacker != null ? attacker.SlotIndex : -1)} "
+                    + $"hit slot {slot} for {amount} with {beam} (launch {launchFrame}), "
+                    + $"health {victim.Health} -> {Math.Max(0, victim.Health - (int)amount)}");
+            }
             // The world-frame this hit was aimed at, for the kill
             // arbitration: two players who killed each other are separated by
             // which of them pulled the trigger in the earlier world, and this
@@ -628,6 +639,18 @@ namespace MphRead.Mods.Network
             // here, and on the Imperialist they are a kill and half a kill.
             bool authorityHeadshot = ((DamageFlags)state.DamageFlags).TestFlag(DamageFlags.Headshot);
             bool predicted = mine && NetHitPrediction.Confirm(slot, landed, authorityHeadshot);
+            if (mine && !predicted)
+            {
+                // The authority has credited this machine with a hit it had
+                // not predicted -- which for anything that travels means its
+                // own copy of that shot is still in the air, because the
+                // authority resolves the whole flight in the frame the trigger
+                // is pulled and a local projectile has to cross the room. The
+                // health arriving with this snapshot already contains the hit,
+                // so the local copy must be cancelled when it lands rather
+                // than applied on top of it. NetHitPrediction._authorityAhead.
+                NetHitPrediction.NoteAuthorityAhead(slot, landed);
+            }
             if (player.Health <= 0)
             {
                 return; // already down here; the respawn is what matters next

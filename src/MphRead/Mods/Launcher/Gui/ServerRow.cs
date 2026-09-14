@@ -108,6 +108,29 @@ namespace MphRead.Mods.Launcher.Gui
         private IBrush _pingBrush = GuiTheme.TextDimBrush;
         private bool _answered;
         private bool _hot;
+        private bool _selected;
+
+        /// <summary>
+        /// This is the row the address box and JOIN are about.
+        ///
+        /// Its own state rather than hover or focus, for the reason written
+        /// out on <see cref="UiListRow.IsSelected"/>: neither of those exists
+        /// under a finger, so on a phone the browser drew four identical rows
+        /// and gave no sign which one was picked.
+        /// </summary>
+        public bool IsSelected
+        {
+            get => _selected;
+            set
+            {
+                if (_selected == value)
+                {
+                    return;
+                }
+                _selected = value;
+                InvalidateVisual();
+            }
+        }
 
         public ServerRow(string name, string endpoint)
         {
@@ -203,7 +226,7 @@ namespace MphRead.Mods.Launcher.Gui
             // the whole row has to be painted for the whole row to be
             // clickable. Same as UiWord.
             context.FillRectangle(Brushes.Transparent, full);
-            if (_hot || IsFocused)
+            if (_hot || IsFocused || _selected)
             {
                 context.FillRectangle(GuiTheme.PanelLightBrush, full, 4);
             }

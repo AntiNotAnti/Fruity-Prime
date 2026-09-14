@@ -43,6 +43,33 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly string _title;
         private string _detail;
         private bool _hot;
+        private bool _selected;
+
+        /// <summary>
+        /// This is the row the list is talking about.
+        ///
+        /// Set by <see cref="UiList"/>, and drawn exactly like hover and focus
+        /// are. It has to be its own thing because the other two are not
+        /// available on a touchscreen: a finger hovers nothing, and a tap does
+        /// not reliably leave focus behind, so on a phone the selected row was
+        /// drawn like every other row while the tick at the foot and the
+        /// details beside the list were all about it. The list always has a
+        /// selection -- the first row to arrive takes it -- so there is always
+        /// exactly one row lit.
+        /// </summary>
+        public bool IsSelected
+        {
+            get => _selected;
+            set
+            {
+                if (_selected == value)
+                {
+                    return;
+                }
+                _selected = value;
+                InvalidateVisual();
+            }
+        }
 
         public UiListRow(string title, string detail = "")
         {
@@ -184,7 +211,7 @@ namespace MphRead.Mods.Launcher.Gui
         {
             var full = new Rect(0, 0, Bounds.Width, Bounds.Height);
             context.FillRectangle(Brushes.Transparent, full);
-            bool lit = _hot || IsFocused;
+            bool lit = _hot || IsFocused || _selected;
             if (lit)
             {
                 // A caret rather than a fill: the list sits on a photograph,
@@ -299,6 +326,7 @@ namespace MphRead.Mods.Launcher.Gui
                 // until the preview started following the selection, and
                 // wrong before that.
                 Selected = row;
+                MarkSelection();
                 activate?.Invoke(row);
                 SelectionChanged?.Invoke(this, row);
             }
@@ -346,7 +374,35 @@ namespace MphRead.Mods.Launcher.Gui
                 return;
             }
             Selected = row;
+            MarkSelection();
             SelectionChanged?.Invoke(this, row);
+        }
+
+        /// <summary>
+        /// Tell the rows which of them is the selection.
+        ///
+        /// The rows used to work it out for themselves, out of hover and
+        /// focus, and that is right on a desktop and wrong everywhere else: a
+        /// touchscreen has no hover at all and a tap does not reliably leave
+        /// focus behind, so on a phone nothing was lit and there was no way to
+        /// see which server the address box and JOIN were about. Pushed rather
+        /// than pulled because the list is the only thing that knows.
+        /// </summary>
+        private void MarkSelection()
+        {
+            for (int i = 0; i < _focusable.Count; i++)
+            {
+                Control row = _focusable[i];
+                bool on = ReferenceEquals(row, Selected);
+                if (row is UiListRow line)
+                {
+                    line.IsSelected = on;
+                }
+                else if (row is ServerRow server)
+                {
+                    server.IsSelected = on;
+                }
+            }
         }
 
         /// <summary>
