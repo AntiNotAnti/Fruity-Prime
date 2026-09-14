@@ -3,6 +3,88 @@
 What's below is unproven or partially proven, not broken. Say so rather than
 claiming coverage that isn't there.
 
+- **A client's own beam is spawned before its puppets are placed, and turning
+  snapshot-owned puppets on made that visible.** *Found and fixed
+  2026-09-14; the fix is not yet re-measured.* `ProcessInput` runs before the
+  movement step, so with the placement happening only in
+  `NetHooks.AfterRemoteMovement` a client's shot was tested against the
+  position the previous frame's step left behind while the intent it travelled
+  with acked *this* frame's. One frame of a target's motion, against a headshot
+  band 0.30 units tall and a runner measured at 0.377 units a frame: the whole
+  band. `TryApplyRemoteInput` now writes the same read point the restore does.
+
+  **What the measurement actually says, which is less than it first looked.**
+  It was noticed as headshot agreement falling from 75% to 30% between the
+  arena's protocol-6 and protocol-7 arms -- and on the *pads* map the same pair
+  moved the other way, 63.6% to 81.8%. Nine to thirteen headshots per arm is
+  exactly the sample size this file's own advice says not to read a percentage
+  from, and two arms disagreeing in direction is what that looks like. The
+  consistent signal is `local%`, which fell on **both** maps (72.7 to 64.0, and
+  85.0 to 56.5): the shooter's own machine resolved a smaller share of the hits
+  the authority credited it with, which is the shape a one-frame gap between
+  the drawn world and the shot world makes.
+
+  **Both arms were re-run on the fixed build and the disagreement did not go
+  away.** The four pairings, 100 s each at 320 ms +- 80 with 2% loss:
+
+  | arm | ceiling | clamped | local% | headshots agreed |
+  |---|---|---|---|---|
+  | arena-p6 | 24 | 80.0% | 72.7 | 6/8 (75.0%) |
+  | arena-p7b | 45 | **0%** | 59.1 | 4/8 (50.0%) |
+  | pads-p6 | 24 | 87.5% | 85.0 | 7/11 (63.6%) |
+  | pads-p7b | 45 | **1.4%** | 74.1 | 13/16 (**81.2%**) |
+
+  The pads map says protocol 7 is better on both headshots (63.6 to 81.2) and
+  confirmation (85.0 to 100.0); the arena says it is worse on both. Eight to
+  sixteen headshots an arm cannot separate those, and `local%` is lower on
+  protocol 7 in **both** pairings -- which is at least partly death prediction
+  being on, since a client that kills a puppet locally then sees hits on that
+  slot it never resolved.
+
+  So: **the ceiling and the claim counts are measured; the percentages are
+  not.** What is solid is `clamped` (80.0/87.5% down to 0/1.4%), every
+  protocol-7 arm rescuing real kills and headshots, and the duel's 14 predicted
+  headshots agreed 12/12 with none downgraded. Anything derived from `hs%` or
+  `local%` at this sample size is noise, and settling it needs either much
+  longer arms or the Pi rather than a contended WSL box. The one-frame gap is
+  still a real fault and the fix is still right; it is simply not what this
+  instrument can see.
+- **Hit claims and the kill arbitration are proven on a loopback with latency
+  injected into it, and have never met a real line.** *Added 2026-09-14.* The
+  mechanism is measured end to end -- claims declared, answered, refused,
+  rescued, with 0 unanswered over a 70 s three-client run and `3 kills, 2
+  headshots rescued` in a 120 s sniper arm at 320 ms -- but every one of those
+  runs was `-netlag` on 127.0.0.1. The case the arbitration exists for is two
+  players killing each other across a real intercontinental line, and what is
+  *not* known is how often `ResultDeadShooter` actually fires there, nor
+  whether the 18-frame grace window is the right length when the jitter is the
+  internet's rather than a number this box chose. `tools/hitrig/bench-p7.sh`
+  against the Pi, or `bench-japan.sh`, is what would settle it.
+- **The geometric gate on a claim has never refused anything, so its tolerance
+  is untested from the wrong side.** `ClaimRadius` is 2.0 units and every run
+  so far reads `0 refused`. That is the right outcome and it is also no
+  evidence about where the gate actually sits: nothing has yet produced a claim
+  the authority disagrees with, so it is not known whether 2.0 is generous, mean
+  or irrelevant. A run with `-relayedpuppets` on one client and the default on
+  another -- two clients deliberately holding different copies of the same
+  puppet -- is the experiment.
+- **A mutual kill has not been staged deliberately.** The arbitration's rule --
+  a shot counts unless its shooter was put down by a hit aimed at a strictly
+  earlier world -- is exercised only by whatever the scripted tour happens to
+  produce, and `VoidedDeadShooter` has read zero in every run. Nothing in
+  `HitRig` or `NetTestScript` makes two clients shoot each other at the same
+  instant on purpose, which is what the rule is for. Until one does, the
+  ordering is proven by reading the code rather than by measurement.
+- **The playout clock's snap counter is contaminated by this box.** 96 clock
+  snaps in a 60 s loopback run is mostly the *client* failing to hold 60 Hz
+  while three clients and a server share a WSL CPU, not the line. The same
+  number on a real machine would mean something quite different, and the two
+  cannot be told apart from the report as it stands.
+- **`% of frames still` in the smoothing line is not a stutter measurement on
+  its own.** A player standing still contributes still frames honestly -- the
+  scripted tour has whole phases of it -- and a respawn contributes a huge
+  step to `worst`. Both are only meaningful compared between two arms of the
+  same scenario.
 - **The rig's own shooter fired a third of what it asked for, and the reason
   was the rig.** *Closed 2026-09-10.* `HitRig.FinishControls` wrote its binds
   after the pass that sets `Input.HasInput`, so the engine saw an idle player,

@@ -34,7 +34,11 @@ namespace MphRead.Mods.Launcher.Gui
     /// </summary>
     internal static class UiCapture
     {
-        /// <summary>The window size the launcher opens at (see HomeWindow).</summary>
+        /// <summary>
+        /// The size the screens are photographed at. Close to what the game
+        /// window gives them at its own startup size, which is what they are
+        /// laid out against (see UiSurface.Scale).
+        /// </summary>
         private static readonly Size _windowSize = new Size(940, 560);
 
         public static int Run(string directory)
@@ -99,34 +103,71 @@ namespace MphRead.Mods.Launcher.Gui
         private static IEnumerable<(string, Control, Size)> Screens(MenuSettings settings,
             IReadOnlyList<string> rooms)
         {
-            yield return ("home", new HomeView(settings, rooms), _windowSize);
+            yield return ("start", new StartScreen(settings, rooms), _windowSize);
+            // Every face of the one screen that replaced seven. They share a
+            // layout and nothing else -- the list, the settings beside it and
+            // the word on the tick are different on each -- so one picture of
+            // it would prove nothing about the other three.
+            yield return ("play-online",
+                new PlayScreen(settings, rooms, PlayScreen.Face.Online), _windowSize);
+            yield return ("play-offline",
+                new PlayScreen(settings, rooms, PlayScreen.Face.Offline), _windowSize);
+            yield return ("play-story",
+                new PlayScreen(settings, rooms, PlayScreen.Face.Story), _windowSize);
+            yield return ("play-clips",
+                new PlayScreen(settings, rooms, PlayScreen.Face.Clips), _windowSize);
+            yield return ("play-vote",
+                new PlayScreen(settings, rooms, PlayScreen.Face.Vote, overGame: true),
+                _windowSize);
+            // Both faces of creating a server, and the map list it opens.
+            // The dedicated one is a separate picture because the rows it
+            // hides and the warning it raises are the whole difference between
+            // the two, and neither shows on the other.
+            yield return ("create-server", new CreateServerScreen(rooms), _windowSize);
+            var dedicated = new CreateServerScreen(rooms);
+            dedicated.ShowDedicated();
+            yield return ("create-server-dedicated", dedicated, _windowSize);
+            yield return ("create-server-maps",
+                new MapRotationPicker(rooms, Array.Empty<string>()), _windowSize);
+            yield return ("create-server-hosts", new HostPicker(Fleet(), asking: false),
+                _windowSize);
             yield return ("settings", new SettingsView(settings), _windowSize);
             var credits = new SettingsView(settings);
-            credits.ShowSection("Credits");
-            yield return ("settings-credits", credits, _windowSize);
-            if (rooms.Count > 0)
-            {
-                yield return ("mappicker", new MapPickerView(rooms, rooms[0]), _windowSize);
-            }
-            // Both halves of it: the list a machine that has recorded
-            // something gets, and the line a machine that has not gets --
-            // which is the one carrying the folder's path and the only place
-            // that path is ever written down.
-            yield return ("demopicker", new DemoPickerView(SampleDemos(),
-                Network.DemoLibrary.Directory), _windowSize);
-            yield return ("demopicker-empty", new DemoPickerView(
-                Array.Empty<Network.DemoRecording>(), Network.DemoLibrary.Directory),
-                _windowSize);
+            credits.ShowSection("Profile");
+            yield return ("settings-player", credits, _windowSize);
+            yield return ("setup", new SetupScreen(), _windowSize);
+            yield return ("confirm",
+                new ConfirmScreen($"Quit {Mods.Branding.Name}?"), _windowSize);
             yield return ("pausemenu", new PauseMenuView(offerWindowMode: true), _windowSize);
             // Deliberately shorter than the menu's own content, and shorter
             // than the game window is now allowed to be. The pause menu is
             // laid over the game window, so its host is whatever size the
             // player dragged that to, and entries drawn off the bottom edge
             // are a player who cannot leave the match. This is the check that
-            // the scroll view carries them.
+            // the column shrinks to carry them.
             yield return ("pausemenu-small", new PauseMenuView(offerWindowMode: true),
                 new Size(560, 320));
             yield return ("serverbrowser", ServerList(), _windowSize);
+        }
+
+        /// <summary>
+        /// The fleet as the host picker draws it, without asking the network:
+        /// one that will run a match, one too old to say so, and one with no
+        /// directory at all. The three states are the whole point of the
+        /// screen, and a capture that queried the real directory would
+        /// photograph whichever of them happened to be true that morning.
+        /// </summary>
+        private static List<HostCandidate> Fleet()
+        {
+            return new List<HostCandidate>
+            {
+                new() { Label = "net.livetek.fr", Host = "net.livetek.fr", Port = 27889,
+                    Answered = true, CanHost = true, Latency = 3 },
+                new() { Label = "Fruity Prime - West Europe", Host = "20.16.135.109",
+                    Port = 27889, Answered = true, CanHost = null, Latency = 39 },
+                new() { Label = "Fruity Prime - Japan", Host = "13.78.14.98", Port = 27889,
+                    Answered = false, CanHost = null, Latency = -1 }
+            };
         }
 
         /// <summary>
@@ -147,33 +188,14 @@ namespace MphRead.Mods.Launcher.Gui
         }
 
         /// <summary>
-        /// Recordings that are not there, so the list can be seen on a machine
-        /// that has never recorded one.
-        /// </summary>
-        private static IReadOnlyList<Network.DemoRecording> SampleDemos()
-        {
-            var now = new DateTime(2026, 9, 4, 18, 22, 7);
-            return new[]
-            {
-                new Network.DemoRecording("MP3 PROVING GROUND_2026-09-04_18-22-07.fpdemo",
-                    "MP3 PROVING GROUND", now, 1_512_320),
-                new Network.DemoRecording("COMBAT HALL_2026-09-02_21-04-55.fpdemo",
-                    "COMBAT HALL", now.AddDays(-2), 402_112),
-                new Network.DemoRecording("sent-to-me.fpdemo", "", now.AddDays(-9), 88_400)
-            };
-        }
-
-        /// <summary>
         /// The browser's table, at the width the panel gives it, with rows
         /// standing in for servers that are not up.
         ///
-        /// Built here rather than reached through HomeView because the card is
-        /// private to it and only fills in when a directory answers -- and the
-        /// fault this is for (a map name wrapping onto the row below, headings
-        /// running into each other) is a property of the columns and the
-        /// width, not of any real server. Both widths are drawn: the panel's,
-        /// and the 400 the rest of the cards use, so a narrow row is checked
-        /// too.
+        /// Built here rather than reached through the play screen because that
+        /// one only fills in when a directory answers -- and the fault this is
+        /// for (a map name wrapping onto the row below, headings running into
+        /// each other) is a property of the columns and the width, not of any
+        /// real server. Both widths are drawn, so a narrow row is checked too.
         /// </summary>
         private static Control ServerList()
         {
@@ -224,7 +246,7 @@ namespace MphRead.Mods.Launcher.Gui
         /// and without taking focus, so a capture run does not steal the
         /// pointer or flash a window per screen.
         /// </summary>
-        private static bool Capture(Control view, string path, Size size)
+        internal static bool Capture(Control view, string path, Size size)
         {
             Window? window = null;
             try
@@ -264,7 +286,7 @@ namespace MphRead.Mods.Launcher.Gui
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[uishot] {Path.GetFileName(path)} could not be rendered: {ex.Message}");
+                Console.WriteLine($"[shot] {Path.GetFileName(path)} could not be rendered: {ex.Message}");
                 return false;
             }
             finally

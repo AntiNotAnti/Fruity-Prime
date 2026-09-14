@@ -44,9 +44,38 @@ namespace MphRead.Mods
             return Save(scene, path, scene.ReadSceneTarget);
         }
 
+        /// <summary>
+        /// Save what the window holds when there is no scene at all -- the
+        /// launcher, drawn into the game window with nothing behind it.
+        ///
+        /// Same rules as <see cref="SaveWindow"/>: the window has to be
+        /// visible, and this has to be called after the draw and before the
+        /// buffer swap. There is no scene to describe if it comes out black,
+        /// which is itself the answer -- a black frame here means the overlay
+        /// drew nothing.
+        /// </summary>
+        public static bool SaveWindow(int width, int height, string path)
+        {
+            return Save(scene: null, path, (out int w, out int h) =>
+            {
+                w = width;
+                h = height;
+                if (width <= 0 || height <= 0)
+                {
+                    return null;
+                }
+                byte[] buffer = new byte[width * height * 3];
+                GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, 0);
+                GL.ReadBuffer(ReadBufferMode.Back);
+                GL.PixelStore(PixelStoreParameter.PackAlignment, 1);
+                GL.ReadPixels(0, 0, width, height, PixelFormat.Rgb, PixelType.UnsignedByte, buffer);
+                return buffer;
+            });
+        }
+
         private delegate byte[]? ReadPixels(out int width, out int height);
 
-        private static bool Save(Scene scene, string path, ReadPixels read)
+        private static bool Save(Scene? scene, string path, ReadPixels read)
         {
             try
             {

@@ -55,6 +55,14 @@
          download. -->
     <MphReadAvalonia Condition="'$(MphReadServer)' != 'true'">true</MphReadAvalonia>
     <DefineConstants Condition="'$(MphReadAvalonia)' == 'true'">$(DefineConstants);MPHREAD_AVALONIA</DefineConstants>
+    <!-- The one-window shell: the launcher and the pause menu rendered into
+         the game window (Mods/Launcher/Gui/Shell.cs, UiSurface.cs). Desktop
+         only, and not because Android cannot do it: Android already
+         does it the other way round, with real Avalonia views over the GL
+         surface, which is what a platform whose windowing system *is* a view
+         stack gives for nothing. The Android head defines MPHREAD_AVALONIA
+         without this one and leaves those two files out. -->
+    <DefineConstants Condition="'$(MphReadAvalonia)' == 'true'">$(DefineConstants);MPHREAD_SHELL</DefineConstants>
     <!-- The exe's own icon: Explorer, the taskbar, a pinned shortcut. Two
          variants of the same mark, because the game and the server are two
          different things to have pinned next to each other, and the server's
@@ -81,14 +89,34 @@
 
   <ItemGroup Condition="'$(MphReadAvalonia)' == 'true'">
     <PackageReference Include="Avalonia" Version="11.3.11" />
+    <!-- Desktop is still here for the platform's fonts, its Skia backend and
+         the packages the render path pulls in; what it is no longer used for
+         is a window. The launcher's screens are rendered by the *headless*
+         backend into a buffer and drawn inside the game window
+         (Mods/Render/UiOverlay.cs), so the program opens exactly one window on
+         every platform and the launcher is a screen in the game rather than a
+         second application beside it. -->
     <PackageReference Include="Avalonia.Desktop" Version="11.3.11" />
+    <PackageReference Include="Avalonia.Headless" Version="11.3.11" />
+    <PackageReference Include="Avalonia.Skia" Version="11.3.11" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.11" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.11" />
     <!-- Loaded at runtime through avares://, Avalonia's own asset scheme: a
-         plain EmbeddedResource is not visible to AssetLoader. The wordmark
-         is the splash screen's default picture; the mark is the window icon. -->
+         plain EmbeddedResource is not visible to AssetLoader. The wordmark is
+         the corner of every launcher screen; the mark is the window icon. -->
     <AvaloniaResource Include="Assets\fruity-prime-logo.png" />
     <AvaloniaResource Include="Assets\fruity-prime-mark.png" />
+    <!-- The same file again, as a plain embedded resource: the *window's*
+         icon is set on the GL window, which knows nothing about avares:// and
+         is created before the toolkit is. Mods/Render/WindowIcon.cs reads it.
+         A few kilobytes, and the alternative is the launcher's icon existing
+         only on a screen the program no longer opens. -->
+    <EmbeddedResource Include="Assets\fruity-prime-mark.png" />
+    <!-- The launcher's two faces and its backdrop: fonts from
+         OpenQuake3/defrag's ui/font, whose UI this one is built to. -->
+    <AvaloniaResource Include="Assets\Fonts\heyNovember.ttf" />
+    <AvaloniaResource Include="Assets\Fonts\Roboto-Bold.ttf" />
+    <AvaloniaResource Include="Assets\Backgrounds\launcher-bg.jpg" />
   </ItemGroup>
 
   <ItemGroup>

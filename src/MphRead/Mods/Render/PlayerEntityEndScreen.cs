@@ -214,6 +214,11 @@ namespace MphRead.Entities
                     $"NEXT: {next.ToUpperInvariant()}",
                     color: _endDim, fontSpacing: 8, scale: 0.45f * scale);
             }
+            // The ballot, under the picker and in the same column. Given the
+            // panel's floor rather than working it out again, because the
+            // panel's height is derived from what went in it and there is no
+            // second copy of that arithmetic to be wrong.
+            ModDrawMapPick(bottom);
         }
 
         /// <summary>A hairline box around the preview window.</summary>

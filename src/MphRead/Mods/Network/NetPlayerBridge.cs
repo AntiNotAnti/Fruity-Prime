@@ -46,6 +46,8 @@ namespace MphRead.Mods.Network
         /// said, 1 biped, 2 alt.
         /// </summary>
         private static readonly byte[] _formSaid = new byte[PlayerEntity.SlotCapacity];
+        private static readonly byte[] _lastSaidSpawned = new byte[PlayerEntity.SlotCapacity];
+        private static readonly ushort[] _lastSaidHealth = new ushort[PlayerEntity.SlotCapacity];
 
         public static string FormSaidByAuthority()
         {
@@ -219,7 +221,33 @@ namespace MphRead.Mods.Network
                 _pressHistory[i] = _pressHistory[i - 1];
             }
             _pressHistory[0] = (uint)pressed;
+            // The charge that will be spent by the shot this frame fires, and
+            // the ram that will be spent by the boost it releases.
+            //
+            // Sampled here rather than in CaptureIntent because this runs
+            // every frame and that one does not: a packet goes out every other
+            // frame, so the current value at capture time is the charge as it
+            // stands *after* the release, which is zero. What the authority
+            // needs is the value the trigger was let go on, so it is latched
+            // on the frame of the release and held until a packet carries it.
+            // Nothing is latched on a frame with no release, and the current
+            // value is sent then, which is what keeps a puppet's charge
+            // tracking its owner's while the trigger is still held.
+            if (c.Shoot.IsReleased || c.Boost.IsReleased || c.AltAttack.IsPressed)
+            {
+                _latchedCharge = player.ModChargeLevel;
+                _latchedBoostDamage = player.ModBoostDamage;
+                _hasLatch = true;
+            }
         }
+
+        /// <summary>
+        /// The charge and ram strength of the newest release, waiting for a
+        /// packet to carry it. See <see cref="IntentPacket.StateSize"/>.
+        /// </summary>
+        private static int _latchedCharge;
+        private static int _latchedBoostDamage;
+        private static bool _hasLatch;
 
         /// <summary>Local player's controls and aim -> wire intent (client side).</summary>
         public static IntentPacket CaptureIntent(PlayerEntity player)
@@ -267,7 +295,7 @@ namespace MphRead.Mods.Network
             {
                 buttons |= IntentButtons.ReadyState;
             }
-            return new IntentPacket
+            var intent = new IntentPacket
             {
                 Buttons = buttons,
                 Aim = player.ModGunVector,
@@ -285,6 +313,23 @@ namespace MphRead.Mods.Network
                 AmmoUa = (ushort)Math.Clamp(player.ModAmmo.Ua, 0, UInt16.MaxValue),
                 AmmoMissiles = (ushort)Math.Clamp(player.ModAmmo.Missiles, 0, UInt16.MaxValue),
                 Presses = (uint[])_pressHistory.Clone(),
+                // What this player's next shot is worth, from the machine that
+                // knows. Everything here was re-derived on the authority from
+                // the buttons above until now, and re-deriving a shooter is a
+                // second simulation of them: the charge count drifts by the
+                // send interval and the jitter, and the two powerups are
+                // collected by each machine's own copy of the pickups and so
+                // can simply be absent on the authority's. Both put a
+                // different number on the same shot, which is a client
+                // predicting damage the authority will not deal.
+                // IntentPacket.StateSize.
+                ChargeLevel = (byte)Math.Clamp(
+                    _hasLatch ? _latchedCharge : player.ModChargeLevel, 0, 255),
+                BoostDamage = (byte)Math.Clamp(
+                    _hasLatch ? _latchedBoostDamage : player.ModBoostDamage, 0, 255),
+                ShotFlags = (byte)((player.DoubleDamage ? IntentPacket.FlagDoubleDamage : 0)
+                    | (player.IsPrimeHunter ? IntentPacket.FlagPrimeHunter : 0)),
+                HasState = true,
                 // Which frame of the authority's simulation this player was
                 // looking at while they aimed and fired. The authority rewinds
                 // everybody else to it before resolving the shot -- see
@@ -303,6 +348,21 @@ namespace MphRead.Mods.Network
                     ? NetSession.AppliedSnapshotFrame
                     : NetSession.LastSnapshotFrame
             };
+            // And the read point itself, if the puppets are being drawn on a
+            // playout clock: that is a point *between* two snapshots, and an
+            // integer ack cannot name it. Overwrites the choice above rather
+            // than competing with it -- when the clock is running it is the
+            // only honest answer to "what was I looking at". NetSmoothing.
+            if (NetSmoothing.AckPoint(out uint readFrame, out byte readSub))
+            {
+                intent.AckFrame = readFrame;
+                intent.AckSubFrame = readSub;
+            }
+            // The latch has been spent. From here the live value is sent again,
+            // which is what lets a puppet's charge climb with its owner's while
+            // the trigger is held.
+            _hasLatch = false;
+            return intent;
         }
 
         /// <summary>
@@ -444,6 +504,22 @@ namespace MphRead.Mods.Network
             {
                 ApplyForm(player, intent.Buttons.HasFlag(IntentButtons.AltFormState));
             }
+            // And what this player's next shot is worth, from the one machine
+            // that knows -- charge, ram, double damage, the Prime Hunter
+            // bonus. Only here, and only from a sender that actually said so:
+            // a client built before IntentPacket.StateSize sends none of it,
+            // and writing zeros for it would take a puppet's charge and
+            // powerups away rather than leave them where the old build's
+            // re-derivation put them.
+            //
+            // Only on the authority, like the form above: it is the machine
+            // whose copy of this shot decides what it hit, and a client that
+            // also acted on it would be correcting a puppet from two sources.
+            if (intent.HasState && (NetSession.IsAuthority || NetSession.IsHost))
+            {
+                player.ModSetShotState(intent.ChargeLevel, intent.BoostDamage,
+                    (intent.ShotFlags & IntentPacket.FlagDoubleDamage) != 0);
+            }
         }
 
         /// <summary>
@@ -554,6 +630,23 @@ namespace MphRead.Mods.Network
             bool spawned = (state.Flags & PlayerState.FlagSpawned) != 0;
             bool wasInPlay = player.LoadFlags.TestFlag(LoadFlags.Spawned) && player.Health > 0;
             int slot = player.SlotIndex;
+            // Every change in what the authority says about a player being on
+            // the map, and how much health they have. A predicted kill that is
+            // counted undone is a statement about this stream and nothing
+            // else, and it cannot be read from the outside: the report says
+            // the prediction expired, not what the authority was saying while
+            // it did.
+            if (NetLog.Enabled && slot >= 0 && slot < _lastSaidSpawned.Length
+                && (_lastSaidSpawned[slot] != (spawned ? 1 : 0)
+                    || _lastSaidHealth[slot] != state.Health))
+            {
+                NetLog.Event($"[state] slot {slot}: authority says spawned={spawned} "
+                    + $"health={state.Health} (was spawned={_lastSaidSpawned[slot] == 1} "
+                    + $"health={_lastSaidHealth[slot]}); here spawned="
+                    + $"{player.LoadFlags.TestFlag(LoadFlags.Spawned)} health={player.Health}");
+                _lastSaidSpawned[slot] = (byte)(spawned ? 1 : 0);
+                _lastSaidHealth[slot] = state.Health;
+            }
             if (slot >= 0 && slot < _formSaid.Length)
             {
                 _formSaid[slot] = (byte)((state.Flags & PlayerState.FlagAltForm) != 0 ? 2 : 1);
@@ -1070,8 +1163,23 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static void RestoreSnapshotPosition(PlayerEntity player, in PlayerState state)
         {
-            if (!Sane(state.Position) || state.Position == Vector3.Zero
-                || FrozenInPlace(player))
+            if (FrozenInPlace(player))
+            {
+                return;
+            }
+            // The playout clock's answer if it has one: a point between two
+            // snapshots rather than whichever one arrived last, which is the
+            // difference between an opponent who moves and one who stutters.
+            // The intent carries the read point, so the authority rewinds to
+            // exactly this world and nothing is given up for it.
+            // NetSmoothing.
+            if (NetSmoothing.Sample(player.SlotIndex, out Vector3 smoothed, out bool smoothedAlt)
+                && Sane(smoothed) && smoothed != Vector3.Zero)
+            {
+                Move(player, InForm(player, smoothed, smoothedAlt));
+                return;
+            }
+            if (!Sane(state.Position) || state.Position == Vector3.Zero)
             {
                 return;
             }

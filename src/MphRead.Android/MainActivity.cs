@@ -36,6 +36,24 @@ namespace MphRead.Droid
         // See Resources/values/styles.xml.
         Theme = "@style/FruityPrime",
         MainLauncher = true,
+        // Landscape, from the icon onwards, and not only for a match.
+        //
+        // The match already asked for it -- a first-person game on a phone is
+        // landscape -- and the launcher was left to the sensor, which meant
+        // the program started portrait, turned sideways to play and turned
+        // back when the match ended. That is a rotation the player did not
+        // ask for at each end of every match, and on this head a rotation is
+        // a real cost: the activity handles the configuration change itself,
+        // so every one of them re-measures the whole Avalonia tree and
+        // re-bakes the backdrop at the new shape.
+        //
+        // It is also the shape the screens want. They are authored for a box
+        // wider than it is tall (UiLayout.MinBoxWidth by MinBoxHeight), and
+        // portrait gives UiScaleHost the least of both: 390 points across a
+        // phone held upright is a 0.4 factor before the clamp, so the screens
+        // come out at the floor with the box no bigger for it. Sensor rather
+        // than plain Landscape so the phone can still be held either way up.
+        ScreenOrientation = ScreenOrientation.SensorLandscape,
         LaunchMode = LaunchMode.SingleTop,
         ConfigurationChanges = ConfigChanges.Orientation | ConfigChanges.ScreenSize
             | ConfigChanges.UiMode | ConfigChanges.Density | ConfigChanges.KeyboardHidden)]
@@ -52,7 +70,12 @@ namespace MphRead.Droid
         private volatile bool _renderingPreviews;
         private volatile bool _renderingHere;
         private readonly TouchControls _controls = new TouchControls();
-        private ScreenOrientation _orientationBefore = ScreenOrientation.Unspecified;
+        // What the launcher is in, which is what a match puts back when it
+        // ends. The activity itself asks for landscape now, so this is what
+        // RequestedOrientation reads back as; it is stated rather than left
+        // Unspecified so that a match ending before one ever started cannot
+        // hand the front screen an orientation the manifest never asked for.
+        private ScreenOrientation _orientationBefore = ScreenOrientation.SensorLandscape;
 
         internal bool InMatch => _gameView != null;
 

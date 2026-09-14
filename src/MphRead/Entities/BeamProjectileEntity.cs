@@ -14,6 +14,15 @@ namespace MphRead.Entities
     public class BeamProjectileEntity : EntityBase
     {
         public BeamFlags Flags { get; set; }
+        /// <summary>
+        /// The authority frame the shooter's world was at when this shot was
+        /// launched -- the one thing that identifies a shot across two
+        /// machines. Stamped by Mods.Network.NetUnlagged on every machine that
+        /// spawns it, and read back when it damages somebody so a hit claim
+        /// and the authority's own resolution of the *same* shot can be paired
+        /// without guessing at a time window. Zero for anything nobody aimed.
+        /// </summary>
+        public uint ModLaunchFrame { get; set; }
         public BeamType Beam { get; set; }
         public BeamType BeamKind { get; set; }
 
