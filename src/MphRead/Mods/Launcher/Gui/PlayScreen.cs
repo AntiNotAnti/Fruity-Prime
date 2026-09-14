@@ -145,12 +145,14 @@ namespace MphRead.Mods.Launcher.Gui
         /// it, again, for a different reason than the last one.
         ///
         /// So on a short box the two swap axes. The options go down the right
-        /// at the width they were drawn for and the list takes the whole
-        /// height on the left, which is the arrangement this screen had
-        /// before the picture was made big -- and the picture is what goes,
-        /// since it is the one thing here that is nice rather than necessary.
-        /// Keyed on the height actually handed over rather than on the
-        /// platform: a tablet in landscape has the room and gets the picture.
+        /// at the width they were drawn for, the list takes the whole height
+        /// on the left, and the picture goes under the options in the space
+        /// they do not use -- which is the arrangement this screen had before
+        /// the picture was made big, with the picture kept. It is a band
+        /// rather than a landscape box there, and that is enough: the
+        /// question it answers is "which map is that". Keyed on the height
+        /// actually handed over rather than on the platform, so a tablet in
+        /// landscape keeps the desktop shape.
         /// </summary>
         private void SetCompact(bool compact)
         {
@@ -159,26 +161,50 @@ namespace MphRead.Mods.Launcher.Gui
                 return;
             }
             _compact = compact;
-            _previewBox.IsVisible = _previewWanted && !compact;
+            _previewBox.IsVisible = _previewWanted;
             if (compact)
             {
+                // The list down the left, the options and the picture down the
+                // right. The column is already as wide as the options asked
+                // for and they do not fill the height, so the picture takes
+                // what is under them: a band rather than the landscape box it
+                // is on a desktop, which is what UniformToFill and a clipping
+                // border were already there for.
                 _side.MaxHeight = Double.PositiveInfinity;
                 Grid.SetRow(_side, 0);
-                Grid.SetRowSpan(_side, 2);
+                Grid.SetRowSpan(_side, 1);
+                _side.Margin = new Thickness(18, 0, 0, 0);
+                Grid.SetColumn(_previewBox, 1);
+                Grid.SetRow(_previewBox, 1);
+                // Stretched into what is left rather than given a height:
+                // whatever that is, it is the room there is, and a fixed
+                // number here would either overlap the line under the list on
+                // the shortest screens or leave a gap on the tallest. Capped
+                // so that a tall-enough box does not hand a 300-point-wide
+                // thumbnail half the screen.
+                _previewBox.Height = Double.NaN;
+                _previewBox.MaxHeight = 150;
+                _previewBox.VerticalAlignment = VerticalAlignment.Stretch;
+                _previewBox.Margin = new Thickness(18, 12, 0, 0);
                 Grid.SetRow(_list, 0);
                 Grid.SetRowSpan(_list, 2);
                 Grid.SetColumnSpan(_list, 1);
-                _side.Margin = new Thickness(18, 0, 0, 0);
             }
             else
             {
                 _side.MaxHeight = 190;
                 Grid.SetRow(_side, 0);
                 Grid.SetRowSpan(_side, 1);
+                _side.Margin = new Thickness(0);
+                Grid.SetColumn(_previewBox, 0);
+                Grid.SetRow(_previewBox, 0);
+                _previewBox.Height = 172;
+                _previewBox.MaxHeight = Double.PositiveInfinity;
+                _previewBox.VerticalAlignment = VerticalAlignment.Stretch;
+                _previewBox.Margin = new Thickness(0, 0, 24, 14);
                 Grid.SetRow(_list, 1);
                 Grid.SetRowSpan(_list, 1);
                 Grid.SetColumnSpan(_list, 2);
-                _side.Margin = new Thickness(0);
             }
         }
 
@@ -186,7 +212,7 @@ namespace MphRead.Mods.Launcher.Gui
         private void WantPreview(bool wanted)
         {
             _previewWanted = wanted;
-            _previewBox.IsVisible = wanted && !_compact;
+            _previewBox.IsVisible = wanted;
         }
 
         protected override Size MeasureOverride(Size availableSize)
