@@ -1192,6 +1192,25 @@ own side had the same error: a victim's death was stamped with the attacker's
 ack at *impact*, so a slow projectile's kill recorded the wrong world in the
 number every later claim on that player is judged against.
 
+**A shot that travelled does not decide a death.** The authority resolves a
+whole flight inside the frame the trigger was pulled (`NetUnlagged`'s
+catch-up); the shooter's own copy is a projectile crossing the room against
+puppets held a few frames behind. So for anything that travels the authority's
+answer arrives **first**, the client adopts a bar that already contains the hit,
+and its own copy of the same shot lands on top -- and the claim for it is then
+matched as a duplicate and answered "already resolved", so it counts as
+*confirmed* while the kill is undone. A client cannot tell its own
+already-resolved shot from its next one, because the snapshot carries a count
+of hits and no identity for the shot behind them; three heuristics were tried
+and the best of them still suppressed 46 good predictions out of 49 on
+loopback. What is exact is `BeamProjectileEntity.Age`: past three frames of
+flight the damage is clamped to leave the victim on one point and the authority
+does the killing. The hit stays instant -- flinch, knockback, mark and bar on
+the frame it is fired -- and only the body falling waits a round trip. A Power
+Beam or Imperialist round arrives in a frame and is untouched, which is the
+split the complaint came in: **7 predicted kills / 6 undone -> 0 / 0** on a
+Missile volley against Japan at 250 ms. `-hitrig missile` is the rig.
+
 **And a prediction is retired by name.** The snapshot carries a count of hits
 on a victim and the slot of only the *last* attacker, so a client's own hit
 followed inside one snapshot window by somebody else's was never matched: its

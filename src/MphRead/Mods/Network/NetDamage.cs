@@ -639,18 +639,7 @@ namespace MphRead.Mods.Network
             // here, and on the Imperialist they are a kill and half a kill.
             bool authorityHeadshot = ((DamageFlags)state.DamageFlags).TestFlag(DamageFlags.Headshot);
             bool predicted = mine && NetHitPrediction.Confirm(slot, landed, authorityHeadshot);
-            if (mine && !predicted)
-            {
-                // The authority has credited this machine with a hit it had
-                // not predicted -- which for anything that travels means its
-                // own copy of that shot is still in the air, because the
-                // authority resolves the whole flight in the frame the trigger
-                // is pulled and a local projectile has to cross the room. The
-                // health arriving with this snapshot already contains the hit,
-                // so the local copy must be cancelled when it lands rather
-                // than applied on top of it. NetHitPrediction._authorityAhead.
-                NetHitPrediction.NoteAuthorityAhead(slot, landed);
-            }
+
             if (player.Health <= 0)
             {
                 return; // already down here; the respawn is what matters next

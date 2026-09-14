@@ -1880,7 +1880,7 @@ namespace MphRead.Entities
             // low health kills on the frame it happens.
             // Mods.Network.NetHitPrediction.
             Mods.Network.NetHitPrediction.NoteHit(this, attacker, flags, ref damage,
-                beam?.Beam ?? BeamType.None, beam?.ModLaunchFrame ?? 0);
+                beam?.Beam ?? BeamType.None, beam?.ModLaunchFrame ?? 0, beam?.Age ?? 0);
             bool dead = false;
             if (IsBot && GameState.SinglePlayer && AiData.Flags1 && _health <= AiData.HealthThreshold)
             {

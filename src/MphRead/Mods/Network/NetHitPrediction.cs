@@ -229,6 +229,7 @@ namespace MphRead.Mods.Network
         /// than a snapshot apart.
         /// </summary>
         private static readonly int[] _settledCredit = new int[Slots];
+        private static readonly uint[] _settledFrame = new uint[Slots];
         private const int SettledCreditMax = 8;
 
         private static readonly int[] _pendingCount = new int[Slots];
@@ -283,87 +284,6 @@ namespace MphRead.Mods.Network
 
         /// <summary>How often a rise in the authority's number lifted the floor.</summary>
         public static long FloorLifted { get; private set; }
-
-        /// <summary>
-        /// Hits of this machine's own that the <b>authority resolved first</b>,
-        /// waiting for this machine's copy of the same shot to land so it can
-        /// be cancelled instead of predicted.
-        ///
-        /// <b>The prediction's one real double-count, and it is a race the
-        /// authority usually wins for anything that travels.</b> The authority
-        /// spawns a shot into the world the shooter was looking at and then
-        /// walks it forward to the present in one go (<see cref="NetUnlagged"/>
-        /// catch-up), so it can have the whole flight resolved within a frame
-        /// of the trigger. The shooter's own copy is an ordinary projectile
-        /// crossing the room against puppets held a few frames behind. At
-        /// 250 ms the authority's answer -- and the health that comes with it
-        /// -- routinely arrives *before* the local missile has got there.
-        ///
-        /// The client then adopts a health that already contains the hit, and
-        /// a moment later its own copy of the same shot lands and it predicts
-        /// the hit again on top. Measured on a Missile volley: the authority
-        /// takes the victim 35 -> 3, the client adopts 3, and 200 ms later its
-        /// own copy of that shot arrives and predicts a kill on a victim the
-        /// authority has alive on 3. The claim for it is then matched as a
-        /// duplicate of the authority's own hit and answered
-        /// "already resolved", so it is counted <i>confirmed</i> -- which is
-        /// why every tally read 100% while the kills were being undone.
-        ///
-        /// Counted in hits rather than points, because one shot is one hit,
-        /// and aged out over <see cref="PendingFrames"/> so a credit cannot
-        /// outlive the flight it belongs to and swallow a later shot that
-        /// really did land.
-        /// </summary>
-        private static readonly int[] _authorityAhead = new int[Slots];
-        private static readonly uint[] _authorityAheadFrame = new uint[Slots];
-
-        /// <summary>Hits cancelled because the authority had already resolved them.</summary>
-        public static long PredictionsPreempted { get; private set; }
-
-        /// <summary>
-        /// The authority has credited this machine with a hit on
-        /// <paramref name="slot"/> that this machine had not predicted -- so
-        /// its own copy of that shot is still in the air. Remember it, so that
-        /// when the local copy lands it is cancelled rather than applied on
-        /// top of a health that already has it.
-        /// </summary>
-        public static void NoteAuthorityAhead(int slot, int hits)
-        {
-            if (!Enabled || !Predicting || slot < 0 || slot >= Slots || hits <= 0)
-            {
-                return;
-            }
-            uint now = NetSession.NetFrame;
-            if (now - _authorityAheadFrame[slot] >= (uint)PendingFrames)
-            {
-                _authorityAhead[slot] = 0;
-            }
-            _authorityAhead[slot] = Math.Min(_authorityAhead[slot] + hits, PendingCapacity);
-            _authorityAheadFrame[slot] = now;
-        }
-
-        /// <summary>
-        /// Whether a hit this machine has just resolved is one the authority
-        /// has already applied, in which case it must not be applied again.
-        /// Consumes the credit. Asked from <see cref="Predicts"/>, which is
-        /// the top of <c>TakeDamage</c> and the only point early enough to
-        /// refuse the hit outright.
-        /// </summary>
-        private static bool AuthorityGotThereFirst(int slot)
-        {
-            if (slot < 0 || slot >= Slots || _authorityAhead[slot] <= 0)
-            {
-                return false;
-            }
-            if (NetSession.NetFrame - _authorityAheadFrame[slot] >= (uint)PendingFrames)
-            {
-                _authorityAhead[slot] = 0;
-                return false;
-            }
-            _authorityAhead[slot]--;
-            PredictionsPreempted++;
-            return true;
-        }
 
         /// <summary>
         /// Points of damage this machine predicted onto each slot, against the
@@ -613,6 +533,18 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static bool DeathEnabled { get; set; } = true;
 
+        /// <summary>
+        /// How long a projectile may have been in the air and still have its
+        /// kill predicted, in seconds.
+        ///
+        /// Three frames. A hitscan-ish round -- a Power Beam bolt, an
+        /// Imperialist shot -- covers a duel's range inside one or two, so it
+        /// is resolved on both machines in the same frame and there is no race
+        /// to lose. Past that the authority's catch-up can and does answer
+        /// first. See the clamp in <see cref="NoteHit"/>.
+        /// </summary>
+        private const float TravelFlight = 3 / 60f;
+
         private static int _markerTimer;
 
         /// <summary>
@@ -650,6 +582,7 @@ namespace MphRead.Mods.Network
             Array.Clear(_pendingSpent);
             Array.Clear(_pendingSelf);
             Array.Clear(_settledCredit);
+            Array.Clear(_settledFrame);
             Array.Clear(_beamPredicted);
             Array.Clear(_beamConfirmed);
             Array.Clear(_beamDenied);
@@ -681,10 +614,7 @@ namespace MphRead.Mods.Network
             HealthOverPoints = 0;
             HealthOverWorst = 0;
             FloorLifted = 0;
-            PredictionsPreempted = 0;
             Array.Clear(_lastAuthorityHealth);
-            Array.Clear(_authorityAhead);
-            Array.Clear(_authorityAheadFrame);
             Array.Clear(_predictedPoints);
             Array.Clear(_authorityDrop);
             FloorHeld = 0;
@@ -756,15 +686,6 @@ namespace MphRead.Mods.Network
             {
                 return false;
             }
-            // And not if the authority has already resolved this very shot and
-            // this machine has already adopted the health that came with it.
-            // See _authorityAhead: for anything that travels, the authority
-            // routinely gets there first, and predicting on top of its answer
-            // is the one place this file can count a hit twice.
-            if (victim.SlotIndex != local && AuthorityGotThereFirst(victim.SlotIndex))
-            {
-                return false;
-            }
             return true;
         }
 
@@ -819,9 +740,16 @@ namespace MphRead.Mods.Network
         /// victim's own machine can replay the right hit rather than a
         /// nameless one. <see cref="NetHitClaims"/>.
         /// </param>
+        /// <param name="flight">
+        /// How long the projectile behind this hit had been in the air, in
+        /// seconds. Zero for everything that is not a beam.
+        ///
+        /// <b>This is what decides whether the kill may be predicted.</b> See
+        /// <see cref="TravelFlight"/>.
+        /// </param>
         public static void NoteHit(PlayerEntity victim, PlayerEntity? attacker,
             DamageFlags flags, ref uint damage, BeamType beam = BeamType.None,
-            uint launchFrame = 0)
+            uint launchFrame = 0, float flight = 0)
         {
             int local = NetHooks.LocalSlot;
             if (local < 0)
@@ -857,6 +785,44 @@ namespace MphRead.Mods.Network
                 // certainly right as a scratch.
                 bool lethal = victim.Health > 0
                     && (damage >= (uint)victim.Health || flags.TestFlag(DamageFlags.Death));
+                // Not for a shot that had to cross the room.
+                //
+                // <b>The one thing three rounds of accounting could not
+                // fix.</b> The authority spawns a shot into the world its
+                // shooter was looking at and walks it forward to the present
+                // in one go (NetUnlagged's catch-up), so it can have the whole
+                // flight resolved inside the frame the trigger was pulled. The
+                // shooter's own copy is an ordinary projectile crossing the
+                // room against puppets held a few frames behind. For anything
+                // that travels, the authority's answer -- and the health that
+                // comes with it -- routinely arrives *first*, and the local
+                // copy then lands on a victim whose bar already contains it.
+                //
+                // The snapshot carries a count of hits and no identity for the
+                // shot behind them, so a client cannot tell its own
+                // already-resolved shot from its next one except by counting
+                // and by time. Three rounds of exactly that (a claim-id
+                // retirement, a preemption credit, an expiring settle credit)
+                // took the undone kills from six in seven to about one in two
+                // and stopped there, which is what a heuristic standing in for
+                // an identity looks like.
+                //
+                // So a travelling shot does not decide a death. The hit is
+                // still instant -- the flinch, the knockback, the mark over
+                // the crosshair and the bar all land on the frame it is fired
+                // -- and only the body falling waits for the authority, which
+                // is exactly what every build before hit claims did and what
+                // -nodeathprediction still does for everything. A Power Beam
+                // or an Imperialist round arrives in about a frame and is
+                // unaffected, which is the split the complaint arrived in:
+                // kills undone with the Missile and the Magmaul, none with
+                // those two.
+                if (lethal && !self && flight > TravelFlight)
+                {
+                    damage = (uint)Math.Max(0, victim.Health - 1);
+                    LethalHeld++;
+                    lethal = false;
+                }
                 // Not through a halfturret. Weavel's lower half takes part of
                 // every hit that reaches him, and how much depends on the
                 // turret's own health -- which lives on the authority and is
@@ -1009,17 +975,40 @@ namespace MphRead.Mods.Network
             }
             if (_pendingCount[slot] == 0)
             {
-                // The verdict for this hit's own claim got here first and has
-                // already retired it. Say so -- the flinch and the mark ran
-                // when the trigger was pulled, exactly as they do when the
-                // snapshot is the thing that answers first.
-                if (_settledCredit[slot] > 0)
+                // Nothing outstanding, so this snapshot's hits are split two
+                // ways and both halves matter.
+                //
+                // The first is a hit whose own verdict already retired it --
+                // the verdict and the snapshot race, and this absorbs the
+                // loser so it is not counted twice. The credit **expires**:
+                // the two are never more than a snapshot apart, and a stale
+                // one is worse than useless, because it makes a hit the
+                // authority resolved on its own look like one this machine had
+                // already predicted, and the guard below never fires for it.
+                // That was two of every five predicted kills surviving the
+                // first version of this.
+                //
+                // The second is a hit of this machine's own that it never
+                // resolved at all -- its copy of the shot missed, or the
+                // authority's catch-up got there first. Counted, and nothing
+                // else: a heuristic that tried to cancel the local copy when
+                // it landed suppressed 46 good predictions out of 49 on
+                // loopback, because at a low ping the authority beats a client
+                // by a frame on almost everything. Telling the two apart needs
+                // the shot's identity, and the snapshot carries a count.
+                int owed = Math.Max(1, landed);
+                if (NetSession.NetFrame - _settledFrame[slot] >= (uint)HoldFrames)
                 {
-                    _settledCredit[slot] = Math.Max(0, _settledCredit[slot] - Math.Max(1, landed));
-                    return true;
+                    _settledCredit[slot] = 0;
                 }
-                Unpredicted++;
-                return false;
+                int fromSettled = Math.Min(owed, _settledCredit[slot]);
+                _settledCredit[slot] -= fromSettled;
+                int rest = owed - fromSettled;
+                if (rest > 0)
+                {
+                    Unpredicted += rest;
+                }
+                return fromSettled > 0;
             }
             // As many as the snapshot says landed, not one.
             //
@@ -1040,9 +1029,10 @@ namespace MphRead.Mods.Network
             // predicted and does not account for -- or one of its own that a
             // verdict has already retired. Take those off the credit so they
             // are not counted twice.
-            if (landed > take && _settledCredit[slot] > 0)
+            if (landed > take)
             {
-                _settledCredit[slot] = Math.Max(0, _settledCredit[slot] - (landed - take));
+                int spare = landed - take;
+                _settledCredit[slot] -= Math.Min(spare, _settledCredit[slot]);
             }
             for (int i = 0; i < take; i++)
             {
@@ -1122,8 +1112,8 @@ namespace MphRead.Mods.Network
             _shownHealth[slot] = 0;
             _predictedFrame[slot] = 0;
             _lastAuthorityHealth[slot] = 0;
-            _authorityAhead[slot] = 0;
-            _authorityAheadFrame[slot] = 0;
+            _settledCredit[slot] = 0;
+            _settledFrame[slot] = 0;
         }
 
         /// <summary>
@@ -1434,8 +1424,7 @@ namespace MphRead.Mods.Network
                 + $"lifted {FloorLifted}; disagreed with nothing outstanding "
                 + $"{HealthDisagreed} -- drawn low by {HealthUnderPoints} point(s) "
                 + $"(worst {HealthUnderWorst}), high by {HealthOverPoints} "
-                + $"(worst {HealthOverWorst}); {PredictionsPreempted} hit(s) cancelled "
-                + "because the authority resolved them first";
+                + $"(worst {HealthOverWorst})";
         }
 
         /// <summary>
@@ -1705,6 +1694,7 @@ namespace MphRead.Mods.Network
                     {
                         _settledCredit[slot]++;
                     }
+                    _settledFrame[slot] = NetSession.NetFrame;
                 }
                 else
                 {

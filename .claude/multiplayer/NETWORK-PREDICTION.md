@@ -330,6 +330,65 @@ agree, 90-100% of predictions confirmed.
 the two bars side by side. Read `drawn low by` first: it is the direction that
 predicts kills the authority refuses, and `high by` is the harmless one.
 
+### A shot that travelled does not decide a death
+
+The one fault that accounting could not reach, and it is not an accounting
+fault at all.
+
+The authority spawns a shot into the world its shooter was looking at and then
+walks it forward to the present in one go (`NetUnlagged`'s catch-up), so it can
+have the whole flight resolved inside the frame the trigger was pulled. The
+shooter's own copy is an ordinary projectile crossing the room against puppets
+held a few frames behind the newest snapshot. **For anything that travels, the
+authority's answer -- and the health that comes with it -- routinely arrives
+first.** The client adopts a bar that already contains the hit, and a moment
+later its own copy of the same shot lands on top of it.
+
+Caught with both logs side by side, local server, 250 ms injected:
+
+```
+20:53:48.325  SERVER  resolve: 32, launch 4955, health 35 -> 3
+20:53:48.45   client adopts health 3
+20:53:48.542  CLIENT  lethal: 32 damage, drawn health 3, authority last said 3
+20:53:50.134  CLIENT  kill undone (64 frames old, hold 64)
+```
+
+The claim for that hit is then matched as a duplicate of the authority's own
+and answered `already resolved`, so it is counted **confirmed** -- which is why
+every tally read 100% while six kills in seven were being undone.
+
+**The snapshot carries a count of hits and no identity for the shot behind
+them**, so a client cannot tell its own already-resolved shot from its next one
+except by counting and by time. Three rounds of exactly that were tried -- a
+preemption credit keyed on unpredicted hits, an expiring settle credit, a
+"beam was already in flight" test -- and they took the undone kills from six in
+seven to about one in two and stopped there. The last of them also suppressed
+**46 good predictions out of 49 on loopback**, because at a low ping the
+authority beats a client by a frame on almost everything. All three were
+removed. Making this exact needs `ModLaunchFrame` in `PlayerState`, which is a
+protocol change.
+
+What is exact is the flight time itself. `BeamProjectileEntity.Age` at the
+moment of the hit says whether there was a race to lose, so a shot older than
+`TravelFlight` (three frames) does not predict a death: the damage is clamped
+to leave the victim on one point and counted in `LethalHeld`, exactly as
+`-nodeathprediction` does for everything. The hit is still instant -- flinch,
+knockback, mark and bar all land on the frame it is fired -- and only the body
+falling waits for the authority.
+
+A Power Beam bolt or an Imperialist round covers a duel's range in one or two
+frames and is untouched, **which is the split the complaint arrived in**: kills
+undone with the Missile and the Magmaul, none with those two.
+
+| Missile volley, Japan, 250 ms | kills predicted | undone |
+|---|---|---|
+| before | 7 | 6 |
+| after | 0 | 0 |
+
+`-hitrig missile` is the rig: one client empties one weapon into one target at
+16 units and nobody else fires, so the authority's health drop for that victim
+is this client's damage and nobody else's.
+
 ### Not through a halfturret
 
 Weavel's lower half takes part of every hit that reaches him, and how much
