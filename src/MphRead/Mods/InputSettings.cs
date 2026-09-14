@@ -353,7 +353,7 @@ namespace MphRead.Mods
                         if (Single.TryParse(value, NumberStyles.Float,
                             CultureInfo.InvariantCulture, out float parsed))
                         {
-                            MouseSensitivity = Math.Clamp(parsed, 0.05f, 10f);
+                            MouseSensitivity = Math.Clamp(parsed, 0.01f, 10f);
                         }
                         continue;
                     }
@@ -527,7 +527,9 @@ namespace MphRead.Mods
                     $"invert_x={InvertMouseX.ToString().ToLowerInvariant()}",
                     $"scroll_all_weapons={ScrollAllWeapons.ToString().ToLowerInvariant()}",
                     $"pointer_jump_guard={Input.PointerInput.GuardJumps.ToString().ToLowerInvariant()}",
-                    $"stylus_zone={Input.StylusZone.Enabled.ToString().ToLowerInvariant()}",
+                    // What was asked for, not what is in force: the zone's
+                    // switch survives stylus mode being turned off and on.
+                    $"stylus_zone={Input.StylusZone.Wanted.ToString().ToLowerInvariant()}",
                     "stylus_zone_opacity="
                         + Input.StylusZone.Opacity.ToString("0.###", CultureInfo.InvariantCulture),
                     "stylus_zone_rect="

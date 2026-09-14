@@ -37,32 +37,20 @@ namespace MphRead.Mods.Launcher.Gui
                 FontSize = 26,
                 Foreground = GuiTheme.TextBrush,
                 TextWrapping = TextWrapping.Wrap,
-                MaxWidth = 560,
                 TextAlignment = TextAlignment.Center,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
+                HorizontalAlignment = HorizontalAlignment.Center
             };
 
-            _no = new UiMark(UiMark.Shape.Cancel, no)
-            {
-                HorizontalAlignment = HorizontalAlignment.Left,
-                VerticalAlignment = VerticalAlignment.Bottom,
-                Margin = new Thickness(UiLayout.CornerX, 0, 0, UiLayout.CornerY)
-            };
+            _no = new UiMark(UiMark.Shape.Cancel, no);
             _no.Click += (_, _) => Answered?.Invoke(this, false);
-            var ok = new UiMark(UiMark.Shape.Accept, yes)
-            {
-                HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment = VerticalAlignment.Bottom,
-                Margin = new Thickness(0, 0, UiLayout.CornerX, UiLayout.CornerY)
-            };
+            var ok = new UiMark(UiMark.Shape.Accept, yes);
             ok.Click += (_, _) => Answered?.Invoke(this, true);
 
-            Panel root = UiLayout.Backdrop(overGame);
-            root.Children.Add(prompt);
-            root.Children.Add(_no);
-            root.Children.Add(ok);
-            Content = root;
+            // The one screen the pair of marks was always right for, and now
+            // the question sits directly above the two answers to it instead
+            // of between them.
+            Content = UiLayout.Page(overGame, UiLayout.WellShort, "",
+                strip: null, body: prompt, no: _no, yes: ok, centreBody: true);
         }
 
         protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)

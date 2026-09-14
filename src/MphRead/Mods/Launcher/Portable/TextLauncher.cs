@@ -472,8 +472,8 @@ namespace MphRead.Mods.Launcher
             GameMode mode = AskMode();
             int bots = AskInt("  Bots (0-7)", LauncherPrefs.Bots, 0,
                 PlayerEntity.SlotCapacity - 1);
-            int level = AskInt("  Bot skill (0 easy, 1 normal, 2 hard)",
-                LauncherPrefs.BotLevel, 0, 2);
+            int level = AskInt("  Bot skill (0 easy, 1 normal, 2 hard, 3 insane)",
+                LauncherPrefs.BotLevel, 0, 3);
             Hunter hunter = AskHunter();
             LauncherPrefs.Bots = bots;
             LauncherPrefs.BotLevel = level;

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
@@ -85,6 +86,19 @@ namespace MphRead.Mods.Launcher.Gui
 
         public event EventHandler? Clicked;
 
+        /// <summary>
+        /// Chosen rather than merely pointed at: Enter, Space, or a second
+        /// click on the row that is already selected.
+        ///
+        /// Separate from <see cref="Clicked"/> on purpose. A single click
+        /// selects -- it fills the preview in beside the list and, for a
+        /// server, the address box -- and starting the match is the tick in
+        /// the corner. Pressing a row *was* the whole choice, which put a
+        /// player in a match they had only meant to look at.
+        /// </summary>
+        public event EventHandler? Activated;
+
+
         private readonly string _name;
         private readonly string _endpoint;
         private string _map = "";
@@ -103,6 +117,12 @@ namespace MphRead.Mods.Launcher.Gui
             Height = 30;
             Focusable = true;
             Cursor = new Cursor(StandardCursorType.Hand);
+            // A second click joins, as it does in the map list. See UiListRow.
+            DoubleTapped += (_, _) =>
+            {
+                Clicked?.Invoke(this, EventArgs.Empty);
+                Activated?.Invoke(this, EventArgs.Empty);
+            };
         }
 
         /// <summary>Fill the columns in once the server has answered.</summary>
@@ -169,6 +189,7 @@ namespace MphRead.Mods.Launcher.Gui
             if (e.Key == Key.Enter || e.Key == Key.Space)
             {
                 Clicked?.Invoke(this, EventArgs.Empty);
+                Activated?.Invoke(this, EventArgs.Empty);
                 e.Handled = true;
                 return;
             }
@@ -220,9 +241,55 @@ namespace MphRead.Mods.Launcher.Gui
         internal static void Draw(DrawingContext context, string text, double x, double width,
             IBrush brush, bool bold, bool rightAlign, double size = 13)
         {
-            if (text.Length == 0 || width <= 4)
+            FormattedText? formatted = Lay(text, width, brush, bold, size);
+            if (formatted == null)
             {
                 return;
+            }
+            double left = rightAlign ? x - Math.Min(formatted.Width, width) : x;
+            using (context.PushClip(new Rect(rightAlign ? x - width : x, 0, width, size * 1.6 + 8)))
+            {
+                context.DrawText(formatted, new Point(left, 8));
+            }
+        }
+
+        /// <summary>
+        /// One cell's text, laid out once and kept.
+        ///
+        /// Shaping a string is the expensive half of drawing it, and a server
+        /// row draws five cells -- so a five-row browser repainted a hundred
+        /// times a second was laying out two and a half thousand strings a
+        /// second, every one of them identical to the last. None of this text
+        /// depends on time: it changes when the server answers, when the row
+        /// is resized, or never.
+        ///
+        /// A cache on the type rather than on the row, because
+        /// <see cref="Draw"/> is shared with <see cref="ServerHeader"/> and
+        /// the headings are the same five strings on every list. Bounded, and
+        /// cleared wholesale rather than evicted one at a time: the keys are
+        /// server names and map names, so the set is small and short-lived,
+        /// and the only way it grows is somebody opening a browser with
+        /// hundreds of servers in it -- at which point starting again costs
+        /// one frame.
+        /// </summary>
+        private static readonly Dictionary<(string, double, IBrush, bool, double), FormattedText>
+            _laid = new();
+
+        private static FormattedText? Lay(string text, double width, IBrush brush,
+            bool bold, double size)
+        {
+            if (text.Length == 0 || width <= 4)
+            {
+                return null;
+            }
+            var key = (text, width, brush, bold, size);
+            if (_laid.TryGetValue(key, out FormattedText? found))
+            {
+                return found;
+            }
+            if (_laid.Count > 512)
+            {
+                _laid.Clear();
             }
             var formatted = new FormattedText(text, CultureInfo.InvariantCulture,
                 FlowDirection.LeftToRight, GuiTheme.Face(bold), size, brush)
@@ -233,14 +300,17 @@ namespace MphRead.Mods.Launcher.Gui
                 MaxTextHeight = size * 1.6,
                 Trimming = TextTrimming.CharacterEllipsis
             };
-            double left = rightAlign ? x - Math.Min(formatted.Width, width) : x;
-            using (context.PushClip(new Rect(rightAlign ? x - width : x, 0, width, size * 1.6 + 8)))
-            {
-                context.DrawText(formatted, new Point(left, 8));
-            }
+            _laid[key] = formatted;
+            return formatted;
         }
 
         public string Endpoint => _endpoint;
+
+        /// <summary>
+        /// The map this server said it was running, or nothing until it has
+        /// answered. What the preview beside the list is drawn from.
+        /// </summary>
+        public string RoomKey => _answered ? _map : "";
     }
 
     /// <summary>The column headings over a <see cref="ServerRow"/> list.</summary>

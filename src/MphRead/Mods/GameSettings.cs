@@ -67,6 +67,10 @@ namespace MphRead.Mods
             // one on its next resize.
             RenderOptions.ResolutionScale = RenderOptions.ParseScale(settings.ResolutionScale,
                 RenderOptions.ResolutionScale);
+            // Read once a frame by the camera, so this reaches the match that
+            // is running behind the settings page as soon as it is saved.
+            RenderOptions.FieldOfView = RenderOptions.ParseFov(settings.FieldOfView,
+                RenderOptions.FieldOfView);
             RenderOptions.Lighting = RenderOptions.ParseOnOff(settings.Lighting, RenderOptions.Lighting);
             RenderOptions.Fog = RenderOptions.ParseOnOff(settings.Fog, RenderOptions.Fog);
             RenderOptions.TextureFiltering = RenderOptions.ParseOnOff(settings.TextureFiltering,

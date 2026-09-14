@@ -48,7 +48,7 @@ namespace MphRead.Mods.Launcher.Gui
             Online,
             Offline,
             Story,
-            Demo,
+            Clips,
             Vote
         }
 
@@ -60,6 +60,17 @@ namespace MphRead.Mods.Launcher.Gui
 
         /// <summary>Vote mode only: the map to put to the room.</summary>
         public event EventHandler<string>? Voted;
+
+        /// <summary>
+        /// Online only: run a server rather than join one.
+        ///
+        /// Raised rather than handled here because the screen that answers it
+        /// is a screen, not a panel: it is pushed onto the same stack this one
+        /// is on, so it gets the window, the keyboard and the back mark that
+        /// every other screen has, and this one is not holding a second layout
+        /// it shows a tenth of the time.
+        /// </summary>
+        public event EventHandler? CreateRequested;
 
         private static readonly (string Label, GameMode Mode)[] _modes =
         {
@@ -94,6 +105,7 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly Note _note = new("");
         private readonly UiMark _go;
         private readonly UiMark _back;
+        private readonly UiMark _create;
 
         private DispatcherTimer? _statusTimer;
         private CancellationTokenSource? _statusCancel;
@@ -103,7 +115,6 @@ namespace MphRead.Mods.Launcher.Gui
         private ChoiceRow? _mode;
         private ChoiceRow? _bots;
         private ChoiceRow? _skill;
-        private ChoiceRow? _where;
         private ChoiceRow? _resume;
         private FieldRow? _name;
         private FieldRow? _address;
@@ -123,64 +134,83 @@ namespace MphRead.Mods.Launcher.Gui
                 Height = 172,
                 CornerRadius = new CornerRadius(3),
                 ClipToBounds = true,
-                Margin = new Thickness(0, 0, 0, 10),
                 IsVisible = false,
                 Child = _preview
             };
 
+            // The picture above the list rather than beside it, and the
+            // settings about it to its right.
+            //
+            // A centred well has no side to hang a column off without
+            // stopping being centred, so the three things this screen holds
+            // are stacked instead: what you are choosing at the top -- its
+            // picture, and the settings that belong to it -- and the list of
+            // everything you could choose instead underneath, running the full
+            // width of the well. The old arrangement put the picture in the
+            // corner of the options column, a third of the size, and the
+            // picture is the answer to "which map is that".
+            //
+            // The preview stretches and the options do not: a room's picture
+            // is better bigger, and a row of settings at 320 is the width it
+            // was drawn for.
             var body = new Grid
             {
                 ColumnDefinitions = new ColumnDefinitions("*,Auto"),
-                RowDefinitions = new RowDefinitions("*,Auto"),
-                Margin = UiLayout.BodyMargin
+                RowDefinitions = new RowDefinitions("Auto,*,Auto")
             };
-            Grid.SetColumn(_list, 0);
-            Grid.SetRow(_list, 0);
-            var side = new StackPanel { Spacing = 2, Margin = new Thickness(30, 0, 0, 0) };
-            side.Children.Add(_previewBox);
-            side.Children.Add(_options);
+            _previewBox.Margin = new Thickness(0, 0, 24, 14);
+            Grid.SetColumn(_previewBox, 0);
+            Grid.SetRow(_previewBox, 0);
+            body.Children.Add(_previewBox);
+            // Scrolled, because a short window gives this row less height than
+            // the options asked for -- and a StackPanel given less height than
+            // it wants does not shrink and is not clipped, it simply draws
+            // past the bottom of its row. That was the tick being covered by
+            // the rows above it, which is a layout fault rather than a
+            // z-order one.
+            var side = new ScrollViewer
+            {
+                Content = _options,
+                MaxHeight = 190,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+            };
             Grid.SetColumn(side, 1);
             Grid.SetRow(side, 0);
+            body.Children.Add(side);
+            Grid.SetColumn(_list, 0);
+            Grid.SetColumnSpan(_list, 2);
+            Grid.SetRow(_list, 1);
+            body.Children.Add(_list);
             Grid.SetColumn(_note, 0);
             Grid.SetColumnSpan(_note, 2);
-            Grid.SetRow(_note, 1);
-            body.Children.Add(_list);
-            body.Children.Add(side);
+            Grid.SetRow(_note, 2);
             body.Children.Add(_note);
 
-            _back = new UiMark(UiMark.Shape.Cancel, "back")
-            {
-                HorizontalAlignment = HorizontalAlignment.Left,
-                VerticalAlignment = VerticalAlignment.Bottom,
-                Margin = new Thickness(UiLayout.CornerX, 0, 0, UiLayout.CornerY)
-            };
+            _back = new UiMark(UiMark.Shape.Cancel, "back");
             _back.Click += (_, _) => Leave();
-            _go = new UiMark(UiMark.Shape.Accept, "play")
-            {
-                HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment = VerticalAlignment.Bottom,
-                Margin = new Thickness(0, 0, UiLayout.CornerX, UiLayout.CornerY)
-            };
+            _go = new UiMark(UiMark.Shape.Accept, "play");
             _go.Click += (_, _) => Go();
+            // Between the two because that is what it is: running a server is
+            // neither leaving the browser nor joining a row on it, and the one
+            // place on the browser it belongs is beside the act it is an
+            // alternative to. Drawn only on Online -- there is nothing to
+            // create on any other face.
+            _create = new UiMark(UiMark.Shape.Add, "create server")
+            {
+                IsVisible = false
+            };
+            _create.Click += (_, _) => CreateRequested?.Invoke(this, EventArgs.Empty);
 
-            Panel root = UiLayout.Backdrop(overGame);
-            root.Children.Add(body);
-            root.Children.Add(UiLayout.Heading(face == Face.Vote ? "vote" : "play"));
             if (face != Face.Vote)
             {
-                _tabs = new UiTabs(new[] { "Online", "Offline", "Story", "Demo" },
-                    (int)face)
-                {
-                    HorizontalAlignment = HorizontalAlignment.Left,
-                    VerticalAlignment = VerticalAlignment.Top,
-                    Margin = UiLayout.TabMargin
-                };
+                _tabs = new UiTabs(new[] { "Online", "Offline", "Story", "Clips" },
+                    (int)face);
                 _tabs.Changed += (_, _) => Rebuild();
-                root.Children.Add(_tabs);
             }
-            root.Children.Add(_back);
-            root.Children.Add(_go);
-            Content = root;
+            Content = UiLayout.Page(overGame, UiLayout.WellPlay,
+                face == Face.Vote ? "vote" : "play", _tabs, body, _back, _go,
+                extra: _create);
 
             _list.Activated += (_, _) => Go();
             // Subscribed once, not per face: the list outlives every rebuild,
@@ -275,12 +305,29 @@ namespace MphRead.Mods.Launcher.Gui
             StopPolling();
             _list.Clear();
             _list.SetHeader(null);
+            // What the tick does, in the word for this face. It is the only
+            // thing that starts anything now -- a click on a row selects it
+            // and nothing more -- so it has to say which of the four it is
+            // about to do.
+            // Joining somebody else's server is a different act from starting
+            // a match, and is the only one that keeps its own word. Offline
+            // and Story both start something of your own, so they say the same
+            // thing -- "play" on one and "start" on the other was two words
+            // for one action, which is the habit this screen exists to break.
+            _go.Label = Current switch
+            {
+                Face.Online => "join",
+                Face.Clips => "watch",
+                Face.Vote => "vote",
+                _ => "start"
+            };
             _options.Children.Clear();
             _note.Text = "";
             _note.Foreground = GuiTheme.TextDimBrush;
-            _hunter = _mode = _bots = _skill = _where = _resume = null;
+            _hunter = _mode = _bots = _skill = _resume = null;
             _name = _address = null;
             _previewBox.IsVisible = false;
+            _create.IsVisible = Current == Face.Online;
 
             switch (Current)
             {
@@ -293,7 +340,7 @@ namespace MphRead.Mods.Launcher.Gui
             case Face.Story:
                 BuildStory();
                 break;
-            case Face.Demo:
+            case Face.Clips:
                 BuildDemo();
                 break;
             case Face.Vote:
@@ -331,6 +378,11 @@ namespace MphRead.Mods.Launcher.Gui
                 $"{LauncherPrefs.ServerAddress}:{LauncherPrefs.ServerPort}", boxWidth: 170);
             _address.Box.LostFocus += (_, _) => QueryStatusSoon();
             _options.Children.Add(_address);
+            // The same picture the map list shows. A server row says which map
+            // it is running and the map is most of what decides whether to
+            // join, so the one screen that had the name without the picture
+            // was the one where the picture would have answered the question.
+            _previewBox.IsVisible = true;
             var refresh = new UiWord("Refresh", 15, colour: GuiTheme.TextDim)
             {
                 Margin = new Thickness(4, 10, 0, 0)
@@ -391,9 +443,10 @@ namespace MphRead.Mods.Launcher.Gui
             string name = listing.ServerName.Length > 0 ? listing.ServerName : listing.Endpoint;
             var row = new ServerRow(name, listing.Endpoint);
             ToolTip.SetTip(row, listing.Endpoint);
-            // Pressing a server fills the address in and joins it in one go:
-            // the row is the choice, and a second press somewhere else to
-            // confirm it is the press this screen exists to remove.
+            // Pressing a server fills the address box in and selects it;
+            // JOIN in the corner (or a second click, or Enter) is what
+            // actually connects. One press used to do both, which is a player
+            // dropped into a match they had only meant to read the ping of.
             _list.Add(row, _ =>
             {
                 if (_address != null)
@@ -405,7 +458,19 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 ServerStatus status = NetStatus.Query(listing.Address, listing.Port,
                     allowJoinProbe: false);
-                Dispatcher.UIThread.Post(() => row.SetStatus(status));
+                Dispatcher.UIThread.Post(() =>
+                {
+                    row.SetStatus(status);
+                    // The answers come back in whatever order the servers
+                    // reply in, and the selected row is usually the first one
+                    // -- which means its map arrives after the preview was
+                    // last refreshed. Refresh again for the row that is
+                    // selected, and for no other.
+                    if (ReferenceEquals(_list.Selected, row))
+                    {
+                        RefreshPreview();
+                    }
+                });
             });
         }
 
@@ -533,13 +598,12 @@ namespace MphRead.Mods.Launcher.Gui
         {
             _go.Label = "start";
             FillRooms(_settings.RoomKey);
-            // Local or over the directory. One row, because it is the same
-            // match either way -- and the only difference it makes to this
-            // screen is that a server fills its own slots, so bots are not a
-            // question there.
-            _where = new ChoiceRow("Where", new[] { "Local", "Online" }, 0);
-            _where.Changed += (_, _) => RefreshOffline();
-            _options.Children.Add(_where);
+            // No "Where" row. Offline is a match on this machine and nothing
+            // else: the row's other answer -- have the directory run it --
+            // was a *server*, sitting on the one face of this screen that is
+            // about not being online, offering a choice whose two halves have
+            // different settings under them. Running a server is its own act
+            // and it moved to Online, beside the servers it joins.
             _mode = new ChoiceRow("Match type", _modes.Select(m => m.Label).ToArray());
             _options.Children.Add(_mode);
             _hunter = AddHunter();
@@ -548,23 +612,10 @@ namespace MphRead.Mods.Launcher.Gui
                     .Select(i => i.ToString(CultureInfo.InvariantCulture)).ToArray(),
                 LauncherPrefs.Bots);
             _options.Children.Add(_bots);
-            _skill = new ChoiceRow("Bot skill", new[] { "Easy", "Normal", "Hard" },
+            _skill = new ChoiceRow("Bot skill", new[] { "Easy", "Normal", "Hard", "Insane" },
                 LauncherPrefs.BotLevel);
             _options.Children.Add(_skill);
             _previewBox.IsVisible = true;
-            RefreshOffline();
-        }
-
-        private void RefreshOffline()
-        {
-            bool host = _where!.Index == 1;
-            _bots!.IsVisible = !host;
-            _skill!.IsVisible = !host;
-            _note.Text = host
-                ? "The directory runs the match, so nothing here needs a forwarded port. "
-                    + "To run one on your own machine, use the dedicated server."
-                : "";
-            _note.Foreground = GuiTheme.TextDimBrush;
         }
 
         private void FillRooms(string? current)
@@ -583,7 +634,7 @@ namespace MphRead.Mods.Launcher.Gui
             _list.SelectTag(current);
         }
 
-        private async Task StartMatch()
+        private void StartMatch()
         {
             if (SelectedRoom() is not string roomKey)
             {
@@ -595,61 +646,19 @@ namespace MphRead.Mods.Launcher.Gui
             var hunter = (Hunter)Enum.Parse(typeof(Hunter), _hunter!.Value);
             _settings.RoomKey = roomKey;
             LauncherPrefs.LastHunter = hunter;
-
-            if (_where!.Index == 0)
-            {
-                LauncherPrefs.Bots = _bots!.Index;
-                LauncherPrefs.BotLevel = _skill!.Index;
-                LauncherPrefs.LastKind = (int)LaunchKind.Offline;
-                LauncherPrefs.Save();
-                Finish(new LaunchPlan
-                {
-                    Kind = LaunchKind.Offline,
-                    Hunter = hunter,
-                    PlayerName = LauncherPrefs.PlayerName,
-                    RoomKey = roomKey,
-                    Mode = mode,
-                    Bots = _bots.Index,
-                    BotLevel = _skill.Index
-                });
-                return;
-            }
-
-            string name = PlayerName();
-            LauncherPrefs.PlayerName = name;
-            LauncherPrefs.LastKind = (int)LaunchKind.Host;
+            LauncherPrefs.Bots = _bots!.Index;
+            LauncherPrefs.BotLevel = _skill!.Index;
+            LauncherPrefs.LastKind = (int)LaunchKind.Offline;
             LauncherPrefs.Save();
-            _go.IsEnabled = false;
-            _go.Label = "starting";
-            _note.Text = $"Asking {LauncherPrefs.MasterHost} to run {roomKey}...";
-            _note.Foreground = GuiTheme.TextDimBrush;
-            bool ok = await Task.Run(() =>
-            {
-                HostedGame game = NetMasterClient.RequestGame(LauncherPrefs.MasterHost,
-                    LauncherPrefs.MasterPort, roomKey, mode, timeLimit: 7 * 60,
-                    pointGoal: 7, maxPlayers: PlayerEntity.SlotCapacity,
-                    serverName: $"{name}'s game");
-                return game.Started && NetLaunch.Join(game.Host, game.Port, name, hunter);
-            });
-            _go.IsEnabled = true;
-            _go.Label = "start";
-            if (!ok)
-            {
-                NetSession.Stop();
-                NetHostSession.Stop();
-                _note.Text = NetHostSession.LastError
-                    ?? "The game could not be started. The directory may be down.";
-                _note.Foreground = GuiTheme.BadBrush;
-                return;
-            }
             Finish(new LaunchPlan
             {
-                Kind = LaunchKind.Host,
+                Kind = LaunchKind.Offline,
                 Hunter = hunter,
-                PlayerName = name,
+                PlayerName = LauncherPrefs.PlayerName,
                 RoomKey = roomKey,
                 Mode = mode,
-                Port = LauncherPrefs.HostPort
+                Bots = _bots.Index,
+                BotLevel = _skill.Index
             });
         }
 
@@ -658,11 +667,27 @@ namespace MphRead.Mods.Launcher.Gui
             return (_list.Selected as UiListRow)?.Choice as string;
         }
 
+        /// <summary>
+        /// Which map the picture beside the list should be of.
+        ///
+        /// A map row stands for its own room; a server row stands for whatever
+        /// that server said it was running, which is a thing it only knows
+        /// once the server has answered. Nothing is drawn until it has.
+        /// </summary>
+        private string? PreviewRoom()
+        {
+            if (_list.Selected is ServerRow server)
+            {
+                return server.RoomKey.Length > 0 ? server.RoomKey : null;
+            }
+            return SelectedRoom();
+        }
+
         // --------------------------------------------------------------- story
 
         private void BuildStory()
         {
-            _go.Label = "play";
+            _go.Label = "start";
             for (byte slot = 1; slot <= AdventureSave.SlotCount; slot++)
             {
                 AdventureSave.SlotInfo info = AdventureSave.Read(slot);
@@ -734,7 +759,7 @@ namespace MphRead.Mods.Launcher.Gui
                 // no file manager on a modern Android can open it, so a player
                 // who wants to copy a recording off the device needs the path
                 // itself -- and this is the only place it is ever written down.
-                _note.Text = "Nothing recorded yet. Recordings are made from the pause menu "
+                _note.Text = "Nothing recorded yet. Clips are made from the pause menu "
                     + $"during an online match, and are written to:\n{DemoLibrary.Directory}";
             }
             // The system picker last rather than first: on Android it cannot
@@ -797,7 +822,7 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 return;
             }
-            var options = new FilePickerOpenOptions { Title = "Demos", AllowMultiple = false };
+            var options = new FilePickerOpenOptions { Title = "Clips", AllowMultiple = false };
             if (!OperatingSystem.IsAndroid())
             {
                 // Android filters by MIME type and a demo file has none; a
@@ -882,12 +907,12 @@ namespace MphRead.Mods.Launcher.Gui
                 _ = Join();
                 break;
             case Face.Offline:
-                _ = StartMatch();
+                StartMatch();
                 break;
             case Face.Story:
                 StartAdventure();
                 break;
-            case Face.Demo:
+            case Face.Clips:
                 _ = PlayDemo();
                 break;
             case Face.Vote:
@@ -915,7 +940,7 @@ namespace MphRead.Mods.Launcher.Gui
                 return;
             }
             _preview.Source = null;
-            if (SelectedRoom() is not string room)
+            if (PreviewRoom() is not string room)
             {
                 return;
             }

@@ -168,8 +168,21 @@ namespace MphRead.Mods.Launcher.Gui
             context.FillRectangle(Brushes.Transparent,
                 new Rect(0, 0, Bounds.Width, Bounds.Height));
             bool lit = (IsPointerOver || IsFocused) && IsEnabled;
+            // The accent, for every word, on the frame the pointer arrives.
+            //
+            // Two wrong answers came before it. The word's own colour blended
+            // towards white was the first: the text colour is already all but
+            // white, so Settings and Quit answered the pointer with a change
+            // nobody could see, while Play -- which starts amber -- was the
+            // only word that visibly reacted. Gliding to the accent over 140
+            // ms was the second, and it was reported straight back as the
+            // button taking a fifth of a second to notice the pointer, which
+            // is exactly what an eased 140 ms ramp is. A menu word is not an
+            // animation; it is a state, and the state is "the pointer is
+            // here". So: no ramp, no movement, and the one thing that changes
+            // is the colour.
             Color colour = !IsEnabled ? GuiTheme.TextDim
-                : lit ? GuiTheme.Shade(_colour, 0.4)
+                : lit ? GuiTheme.Shade(GuiTheme.Accent, 0.2)
                 : Selected ? GuiTheme.Accent : _colour;
             context.DrawText(Label(new SolidColorBrush(colour)), new Point(0, 0));
         }

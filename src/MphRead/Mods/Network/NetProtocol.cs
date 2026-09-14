@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.Text;
 using MphRead.Entities;
 using OpenTK.Mathematics;
@@ -51,7 +52,9 @@ namespace MphRead.Mods.Network
         // server relays what it recognises and drops what it does not, so a
         // build that speaks voice and a build that does not can share a match.
         Vote = 26,          // client -> server, propose a map or answer a proposal
-        VoteState = 27      // server -> clients, the vote in progress
+        VoteState = 27,     // server -> clients, the vote in progress
+        MapChoices = 28,    // server -> clients, the ballot for the next map
+        MapPick = 29        // client -> server, which of them this player wants
     }
 
     /// <summary>
@@ -135,6 +138,18 @@ namespace MphRead.Mods.Network
         public const int MaxNameBytes = 32;
         public const int Size = 1 + 1 + 1 + 2 + 2 + MaxRoomBytes + MaxNameBytes;
 
+        /// <summary>
+        /// How many maps a requested rotation may carry, and what one costs on
+        /// the wire.
+        ///
+        /// The cap is the datagram rather than a policy: the fixed block is 79
+        /// bytes, an entry is 41, and <see cref="NetConfig.MaxPacketSize"/> is
+        /// 1024, so sixteen leaves room to spare and a number a player would
+        /// actually sit through is far below it anyway.
+        /// </summary>
+        public const int MaxRotation = 16;
+        public const int RotationEntrySize = MaxRoomBytes + 1;
+
         public byte Protocol;
         public byte MaxPlayers;
         public byte Mode;
@@ -143,6 +158,24 @@ namespace MphRead.Mods.Network
         public ushort PointGoal;
         public string RoomKey;
         public string ServerName;
+
+        /// <summary>
+        /// Every map the asker wants played, in order, or an empty list.
+        ///
+        /// Written *after* the fixed block rather than into it, which is the
+        /// whole reason this needed no protocol bump: a directory built before
+        /// rotations existed length-checks the payload against
+        /// <see cref="Size"/> and reads exactly that many bytes, so the tail is
+        /// invisible to it and it plays <see cref="RoomKey"/> on a loop -- the
+        /// behaviour it always had. Entry zero is that same first map, so the
+        /// two halves of the packet never disagree about what starts.
+        /// </summary>
+        public IReadOnlyList<(string RoomKey, GameMode Mode)>? Rotation;
+
+        /// <summary>How many bytes this request takes, tail included.</summary>
+        public int Length => Size + (Rotation == null || Rotation.Count == 0
+            ? 0
+            : 1 + Math.Min(Rotation.Count, MaxRotation) * RotationEntrySize);
 
         public void Write(Span<byte> dest)
         {
@@ -153,6 +186,18 @@ namespace MphRead.Mods.Network
             BinaryPrimitives.WriteUInt16LittleEndian(dest[5..], PointGoal);
             NetText.Write(dest.Slice(7, MaxRoomBytes), RoomKey);
             NetText.Write(dest.Slice(7 + MaxRoomBytes, MaxNameBytes), ServerName);
+            if (Rotation == null || Rotation.Count == 0)
+            {
+                return;
+            }
+            int count = Math.Min(Rotation.Count, MaxRotation);
+            dest[Size] = (byte)count;
+            for (int i = 0; i < count; i++)
+            {
+                int at = Size + 1 + i * RotationEntrySize;
+                NetText.Write(dest.Slice(at, MaxRoomBytes), Rotation[i].RoomKey);
+                dest[at + MaxRoomBytes] = (byte)Rotation[i].Mode;
+            }
         }
 
         public static HostRequestPacket Read(ReadOnlySpan<byte> src)
@@ -165,8 +210,46 @@ namespace MphRead.Mods.Network
                 TimeLimit = BinaryPrimitives.ReadUInt16LittleEndian(src[3..]),
                 PointGoal = BinaryPrimitives.ReadUInt16LittleEndian(src[5..]),
                 RoomKey = NetText.Read(src.Slice(7, MaxRoomBytes)),
-                ServerName = NetText.Read(src.Slice(7 + MaxRoomBytes, MaxNameBytes))
+                ServerName = NetText.Read(src.Slice(7 + MaxRoomBytes, MaxNameBytes)),
+                Rotation = ReadRotation(src)
             };
+        }
+
+        /// <summary>
+        /// The tail, or null when the sender is an older launcher that wrote
+        /// none. Every length is checked rather than trusted: the count byte
+        /// is the asker's and a truncated datagram must not read past the end
+        /// of what arrived.
+        /// </summary>
+        private static List<(string, GameMode)>? ReadRotation(ReadOnlySpan<byte> src)
+        {
+            if (src.Length <= Size)
+            {
+                return null;
+            }
+            int count = Math.Min((int)src[Size], MaxRotation);
+            if (count == 0)
+            {
+                return null;
+            }
+            var maps = new List<(string, GameMode)>(count);
+            for (int i = 0; i < count; i++)
+            {
+                int at = Size + 1 + i * RotationEntrySize;
+                if (at + RotationEntrySize > src.Length)
+                {
+                    break;
+                }
+                string room = NetText.Read(src.Slice(at, MaxRoomBytes));
+                if (room.Length == 0)
+                {
+                    continue;
+                }
+                byte mode = src[at + MaxRoomBytes];
+                maps.Add((room, Enum.IsDefined(typeof(GameMode), mode)
+                    ? (GameMode)mode : GameMode.Battle));
+            }
+            return maps.Count > 0 ? maps : null;
         }
     }
 
@@ -217,9 +300,32 @@ namespace MphRead.Mods.Network
         public const int MaxNameBytes = 32;
         public const int Size = MatchStatePacket.Size + 2 + MaxNameBytes;
 
+        /// <summary>
+        /// The same packet with one byte of capability on the end.
+        ///
+        /// After the name rather than inside the block, so a server built
+        /// before it existed is read exactly as it always was and a launcher
+        /// built before it existed never looks: the length check is what
+        /// separates the two, and neither side needed a protocol bump.
+        /// </summary>
+        public const int SizeWithFlags = Size + 1;
+
+        /// <summary>Bit 0: this server will open a new match on a port of its own.</summary>
+        public const byte FlagCanHost = 1;
+
         public MatchStatePacket Match;
         public byte MaxPlayers;
         public byte Protocol;
+
+        /// <summary>
+        /// What this server can do beyond running the match it is running.
+        ///
+        /// Zero for a server that did not say, which reads as "cannot" -- and
+        /// unlike the directory's own flag that is the *right* default here:
+        /// hosting on a game server is off unless an admin passed
+        /// <c>-hostports</c>, so silence and no really are the same answer.
+        /// </summary>
+        public byte Flags;
         /// <summary>
         /// The name an admin gave this server, or an empty string. A list of
         /// addresses is not a list of servers -- people pick the one they
@@ -233,6 +339,10 @@ namespace MphRead.Mods.Network
             dest[MatchStatePacket.Size] = MaxPlayers;
             dest[MatchStatePacket.Size + 1] = Protocol;
             NetText.Write(dest.Slice(MatchStatePacket.Size + 2, MaxNameBytes), ServerName);
+            if (dest.Length >= SizeWithFlags)
+            {
+                dest[Size] = Flags;
+            }
         }
 
         public static ServerStatusPacket Read(ReadOnlySpan<byte> src)
@@ -244,7 +354,8 @@ namespace MphRead.Mods.Network
                 Protocol = src[MatchStatePacket.Size + 1],
                 ServerName = src.Length >= Size
                     ? NetText.Read(src.Slice(MatchStatePacket.Size + 2, MaxNameBytes))
-                    : ""
+                    : "",
+                Flags = src.Length >= SizeWithFlags ? src[Size] : (byte)0
             };
         }
     }
@@ -1395,6 +1506,141 @@ namespace MphRead.Mods.Network
                 Eligible = src[at + 2],
                 Needed = src[at + 3],
                 Seconds = BinaryPrimitives.ReadUInt16LittleEndian(src.Slice(at + 4, 2))
+            };
+        }
+    }
+
+    /// <summary>
+    /// The short list of maps the results screen offers, and how the room has
+    /// voted on it so far.
+    ///
+    /// A different thing from <see cref="VoteStatePacket"/>, which is a
+    /// question put to the room mid-match and answered yes or no. This is the
+    /// intermission's own ballot: the server names a handful of maps when a
+    /// match ends, everybody picks one off the results screen while they are
+    /// reading the scoreboard, and the one in front when the countdown runs
+    /// out is the one loaded. Nobody has to propose anything and nobody is
+    /// interrupted, because there is nothing to interrupt -- which is the
+    /// whole reason the choice belongs here rather than in a vote.
+    ///
+    /// Broadcast on the same timer as everything else rather than once per
+    /// change, for the reason <see cref="MatchStatePacket"/> is: UDP drops,
+    /// and a client that missed the one packet would sit through the
+    /// intermission with no ballot on screen while everybody else voted.
+    ///
+    /// Additive in both directions, so it needs no protocol bump: a server
+    /// built before this never sends one and the results screen simply shows
+    /// the map the rotation was going to play anyway, which is what it showed
+    /// before; a client built before it drops an unknown type on the floor.
+    /// </summary>
+    public struct MapChoicesPacket
+    {
+        /// <summary>
+        /// How many maps the tally can carry: one per player, since that is
+        /// the most distinct maps a room can have picked at once.
+        ///
+        /// The ballot is not a short list any more -- every map is votable and
+        /// the client scrolls its own room list -- so what travels is only
+        /// what has been picked. Eight entries is the worst case and the
+        /// packet is still under three hundred bytes.
+        /// </summary>
+        public const int MaxChoices = 8;
+        public const int MaxRoomBytes = MatchStatePacket.MaxNameBytes;
+        public const int Size = 4 + MaxChoices * (MaxRoomBytes + 1);
+
+        /// <summary>
+        /// Whether the ballot is open at all.
+        ///
+        /// Its own byte rather than "Count is zero", because a ballot with
+        /// nothing picked yet is the state it spends its first seconds in and
+        /// is not the same as no ballot -- one is a list to scroll and the
+        /// other is a results screen that says NEXT and nothing else.
+        /// </summary>
+        public byte Open;
+
+        /// <summary>How many maps below have votes.</summary>
+        public byte Count;
+        public string[] RoomKeys;
+        /// <summary>Votes cast for each, in the same order.</summary>
+        public byte[] Votes;
+        /// <summary>
+        /// How many players could vote when this was counted, for the "3 of 8"
+        /// the rows read.
+        ///
+        /// There is no threshold to send beside it: the map with the most
+        /// votes is the one taken, full stop. A mid-match vote needs a bar to
+        /// clear because it interrupts people who did not ask to be asked; an
+        /// intermission does not, and a bar there only produces the case
+        /// nobody wants -- a room that voted, did not reach seventy per cent,
+        /// and is sent somewhere none of them picked.
+        /// </summary>
+        public byte Eligible;
+
+        public void Write(Span<byte> dest)
+        {
+            dest[..Size].Clear();
+            int count = Math.Clamp((int)Count, 0, MaxChoices);
+            dest[0] = (byte)count;
+            dest[1] = Eligible;
+            dest[2] = Open;
+            for (int i = 0; i < count; i++)
+            {
+                int at = 4 + i * (MaxRoomBytes + 1);
+                ChatPacket.WriteAscii(dest.Slice(at, MaxRoomBytes),
+                    RoomKeys != null && i < RoomKeys.Length ? RoomKeys[i] : "");
+                dest[at + MaxRoomBytes] = Votes != null && i < Votes.Length ? Votes[i] : (byte)0;
+            }
+        }
+
+        public static MapChoicesPacket Read(ReadOnlySpan<byte> src)
+        {
+            int count = Math.Clamp((int)src[0], 0, MaxChoices);
+            var keys = new string[count];
+            var votes = new byte[count];
+            for (int i = 0; i < count; i++)
+            {
+                int at = 4 + i * (MaxRoomBytes + 1);
+                keys[i] = ChatPacket.ReadAscii(src.Slice(at, MaxRoomBytes));
+                votes[i] = src[at + MaxRoomBytes];
+            }
+            return new MapChoicesPacket
+            {
+                Count = (byte)count,
+                RoomKeys = keys,
+                Votes = votes,
+                Eligible = src[1],
+                Open = src[2]
+            };
+        }
+    }
+
+    /// <summary>
+    /// Which map off the ballot this player wants next. Empty means "no
+    /// opinion", which is also how a pick is taken back.
+    ///
+    /// Re-sendable, unlike a vote's ballot: this is asked during an
+    /// intermission with a countdown on screen, so changing your mind while
+    /// the picture is still up is the normal case rather than a way to game a
+    /// race. The server keeps the last one it heard from each slot.
+    /// </summary>
+    public struct MapPickPacket
+    {
+        public const int MaxRoomBytes = MatchStatePacket.MaxNameBytes;
+        public const int Size = MaxRoomBytes;
+
+        public string RoomKey;
+
+        public void Write(Span<byte> dest)
+        {
+            dest[..Size].Clear();
+            ChatPacket.WriteAscii(dest[..MaxRoomBytes], RoomKey);
+        }
+
+        public static MapPickPacket Read(ReadOnlySpan<byte> src)
+        {
+            return new MapPickPacket
+            {
+                RoomKey = ChatPacket.ReadAscii(src[..MaxRoomBytes])
             };
         }
     }

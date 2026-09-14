@@ -47,6 +47,257 @@ namespace MphRead.Mods.Launcher.Gui
         /// <summary>Where the tab strip sits: the top-left corner, above the body.</summary>
         public static Thickness TabMargin => new(ColumnLeft, 52, 0, 0);
 
+        // ------------------------------------------------------- the well
+        //
+        // Everything behind the front screen is laid out in one column down
+        // the middle of the frame, with the cross and the tick together at
+        // its foot. The front screen is the exception and keeps its corner:
+        // it is three words over a photograph and has nothing to hold.
+        //
+        // The well has a *fixed* width, which is the whole argument for it.
+        // A layout that fills the window puts a settings row's label at one
+        // edge and its control at the other, so on a wide screen the two ends
+        // of one row are a foot apart and reading it means crossing the
+        // monitor -- and the wider the display, the worse it gets. Here a
+        // wider window gives the *photograph* more room and the content
+        // exactly as much as it had, so a row is the same shape on a laptop
+        // and on an ultrawide.
+        //
+        // The marks move for the same kind of reason. A cross in one corner
+        // and a tick in the other are two things to find; side by side under
+        // the content they are one thing to read, in the order they are read
+        // in -- no, then yes -- and they sit directly under where the eye
+        // already is rather than in the two places it is not.
+
+        /// <summary>
+        /// How wide the well is, per kind of screen.
+        ///
+        /// Chosen against the smallest layout box the surface will hand out
+        /// (960 by 600 -- see <c>UiSurface.Factor</c>): a well as wide as that
+        /// box is a well with no margin, which is a full-width layout wearing
+        /// a centred heading. These leave room either side at every size the
+        /// program allows.
+        /// </summary>
+        public const double WellPlay = 820;
+        public const double WellSettings = 640;
+
+        /// <summary>A question, a menu, a progress log: content, not a table.</summary>
+        public const double WellShort = 480;
+
+        /// <summary>What the well clears at the top, and at the foot for the marks.</summary>
+        public const double WellTop = 44;
+        public const double WellBottom = 84;
+
+        /// <summary>Where the pair of marks sits, and how far apart.</summary>
+        public const double MarksBottom = 28;
+        public const double MarksGap = 64;
+
+        /// <summary>
+        /// The wash the well is read against: darkest through the middle band
+        /// where the content is, fading out top and bottom so the photograph
+        /// is still a photograph.
+        ///
+        /// Not a panel and not a card -- it has no edge anywhere, which is the
+        /// one rule these screens have always kept. And it is never laid over
+        /// a match: the scrim is already the ground there, and a second wash
+        /// on top of it takes the match away, which is the thing the pause
+        /// menu exists to keep visible.
+        /// </summary>
+        public static Border Wash(byte core = 228, byte edge = 120)
+        {
+            return new Border
+            {
+                Background = new LinearGradientBrush
+                {
+                    StartPoint = new RelativePoint(0.5, 0, RelativeUnit.Relative),
+                    EndPoint = new RelativePoint(0.5, 1, RelativeUnit.Relative),
+                    GradientStops =
+                    {
+                        new GradientStop(Color.FromArgb(edge, 10, 12, 16), 0),
+                        new GradientStop(Color.FromArgb(core, 10, 12, 16), 0.16),
+                        new GradientStop(Color.FromArgb(core, 10, 12, 16), 0.88),
+                        new GradientStop(Color.FromArgb(edge, 10, 12, 16), 1)
+                    }
+                }
+            };
+        }
+
+        /// <summary>
+        /// The front screen's wash: the same gradient, a third of the weight.
+        ///
+        /// The default is set by the densest thing any screen has to carry --
+        /// fourteen settings rows, which have to be legible over whatever the
+        /// photograph is doing. The front screen carries three words, and
+        /// three words need almost nothing; painting them against the settings
+        /// page's ground would throw the picture away to solve a problem this
+        /// screen does not have.
+        /// </summary>
+        public static Border LightWash() => Wash(core: 140, edge: 55);
+
+        /// <summary>
+        /// Which wash a backdrop carries, so that it can be baked into the
+        /// same bitmap as the photograph under it.
+        ///
+        /// A wash is a full-window gradient with alpha and costs about what
+        /// the photograph does to rasterise, so leaving it live would leave
+        /// a third of <see cref="BakedBackdrop"/>'s saving on the table.
+        /// </summary>
+        public enum BackdropWash
+        {
+            /// <summary>Nothing over the photograph. The design studies, which draw their own.</summary>
+            None,
+            /// <summary>What every screen behind the front one is read against.</summary>
+            Standard,
+            /// <summary>The front screen's: three words need almost no ground.</summary>
+            Light
+        }
+
+        /// <summary>
+        /// How many device pixels one layout point is, for whoever is cutting
+        /// a bitmap rather than drawing into the frame.
+        ///
+        /// <see cref="UiSurface"/> scales the whole screen with a layout
+        /// transform, so a control's own <c>Bounds</c> are in points and
+        /// nothing in the visual tree can see what those land on. The
+        /// backdrop has to know: baked at the point size it would be blown up
+        /// by this much and the photograph would be visibly soft. One is the
+        /// right answer everywhere else -- the capture commands render at the
+        /// size they are given, with no transform in the way.
+        /// </summary>
+        public static double BakeScale { get; set; } = 1;
+
+        /// <summary>
+        /// The column itself: what the screen is called, the strip of pages or
+        /// sources under it, and the screen's own content under that.
+        ///
+        /// <paramref name="centreBody"/> for content that is shorter than the
+        /// well -- a menu, a question. A list or a page of settings wants the
+        /// height it is given, so it stretches.
+        /// </summary>
+        public static Grid Well(double width, string heading, Control? strip,
+            Control body, bool centreBody = false, bool room = true)
+        {
+            var title = new TextBlock
+            {
+                Text = heading.ToLowerInvariant(),
+                FontFamily = GuiTheme.Display,
+                FontSize = HeadingSize,
+                Foreground = GuiTheme.TextDimBrush,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 0, 0, strip == null ? 20 : 10),
+                IsVisible = heading.Length > 0
+            };
+            if (strip != null)
+            {
+                strip.HorizontalAlignment = HorizontalAlignment.Center;
+                strip.Margin = new Thickness(0, 0, 0, 22);
+            }
+            var well = new Grid
+            {
+                Width = width,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                // The foot only has to clear the marks when there are any.
+                // A screen with none -- the pause menu -- was being pushed
+                // into the top half of the frame by a gap left for nothing.
+                Margin = new Thickness(0, WellTop, 0, room ? WellBottom : WellTop)
+            };
+            if (centreBody)
+            {
+                // The heading travels with the content rather than staying at
+                // the top of the well. A menu centred in the frame under a
+                // word pinned forty points above it does not read as one
+                // thing, and a pause menu is one thing.
+                var group = new StackPanel
+                {
+                    Spacing = 0,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                group.Children.Add(title);
+                if (strip != null)
+                {
+                    group.Children.Add(strip);
+                }
+                group.Children.Add(body);
+                well.Children.Add(group);
+                return well;
+            }
+            well.RowDefinitions = new RowDefinitions("Auto,Auto,*");
+            Grid.SetRow(title, 0);
+            well.Children.Add(title);
+            if (strip != null)
+            {
+                Grid.SetRow(strip, 1);
+                well.Children.Add(strip);
+            }
+            Grid.SetRow(body, 2);
+            well.Children.Add(body);
+            return well;
+        }
+
+        /// <summary>
+        /// The pair of marks at the foot, in reading order: no on the left,
+        /// yes on the right, together rather than in opposite corners.
+        /// </summary>
+        public static StackPanel Marks(params UiMark?[] marks)
+        {
+            var row = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = MarksGap,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(0, 0, 0, MarksBottom)
+            };
+            foreach (UiMark? mark in marks)
+            {
+                if (mark == null)
+                {
+                    continue;
+                }
+                mark.HorizontalAlignment = HorizontalAlignment.Left;
+                mark.VerticalAlignment = VerticalAlignment.Center;
+                row.Children.Add(mark);
+            }
+            return row;
+        }
+
+        /// <summary>
+        /// A whole screen: the backdrop, the wash, the well and the marks, in
+        /// that order.
+        ///
+        /// Every screen behind the front one is built from this and nothing
+        /// else, so none of them can invent its own answer to where a heading
+        /// goes -- which is what nine screens with nine layouts was, and what
+        /// this file exists to stop happening again.
+        ///
+        /// Extra things a screen needs in the frame rather than in the well --
+        /// a line of status under the marks, say -- are added to the returned
+        /// panel afterwards.
+        /// </summary>
+        /// <param name="extra">
+        /// A third mark, between the two, for a screen whose foot carries an
+        /// act that is neither leaving nor committing -- creating a server on
+        /// the browser, say. Deliberately awkward to reach: the pair is the
+        /// rule, and a screen that wants a third has to say so.
+        /// </param>
+        public static Panel Page(bool overGame, double width, string heading,
+            Control? strip, Control body, UiMark? no = null, UiMark? yes = null,
+            bool centreBody = false, UiMark? extra = null)
+        {
+            // The wash goes into the backdrop rather than over it: baked
+            // together they are one blit a frame instead of four full-window
+            // rasterisations. See BakedBackdrop for what that was costing.
+            Panel root = Backdrop(overGame,
+                overGame ? BackdropWash.None : BackdropWash.Standard);
+            root.Children.Add(Well(width, heading, strip, body, centreBody,
+                room: no != null || yes != null || extra != null));
+            if (no != null || yes != null || extra != null)
+            {
+                root.Children.Add(Marks(no, extra, yes));
+            }
+            return root;
+        }
+
         private static readonly Lazy<Bitmap?> _background =
             new(() => Load("Backgrounds/launcher-bg.jpg"));
 
@@ -78,7 +329,8 @@ namespace MphRead.Mods.Launcher.Gui
         /// running -- a networked one cannot be paused -- and covering it with
         /// a photograph would be a lie about what the program is doing.
         /// </summary>
-        public static Panel Backdrop(bool overGame = false)
+        public static Panel Backdrop(bool overGame = false,
+            BackdropWash wash = BackdropWash.None)
         {
             var root = new Panel();
             if (overGame)
@@ -86,6 +338,20 @@ namespace MphRead.Mods.Launcher.Gui
                 root.Children.Add(new Border { Background = GuiTheme.ScrimBrush });
                 return root;
             }
+            root.Children.Add(new BakedBackdrop(wash));
+            return root;
+        }
+
+        /// <summary>
+        /// The layers themselves, for <see cref="BakedBackdrop"/> to render
+        /// once into the bitmap everything else draws.
+        ///
+        /// This is the backdrop as it has always been -- it is only ever
+        /// rasterised now instead of being kept in the tree.
+        /// </summary>
+        public static Panel BackdropLayers(BackdropWash wash)
+        {
+            var root = new Panel();
             root.Children.Add(new Image
             {
                 Source = _background.Value,
@@ -118,6 +384,14 @@ namespace MphRead.Mods.Launcher.Gui
                     }
                 }
             });
+            if (wash == BackdropWash.Standard)
+            {
+                root.Children.Add(Wash());
+            }
+            else if (wash == BackdropWash.Light)
+            {
+                root.Children.Add(LightWash());
+            }
             return root;
         }
 

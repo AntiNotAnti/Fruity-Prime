@@ -34,7 +34,11 @@ namespace MphRead.Mods.Launcher.Gui
     /// </summary>
     internal static class UiCapture
     {
-        /// <summary>The window size the launcher opens at (see HomeWindow).</summary>
+        /// <summary>
+        /// The size the screens are photographed at. Close to what the game
+        /// window gives them at its own startup size, which is what they are
+        /// laid out against (see UiSurface.Scale).
+        /// </summary>
         private static readonly Size _windowSize = new Size(940, 560);
 
         public static int Run(string directory)
@@ -110,14 +114,26 @@ namespace MphRead.Mods.Launcher.Gui
                 new PlayScreen(settings, rooms, PlayScreen.Face.Offline), _windowSize);
             yield return ("play-story",
                 new PlayScreen(settings, rooms, PlayScreen.Face.Story), _windowSize);
-            yield return ("play-demo",
-                new PlayScreen(settings, rooms, PlayScreen.Face.Demo), _windowSize);
+            yield return ("play-clips",
+                new PlayScreen(settings, rooms, PlayScreen.Face.Clips), _windowSize);
             yield return ("play-vote",
                 new PlayScreen(settings, rooms, PlayScreen.Face.Vote, overGame: true),
                 _windowSize);
+            // Both faces of creating a server, and the map list it opens.
+            // The dedicated one is a separate picture because the rows it
+            // hides and the warning it raises are the whole difference between
+            // the two, and neither shows on the other.
+            yield return ("create-server", new CreateServerScreen(rooms), _windowSize);
+            var dedicated = new CreateServerScreen(rooms);
+            dedicated.ShowDedicated();
+            yield return ("create-server-dedicated", dedicated, _windowSize);
+            yield return ("create-server-maps",
+                new MapRotationPicker(rooms, Array.Empty<string>()), _windowSize);
+            yield return ("create-server-hosts", new HostPicker(Fleet(), asking: false),
+                _windowSize);
             yield return ("settings", new SettingsView(settings), _windowSize);
             var credits = new SettingsView(settings);
-            credits.ShowSection("Player");
+            credits.ShowSection("Profile");
             yield return ("settings-player", credits, _windowSize);
             yield return ("setup", new SetupScreen(), _windowSize);
             yield return ("confirm",
@@ -132,6 +148,26 @@ namespace MphRead.Mods.Launcher.Gui
             yield return ("pausemenu-small", new PauseMenuView(offerWindowMode: true),
                 new Size(560, 320));
             yield return ("serverbrowser", ServerList(), _windowSize);
+        }
+
+        /// <summary>
+        /// The fleet as the host picker draws it, without asking the network:
+        /// one that will run a match, one too old to say so, and one with no
+        /// directory at all. The three states are the whole point of the
+        /// screen, and a capture that queried the real directory would
+        /// photograph whichever of them happened to be true that morning.
+        /// </summary>
+        private static List<HostCandidate> Fleet()
+        {
+            return new List<HostCandidate>
+            {
+                new() { Label = "net.livetek.fr", Host = "net.livetek.fr", Port = 27889,
+                    Answered = true, CanHost = true, Latency = 3 },
+                new() { Label = "Fruity Prime - West Europe", Host = "20.16.135.109",
+                    Port = 27889, Answered = true, CanHost = null, Latency = 39 },
+                new() { Label = "Fruity Prime - Japan", Host = "13.78.14.98", Port = 27889,
+                    Answered = false, CanHost = null, Latency = -1 }
+            };
         }
 
         /// <summary>
@@ -210,7 +246,7 @@ namespace MphRead.Mods.Launcher.Gui
         /// and without taking focus, so a capture run does not steal the
         /// pointer or flash a window per screen.
         /// </summary>
-        private static bool Capture(Control view, string path, Size size)
+        internal static bool Capture(Control view, string path, Size size)
         {
             Window? window = null;
             try
@@ -250,7 +286,7 @@ namespace MphRead.Mods.Launcher.Gui
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[uishot] {Path.GetFileName(path)} could not be rendered: {ex.Message}");
+                Console.WriteLine($"[shot] {Path.GetFileName(path)} could not be rendered: {ex.Message}");
                 return false;
             }
             finally

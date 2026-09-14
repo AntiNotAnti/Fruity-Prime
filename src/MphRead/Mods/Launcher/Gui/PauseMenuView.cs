@@ -28,10 +28,11 @@ namespace MphRead.Mods.Launcher.Gui
     /// *during* a match, so this is the one screen they can live on -- the
     /// list is shorter everywhere else precisely so it can be long here.
     ///
-    /// A view rather than a window, because there is a platform with no
-    /// windows to be one. <see cref="PauseMenuWindow"/> wraps this on the
-    /// desktop; Android pushes it onto <see cref="StartScreen"/>'s own stack.
-    /// One menu either way, so an entry added here turns up on both.
+    /// A view rather than a window, because nothing shows it in one any
+    /// more: the desktop pushes it onto <see cref="InGameMenu"/>'s stack,
+    /// which is rendered into the game window itself, and Android pushes it
+    /// onto <see cref="StartScreen"/>'s. One menu either way, so an entry
+    /// added here turns up on both.
     ///
     /// It decides nothing itself. Every entry raises an event and the host
     /// acts on it: leaving a match is closing a window on one platform and
@@ -60,7 +61,7 @@ namespace MphRead.Mods.Launcher.Gui
             Background = Brushes.Transparent;
             Focusable = true;
 
-            StackPanel menu = UiLayout.Column(14);
+            var menu = new StackPanel { Spacing = 14 };
             // Titles only. Every entry here used to say what it did twice --
             // "Quit", "Close FruityPrime" -- and the second saying is what
             // made a seven-line menu tall enough to be cut off by the window
@@ -109,7 +110,15 @@ namespace MphRead.Mods.Launcher.Gui
             Add(menu, "Leave match", () => LeaveRequested?.Invoke(this, EventArgs.Empty));
             Add(menu, "Quit", () => QuitRequested?.Invoke(this, EventArgs.Empty));
 
-            Panel root = UiLayout.Backdrop(overGame: true);
+            // Centred, like every other screen behind the front one. Each
+            // word is centred in the column rather than the column being
+            // centred with the words left-aligned inside it: a ragged edge
+            // down the middle of the frame is the thing that makes a centred
+            // menu look like an accident.
+            foreach (Control child in menu.Children)
+            {
+                child.HorizontalAlignment = HorizontalAlignment.Center;
+            }
             // Shrunk to fit rather than scrolled. The host is the game window
             // and the game window is whatever size the player dragged it to;
             // a scrollbar's answer to that is a menu with its top and bottom
@@ -119,12 +128,25 @@ namespace MphRead.Mods.Launcher.Gui
             _scaler = new LayoutTransformControl
             {
                 Child = menu,
-                HorizontalAlignment = HorizontalAlignment.Left,
-                VerticalAlignment = VerticalAlignment.Bottom
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
             };
-            root.Children.Add(_scaler);
-            root.Children.Add(UiLayout.Footer(Where()));
-            Content = root;
+            // The menu and nothing else. It carried a "paused" heading and a
+            // line saying which match you were in, and both were dropped: the
+            // first says what the player has just done, with the match frozen
+            // behind it saying the same thing, and the second names a match
+            // they are looking straight at. Neither is something anybody
+            // pressed Escape to find out. Every other screen keeps its
+            // heading, because on every other screen the heading is the only
+            // thing that says where you are.
+            //
+            // No pair of marks either, and that is deliberate. Every entry
+            // here is an action; there is no question being asked, so there
+            // is no yes and no to answer it with -- and Resume as a tick in
+            // the corner while it is also the first word of the menu is one
+            // action drawn twice.
+            Content = UiLayout.Page(overGame: true, UiLayout.WellShort, "",
+                strip: null, body: _scaler, centreBody: true);
             SizeChanged += (_, e) => FitToHost(e.NewSize.Height);
         }
 
@@ -134,7 +156,8 @@ namespace MphRead.Mods.Launcher.Gui
         /// What the column needs at full size: eight words, their spacing, and
         /// the corner it is anchored in.
         /// </summary>
-        private const double NeededHeight = 8 * 26 + 7 * 14 + UiLayout.ColumnBottom + 20;
+        private const double NeededHeight = 8 * 26 + 7 * 14
+            + UiLayout.WellTop + UiLayout.WellBottom + 70;
 
         /// <summary>
         /// Fit the column to the height it has been given, down to half size.
@@ -154,34 +177,6 @@ namespace MphRead.Mods.Launcher.Gui
                 return;
             }
             _scaler.LayoutTransform = scale >= 1 ? null : new ScaleTransform(scale, scale);
-        }
-
-        /// <summary>
-        /// The line under the column: which match this is. The front screen
-        /// puts the build here, because that is what you want to know while
-        /// looking at a menu with no match behind it; in one, you want the
-        /// room.
-        /// </summary>
-        private static string Where()
-        {
-            if (DemoPlayback.IsActive)
-            {
-                return "watching a recording";
-            }
-            if (!NetSession.Active)
-            {
-                return "offline match";
-            }
-            MatchStatePacket? match = NetSession.ServerMatch;
-            string room = match?.RoomKey ?? "";
-            string players = $"{NetSession.ServerPlayerCount}/{PlayerEntity.SlotCapacity}";
-            int ping = NetSession.SlotPing.Length > 0 ? NetSession.SlotPing[0] : -1;
-            string latency = ping >= 0
-                ? $"{ping.ToString(CultureInfo.InvariantCulture)}ms"
-                : "--";
-            return room.Length > 0
-                ? $"{room}  \u2502  {players}  \u2502  {latency}"
-                : $"online match  \u2502  {players}  \u2502  {latency}";
         }
 
         /// <summary>

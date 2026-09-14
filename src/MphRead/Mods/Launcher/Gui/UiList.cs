@@ -25,6 +25,18 @@ namespace MphRead.Mods.Launcher.Gui
     {
         public event EventHandler? Clicked;
 
+        /// <summary>
+        /// Chosen rather than merely pointed at: Enter, Space, or a second
+        /// click on the row that is already selected.
+        ///
+        /// Separate from <see cref="Clicked"/> on purpose. A single click
+        /// selects -- it fills the preview in beside the list and, for a
+        /// server, the address box -- and starting the match is the tick in
+        /// the corner. Pressing a row *was* the whole choice, which put a
+        /// player in a match they had only meant to look at.
+        /// </summary>
+        public event EventHandler? Activated;
+
         /// <summary>What choosing this line means, for the screen holding the list.</summary>
         public object? Choice { get; init; }
 
@@ -39,6 +51,14 @@ namespace MphRead.Mods.Launcher.Gui
             Height = 30;
             Focusable = true;
             Cursor = new Cursor(StandardCursorType.Hand);
+            // A second click on the same row means "this one, go": the
+            // shortcut for somebody who already knows which line they want,
+            // and the gesture every list in every file manager has.
+            DoubleTapped += (_, _) =>
+            {
+                Clicked?.Invoke(this, EventArgs.Empty);
+                Activated?.Invoke(this, EventArgs.Empty);
+            };
         }
 
         public string Detail
@@ -83,11 +103,14 @@ namespace MphRead.Mods.Launcher.Gui
             if (e.Key == Key.Enter || e.Key == Key.Space)
             {
                 Clicked?.Invoke(this, EventArgs.Empty);
+                Activated?.Invoke(this, EventArgs.Empty);
                 e.Handled = true;
                 return;
             }
             base.OnKeyDown(e);
         }
+
+
 
         protected override void OnGotFocus(GotFocusEventArgs e)
         {
@@ -99,6 +122,62 @@ namespace MphRead.Mods.Launcher.Gui
         {
             InvalidateVisual();
             base.OnLostFocus(e);
+        }
+
+        // The two pieces of text this row draws, laid out once and kept.
+        //
+        // Building a FormattedText shapes and lays out the string -- the
+        // expensive half of drawing text -- and this row was doing it twice
+        // every time it was painted, for a title and a detail that had not
+        // changed since the list was built. Scrolling repaints every visible
+        // row every frame, so a fourteen-row list was shaping twenty-eight
+        // strings a frame, several thousand a second, all of them the same
+        // strings as the frame before.
+        //
+        // Nothing here depends on time, so the cache only has to notice the
+        // four things that do change: the row's width, its detail text, and
+        // whether it is lit (which recolours the title).
+        private FormattedText? _titleText;
+        private FormattedText? _detailText;
+        private double _laidOutAt = -1;
+        private bool _laidOutLit;
+        private string _laidOutDetail = "";
+
+        private void LayOut(bool lit)
+        {
+            if (_titleText != null && _laidOutAt == Bounds.Width
+                && _laidOutLit == lit && _laidOutDetail == _detail)
+            {
+                return;
+            }
+            _laidOutAt = Bounds.Width;
+            _laidOutLit = lit;
+            _laidOutDetail = _detail;
+            double right = Bounds.Width;
+            if (_detail.Length > 0)
+            {
+                _detailText = new FormattedText(_detail, CultureInfo.InvariantCulture,
+                    FlowDirection.LeftToRight, GuiTheme.Face(bold: false), 12,
+                    GuiTheme.TextDimBrush)
+                {
+                    MaxTextWidth = Math.Max(40, Bounds.Width * 0.45),
+                    MaxTextHeight = 20,
+                    Trimming = TextTrimming.CharacterEllipsis
+                };
+                right = Bounds.Width - _detailText.Width - 14;
+            }
+            else
+            {
+                _detailText = null;
+            }
+            _titleText = new FormattedText(_title, CultureInfo.InvariantCulture,
+                FlowDirection.LeftToRight, GuiTheme.Face(bold: true), 14,
+                new SolidColorBrush(lit ? GuiTheme.Accent : GuiTheme.Text))
+            {
+                MaxTextWidth = Math.Max(40, right - 14),
+                MaxTextHeight = 22,
+                Trimming = TextTrimming.CharacterEllipsis
+            };
         }
 
         public override void Render(DrawingContext context)
@@ -114,28 +193,15 @@ namespace MphRead.Mods.Launcher.Gui
                 context.FillRectangle(GuiTheme.AccentBrush,
                     new Rect(0, 6, 3, Bounds.Height - 12));
             }
-            var title = new FormattedText(_title, CultureInfo.InvariantCulture,
-                FlowDirection.LeftToRight, GuiTheme.Face(bold: true), 14,
-                new SolidColorBrush(lit ? GuiTheme.Accent : GuiTheme.Text));
-            double right = Bounds.Width;
-            if (_detail.Length > 0)
+            LayOut(lit);
+            if (_detailText != null)
             {
-                var detail = new FormattedText(_detail, CultureInfo.InvariantCulture,
-                    FlowDirection.LeftToRight, GuiTheme.Face(bold: false), 12,
-                    GuiTheme.TextDimBrush)
-                {
-                    MaxTextWidth = Math.Max(40, Bounds.Width * 0.45),
-                    MaxTextHeight = 20,
-                    Trimming = TextTrimming.CharacterEllipsis
-                };
-                context.DrawText(detail, new Point(Bounds.Width - detail.Width - 4,
-                    (Bounds.Height - detail.Height) / 2));
-                right = Bounds.Width - detail.Width - 14;
+                context.DrawText(_detailText,
+                    new Point(Bounds.Width - _detailText.Width - 4,
+                        (Bounds.Height - _detailText.Height) / 2));
             }
-            title.MaxTextWidth = Math.Max(40, right - 14);
-            title.MaxTextHeight = 22;
-            title.Trimming = TextTrimming.CharacterEllipsis;
-            context.DrawText(title, new Point(14, (Bounds.Height - title.Height) / 2));
+            context.DrawText(_titleText!,
+                new Point(14, (Bounds.Height - _titleText!.Height) / 2));
         }
     }
 
@@ -150,7 +216,7 @@ namespace MphRead.Mods.Launcher.Gui
     /// what belongs here is only the part they share, which is the scrolling
     /// and the up and down keys.
     /// </summary>
-    internal sealed class UiList : Panel
+    internal sealed class UiList : Decorator
     {
         private readonly StackPanel _rows = new() { Spacing = 1 };
         private readonly Panel _header = new();
@@ -182,7 +248,10 @@ namespace MphRead.Mods.Launcher.Gui
             DockPanel.SetDock(_header, Dock.Top);
             dock.Children.Add(_header);
             dock.Children.Add(_scroll);
-            Children.Add(dock);
+            // A Decorator rather than a Panel: Panel seals Render, and this
+            // has wanted a hook there before. The list only ever had one
+            // child anyway.
+            Child = dock;
         }
 
         /// <summary>
@@ -219,15 +288,30 @@ namespace MphRead.Mods.Launcher.Gui
                 return;
             }
             _focusable.Add(row);
-            Selected ??= row;
+            if (Selected == null)
+            {
+                // The first row to arrive is the selection, and it has to take
+                // the selection's side effect with it. It did not: `activate`
+                // only ran from a press, so the browser opened with the top
+                // server highlighted and the address box still holding
+                // whatever was last typed -- you would read one server's map
+                // and its ping, press JOIN, and connect to another. Invisible
+                // until the preview started following the selection, and
+                // wrong before that.
+                Selected = row;
+                activate?.Invoke(row);
+                SelectionChanged?.Invoke(this, row);
+            }
             row.GotFocus += (_, _) => Select(row);
             if (row is UiListRow line)
             {
-                line.Clicked += (_, _) => Fire(row, activate);
+                line.Clicked += (_, _) => Fire(row, activate, activated: false);
+                line.Activated += (_, _) => Fire(row, activate, activated: true);
             }
             else if (row is ServerRow server)
             {
-                server.Clicked += (_, _) => Fire(row, activate);
+                server.Clicked += (_, _) => Fire(row, activate, activated: false);
+                server.Activated += (_, _) => Fire(row, activate, activated: true);
             }
         }
 
@@ -237,11 +321,22 @@ namespace MphRead.Mods.Launcher.Gui
             _rows.Children.Add(new Note(text, colour));
         }
 
-        private void Fire(Control row, Action<Control>? activate)
+        /// <summary>
+        /// A row was pressed. Selecting it and *choosing* it are two different
+        /// events now: a click does the first, Enter or a second click does
+        /// both. <paramref name="activate"/> is the row's own side effect --
+        /// filling the address box in for a server -- and belongs to
+        /// selecting, since it is what makes the choice visible before it is
+        /// taken.
+        /// </summary>
+        private void Fire(Control row, Action<Control>? activate, bool activated)
         {
             Select(row);
             activate?.Invoke(row);
-            Activated?.Invoke(this, row);
+            if (activated)
+            {
+                Activated?.Invoke(this, row);
+            }
         }
 
         private void Select(Control row)

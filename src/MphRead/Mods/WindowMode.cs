@@ -41,6 +41,20 @@ namespace MphRead.Mods
         private static Vector2i _savedSize;
         private static bool _saved;
 
+        /// <summary>
+        /// The shape the window had before fullscreen took it, for whoever
+        /// needs the *windowed* geometry while the window is reporting the
+        /// monitor's.
+        ///
+        /// <see cref="WindowGeometry"/> is the caller: a player who quits from
+        /// fullscreen must not have the monitor's rectangle saved as their
+        /// window size, or their next windowed session opens the size of the
+        /// screen with a title bar pushing it off the bottom.
+        /// </summary>
+        public static Vector2i WindowedSize => _saved ? _savedSize : Vector2i.Zero;
+
+        public static Vector2i WindowedLocation => _savedLocation;
+
         /// <summary>Called once, after the window is first shown.</summary>
         public static void ApplyStartup(NativeWindow window)
         {
@@ -111,9 +125,10 @@ namespace MphRead.Mods
             // borderless window that covers a display exactly is what
             // Windows' fullscreen optimizations key off to promote it into
             // an exclusive-like mode, which then refuses to show *any* other
-            // window above it -- Topmost included, which is the only thing
-            // that puts the pause menu over this window at all (see
-            // PauseMenuWindow). One pixel is not visible and keeps that from
+            // window above it -- and which also costs the compositor's own
+            // overlays. The pause menu no longer depends on it (it is drawn
+            // inside this window now), but the promotion has other effects
+            // nobody asked for. One pixel is not visible and keeps it from
             // triggering.
             window.ClientSize = new Vector2i(monitor.ClientArea.Size.X, monitor.ClientArea.Size.Y - 1);
             IsFullscreen = true;
@@ -147,6 +162,13 @@ namespace MphRead.Mods
                 window.Location = _savedLocation;
             }
             IsFullscreen = false;
+            // Forget it, so the *next* Enter captures where the window is
+            // then. Without this the saved rectangle is whatever the window
+            // was the first time fullscreen was ever used: go fullscreen,
+            // come back, drag the window somewhere else, go fullscreen again,
+            // and leaving put it back at the first size rather than the one
+            // it was just at.
+            _saved = false;
             SetTopmost(window, false);
         }
 
@@ -213,7 +235,14 @@ namespace MphRead.Mods
         /// </summary>
         public static void SyncTopmost(NativeWindow window)
         {
-            SetTopmost(window, IsFullscreen && !PauseMenu.Open && window.IsFocused);
+            // Not "unless the pause menu is up" any more. That exception was
+            // for a menu that was its *own* window and had to be allowed above
+            // this one; the menu is drawn inside this window now, so dropping
+            // out of the band while it is open only lets the taskbar cover the
+            // bottom of our own screen -- which is where Save and Cancel are,
+            // and they became unclickable the moment Escape was pressed in
+            // fullscreen.
+            SetTopmost(window, IsFullscreen && window.IsFocused);
         }
 
         /// <summary>"borderless"/"fullscreen"/"windowed" from a settings file or a flag.</summary>

@@ -65,18 +65,10 @@ namespace MphRead.Mods.Launcher.Gui
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
             });
 
-            _choose = new UiMark(UiMark.Shape.Accept, "choose your .nds file")
-            {
-                HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment = VerticalAlignment.Bottom,
-                Margin = new Thickness(0, 0, UiLayout.CornerX, UiLayout.CornerY)
-            };
+            _choose = new UiMark(UiMark.Shape.Accept, "choose your .nds file");
             _choose.Click += async (_, _) => await ChooseRom();
             _back = new UiMark(UiMark.Shape.Cancel, "back")
             {
-                HorizontalAlignment = HorizontalAlignment.Left,
-                VerticalAlignment = VerticalAlignment.Bottom,
-                Margin = new Thickness(UiLayout.CornerX, 0, 0, UiLayout.CornerY),
                 // Nothing to go back to until there is something to play.
                 IsVisible = GameFiles.Ready
             };
@@ -85,17 +77,10 @@ namespace MphRead.Mods.Launcher.Gui
             var holder = new ScrollViewer
             {
                 Content = body,
-                Margin = UiLayout.BodyMargin,
-                MaxWidth = 620,
-                HorizontalAlignment = HorizontalAlignment.Left,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
             };
-            Panel root = UiLayout.Backdrop();
-            root.Children.Add(holder);
-            root.Children.Add(UiLayout.Heading("game files"));
-            root.Children.Add(_back);
-            root.Children.Add(_choose);
-            Content = root;
+            Content = UiLayout.Page(overGame: false, UiLayout.WellSettings,
+                "game files", strip: null, body: holder, no: _back, yes: _choose);
             RefreshPreviewEntry();
         }
 

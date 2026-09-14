@@ -8,6 +8,7 @@ loading everything.
 - KNOWN-GAPS.md — claims not yet verified, so you don't re-prove or re-claim them
 - android/ANDROID-PORT.md — the GL ES renderer, the touch controls, building the APK
 - launcher/LAUNCHER-OVERVIEW.md — entries, platforms (incl. macOS/Android), threading
+- launcher/LAUNCHER-WINDOW.md — one window: the launcher and the pause menu drawn inside the game window
 - launcher/LAUNCHER-DESIGN.md — UI components, logo/assets, pitfalls
 - launcher/LAUNCHER-SETTINGS.md — settings window layout and toggles
 - launcher/LAUNCHER-FIRSTRUN.md — extraction flow and progress bar

@@ -16,18 +16,20 @@ namespace MphRead.Mods.Launcher.Gui
     /// The front screen: a picture, three words, and nothing to read before
     /// you can play.
     ///
-    /// The layout is id-Tech3's and OpenQuake3/defrag's: the menu anchored to
-    /// the bottom-left corner growing upward from the one word that matters,
-    /// the build under it, the wordmark in the opposite corner. Every other
-    /// screen in the launcher is now built from the same three anchors --
-    /// <see cref="UiLayout"/> holds them -- so that Play, Settings and the
-    /// pause menu read as the same program rather than as four that happen to
-    /// ship together.
+    /// The layout is the one every screen in the launcher uses: a column down
+    /// the middle of the frame, read against a soft wash, with the wordmark
+    /// over it where another screen would put its heading. It was anchored in
+    /// the bottom-left corner for several releases -- id-Tech3's shape, and
+    /// OpenQuake3/defrag's -- and moved when the screens behind it did, for
+    /// the reason those anchors existed in the first place: a front screen
+    /// laid out differently from everything it opens is the one screen that
+    /// does not look like the program. The anchors themselves live in
+    /// <see cref="UiLayout"/> and nowhere else.
     ///
     /// It is a <see cref="UserControl"/> rather than a <see cref="Window"/>
-    /// for one reason: Android has no windows. The desktop puts it in
-    /// <see cref="HomeWindow"/>, which is a frame and nothing else; the
-    /// Android head hands this same object to Avalonia as its single view.
+    /// for one reason: nothing shows it in a window. The desktop renders it
+    /// into the game window through <see cref="UiSurface"/>; the Android head
+    /// hands this same object to Avalonia as its single view.
     /// There is no second front screen to keep in step, which is the point --
     /// a phone-shaped copy was the previous arrangement and it drifted within
     /// a release.
@@ -62,16 +64,48 @@ namespace MphRead.Mods.Launcher.Gui
             _rooms = new List<string>(rooms);
             Focusable = true;
 
-            Panel root = UiLayout.Backdrop();
+            // The wash is baked into the backdrop rather than laid over it:
+            // one bitmap a frame instead of four full-window layers. See
+            // BakedBackdrop.
+            Panel root = UiLayout.Backdrop(wash: UiLayout.BackdropWash.Light);
 
-            _menu = UiLayout.Column(26);
-            _menu.Children.Add(Word("Play", GuiTheme.Title, 60, GuiTheme.Warm,
-                () => _ = OpenPlay()));
-            var rest = new StackPanel { Spacing = 16 };
-            rest.Children.Add(Word("Settings", GuiTheme.Display, UiLayout.WordSize,
-                GuiTheme.Text, () => _ = OpenSettings()));
-            rest.Children.Add(Word("Quit", GuiTheme.Display, UiLayout.WordSize,
-                GuiTheme.Text, AskToQuit));
+            // Centred, like every screen behind it. The corner layout was this
+            // screen's own and the rest of the program has been rebuilt around
+            // the well, so a front screen still anchored to the bottom-left is
+            // the one screen that does not look like the program it opens.
+            //
+            // The wordmark comes with it. In the corner it was a watermark on
+            // somebody else's photograph; over the menu it is what the screen
+            // is of, and it means the front screen needs no heading -- the
+            // wordmark is the heading.
+            _menu = new StackPanel
+            {
+                Spacing = 0,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Image wordmark = UiLayout.Wordmark();
+            wordmark.Width = 280;
+            wordmark.HorizontalAlignment = HorizontalAlignment.Center;
+            wordmark.VerticalAlignment = VerticalAlignment.Center;
+            wordmark.Margin = new Thickness(0, 0, 0, 38);
+            _menu.Children.Add(wordmark);
+            UiWord play = Word("Play", GuiTheme.Title, 56, GuiTheme.Warm,
+                () => _ = OpenPlay());
+            play.HorizontalAlignment = HorizontalAlignment.Center;
+            _menu.Children.Add(play);
+            // Each word centred in the column rather than the column centred
+            // with its words left-aligned: a ragged edge down the middle of
+            // the frame is what makes a centred menu look like an accident.
+            var rest = new StackPanel { Spacing = 15, Margin = new Thickness(0, 22, 0, 0) };
+            UiWord options = Word("Settings", GuiTheme.Display, UiLayout.WordSize,
+                GuiTheme.Text, () => _ = OpenSettings());
+            options.HorizontalAlignment = HorizontalAlignment.Center;
+            rest.Children.Add(options);
+            UiWord quit = Word("Quit", GuiTheme.Display, UiLayout.WordSize,
+                GuiTheme.Text, AskToQuit);
+            quit.HorizontalAlignment = HorizontalAlignment.Center;
+            rest.Children.Add(quit);
             _menu.Children.Add(rest);
             root.Children.Add(_menu);
 
@@ -80,7 +114,8 @@ namespace MphRead.Mods.Launcher.Gui
                 Text = VersionNumber(),
                 FontFamily = GuiTheme.Display,
                 FontSize = 12,
-                Foreground = GuiTheme.TextDimBrush
+                Foreground = GuiTheme.TextDimBrush,
+                HorizontalAlignment = HorizontalAlignment.Center
             };
             // The whole line is the button, rather than a label with one beside
             // it: the state and the action are the same fact here -- dim is
@@ -89,9 +124,9 @@ namespace MphRead.Mods.Launcher.Gui
             _versionBox = new Border
             {
                 Background = Brushes.Transparent,
-                HorizontalAlignment = HorizontalAlignment.Left,
+                HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Bottom,
-                Margin = new Thickness(22, 0, 0, UiLayout.FooterBottom),
+                Margin = new Thickness(0, 0, 0, UiLayout.MarksBottom),
                 Child = _version
             };
             _versionBox.PointerPressed += (_, e) =>
@@ -103,7 +138,6 @@ namespace MphRead.Mods.Launcher.Gui
                 }
             };
             root.Children.Add(_versionBox);
-            root.Children.Add(UiLayout.Wordmark());
 
             _overlay = new Panel { Background = Brushes.Transparent, IsVisible = false };
             root.Children.Add(_overlay);
@@ -250,8 +284,22 @@ namespace MphRead.Mods.Launcher.Gui
             var view = new PlayScreen(_settings, _rooms);
             view.Closed += (_, _) => Pop();
             view.Launched += (_, plan) => Finish(plan);
+            view.CreateRequested += (_, _) => OpenCreateServer();
             Push(view);
             return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Run a server rather than join one -- pushed over the browser rather
+        /// than replacing it, so backing out lands on the list of servers,
+        /// which is where somebody who changed their mind was going anyway.
+        /// </summary>
+        private void OpenCreateServer()
+        {
+            var view = new CreateServerScreen(_rooms, _settings.RoomKey);
+            view.Closed += (_, _) => Pop();
+            view.Launched += (_, plan) => Finish(plan);
+            Push(view);
         }
 
         private Task OpenSettings()
@@ -295,10 +343,11 @@ namespace MphRead.Mods.Launcher.Gui
         /// <summary>
         /// The pause menu, over a running match.
         ///
-        /// The platform with no windows takes this path; the desktop opens
-        /// <see cref="PauseMenuWindow"/>, which is a real window over the game
-        /// window. Both show the same <see cref="PauseMenuView"/>, so the menu
-        /// cannot drift into being two menus.
+        /// Android takes this path, where the front screen is the view the
+        /// activity keeps; the desktop pushes the same menu onto
+        /// <see cref="InGameMenu"/> instead, over the frame. Both show the
+        /// same <see cref="PauseMenuView"/>, so the menu cannot drift into
+        /// being two menus.
         /// </summary>
         public void ShowPauseMenu(Action onResume, Action onLeave, Action onQuit)
         {

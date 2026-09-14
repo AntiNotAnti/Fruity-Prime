@@ -836,6 +836,12 @@ namespace MphRead.Mods.Network
                         MapVote.Apply(VoteStatePacket.Read(packet.Payload));
                     }
                     break;
+                case PacketType.MapChoices when Role == NetRole.Client:
+                    if (packet.Payload.Length >= MapChoicesPacket.Size)
+                    {
+                        Mods.MapPick.Apply(MapChoicesPacket.Read(packet.Payload));
+                    }
+                    break;
                 case PacketType.Bye:
                     HandleBye(packet);
                     break;
@@ -949,6 +955,22 @@ namespace MphRead.Mods.Network
             vote.Write(_scratch);
             _transport.Send(_hostEndPoint, PacketType.Vote,
                 _scratch.AsSpan(0, VotePacket.Size));
+        }
+
+        /// <summary>
+        /// Which map off the intermission's ballot this player wants. Empty
+        /// takes the pick back. See <see cref="Mods.MapPick"/>.
+        /// </summary>
+        public static void SendMapPick(string roomKey)
+        {
+            if (_transport == null || _hostEndPoint == null || Role != NetRole.Client)
+            {
+                return;
+            }
+            var pick = new MapPickPacket { RoomKey = roomKey ?? "" };
+            pick.Write(_scratch);
+            _transport.Send(_hostEndPoint, PacketType.MapPick,
+                _scratch.AsSpan(0, MapPickPacket.Size));
         }
 
         private static void HandleHello(ReceivedPacket packet, double time)

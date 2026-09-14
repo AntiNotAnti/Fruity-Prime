@@ -27,7 +27,11 @@ namespace MphRead.Mods.Launcher.Gui
         public enum Shape
         {
             Cancel,
-            Accept
+            Accept,
+            /// <summary>A plus: make a new one of something. Neither yes nor no.</summary>
+            Add,
+            /// <summary>An arrow into a tray: fetch something that is missing.</summary>
+            Fetch
         }
 
         public static readonly StyledProperty<string> LabelProperty =
@@ -162,7 +166,8 @@ namespace MphRead.Mods.Launcher.Gui
             bool lit = (IsPointerOver || IsFocused) && IsEnabled;
             Color colour = !IsEnabled ? GuiTheme.Edge
                 : lit ? GuiTheme.Accent
-                : _shape == Shape.Accept ? GuiTheme.Text : GuiTheme.TextDim;
+                : _shape == Shape.Accept ? GuiTheme.Text
+                : _shape == Shape.Fetch ? GuiTheme.Warm : GuiTheme.TextDim;
             var pen = new Pen(new SolidColorBrush(colour), 2.4)
             {
                 LineCap = PenLineCap.Round
@@ -174,6 +179,20 @@ namespace MphRead.Mods.Launcher.Gui
                 // A tick: down to the low point, then up and out past it.
                 context.DrawLine(pen, new Point(half - 7, cy + 1), new Point(half - 2, cy + 6));
                 context.DrawLine(pen, new Point(half - 2, cy + 6), new Point(half + 8, cy - 7));
+            }
+            else if (_shape == Shape.Add)
+            {
+                context.DrawLine(pen, new Point(half - 7, cy), new Point(half + 7, cy));
+                context.DrawLine(pen, new Point(half, cy - 7), new Point(half, cy + 7));
+            }
+            else if (_shape == Shape.Fetch)
+            {
+                // Down the shaft, out to the two barbs, and a floor under it:
+                // the arrow says which way, the floor says it lands here.
+                context.DrawLine(pen, new Point(half, cy - 8), new Point(half, cy + 2));
+                context.DrawLine(pen, new Point(half - 5, cy - 3), new Point(half, cy + 2));
+                context.DrawLine(pen, new Point(half + 5, cy - 3), new Point(half, cy + 2));
+                context.DrawLine(pen, new Point(half - 7, cy + 7), new Point(half + 7, cy + 7));
             }
             else
             {

@@ -277,6 +277,25 @@ namespace MphRead.Entities
         /// </summary>
         public float SwipeBoostX { get; set; }
         public float SwipeBoostY { get; set; }
+        /// <summary>
+        /// Frames of committed travel left on a boost a flick aimed, during
+        /// which the roll binds do not steer.
+        ///
+        /// Without it an aimed boost is undone by the player's own thumb
+        /// inside a quarter of a second, and the arithmetic is brutal: the
+        /// boost leaves at the cap, 0.6 a frame, and the roll adds 0.0339 a
+        /// frame across it -- but the speed clamp that follows keeps the
+        /// *magnitude* and lets the direction go, so every frame rotates the
+        /// velocity about three degrees towards wherever the ball is being
+        /// steered. Roll forward while flicking left and the dash is pointing
+        /// forward again 28 frames later, having drawn exactly the curve that
+        /// was reported as "I flick left and it goes diagonally forward". It
+        /// never came up on the cartridge because the boost there always went
+        /// where the ball was already going. Same shape as
+        /// <see cref="_jumpPadControlLock"/>, and for the same reason: an
+        /// impulse somebody else aimed is not a suggestion.
+        /// </summary>
+        private ushort _boostAimLock = 0;
         private ushort _altAttackCooldown = 0;
         private ushort _altAttackTime = 0;
         private float _altSpinSpeed = 0;
@@ -907,6 +926,7 @@ namespace MphRead.Entities
                 _spawnInvulnTimer = (ushort)(Values.SpawnInvulnerability * 2); // todo: FPS stuff
             }
             _boostCharge = 0;
+            _boostAimLock = 0;
             _altAttackCooldown = 0;
             _field4E8 = Vector3.Zero;
             _modelTransform = Matrix4.Identity;
