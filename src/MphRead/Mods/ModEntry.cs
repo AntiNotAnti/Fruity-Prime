@@ -168,7 +168,7 @@ namespace MphRead.Mods
                 }
                 else
                 {
-                    Console.WriteLine($"[net] -hitrig {rig} refused: jump or sniper");
+                    Console.WriteLine($"[net] -hitrig {rig} refused: jump, sniper or duel");
                 }
             }
 
@@ -231,10 +231,49 @@ namespace MphRead.Mods
             }
             if (HasFlag(args, "nodeathprediction"))
             {
-                // Still accepted, and now what the default already does.
                 Network.NetHitPrediction.DeathEnabled = false;
                 Console.WriteLine("[net] death prediction off: a client's "
                     + "kills land when the authority says so");
+            }
+
+            // A client declaring which of its own shots landed, and the
+            // authority arbitrating them. On by default since protocol 7. Off
+            // restores exactly what protocol 6 did -- the authority's own
+            // answer and nothing else -- which is the control arm for
+            // measuring what claims are worth. Read on both ends: a client
+            // with this off sends none, and a server with it off answers none.
+            // Network.NetHitClaims.
+            if (HasFlag(args, "noclaims"))
+            {
+                Network.NetHitClaims.Enabled = false;
+                Console.WriteLine("[net] hit claims off: a shot counts only "
+                    + "where the authority finds it itself");
+            }
+
+            // Remote players drawn on a playout clock, a few frames behind the
+            // newest snapshot, rather than snapped to whichever one arrived
+            // last. On by default; off is the stutter every build before
+            // protocol 7 had, and the control arm. Network.NetSmoothing.
+            if (HasFlag(args, "nointerp"))
+            {
+                Network.NetSmoothing.Enabled = false;
+                Console.WriteLine("[net] puppet interpolation off: remote "
+                    + "players move when their snapshots arrive");
+            }
+
+            // Puppet positions on a client come from the owner's relayed
+            // intent again, the way every build before protocol 7 did. The
+            // control for -snapshotpuppets, which is now the default -- see
+            // NetHooks.SnapshotOwnsPuppets for the measurement that made it
+            // one, and note that it also turns the playout clock off, since a
+            // clock and a relayed intent writing the same puppet on alternate
+            // frames is worse than either.
+            if (HasFlag(args, "relayedpuppets"))
+            {
+                Network.NetHooks.SnapshotOwnsPuppets = false;
+                Network.NetSmoothing.Enabled = false;
+                Console.WriteLine("[net] puppet positions on this client come "
+                    + "from relayed intents, not from the snapshot");
             }
 
             if (HasFlag(args, "credits"))
@@ -554,6 +593,12 @@ namespace MphRead.Mods
                 // -noshadowfreeze makes the Judicator's ice wave a cone
                 // instead of a column, for everybody in the room.
                 ShadowFreeze = !HasFlag(args, "noshadowfreeze"),
+                // Whether weapon pickups are the picking hunter's affinity
+                // variant -- a different row of the damage table, so it is
+                // broadcast rather than left to each machine's own settings
+                // file. The damage level is not an option: it is pinned to
+                // medium everywhere. See GameState.DamageLevel.
+                AffinityWeapons = HasFlag(args, "affinityweapons"),
                 // Players may change the map by voting unless the admin says
                 // otherwise. See DedicatedServer.AllowMapVotes.
                 AllowMapVotes = !HasFlag(args, "novote"),

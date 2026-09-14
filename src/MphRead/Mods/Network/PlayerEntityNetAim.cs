@@ -709,6 +709,68 @@ namespace MphRead.Entities
         /// </summary>
         internal int ModAmmoCap => _ammoMax[UA];
 
+        /// <summary>
+        /// What this player's alt-form ram is worth: the boost charge scaled
+        /// by the hunter's own alt-attack damage, latched when the boost
+        /// starts. Sent in the intent for the same reason the charge is.
+        /// </summary>
+        internal int ModBoostDamage => _boostDamage;
+
+        /// <summary>
+        /// Put a remote player's shot strength where its owner says it is:
+        /// the charge on the gun, the strength of the ram, and whether double
+        /// damage is running.
+        ///
+        /// <b>All three decide the damage of a shot, and all three were
+        /// re-derived here rather than received.</b> The charge was a count of
+        /// frames the relayed trigger had been held -- which is the owner's
+        /// count give or take the send interval, the jitter and whatever was
+        /// dropped -- and on a partial-charge weapon the damage is a
+        /// continuous function of that count, so the two machines put
+        /// different numbers on the same shot every time one was fired. Double
+        /// damage is worse, because it is not a drift but a factor of two: the
+        /// powerup is collected by each machine's own copy of the pickups, on
+        /// its own respawn timer, so the authority's copy of a shooter can
+        /// simply not have one the owner is holding.
+        ///
+        /// Either way the shooter's own machine resolves its hits now
+        /// (<see cref="Mods.Network.NetHitPrediction"/>) and the authority
+        /// resolves them again a round trip later; where the numbers differ
+        /// the client runs a victim's health down faster than the authority
+        /// does, and the shot after that predicts a kill on somebody who is
+        /// still standing.
+        ///
+        /// The same shape as <see cref="ModSetAmmo"/> and the alt-form state:
+        /// whoever is playing a character is the one who knows.
+        /// </summary>
+        internal void ModSetShotState(int chargeLevel, int boostDamage, bool doubleDamage)
+        {
+            if (SlotIndex == NetHooks.LocalSlot)
+            {
+                // Never the machine's own player: this is its own state coming
+                // back to it a round trip later.
+                return;
+            }
+            EquipInfo.ChargeLevel = (ushort)Math.Clamp(chargeLevel, 0, UInt16.MaxValue);
+            _boostDamage = (ushort)Math.Clamp(boostDamage, 0, UInt16.MaxValue);
+            if (doubleDamage)
+            {
+                // Held up rather than counted down: the owner says so again
+                // every couple of frames for as long as it lasts, and the
+                // moment they stop saying so it is gone. A puppet's own
+                // countdown is not the clock that matters, and the engine only
+                // ever asks whether this is above zero.
+                if (_doubleDmgTimer < 8)
+                {
+                    _doubleDmgTimer = 8;
+                }
+            }
+            else
+            {
+                _doubleDmgTimer = 0;
+            }
+        }
+
         internal void ModSetAmmo(int ua, int missiles)
         {
             // -1 is the engine's "infinite" marker; a puppet must not be

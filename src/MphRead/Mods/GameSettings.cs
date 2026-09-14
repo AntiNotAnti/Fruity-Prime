@@ -126,13 +126,10 @@ namespace MphRead.Mods
             {
                 GameState.PointGoal = pointGoal;
             }
-            GameState.DamageLevel = settings.DamageLevel switch
-            {
-                "low" => 0,
-                "high" => 2,
-                "medium" => 1,
-                _ => GameState.DamageLevel
-            };
+            // Not the damage level. It is pinned to medium -- see
+            // GameState.DamageLevel -- because it scales every weapon's damage
+            // and was the one match rule each machine read out of its own
+            // file. The key stays in settings.json and is ignored.
             GameState.FriendlyFire = settings.FriendlyFire == "on";
             GameState.RadarPlayers = settings.HunterRadar == "on";
             GameState.AffinityWeapons = settings.AffinityWeapons == "on";

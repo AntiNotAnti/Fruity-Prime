@@ -58,7 +58,27 @@ namespace MphRead.Mods.Network
             /// and the runner strafes across, so the error being measured is
             /// the rewind multiplied by a flight time rather than by nothing.
             /// </summary>
-            Sniper
+            Sniper,
+            /// <summary>
+            /// Everybody snipes everybody, at a range where the round arrives
+            /// in about a frame. Nobody runs.
+            ///
+            /// The only scenario that produces the thing the kill arbitration
+            /// exists for: two players killing each other inside a round trip,
+            /// so that on the machine keeping score one of them is already
+            /// dead when the other's shot arrives. Neither of the other two
+            /// modes can, because in both of them one of the two clients is
+            /// holding a weapon it never fires at anybody.
+            ///
+            /// The Imperialist kills a full-health hunter with one headshot,
+            /// and both ends hold the trigger from the same distance at the
+            /// same cadence, so at 250-400 ms the two shots regularly cross in
+            /// flight. What the run is read for is
+            /// <c>NetHitClaims.VoidedDeadShooter</c> -- shots the authority
+            /// refused because somebody had been put down in a strictly
+            /// earlier world -- against the trades that were allowed to stand.
+            /// </summary>
+            Duel
         }
 
         public static RigMode Mode { get; private set; } = RigMode.Off;
@@ -80,6 +100,10 @@ namespace MphRead.Mods.Network
                 case "sniper":
                 case "long":
                     Mode = RigMode.Sniper;
+                    return true;
+                case "duel":
+                case "trade":
+                    Mode = RigMode.Duel;
                     return true;
                 default:
                     return false;
@@ -169,7 +193,8 @@ namespace MphRead.Mods.Network
         /// anybody. Even slots shoot, odd slots run, so a two-client run is
         /// always one of each whichever order they arrive in.
         /// </summary>
-        public static bool IsSniper => Math.Max(NetSession.LocalSlot, 0) % 2 == 0;
+        public static bool IsSniper => Mode == RigMode.Duel
+            || Math.Max(NetSession.LocalSlot, 0) % 2 == 0;
 
         public static void Drive(PlayerEntity player)
         {
@@ -314,8 +339,21 @@ namespace MphRead.Mods.Network
             // 63 frames rather than 60, so a tap never lands inside the
             // cooldown of the one before it and get thrown away.
             const int tap = 63;
-            c.Shoot.IsDown = onTarget && _frame % tap < 3;
-            if (c.Shoot.IsDown && _frame % tap == 0)
+            // In a duel the cadence is the *server's* clock, not this client's.
+            //
+            // The point of that scenario is two shots crossing in flight, and
+            // clients join seconds apart -- so a local frame counter has them
+            // firing at unrelated moments and the trade the arbitration exists
+            // for simply never happens. Every client sees roughly the same
+            // snapshot number at the same time, so keying the tap to it puts
+            // the two triggers within a latency of each other, which is
+            // exactly the case worth measuring. Same reason NetTestScript
+            // keys its phases to the server's clock.
+            int clock = Mode == RigMode.Duel && NetSession.LastSnapshotFrame != 0
+                ? (int)NetSession.LastSnapshotFrame
+                : _frame;
+            c.Shoot.IsDown = onTarget && clock % tap < 3;
+            if (c.Shoot.IsDown && clock % tap == 0)
             {
                 Triggers++;
             }

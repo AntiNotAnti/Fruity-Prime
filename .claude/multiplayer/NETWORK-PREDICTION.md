@@ -41,14 +41,71 @@ Without `NetUnlagged` underneath it this would mispredict as often as shots
 used to miss, and it would be worse than useless: a hit shown and then taken
 away is more confusing than a hit shown late.
 
+### The same test needs the same inputs
+
+"The same calculation, run earlier" is only true while both machines are
+running it over the same numbers, and four of the inputs to a shot's damage
+were not on the wire at all. Each was re-derived on the authority from the
+buttons in the intent, or read out of a *local* setting -- which is the same
+mistake the aim deltas and the ammo count were fixed by, with the same
+symptom: the client runs a victim's health down faster (or slower) than the
+authority does, and the shot after that predicts a kill nobody else sees.
+
+| Input | What it does to the damage | Was | Is |
+|---|---|---|---|
+| `EquipInfo.ChargeLevel` | picks the charge tier -- and on a **partial-charge** weapon (the Power Beam: 6 damage at 36 frames of hold, 36 at 60, and every value between) it is a continuous multiplier | a count of frames the *relayed* trigger had been held, so the owner's count give or take the send interval, the jitter and whatever was dropped | sent, latched at the frame of the release | 
+| `_doubleDmgTimer` | x2 on every weapon | a pickup, collected by each machine's own copy of the items on its own respawn timer, so the authority's copy of a shooter can simply not have one | sent as a state, re-asserted every packet |
+| `_boostDamage` | the whole of an alt-form ram | rebuilt from the relayed boost button | sent, latched the same way |
+| `GameState.DamageLevel` | x0.75 / x1 / x1.25 on **every hit of every weapon** | each machine's own `settings.json` | **pinned to medium, x1**, and published as such |
+| `GameState.AffinityWeapons` | a different row of the damage table (an affinity Battlehammer deals 18 where the plain one deals 12) | each machine's own `settings.json` | published with it |
+
+The first three ride in four bytes appended **past** `IntentPacket.Size`
+(`StateSize`), so nothing about the protocol moves: every receiver reads
+exactly `Size` bytes and then asks whether there are four more, and a build
+from before this finds none and behaves as it always did. `HasState` is what a
+receiver checks -- writing zeros for a sender that said nothing would take a
+puppet's charge and powerups *away*. Applied on the authority only, through
+`PlayerEntity.ModSetShotState`, for the same reason the alt-form state is: a
+client correcting a puppet from two sources at once is pulled both ways.
+
+The last two ride in spare bits 4-6 of a flags byte that was already being
+sent, with **zero meaning "this server did not say"** -- so an older server
+changes nothing, and the rule only takes effect once the server is redeployed.
+The damage level is what marks the packet as stating anything at all, and it
+always says medium: it is pinned to x1 on every machine
+(`GameState.DamageLevel` gets 1 and discards what it is set to), because the
+only thing three answers ever bought was three ways for two machines to
+disagree about every shot in the match. Upstream's console menu still has the
+row; assigning it does nothing.
+`-affinityweapons` sets the one that is still a choice; a hosted game takes the
+host's own Match rules. There is no flag for the damage level: three answers
+only ever bought three ways for two machines to disagree about every shot in
+the match, so there is one, and the broadcast is what puts right a client that
+has another from somewhere.
+
+The one input still not replicated is Weavel's `_halfturret.Health`, which
+decides how a hit on him is split. See *Not through a halfturret* below.
+
+### Measuring whether they agree
+
+The authority can check this for nothing, because a hit claim already carries
+the number the **shooter** computed for a shot and the authority already pairs
+it with its own hit for the same shot in order to refuse it as a duplicate. So
+the pair is compared, per weapon, and printed:
+`NetHitClaims.DescribeAgreement`, on the server's `sim:` report. Both sides run
+the same table, so anything short of 100% agreement means one of them is
+reading a quantity the other was never sent -- and the weapon it happens on
+says which.
+
 ## Two rules, and the one that came back
 
 0. **A prediction does not kill somebody else.** This was rule one, it was
-   taken out on the strength of loopback measurements, and a real line put it
-   straight back -- see *The rule that came back* below. `DeathEnabled` is
-   **off** by default; the damage is clamped to leave the victim standing on
-   one point of health and the dying waits for the authority. It does not
-   touch a **self**-kill, which is predicted whatever the switch says.
+   taken out on the strength of loopback measurements, a real line put it
+   straight back -- see *The rule that came back* below -- and **protocol 7
+   turned it back on by removing the cause rather than tolerating it**. See
+   *And it came back on* below. `DeathEnabled` is now **on**;
+   `-nodeathprediction` is the control. It never touched a **self**-kill, which
+   is predicted whatever the switch says.
 1. **A prediction never scores and never ends a match.** The death path awards
    the kill, and on a predicting machine that award is transient: the
    scoreboard is assigned from the snapshot for every slot on every
@@ -89,10 +146,34 @@ player was actually looking at was a corpse getting up. A hit shown and taken
 away is worse than a hit shown late; a *death* shown and taken away is the
 worst case of it, and no amount of scoreboard arithmetic is the answer to it.
 
-So `DeathEnabled` is off, `LethalHeld` counts what it holds, and
-`-deathprediction` turns it back on for measuring. The killing shot still feels
+So `DeathEnabled` went off, `LethalHeld` counted what it held, and
+`-deathprediction` turned it back on for measuring. The killing shot still felt
 instant, because the flinch and the mark run on the frame it lands; only the
-body falling is owed a round trip.
+body falling was owed a round trip.
+
+### And it came back on, in protocol 7
+
+The reasoning above is entirely about **the authority disagreeing silently**.
+That was the only thing that could stand a body back up, and it is what
+`NETWORK-HITCLAIMS.md` removes. A kill this machine shows is now one the
+authority is told about explicitly — `PacketType.HitClaim` — checked against its
+own rewind history and answered inside one round trip with *applied*, *already
+resolved*, or a refusal that says why.
+
+The two outcomes that used to be indistinguishable are now different things:
+
+- **"the authority resolved it too"** — the ordinary case, and nothing to undo;
+- **"somebody killed you first"** — `ResultDeadShooter`, the arbitration doing
+  its job, and a death the player is about to watch happen anyway. A body
+  getting up in that half-second is no longer a surprise.
+
+A refusal also arrives as a *verdict* rather than as a two-second timeout:
+`NetHitPrediction.DropPrediction` releases the hold the moment it lands, so the
+wrong health bar rights itself in about the time the authority takes to answer.
+
+`DeathEnabled` is on by default and follows the claims. `-nodeathprediction` is
+the control; `-deathprediction` is still accepted and is what the default
+already does.
 
 **A self-kill is the exception and is not this switch's to refuse.** A rocket
 jump at low health, a recoil, a crusher, and above all a fall into the void:
@@ -157,11 +238,63 @@ keeps it down.
 seconds, deliberately generous, because a confirmation that arrives late is
 still a confirmation and counting it as a miss would flatter nothing.
 `HoldFrames` is one measured round trip (`NetSession.SlotPing` for the local
-slot) plus twelve frames, clamped to 15-90. A mispredicted hit is a *wrong
+slot) plus twelve frames, **plus `NetHitClaims.GraceFrames` whenever claims are
+live**, clamped to 15-120. The grace is there because a rescued hit is applied
+at the end of the authority's duplicate window rather than on arrival, so its
+confirmation is one grace later than an ordinary hit's -- and a hold that
+expires first is the resurrection the claim exists to stop, reintroduced by the
+clock instead of by the authority. A mispredicted hit is a *wrong
 health bar*, and a wrong health bar has to right itself in about the time the
 authority takes to answer rather than in the time it takes to be certain it
 never will. At Japan's 270 ms that is 28 frames; with no ping measured yet it
 is the 15-frame floor.
+
+### Retiring a prediction: by name, not by the snapshot
+
+A prediction has to come *off* the books the moment the authority accounts for
+the hit, or its debit is taken off a health that already has it in -- and the
+snapshot cannot do that job. `PlayerState` carries a **count** of hits on a
+victim since the last one and the slot of only the **last** attacker, so
+`NetDamage.Replay` calls `Confirm` at all only when `state.AttackerSlot` is
+this machine. A hit of this machine's own, followed inside one snapshot window
+by somebody else's, is never matched. Its debit stays, the victim is drawn
+lower than they are, and since `HealthFor` floors at 1 it takes only a few
+points of stale debit to have the next shot predict a kill on somebody who is
+comfortably alive.
+
+That is exactly the report **"my client thinks three missiles killed him"**.
+Three uncharged missiles are 96 damage against a hunter's 99: three points of
+stale debit are the whole of the error, and in any fight where more than one
+person is shooting the same target they accumulate.
+
+So each prediction now carries the id of the hit claim it was declared under
+(`_pendingClaim`), and a verdict retires that exact one (`Settle`):
+
+| Verdict | What it means | What it does here |
+|---|---|---|
+| `Applied` | the authority made this claim real | retire, count confirmed |
+| `Duplicate` | the authority resolved the same shot itself | retire, count confirmed |
+| `DeadShooter` / `DeadVictim` / refused | the arbitration says it did not happen | retire, count denied, drop `_shownHealth`'s floor |
+| no answer at all, after six sends | the verdict went missing, not necessarily the claim | retire, count denied |
+
+Both paths stay idempotent: retiring clears the claim id, so a later verdict
+for it finds nothing, and `Settle` marks the entry **spent**, so the snapshot
+walking the head past it does not count it twice. The verdict and the snapshot
+race each other, and whichever loses is absorbed by `_settledCredit` rather
+than counted as a second event -- without it every claim answered by its
+verdict first read as "the authority credited a hit this machine never
+predicted", and `Unpredicted` climbed to roughly the size of `Confirmed`.
+
+### Not through a halfturret
+
+Weavel's lower half takes part of every hit that reaches him, and how much
+depends on `_halfturret.Health` -- which lives on the authority and is in no
+packet. A client splitting that damage is splitting it against a number it made
+up. The hit is still predicted and still claimed, because the flinch and the
+mark are right either way; what it may not do is decide a **death** on
+arithmetic the authority will redo differently, so a lethal prediction carrying
+`DamageFlags.Halfturret` on a victim with a live turret is clamped to leave
+them on one point and counted in `LethalHeld`.
 
 ## Your own splash, on you
 
@@ -268,7 +401,9 @@ hit's damage out of the health the victim is being held at.
 | `NetHitPrediction.HealthFor` / `HeldDead` / `LocalHealthFor` | `NetPlayerBridge.ApplyState`, on the three lines that used to assign the authority's health and spawn a puppet unconditionally |
 | `NetHitPrediction.NoteDrain(healer, gained)` | `BeamProjectileEntity`'s life-drain branch, beside the `GainHealth` it is reporting |
 | `NetHitPrediction.ForgetSlot` / `ForgetPending` | `NetSlotManager.Activate`/`Deactivate` and `NetRoomChange`: a prediction describes a hit on a particular player in a particular room, and a lethal one kept across either would hold the slot's next occupant dead on this screen |
+| `NetHitPrediction.Settle(slot, claimId, confirmed)` | `NetHitClaims.ApplyVerdicts` and its outbox timeout: the **exact** retirement, by the id the claim was declared under. The snapshot's is approximate and silently misses a hit followed by somebody else's inside one window |
 | `NetHitPrediction.Tick()` | `Renderer.OnSimulationFrame`, next to `NetHooks.AfterSimulation` -- outside the network hooks because the mark is drawn offline too |
+| `NetHitPrediction.DescribeByWeapon()` | the netcheck report. The tally a weapon at a time, which is the only form of it that can answer "the prediction is wrong with X" -- one weapon resolving differently on the authority is invisible in an aggregate dominated by whatever was fired most |
 
 Nothing is rolled back, because nothing durable is ever written. Health is
 assigned from the snapshot on the very next `ApplyState` -- the same line that
@@ -338,10 +473,16 @@ hit prediction: 26 predicted, 24 confirmed (92.3%), 2 denied, 0 unpredicted,
   authority reported them. Absent when the run never fired one.
 
 `-nohitprediction` is the control and `-nohitmarker` turns off only the mark;
-both are on by default, as `-nounlagged` is off by default. `-deathprediction`
-turns predicted kills on other players back **on** -- they are off by default,
-and `-nodeathprediction` is still accepted and is what the default already
-does. Neither of them reaches a self-kill.
+both are on by default, as `-nounlagged` is off by default. **Predicted kills on
+other players are on by default since protocol 7** and `-nodeathprediction`
+turns them off; `-deathprediction` is still accepted and is what the default
+already does. Neither of them reaches a self-kill.
+
+`hit claims:` is the line to read beside this one. A prediction and a claim are
+the same event seen from two ends -- the prediction is what this machine showed,
+the claim is what it asked the authority to make real -- so `denied` climbing
+while `refused` stays at zero means the two machines disagree about a hit
+neither of them is arguing about, which is a different fault.
 
 ### Verified 2026-09-08/09 (WSL, loopback)
 

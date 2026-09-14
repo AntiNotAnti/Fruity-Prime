@@ -675,6 +675,32 @@ namespace MphRead.Mods.Network
             Console.WriteLine($"  {NetUnlagged.DescribeDepths()}");
             Console.WriteLine($"  {NetHitPrediction.Describe()}");
             Console.WriteLine($"  {NetHitPrediction.DescribeHeadshots()}");
+            // And the same tally a weapon at a time, which is the only form
+            // of it that can answer "the prediction is wrong with X": one
+            // weapon resolving differently on the authority is invisible in an
+            // aggregate dominated by whatever was fired most.
+            foreach (string line in NetHitPrediction.DescribeByWeapon().Split('\n'))
+            {
+                Console.WriteLine($"  {line}");
+            }
+            // What this machine asked the authority to make real, and what it
+            // said back. The number that answers "I shot him and nothing
+            // happened" directly, rather than by inference from a hit rate:
+            // every claim is a hit this client resolved, and every verdict is
+            // the authority agreeing, saying it had already found it, or
+            // saying why not. NetHitClaims.
+            string? claims = NetHitClaims.Describe();
+            if (claims != null)
+            {
+                Console.WriteLine($"  {claims}");
+            }
+            // And how the opponents actually moved, which is the other half of
+            // the same complaint. NetSmoothing.
+            string? smoothing = NetSmoothing.Describe();
+            if (smoothing != null)
+            {
+                Console.WriteLine($"  {smoothing}");
+            }
             if (HitRig.Active)
             {
                 Console.WriteLine($"  {HitRig.Describe()}");

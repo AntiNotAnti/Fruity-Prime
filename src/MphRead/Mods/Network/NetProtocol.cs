@@ -54,7 +54,22 @@ namespace MphRead.Mods.Network
         Vote = 26,          // client -> server, propose a map or answer a proposal
         VoteState = 27,     // server -> clients, the vote in progress
         MapChoices = 28,    // server -> clients, the ballot for the next map
-        MapPick = 29        // client -> server, which of them this player wants
+        MapPick = 29,       // client -> server, which of them this player wants
+        HitClaim = 30,      // client -> authority, "this shot of mine landed"
+        HitVerdict = 31,    // authority -> client, what it did with those claims
+        // 32-35 are reserved for handing a custom map to a client that does
+        // not have it. Reserved rather than implemented: the numbers are
+        // spent now so that the protocol 7 refusal covers the transfer as
+        // well, and a client built today cannot meet a server that speaks it
+        // and misread a chunk as something else. The shape is settled --
+        // MapOffer names the map and its hash, MapWant asks for the bytes,
+        // MapChunk carries them, MapDone closes the transfer -- and nothing
+        // in this build sends or answers any of them.
+        // See .claude/mapgen/MAP-PIPELINE.md.
+        MapOffer = 32,      // server -> client, "the next map is custom: name, hash, size"
+        MapWant = 33,       // client -> server, "send it, from byte N"
+        MapChunk = 34,      // server -> client, one piece of the .fpmap
+        MapDone = 35        // client -> server, "I have it and it hashes right"
     }
 
     /// <summary>
@@ -575,10 +590,79 @@ namespace MphRead.Mods.Network
         /// plays exactly as it always did.
         /// </summary>
         public const byte FlagNoShadowFreeze = 1 << 3;
+        /// <summary>
+        /// Bits 4-5: the damage level every machine in this match scales its
+        /// hits by, as the level plus one, so that <b>zero means "this server
+        /// did not say"</b>.
+        ///
+        /// It was a per-machine *setting* -- <c>GameState.DamageLevel</c>, read
+        /// out of each player's own settings file and multiplied into every
+        /// hit inside <c>TakeDamage</c>. Low is 0.75, high is 1.25, so two
+        /// machines that disagreed about it disagreed about the damage of
+        /// every shot of every weapon by up to a third, in the one direction
+        /// nothing can correct: the shooter's client resolves its own hits now
+        /// (<see cref="NetHitPrediction"/>) and the authority resolves them
+        /// again a round trip later, and where the numbers differ the client
+        /// runs a victim's health down faster than the authority does and
+        /// eventually predicts a kill on somebody who is standing up. Three
+        /// uncharged missiles are 96 of a hunter's 99; at the high level they
+        /// are 120.
+        ///
+        /// The same class of rule as friendly fire and the ice wave above it,
+        /// and settled the same way: the machine resolving a shot decides what
+        /// it did. Two spare bits of a byte that was already being sent, so
+        /// there is no protocol change -- a server built before this sends
+        /// zero and every client keeps the behaviour it always had.
+        /// </summary>
+        public const byte FlagDamageShift = 4;
+        public const byte FlagDamageMask = 0b11 << FlagDamageShift;
+        /// <summary>
+        /// Bit 6: weapon pickups are the picking hunter's affinity variant.
+        /// Only meaningful when the damage bits say this server states its
+        /// rules at all, since a lone zero bit cannot be told from silence --
+        /// and it matters for the same reason: an affinity Battlehammer deals
+        /// 18 where the plain one deals 12.
+        /// </summary>
+        public const byte FlagAffinityWeapons = 1 << 6;
 
         public readonly bool Ending => (Flags & FlagEnding) != 0;
         public readonly bool FriendlyFire => (Flags & FlagFriendlyFire) != 0;
         public readonly bool ShadowFreeze => (Flags & FlagNoShadowFreeze) == 0;
+
+        /// <summary>
+        /// The damage level this server plays at, or -1 when it did not say.
+        /// </summary>
+        public readonly int DamageLevel
+        {
+            get
+            {
+                int stated = (Flags & FlagDamageMask) >> FlagDamageShift;
+                return stated == 0 ? -1 : stated - 1;
+            }
+        }
+
+        /// <summary>Whether this server states its damage rules at all.</summary>
+        public readonly bool StatesRules => (Flags & FlagDamageMask) != 0;
+
+        public readonly bool AffinityWeapons => (Flags & FlagAffinityWeapons) != 0;
+
+        /// <summary>
+        /// Pack the two rules into the spare bits of the flags byte. A level
+        /// outside 0-2 is "do not say", which is what an older server sends.
+        /// </summary>
+        public static byte RuleFlags(int damageLevel, bool affinityWeapons)
+        {
+            if (damageLevel < 0 || damageLevel > 2)
+            {
+                return 0;
+            }
+            byte flags = (byte)((damageLevel + 1) << FlagDamageShift);
+            if (affinityWeapons)
+            {
+                flags |= FlagAffinityWeapons;
+            }
+            return flags;
+        }
 
         public void Write(Span<byte> dest)
         {
@@ -987,7 +1071,73 @@ namespace MphRead.Mods.Network
         /// number each one belongs to lets the receiver take each press once.
         /// </summary>
         public const int PressHistory = 8;
-        public const int Size = 4 + 4 + 12 + 1 + 4 * PressHistory + 12 + 2 + 2 + 4;
+        public const int Size = 4 + 4 + 12 + 1 + 4 * PressHistory + 12 + 2 + 2 + 4 + 1;
+
+        /// <summary>
+        /// Four bytes appended <b>past</b> <see cref="Size"/>, carrying the
+        /// state that decides what this player's next shot is worth.
+        ///
+        /// <b>Why it is sent at all.</b> Everything else about a shot was
+        /// re-derived on the authority from the buttons in this packet, and
+        /// for the three quantities below that re-derivation is a second
+        /// simulation of the shooter -- the same mistake the aim deltas and
+        /// the ammo count were fixed by, with the same symptom. The charge is
+        /// a count of frames the trigger was held, and this packet is sent
+        /// every *other* frame over a line that reorders and drops, so the
+        /// authority's count is the owner's give or take a few; on a
+        /// partial-charge weapon the damage is a continuous function of that
+        /// count, so the two machines put different numbers on the same shot
+        /// every time it is fired. Double damage and the Prime Hunter bonus
+        /// are worse than that: they are pickups and a mode state, collected
+        /// by each machine's own simulation, so the authority's copy of a
+        /// shooter can simply not have one -- a factor of two on every shot,
+        /// with no packet anywhere that would say so.
+        ///
+        /// Appended rather than folded in, so nothing about the protocol
+        /// moves: every receiver reads exactly <see cref="Size"/> bytes and
+        /// then asks whether there are four more, and a build from before this
+        /// finds none and behaves exactly as it always did.
+        /// </summary>
+        public const int StateSize = 4;
+        public const int FullSize = Size + StateSize;
+
+        /// <summary>
+        /// <c>EquipInfo.ChargeLevel</c> as the owner holds it, clamped to a
+        /// byte -- the longest charge in the game is 300 frames doubled, which
+        /// is the Omega Cannon's and is not chargeable, and every real one is
+        /// under 180. Latched at the frame of the newest trigger release in
+        /// this packet, because that is the charge the shot was fired with;
+        /// the current value otherwise.
+        /// </summary>
+        public byte ChargeLevel;
+
+        /// <summary>
+        /// <c>_boostDamage</c>: what this player's alt-form ram is worth,
+        /// which is its boost charge scaled by the hunter's own alt-attack
+        /// damage. Latched the same way, since the charge is spent the moment
+        /// the ram starts.
+        /// </summary>
+        public byte BoostDamage;
+
+        /// <summary>The two multipliers, as state rather than as an edge.</summary>
+        public byte ShotFlags;
+
+        public const byte FlagDoubleDamage = 1 << 0;
+        /// <summary>
+        /// Whether the sender believes it is the Prime Hunter, which is worth
+        /// x1.5 on every shot. Sent but <b>not applied</b>: who the Prime
+        /// Hunter is is the authority's own state, and a client asserting it
+        /// would be asserting a damage bonus. It travels so that a mismatch
+        /// shows up in a log rather than only in a health bar.
+        /// </summary>
+        public const byte FlagPrimeHunter = 1 << 1;
+
+        /// <summary>
+        /// Whether the sender included the block at all. False for a client
+        /// built before it, and the one thing the authority must check before
+        /// overwriting a puppet's charge with a zero nobody sent.
+        /// </summary>
+        public bool HasState;
 
         public uint Frame;          // client's frame counter, for ordering
         public IntentButtons Buttons;
@@ -1055,6 +1205,26 @@ namespace MphRead.Mods.Network
         /// </summary>
         public uint AckFrame;
 
+        /// <summary>
+        /// How far past <see cref="AckFrame"/> the world this client was
+        /// looking at actually sat, in 1/256ths of a frame.
+        ///
+        /// A client that interpolates its puppets is not drawing any one
+        /// snapshot: it draws a point between two of them, deliberately a
+        /// fixed distance behind the newest, because that is what turns a
+        /// stream of positions arriving irregularly into motion. The integer
+        /// ack alone cannot name that point, and rounding it costs up to a
+        /// frame of rewind -- which on a headshot band 0.3 units tall is the
+        /// whole band for anybody moving.
+        ///
+        /// Zero from a client that does not interpolate, which is what every
+        /// build before protocol 7 was, and what <c>-nointerp</c> still is.
+        /// The authority lerps between history[AckFrame] and
+        /// history[AckFrame + 1] by this fraction; at zero that is exactly
+        /// the behaviour it always had.
+        /// </summary>
+        public byte AckSubFrame;
+
         public void Write(Span<byte> dest)
         {
             BinaryPrimitives.WriteUInt32LittleEndian(dest[0..], Frame);
@@ -1075,6 +1245,14 @@ namespace MphRead.Mods.Network
             BinaryPrimitives.WriteUInt16LittleEndian(dest[(at + 12)..], AmmoUa);
             BinaryPrimitives.WriteUInt16LittleEndian(dest[(at + 14)..], AmmoMissiles);
             BinaryPrimitives.WriteUInt32LittleEndian(dest[(at + 16)..], AckFrame);
+            dest[at + 20] = AckSubFrame;
+            if (dest.Length >= FullSize)
+            {
+                dest[Size] = ChargeLevel;
+                dest[Size + 1] = BoostDamage;
+                dest[Size + 2] = ShotFlags;
+                dest[Size + 3] = 0;
+            }
         }
 
         public static IntentPacket Read(ReadOnlySpan<byte> src)
@@ -1100,7 +1278,16 @@ namespace MphRead.Mods.Network
                     BinaryPrimitives.ReadSingleLittleEndian(src[(29 + PressHistory * 4)..])),
                 AmmoUa = BinaryPrimitives.ReadUInt16LittleEndian(src[(33 + PressHistory * 4)..]),
                 AmmoMissiles = BinaryPrimitives.ReadUInt16LittleEndian(src[(35 + PressHistory * 4)..]),
-                AckFrame = BinaryPrimitives.ReadUInt32LittleEndian(src[(37 + PressHistory * 4)..])
+                AckFrame = BinaryPrimitives.ReadUInt32LittleEndian(src[(37 + PressHistory * 4)..]),
+                AckSubFrame = src[41 + PressHistory * 4],
+                // Only when it is actually there. A client from before this
+                // block sends Size bytes and nothing more, and reading zeros
+                // out of the end of its datagram would tell the authority that
+                // its charge is nothing and its powerups are gone.
+                HasState = src.Length >= FullSize,
+                ChargeLevel = src.Length >= FullSize ? src[Size] : (byte)0,
+                BoostDamage = src.Length >= FullSize ? src[Size + 1] : (byte)0,
+                ShotFlags = src.Length >= FullSize ? src[Size + 2] : (byte)0
             };
         }
     }
@@ -1315,6 +1502,229 @@ namespace MphRead.Mods.Network
         }
     }
 
+    /// <summary>
+    /// One hit a client resolved on its own machine and is asking the
+    /// authority to make real.
+    ///
+    /// <b>Why this exists at all.</b> Lag compensation already resolves a
+    /// remote shot against the world its shooter was looking at, and instant
+    /// hit registration already lets that shooter see the hit land on the
+    /// frame they fired it. Both are the authority and the client running the
+    /// *same* test on the *same* positions, which is why they normally agree.
+    /// What neither can do is survive the cases where they cannot run the same
+    /// test:
+    ///
+    /// * the rewind ran into its ceiling, so the authority resolved the shot
+    ///   against a world the shooter never saw (measured at 85% of shots on a
+    ///   320 ms line under the old 400 ms ceiling);
+    /// * the trigger pull arrived out of a press history and the authority
+    ///   cannot tell how old it is;
+    /// * the shooter was killed during the round trip, so the authority never
+    ///   ran the shot at all -- its copy of that player was already dead when
+    ///   the intent arrived. This is the one a player calls unfair rather than
+    ///   laggy: they watched the shot land and then watched the body get up.
+    ///
+    /// A claim is the shooter's own answer to those, carried explicitly. The
+    /// authority does not take it on trust -- see
+    /// <see cref="Mods.Network.NetHitClaims"/> for the five things it checks --
+    /// but where the claim is defensible the shooter's screen is what counts.
+    /// It is exactly reciprocal: every client's claims are checked the same
+    /// way by the same code, so nobody is favoured by having the worse line.
+    ///
+    /// Several claims travel in one packet, and unanswered ones are repeated
+    /// until a verdict arrives, for the reason
+    /// <see cref="IntentPacket.PressHistory"/> repeats presses: UDP loses
+    /// packets, and a lost claim is a kill that did not happen.
+    /// </summary>
+    public struct HitClaimPacket
+    {
+        public const int Size = 2 + 4 + 4 + 4 + 1 + 1 + 2 + 1 + 12;
+
+        /// <summary>How many claims one datagram may carry.</summary>
+        public const int MaxPerPacket = 6;
+
+        /// <summary>Beam value meaning "not a beam" -- an alt-form attack, a bomb.</summary>
+        public const byte NoBeam = 0xFF;
+
+        /// <summary>The shooter resolved this as a headshot.</summary>
+        public const byte FlagHeadshot = 1 << 0;
+        /// <summary>The shooter's own copy of the victim died of this hit.</summary>
+        public const byte FlagLethal = 1 << 1;
+        /// <summary>Judicator ice, so the authority can freeze the victim too.</summary>
+        public const byte FlagFrozen = 1 << 2;
+        /// <summary>Magmaul fire.</summary>
+        public const byte FlagBurning = 1 << 3;
+        /// <summary>Volt Driver disruption.</summary>
+        public const byte FlagDisrupted = 1 << 4;
+
+        /// <summary>
+        /// Rolling, per shooter, so a verdict can name a claim and a repeat
+        /// can be recognised as the same one rather than applied twice.
+        /// </summary>
+        public ushort ClaimId;
+        /// <summary>The shooter's own frame counter when it resolved the hit.</summary>
+        public uint Frame;
+        /// <summary>
+        /// The authority frame whose world this was resolved against -- the
+        /// same number <see cref="IntentPacket.AckFrame"/> carries, and what
+        /// the authority rewinds to in order to check the claim. It is also
+        /// the timestamp the kill arbitration orders shots by: two players who
+        /// killed each other are separated by which of them pulled the trigger
+        /// in the earlier world, not by which packet arrived first.
+        /// </summary>
+        public uint AckFrame;
+        /// <summary>
+        /// The world-frame the shot that caused this hit was <b>launched</b>
+        /// in -- <c>BeamProjectileEntity.ModLaunchFrame</c>, stamped on every
+        /// machine that spawns a beam.
+        ///
+        /// <b>This is what identifies the shot, and nothing else can.</b>
+        /// Pairing a claim with the authority's own resolution of the same
+        /// shot by *when they arrived* cannot be made exact: the two are
+        /// separated by a round trip, and for anything that travels by however
+        /// far the two copies of the projectile drifted apart over its flight
+        /// as well -- which grows with range. Measured, a window sized to the
+        /// round trip still let one hit in thirty through at zero latency and
+        /// applied it on top of the authority's: the victim took the damage,
+        /// then took it again when the shot they could see arrived. The launch
+        /// frame is the same number on both machines by construction and does
+        /// not care how far the shot flew.
+        ///
+        /// Zero for a hit with no beam behind it -- an alt form's attack, a
+        /// bomb, the void -- which fall back to the time window.
+        /// </summary>
+        public uint LaunchFrame;
+        public byte VictimSlot;
+        public byte Beam;
+        /// <summary>
+        /// Damage as the shooter applied it, after every multiplier its own
+        /// machine knows about. Checked against what that weapon can possibly
+        /// deal before it is believed.
+        /// </summary>
+        public ushort Damage;
+        public byte Flags;
+        /// <summary>
+        /// Where the shooter says the hit landed. The whole of the geometric
+        /// check: the authority looks the victim up in its own history at
+        /// <see cref="AckFrame"/> and refuses a claim whose point is nowhere
+        /// near the body it finds there.
+        /// </summary>
+        public Vector3 HitPoint;
+
+        public void Write(Span<byte> dest)
+        {
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[0..], ClaimId);
+            BinaryPrimitives.WriteUInt32LittleEndian(dest[2..], Frame);
+            BinaryPrimitives.WriteUInt32LittleEndian(dest[6..], AckFrame);
+            BinaryPrimitives.WriteUInt32LittleEndian(dest[10..], LaunchFrame);
+            dest[14] = VictimSlot;
+            dest[15] = Beam;
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[16..], Damage);
+            dest[18] = Flags;
+            BinaryPrimitives.WriteSingleLittleEndian(dest[19..], HitPoint.X);
+            BinaryPrimitives.WriteSingleLittleEndian(dest[23..], HitPoint.Y);
+            BinaryPrimitives.WriteSingleLittleEndian(dest[27..], HitPoint.Z);
+        }
+
+        public static HitClaimPacket Read(ReadOnlySpan<byte> src)
+        {
+            return new HitClaimPacket
+            {
+                ClaimId = BinaryPrimitives.ReadUInt16LittleEndian(src[0..]),
+                Frame = BinaryPrimitives.ReadUInt32LittleEndian(src[2..]),
+                AckFrame = BinaryPrimitives.ReadUInt32LittleEndian(src[6..]),
+                LaunchFrame = BinaryPrimitives.ReadUInt32LittleEndian(src[10..]),
+                VictimSlot = src[14],
+                Beam = src[15],
+                Damage = BinaryPrimitives.ReadUInt16LittleEndian(src[16..]),
+                Flags = src[18],
+                HitPoint = new Vector3(
+                    BinaryPrimitives.ReadSingleLittleEndian(src[19..]),
+                    BinaryPrimitives.ReadSingleLittleEndian(src[23..]),
+                    BinaryPrimitives.ReadSingleLittleEndian(src[27..]))
+            };
+        }
+    }
+
+    /// <summary>
+    /// What the authority did with the claims one client sent it.
+    ///
+    /// Its job is not to tell the shooter whether the hit landed -- the
+    /// snapshot already carries that, as it always did. It is to tell the
+    /// shooter it may stop asking, and, on a refusal, to say so within one
+    /// round trip instead of leaving the prediction to time out over two
+    /// seconds with a victim's health held wrong for the whole of it.
+    ///
+    /// A reason travels with every refusal because "the shot did not count"
+    /// is not a diagnosis, and the three refusals mean completely different
+    /// things: one is a line problem, one is a fair trade, and one is a claim
+    /// the authority thinks is a lie.
+    /// </summary>
+    public struct HitVerdictPacket
+    {
+        public const int EntrySize = 3;
+        public const int MaxPerPacket = 16;
+
+        /// <summary>The authority applied it. The shooter's screen was right.</summary>
+        public const byte ResultApplied = 0;
+        /// <summary>
+        /// The authority had already resolved this hit itself, so the claim
+        /// changed nothing. The normal outcome on a healthy line, and the one
+        /// that says the rewind is doing its job without help.
+        /// </summary>
+        public const byte ResultDuplicate = 1;
+        /// <summary>
+        /// The shooter was already dead, in their own clock, when they fired.
+        /// Somebody killed them in the world they were looking at, before they
+        /// pulled the trigger, and this is the arbitration doing what it is
+        /// for. Not a fault and not a line problem.
+        /// </summary>
+        public const byte ResultDeadShooter = 2;
+        /// <summary>
+        /// The victim was already dead, or gone, or not in play at the frame
+        /// claimed. Costs the shooter nothing: somebody else got there first.
+        /// </summary>
+        public const byte ResultDeadVictim = 3;
+        /// <summary>
+        /// The authority could not find the victim anywhere near where the
+        /// claim says the hit landed, or the damage is more than that weapon
+        /// can deal, or the claim is older than the history. This is the one
+        /// worth logging: on a clean conscience it means the two machines have
+        /// drifted, and otherwise it means somebody is making hits up.
+        /// </summary>
+        public const byte ResultRefused = 4;
+        /// <summary>The claim named a frame the history no longer holds.</summary>
+        public const byte ResultTooOld = 5;
+
+        public ushort ClaimId;
+        public byte Result;
+
+        public static void Write(Span<byte> dest, ReadOnlySpan<(ushort Id, byte Result)> entries)
+        {
+            dest[0] = (byte)entries.Length;
+            for (int i = 0; i < entries.Length; i++)
+            {
+                int at = 1 + i * EntrySize;
+                BinaryPrimitives.WriteUInt16LittleEndian(dest[at..], entries[i].Id);
+                dest[at + 2] = entries[i].Result;
+            }
+        }
+
+        public static string Describe(byte result)
+        {
+            return result switch
+            {
+                ResultApplied => "applied",
+                ResultDuplicate => "already resolved",
+                ResultDeadShooter => "shooter was already dead when it fired",
+                ResultDeadVictim => "victim was already down",
+                ResultRefused => "refused",
+                ResultTooOld => "older than the history",
+                _ => "unknown"
+            };
+        }
+    }
+
     public static class NetConfig
     {
         public const ushort DefaultPort = 27888;
@@ -1366,8 +1776,37 @@ namespace MphRead.Mods.Network
         /// would not have needed a bump of their own -- an older build ignores
         /// a bit it does not know. They are mentioned here because the byte is
         /// now full: the next flag needs somewhere to live.
+        ///
+        /// Version 7 is hit registration changing hands. Three things move at
+        /// once and each of them alone would force the bump:
+        ///
+        /// * <see cref="PacketType.HitClaim"/> and
+        ///   <see cref="PacketType.HitVerdict"/>. A client now tells the
+        ///   authority which of its own shots landed, and the authority either
+        ///   agrees, finds it has already resolved the same hit, or refuses it
+        ///   with a reason. A version 6 server drops both on the floor -- which
+        ///   is safe, and is also a match where every shot still waits for the
+        ///   authority's own answer, so the feature is silently absent rather
+        ///   than half present.
+        /// * <see cref="IntentPacket.AckSubFrame"/>. The intent grows by one
+        ///   byte, appended, so nothing before it moved -- but a version 6
+        ///   authority would read the packet correctly and rewind to a whole
+        ///   frame while the shooter was looking at a point between two of
+        ///   them, which is the error this exists to remove.
+        /// * The rewind ceiling's default moves from 24 frames to 45. That is
+        ///   behaviour rather than layout, and on its own it would be a
+        ///   <see cref="ProtocolVersion"/> 4-style refusal: a server one build
+        ///   behind resolves 85% of a 320 ms line's shots against a world
+        ///   nobody was looking at, measured.
+        ///
+        /// It also spends packet numbers 32-35 on a custom-map transfer that
+        /// is **not implemented**. That is deliberate: the numbers cost
+        /// nothing now and spending them here means the refusal this version
+        /// already forces is the same refusal that will cover the transfer,
+        /// rather than a second bump a month later. See
+        /// <see cref="PacketType.MapOffer"/>.
         /// </summary>
-        public const int ProtocolVersion = 6;
+        public const int ProtocolVersion = 7;
         /// <summary>
         /// Frames between intent packets. One, so every frame.
         ///

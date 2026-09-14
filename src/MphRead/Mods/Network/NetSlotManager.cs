@@ -104,6 +104,7 @@ namespace MphRead.Mods.Network
             NetSession.ForgetSlot(slot);
             NetScoreboard.ForgetSlot(slot);
             NetHitPrediction.ForgetSlot(slot);
+            NetHitClaims.ForgetSlot(slot);
             // The same flags Scene.AddPlayer sets, minus the bot marking:
             // a networked player is driven by relayed intent, not by AI.
             player.LoadFlags |= LoadFlags.SlotActive;
@@ -233,6 +234,7 @@ namespace MphRead.Mods.Network
             NetDamage.ForgetSlot(slot);
             NetSession.ForgetSlot(slot);
             NetHitPrediction.ForgetSlot(slot);
+            NetHitClaims.ForgetSlot(slot);
             // The score goes when they go, not only when somebody takes the
             // slot: a player who left is not on the board, and the board is
             // drawn from these while the slot stands empty.

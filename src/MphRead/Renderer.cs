@@ -1579,6 +1579,13 @@ namespace MphRead
                 {
                     UpdateScene();
                 }
+                // Before the snapshot rather than after it: this is where the
+                // authority applies the hits its clients said they landed and
+                // it never found, and a hit applied after BroadcastSnapshot
+                // would sit a whole frame waiting for the next one. The claim
+                // outbox is aged on the same call, for the reason everything
+                // here is counted in frames. Mods.Network.NetHitClaims.
+                Mods.Network.NetHitClaims.Tick();
                 Mods.Network.NetHooks.AfterSimulation();
                 // Ages the predictions the authority has not answered yet and
                 // counts the hit mark down. Outside the network hooks because

@@ -91,7 +91,7 @@ export ALSOFT_DRIVERS=null PULSE_SERVER=   # else ALSA retries stall frames
 | Command | Use |
 |---|---|
 | `MphRead -server ... -noshadowfreeze` | run the room with the Judicator's ice wave as a cone rather than as a column of infinite height. A rule, broadcast to every client in the match state, because the machine resolving a shot decides who it hit |
-| `MphRead -server -port N -players 8` | dedicated **authoritative** server: it runs the match itself, so it needs the game files and `paths.txt` beside the binary, and it refuses to start without them. `-simulate`/`-authority` are accepted and do nothing. `-servername "NAME"` is what a browser shows; it announces itself to `net.livetek.fr` unless `-nomaster` is passed, and `-master HOST -masterport N` points it elsewhere |
+| `MphRead -server -port N -players 8` | dedicated **authoritative** server: it runs the match itself, so it needs the game files and `paths.txt` beside the binary, and it refuses to start without them. `-simulate`/`-authority` are accepted and do nothing. `-servername "NAME"` is what a browser shows; it announces itself to `net.livetek.fr` unless `-nomaster` is passed, and `-master HOST -masterport N` points it elsewhere. `-affinityweapons` is a **match rule broadcast to every client**, not a local preference: the affinity weapons are a different row of the damage table, so a client playing by its own settings ran a victim's health down at a different rate from the machine keeping score. The **damage level is pinned to medium (x1) everywhere** and has no flag -- it multiplied every weapon's damage and was the one rule each machine read out of its own file |
 | `MphRead -simcheck "ROOM" [-players N] [-seconds N]` | what a room costs a server: peak memory, milliseconds a simulation step, and whether every slot spawned. Runs the headless engine with nobody connected. The measurement that decides whether a given box can be the authority for a given map |
 | `MphReadServer.exe -server ...` | the same server on Windows, as its own console binary. `MphRead.exe` can also do it, but it is a GUI binary: a shell will not wait for it and its exit code never reaches `%ERRORLEVEL%`. Run with no arguments it prints what it is for |
 | `MphRead -masterserver [-port N] [-public HOST] [-hostports A-B]` | the server directory the launcher's browser asks, and the machine that runs matches for players who cannot open a port. Same binary, no game files, keeps nothing on disk. `-public` is the address to publish for servers registering from this same machine, whose heartbeats arrive over the loopback |
@@ -104,7 +104,10 @@ export ALSOFT_DRIVERS=null PULSE_SERVER=   # else ALSA retries stall frames
 | `MphRead -netcheck HOST -port N -name X -hunter H -seconds N [-shots DIR] [-size WxH]` | a real client driven by a script, which reports what it saw. Exit code 0 = pass. `-spectate [SEC]` makes it stop playing and watch, `-rejoin SEC` puts it back in -- the one player state the tour cannot reach on its own. `-mapvote N` votes on the results screen's map list -- agreeing with whatever is in front, proposing row N when nothing is -- and is **off** unless asked, since a scripted client that votes changes what a real server plays next and the hard-case batch runs against the public one. `-hudshots` opens a real window and photographs *it*, which is the only capture that carries the HUD: a results screen is HUD and nothing else |
 | `MphRead -netlag MS[:JITTER]` / `-netloss PCT` | play, or run any check, over a line this client makes up: `-netlag 200` adds 200 ms to the round trip (half each way), `-netlag 200:40` gives it jitter, `-netloss 5` eats one datagram in twenty. Works against the real server, on any platform, with no proxy and no `sudo` -- and unlike `hard/run-latency.sh`'s netem it can be given to **one** client while the others stay fast, which is the case a player with a bad line actually is. Every report says so when it is on |
 | `MphRead -nounlagged` | resolve shots against the present, the way every build before lag compensation did. The control for measuring it; on by default. `.claude/multiplayer/NETWORK-UNLAGGED.md` |
-| `MphRead -nohitprediction` / `-nohitmarker` / `-deathprediction` | wait for the authority before a hit lands, the way every build before instant hit registration did; drop the mark over the crosshair that says one has; and let a prediction kill **somebody else**, which it does not by default -- a predicted hit is clamped to leave the victim standing on one point of health and the dying waits for the authority. Hit prediction and the mark are on by default, predicted kills on other players are **off** (`-nodeathprediction` is still accepted and is what the default already does), and a **self**-kill is predicted whatever any of them say. `.claude/multiplayer/NETWORK-PREDICTION.md` |
+| `MphRead -nohitprediction` / `-nohitmarker` / `-nodeathprediction` | wait for the authority before a hit lands, the way every build before instant hit registration did; drop the mark over the crosshair that says one has; and stop a prediction killing **somebody else**, which since protocol 7 it does by default -- the claim below is what made that safe again. All three are on by default, and a **self**-kill is predicted whatever any of them say. `.claude/multiplayer/NETWORK-PREDICTION.md` |
+| `MphRead -noclaims` | stop a client telling the authority which of its own shots landed. On by default: a hit the authority's own rewind cannot find -- because the rewind hit its ceiling, because the trigger pull was recovered from a press history, or because **the shooter was killed during the round trip and the authority never ran the shot at all** -- is declared, checked against the authority's own history, and either applied or refused with a reason. That last case is the one a player calls unfair rather than laggy, and the rule it is answered by is: a shot counts unless its shooter had already been put down by a hit aimed at a strictly earlier world, and two shots aimed at the same world both count. Every weapon, not just the Imperialist. `.claude/multiplayer/NETWORK-HITCLAIMS.md` |
+| `MphRead -nointerp` / `-relayedpuppets` | draw remote players by snapping them to whichever snapshot arrived last, the way every build before protocol 7 did, instead of reading them off a playout clock held a few frames behind. Interpolation is on by default and is why opponents on a bad line move instead of stuttering; it costs a few frames of extra rewind and gives nothing up in hit registration, because the read point travels in the intent as a sub-frame ack and the authority rewinds to exactly it. `-relayedpuppets` also hands puppet positions back to the owner's relayed intent, which is the full protocol-6 arm. `.claude/multiplayer/NETWORK-SMOOTHING.md` |
+| `MphRead -maxrewind N` | the furthest back a shot may be resolved, in frames. **45 (750 ms)** by default since protocol 7, against 24 (400 ms) before it: at a 320 ms round trip with jitter the old ceiling was clamping **89% of shots**, with the requested-depth distribution's mode two frames past it. `.claude/multiplayer/NETWORK-UNLAGGED.md` |
 | `MphRead -debuglog` | write the file the launcher's corner switch writes, for one run. `.claude/DEBUG-LOGS.md` |
 | `~/mph-net-test/probe-chat.py [HOST] [PORT]` | what the server does with chat, asked the way no real client can: a spoofed sender, and a flood. `.claude/multiplayer/NETWORK-CHAT.md` |
 | `~/mph-net-test/run-remote.sh HOST PORT SECONDS hunter...` | the same check against a server that is not on this machine -- which is the one that matters, since eight clients on one box measure the box |
@@ -118,6 +121,7 @@ export ALSOFT_DRIVERS=null PULSE_SERVER=   # else ALSA retries stall frames
 | `MphRead -maptest "ROOM" -hunter H -hudshots` | put that hunter in slot 0, whose eyes and whose HUD every capture is taken through. Each of the eight lays its readouts out differently, so a HUD picture with no hunter named is a picture of Samus's and of nobody else's |
 | `MphRead -maptest "ROOM" -renderprobe` | stand on every spawn point in the room in turn, read the frame, walk forward five seconds, read the worst. Catches a room that draws nothing -- the failure no other check can see, because everything else about it passes. `-shots DIR` writes the PNGs, `-allnodes` draws without room-part culling (which separates "the geometry is missing" from "the cull lost it"), `-hudshots` uses a real visible window and reads *its* buffer, which is the only capture that includes the HUD, and `-size WxH` sets that window's shape -- the HUD is laid out in a 4:3 space and stretched, so how it looks is partly a question about the window. Under WSL a HUD capture needs the X11 backend: `WAYLAND_DISPLAY=` `DISPLAY=:0`, or every window read comes back black |
 | `MphRead -maptest "TEST ARENA" -players 8` | the harness's own room (`maps/arena/`): forty units square, eight spawns on a ring looking inward, nothing far from anything. Where damage, hit registration and the affliction states are actually measurable -- a real map's corridors mean most of the tour's shots land on a wall |
+| `MphRead -maptest "TEST PADS" -players 8` | the same room with four jump pads throwing hunters across the middle, in a box tall enough for the arc (`maps/pads/`). The one case hit registration is hardest in: a target crossing at 0.3 units a frame or more, against a headshot band 0.3 units tall. TEST ARENA is the control -- the two differ by the pads and the ceiling height and by nothing else |
 | `MphRead -rooms` | list every multiplayer room, one per line, for a shell loop. **27** is the whole cartridge and the right answer with no custom map source present; anything more is a custom map |
 | `MphRead -q3convert FILE.pk3 -map LEVEL -name ROOM [-noclip]` | a Quake 3 .pk3 to a custom map in one command: textures baked from the level's own art, scale and extents picked from its geometry, spawns from its entities. Places no weapons or powerups -- where those go decides how the map plays. `.claude/mapgen/MAP-PIPELINE.md` |
 | `MphRead -mapgen ["NAME"]` | generate the room binaries for the custom maps in `maps/` (recursively: a map may sit in a folder of its own with its level and textures beside it, or be a single `.fpmap` bundle), from the player's own textures. `-mapmaterials "ROOM"` prints what textures a room can lend. A map is a JSON file; the `.bin` it produces is never committed. `.claude/mapgen/MAP-PIPELINE.md` |
@@ -882,7 +886,7 @@ MPH_SERVER_HOST=net.livetek.fr MPH_SERVER_USER=livetek \
 
 The exe is often locked by a running game: write `MphRead.new.exe`, then `mv`.
 
-**`NetConfig.ProtocolVersion` is 6.** Any protocol change means server **and**
+**`NetConfig.ProtocolVersion` is 7.** Any protocol change means server **and**
 every client must be the same build — a mismatched client is refused outright
 at Hello with a line in the server log, which is the intended outcome and not
 a layout issue: the wire format doesn't move, an old client would read every
@@ -1029,6 +1033,45 @@ simulating server simply never sends it. Measured at **110 MB and 0.31 ms a
 step** for an 8-player room, against 337 MB for a full client, by dropping
 work whose only output was a picture. `.claude/multiplayer/NETWORK-SERVERAUTH.md`.
 
+**A shot the authority cannot find is declared, checked and arbitrated**
+(protocol 7, `Mods/Network/NetHitClaims.cs`). The rewind below and the
+prediction under it are the authority and the shooter running the *same* test
+on the *same* positions, which is why they agree -- and there are three cases
+where they cannot run the same test at all: the rewind hit its ceiling
+(measured at **89% of shots clamped** on a 320 ms jittery line under the old
+400 ms ceiling), the trigger pull arrived out of a press history, or **the
+shooter was killed during the round trip**, so the authority never ran the shot
+-- a dead player's presses do nothing. The third is the one a player calls
+unfair: you shoot, the body drops, and then it stands back up because the person
+you shot had already killed you on the machine keeping score. A `HitClaim`
+carries the victim, the weapon, the damage, the world-frame the shooter was
+looking at and **where the shooter's copy of the victim was standing**; the
+authority refuses it unless its own history puts that player within 2 units of
+that spot at that frame, so a claim can only rescue a hit the authority's own
+record says was there to be had. A validated claim waits 18 frames and is
+dropped the moment the authority resolves the same hit itself, which is what
+stops the damage landing twice. **The arbitration**: a shot counts even when its
+shooter is dead by the time it arrives, unless they were put down by a hit aimed
+at a *strictly earlier* world; two shots aimed at the same world both count, a
+trade. Claims are settled in fire-frame order so a mutual kill comes out the
+same way whichever datagram won the race. Predicted kills on other players came
+back on with it -- the authority no longer disagrees silently. Every weapon.
+`-noclaims`. `.claude/multiplayer/NETWORK-HITCLAIMS.md`.
+
+**Remote players are read off a playout clock, not snapped to the last snapshot
+that arrived** (`Mods/Network/NetSmoothing.cs`). The stutter on a bad line is
+not lost packets and not a slow machine -- it is a 60 Hz stream played back at
+the rate it arrived, so a puppet stands still for three frames and then jumps
+three frames' worth. Positions are buffered and read on a clock that ticks once
+a simulation frame, held two to eight frames behind the newest snapshot, and
+nothing is ever extrapolated (a guessed position puts a player through a wall
+and then snaps them out of it). It does not cost hit registration, which is the
+thing to be careful of: the read point is a *number*, so `IntentPacket.AckSubFrame`
+sends it and the authority interpolates its own history between the same two
+frames by the same fraction -- more exact than the integer ack it replaces. The
+smoothed position **is** the position: model, hitbox, shadow and shot.
+`-nointerp`. `.claude/multiplayer/NETWORK-SMOOTHING.md`.
+
 **Shots are resolved against the world the shooter was looking at**, not the
 one that exists by the time their trigger arrives -- backwards reconciliation,
 ported from Q-Zandronum's `unlagged.cpp`. The error it removes is one-sided and
@@ -1093,6 +1136,42 @@ simulating server, where all three clients predict. Quote the range: the
 scripted tour does not fire the same shots twice. `-nohitprediction` is the
 control, `-deathprediction` turns the lethal half back on for measuring, and
 `-nohitmarker` turns off just the mark. No protocol change.
+
+**"The same calculation, run earlier" needs the same inputs, and five of them
+were not on the wire.** A prediction is sound because the authority rewinds to
+the world the shooter was looking at -- but that only makes the two machines
+agree while they are running the damage table over the same numbers, and the
+charge level, the double-damage powerup, the alt-form ram's strength, the
+damage level and the affinity-weapons rule were each either **re-derived** on
+the authority from the relayed buttons or read out of the player's **own
+settings file**. A partial-charge weapon's damage is a continuous function of
+the frames the trigger was held (the Power Beam runs 6 to 36 over 24 frames),
+double damage is a factor of two the authority's copy of a shooter can simply
+not have, and the damage level is x0.75/x1/x1.25 on *every hit of every
+weapon*. All five are settled: the first three travel in four bytes appended past
+`IntentPacket.Size`, and the last two in spare bits of
+`MatchStatePacket.Flags` where **zero means the server did not say** -- so
+neither is a protocol change, and the broadcast only takes effect once the
+server is redeployed. The **damage level is pinned to medium, x1**, and is
+published as such: it is not an option any more, since the only thing three
+answers bought was three ways for two machines to disagree
+(`GameState.DamageLevel`). `-affinityweapons` is the one that is still a
+choice. Weavel's halfturret health is
+the one left, and a hit split with a turret is therefore not allowed to predict
+a death.
+
+**And a prediction is retired by name.** The snapshot carries a count of hits
+on a victim and the slot of only the *last* attacker, so a client's own hit
+followed inside one snapshot window by somebody else's was never matched: its
+debit stayed on the books while the authority's own health already had it, and
+a shot or two later the client predicted a kill on somebody comfortably alive.
+Three uncharged missiles are 96 damage against a hunter's 99, which is how
+*"my client thinks three missiles killed him"* is only three points of stale
+debit. Every hit claim's verdict now retires the exact prediction it was
+declared under. The authority measures the rest for free: a claim carries the
+shooter's own number for a shot and the authority already pairs it with its own
+hit for that shot, so `sim: predicted vs resolved damage` prints the agreement
+per weapon. `.claude/multiplayer/NETWORK-HITCLAIMS.md`.
 
 **Chat is T**, three lines bottom left in green on nothing, gone ten seconds
 after they arrive -- the frame counter sits in the right-hand corner, which is

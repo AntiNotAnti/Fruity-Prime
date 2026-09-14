@@ -163,6 +163,74 @@ namespace MphRead.Mods.Network
         /// </summary>
         private static readonly bool[,] _pendingHeadshot = new bool[Slots, PendingCapacity];
 
+        /// <summary>
+        /// The weapon behind each outstanding prediction, so the tally can be
+        /// read a weapon at a time. <see cref="BeamType.None"/> -- an alt
+        /// form's ram, a scythe, a bomb, the void -- is kept as
+        /// <see cref="AltBeam"/> rather than dropped: half the complaints
+        /// about prediction are about alt form, and a bucket that silently
+        /// discarded them could not answer any of them.
+        /// </summary>
+        private static readonly byte[,] _pendingBeam = new byte[Slots, PendingCapacity];
+
+        /// <summary>
+        /// The hit claim this prediction was declared under, or zero when
+        /// there is none (claims off, or a hit on this machine's own player).
+        ///
+        /// <b>This is what retires a prediction exactly.</b> The snapshot
+        /// cannot: it carries a count of hits on a victim and the slot of only
+        /// the *last* attacker, so a hit of this machine's own that was
+        /// followed, inside one snapshot window, by somebody else's is never
+        /// matched -- <see cref="Confirm"/> is not even called. The debit then
+        /// stays on the books while the authority's own number already has it,
+        /// and the victim is drawn at the authority's health minus a hit the
+        /// authority has already taken off. Two or three of those and a victim
+        /// who is comfortably alive is drawn on one point of health, which is
+        /// where the next shot predicts a kill that nobody else sees. Reported
+        /// as "my client thinks three missiles killed him": three uncharged
+        /// missiles are 96 of a hunter's 99, so three points of stale debit
+        /// are the whole of the error.
+        ///
+        /// A verdict names the claim, and the claim names the hit. See
+        /// <see cref="Settle"/>.
+        /// </summary>
+        private static readonly ushort[,] _pendingClaim = new ushort[Slots, PendingCapacity];
+
+        /// <summary>
+        /// Whether that entry has already been answered by name -- a verdict
+        /// naming its claim. It stays in the ring until the head reaches it,
+        /// because the entries in front of it are still outstanding, but it
+        /// owes nothing and must not be counted again.
+        /// </summary>
+        private static readonly bool[,] _pendingSpent = new bool[Slots, PendingCapacity];
+
+        /// <summary>
+        /// Whether that entry is a hit on this machine's own player -- its own
+        /// splash, a fall. Kept out of the per-weapon tally for the same
+        /// reason <see cref="SelfPredicted"/> is kept out of
+        /// <see cref="Predicted"/>: it is not the same claim. There is no
+        /// other machine's opinion to be wrong about, so counting it beside
+        /// the shots that crossed a wire would flatter every weapon that can
+        /// splash.
+        /// </summary>
+        private static readonly bool[,] _pendingSelf = new bool[Slots, PendingCapacity];
+
+        /// <summary>
+        /// Predictions already retired by a verdict, waiting for the snapshot
+        /// that reports the same hits to arrive and be absorbed.
+        ///
+        /// The verdict and the snapshot describe the same hit and race each
+        /// other. Whichever loses must not be counted as a second event:
+        /// without this a claim settled by its verdict left nothing pending,
+        /// and the snapshot a frame later read as "the authority credited a
+        /// hit this machine never predicted" -- <see cref="Unpredicted"/>
+        /// climbing to roughly the size of <see cref="Confirmed"/> and the
+        /// report becoming unreadable. Small, because the two are never more
+        /// than a snapshot apart.
+        /// </summary>
+        private static readonly int[] _settledCredit = new int[Slots];
+        private const int SettledCreditMax = 8;
+
         private static readonly int[] _pendingCount = new int[Slots];
         private static readonly int[] _pendingHead = new int[Slots];
 
@@ -224,7 +292,16 @@ namespace MphRead.Mods.Network
                     : 0;
                 // 60 Hz of simulation, plus twelve frames for the gap between
                 // snapshots and the rewind the authority may have applied.
-                return Math.Clamp((int)(ping * 0.06f) + 12, 15, 90);
+                //
+                // Plus the grace a hit claim waits out on the authority
+                // (NetHitClaims.GraceFrames) whenever claims are live at all.
+                // A rescued hit is applied at the end of that window rather
+                // than on arrival, so its confirmation is one grace later than
+                // an ordinary one -- and a hold that expires first is the
+                // resurrection the claim exists to stop, reintroduced by the
+                // clock rather than by the authority disagreeing.
+                int grace = NetHitClaims.Claiming ? NetHitClaims.GraceFrames : 0;
+                return Math.Clamp((int)(ping * 0.06f) + 12 + grace, 15, 120);
             }
         }
 
@@ -251,6 +328,42 @@ namespace MphRead.Mods.Network
         private static readonly int[] _healAmount = new int[HealCapacity];
         private static int _healCount;
         private static int _healHead;
+
+        /// <summary>
+        /// The bucket everything without a beam behind it is counted in: an
+        /// alt form's ram, Weavel's scythe, Spire's spin, a bomb, the void.
+        /// One past the last real <see cref="BeamType"/>.
+        /// </summary>
+        public const int AltBeam = 10;
+        private const int BeamBuckets = AltBeam + 1;
+
+        /// <summary>
+        /// The same tally as <see cref="Predicted"/> and the rest, a weapon at
+        /// a time -- and the reason it exists is that the aggregate cannot
+        /// answer the question anybody actually asks. "The prediction is
+        /// wrong" is never a statement about prediction; it is a statement
+        /// about one weapon, or about alt form, and a 95% confirmed rate
+        /// across a match is perfectly compatible with every charged Power
+        /// Beam shot in it being resolved at a different number on the
+        /// authority. <see cref="DescribeByWeapon"/> prints it.
+        /// </summary>
+        private static readonly long[] _beamPredicted = new long[BeamBuckets];
+        private static readonly long[] _beamConfirmed = new long[BeamBuckets];
+        private static readonly long[] _beamDenied = new long[BeamBuckets];
+        private static readonly long[] _beamLethal = new long[BeamBuckets];
+        private static readonly long[] _beamUndone = new long[BeamBuckets];
+        private static readonly long[] _beamDamage = new long[BeamBuckets];
+
+        private static int Bucket(BeamType beam)
+        {
+            int index = (int)beam;
+            return index < 0 || index >= AltBeam ? AltBeam : index;
+        }
+
+        private static string BucketName(int bucket)
+        {
+            return bucket == AltBeam ? "alt/bomb" : ((BeamType)bucket).ToString();
+        }
 
         /// <summary>Hits this machine resolved for itself, before being told.</summary>
         public static long Predicted { get; private set; }
@@ -356,10 +469,28 @@ namespace MphRead.Mods.Network
         /// this machine.
         ///
         /// Turning it back on is the control for measuring it, the way
-        /// <c>-nohitprediction</c> is for the rest. <c>-nodeathprediction</c>
-        /// is still accepted and is now what the default already does.
+        /// <c>-nohitprediction</c> is for the rest.
+        ///
+        /// <b>And it came back on, because the cause was removed rather than
+        /// tolerated.</b> The reasoning above is about the authority silently
+        /// disagreeing, which was the only thing that could stand a body back
+        /// up. With hit claims (<see cref="NetHitClaims"/>) the authority no
+        /// longer disagrees silently: a kill this machine shows is one the
+        /// authority is told about explicitly, checked against its own history
+        /// and either applied or refused *with a reason*, inside one round
+        /// trip. The two outcomes that used to be indistinguishable are now
+        /// different things -- "the authority resolved it too" and "somebody
+        /// killed you first" -- and the second is a death the player is about
+        /// to watch happen anyway, so the body getting up is no longer the
+        /// surprise it was.
+        ///
+        /// It follows the claims: on wherever they are, and
+        /// <c>-nodeathprediction</c> turns it off. On a server that does not
+        /// speak protocol 7 there are no claims and there is nothing to turn
+        /// on, but that server also refuses this client at Hello, so the case
+        /// does not arise in a match.
         /// </summary>
-        public static bool DeathEnabled { get; set; } = false;
+        public static bool DeathEnabled { get; set; } = true;
 
         private static int _markerTimer;
 
@@ -393,6 +524,17 @@ namespace MphRead.Mods.Network
             Array.Clear(_pendingDamage);
             Array.Clear(_pendingLethal);
             Array.Clear(_pendingHeadshot);
+            Array.Clear(_pendingBeam);
+            Array.Clear(_pendingClaim);
+            Array.Clear(_pendingSpent);
+            Array.Clear(_pendingSelf);
+            Array.Clear(_settledCredit);
+            Array.Clear(_beamPredicted);
+            Array.Clear(_beamConfirmed);
+            Array.Clear(_beamDenied);
+            Array.Clear(_beamLethal);
+            Array.Clear(_beamUndone);
+            Array.Clear(_beamDamage);
             Array.Clear(_pendingCount);
             Array.Clear(_pendingHead);
             Array.Clear(_healFrame);
@@ -517,8 +659,17 @@ namespace MphRead.Mods.Network
         /// prediction can be recorded, and the only one at which the clamp
         /// that keeps it from killing still works.
         /// </summary>
+        /// <param name="beam">
+        /// The weapon behind the hit, or <see cref="BeamType.None"/> for
+        /// everything that is not a beam -- an alt form's attack, a bomb, the
+        /// void. Only a hit claim reads it, and only so that the authority can
+        /// bound the damage against what that weapon can actually deal and the
+        /// victim's own machine can replay the right hit rather than a
+        /// nameless one. <see cref="NetHitClaims"/>.
+        /// </param>
         public static void NoteHit(PlayerEntity victim, PlayerEntity? attacker,
-            DamageFlags flags, ref uint damage)
+            DamageFlags flags, ref uint damage, BeamType beam = BeamType.None,
+            uint launchFrame = 0)
         {
             int local = NetHooks.LocalSlot;
             if (local < 0)
@@ -554,6 +705,21 @@ namespace MphRead.Mods.Network
                 // certainly right as a scratch.
                 bool lethal = victim.Health > 0
                     && (damage >= (uint)victim.Health || flags.TestFlag(DamageFlags.Death));
+                // Not through a halfturret. Weavel's lower half takes part of
+                // every hit that reaches him, and how much depends on the
+                // turret's own health -- which lives on the authority and is
+                // in no packet, so this machine is splitting the damage
+                // against a number it made up. The hit is still predicted, and
+                // still claimed, because the flinch and the mark are right
+                // either way; what it must not do is decide a death on
+                // arithmetic the authority will redo differently.
+                if (lethal && !self && flags.TestFlag(DamageFlags.Halfturret)
+                    && victim.Flags2.TestFlag(PlayerFlags2.Halfturret))
+                {
+                    damage = (uint)Math.Max(0, victim.Health - 1);
+                    LethalHeld++;
+                    lethal = false;
+                }
                 // A prediction does not kill somebody else. It did, and on a
                 // real line it was measured killing the same opponent twice
                 // for one kill on the scoreboard: the authority disagreed, the
@@ -570,6 +736,10 @@ namespace MphRead.Mods.Network
                 // round trip later.
                 if (lethal && !self && !DeathEnabled)
                 {
+                    // See DeathEnabled: with claims live this branch is not
+                    // taken, because the thing it was protecting against --
+                    // the authority silently disagreeing -- is now answered
+                    // explicitly and within a round trip.
                     // The victim is left standing on a single point of health
                     // until the authority says otherwise, which it will within
                     // a round trip -- and when it does, NetDamage.Replay runs
@@ -579,7 +749,27 @@ namespace MphRead.Mods.Network
                     lethal = false;
                 }
                 bool headshot = flags.TestFlag(DamageFlags.Headshot);
-                Push(victim.SlotIndex, NetSession.NetFrame, (int)damage, lethal, headshot);
+                int at = Push(victim.SlotIndex, NetSession.NetFrame, (int)damage,
+                    lethal, headshot, beam, self);
+                // And tell the authority, which may not find this hit itself:
+                // its rewind has a ceiling, its copy of the trigger pull may
+                // be stale, and if this machine's player is killed during the
+                // round trip it will not run the shot at all. The position
+                // handed over is *this machine's* copy of the victim, which is
+                // the one thing about the claim the authority can check --
+                // against its own history, at the frame this machine was
+                // looking at. NetHitClaims.
+                //
+                // The id comes back and is stamped onto the prediction just
+                // filed, because the verdict for that claim is the only exact
+                // answer this machine ever gets about this particular hit.
+                // See _pendingClaim.
+                if (!self && attacker != null)
+                {
+                    ushort claimId = NetHitClaims.Declare(victim, attacker, beam, damage,
+                        flags, lethal, victim.Position, launchFrame);
+                    StampClaim(victim.SlotIndex, at, claimId);
+                }
                 if (headshot && !self)
                 {
                     HeadshotsPredicted++;
@@ -645,6 +835,15 @@ namespace MphRead.Mods.Network
             }
             if (_pendingCount[slot] == 0)
             {
+                // The verdict for this hit's own claim got here first and has
+                // already retired it. Say so -- the flinch and the mark ran
+                // when the trigger was pulled, exactly as they do when the
+                // snapshot is the thing that answers first.
+                if (_settledCredit[slot] > 0)
+                {
+                    _settledCredit[slot] = Math.Max(0, _settledCredit[slot] - Math.Max(1, landed));
+                    return true;
+                }
                 Unpredicted++;
                 return false;
             }
@@ -662,13 +861,27 @@ namespace MphRead.Mods.Network
             // hits cannot retire more than this machine predicted.
             bool self = slot == NetHooks.LocalSlot;
             int take = Math.Clamp(landed, 1, _pendingCount[slot]);
+            // Anything the snapshot is reporting beyond what is outstanding
+            // here is either somebody else's hit -- which this machine never
+            // predicted and does not account for -- or one of its own that a
+            // verdict has already retired. Take those off the credit so they
+            // are not counted twice.
+            if (landed > take && _settledCredit[slot] > 0)
+            {
+                _settledCredit[slot] = Math.Max(0, _settledCredit[slot] - (landed - take));
+            }
             for (int i = 0; i < take; i++)
             {
                 int head = _pendingHead[slot];
                 bool predictedHeadshot = _pendingHeadshot[slot, head];
                 _pendingHeadshot[slot, head] = false;
-                _pendingHead[slot] = (head + 1) % PendingCapacity;
-                _pendingCount[slot]--;
+                // Already answered by name, by the verdict for its own claim.
+                // The snapshot is counting the same hit, so it consumes one of
+                // `take` -- it just must not be counted a second time.
+                if (RetireHead(slot, confirmed: true) < 0)
+                {
+                    continue;
+                }
                 if (self)
                 {
                     SelfConfirmed++;
@@ -724,9 +937,14 @@ namespace MphRead.Mods.Network
                 _pendingDamage[slot, i] = 0;
                 _pendingLethal[slot, i] = false;
                 _pendingHeadshot[slot, i] = false;
+                _pendingBeam[slot, i] = AltBeam;
+                _pendingClaim[slot, i] = 0;
+                _pendingSpent[slot, i] = false;
+                _pendingSelf[slot, i] = false;
             }
             _pendingCount[slot] = 0;
             _pendingHead[slot] = 0;
+            _settledCredit[slot] = 0;
             _shownHealth[slot] = 0;
             _predictedFrame[slot] = 0;
         }
@@ -757,6 +975,11 @@ namespace MphRead.Mods.Network
                 if (_pendingLethal[slot, at])
                 {
                     DeathsUndone++;
+                    int bucket = _pendingSelf[slot, at] ? -1 : _pendingBeam[slot, at];
+                    if (bucket >= 0 && bucket < BeamBuckets)
+                    {
+                        _beamUndone[bucket]++;
+                    }
                     break;
                 }
             }
@@ -1024,9 +1247,7 @@ namespace MphRead.Mods.Network
                     {
                         break;
                     }
-                    _pendingHead[slot] = (_pendingHead[slot] + 1) % PendingCapacity;
-                    _pendingCount[slot]--;
-                    Denied++;
+                    RetireHead(slot, confirmed: false);
                 }
             }
             // The drain credit is aged on the same clock. It is only ever read
@@ -1040,17 +1261,21 @@ namespace MphRead.Mods.Network
             }
         }
 
-        private static void Push(int slot, uint frame, int damage, bool lethal, bool headshot)
+        /// <summary>
+        /// File a prediction. Returns where it landed in the ring, so the
+        /// caller can stamp the claim id onto it once the claim has been
+        /// declared -- the claim is what retires it exactly later.
+        /// </summary>
+        private static int Push(int slot, uint frame, int damage, bool lethal,
+            bool headshot, BeamType beam, bool self)
         {
             if (slot < 0 || slot >= Slots)
             {
-                return;
+                return -1;
             }
             if (_pendingCount[slot] == PendingCapacity)
             {
-                _pendingHead[slot] = (_pendingHead[slot] + 1) % PendingCapacity;
-                _pendingCount[slot]--;
-                Denied++;
+                RetireHead(slot, confirmed: false);
             }
             _predictedFrame[slot] = frame;
             int tail = (_pendingHead[slot] + _pendingCount[slot]) % PendingCapacity;
@@ -1058,7 +1283,160 @@ namespace MphRead.Mods.Network
             _pendingDamage[slot, tail] = Math.Max(0, damage);
             _pendingLethal[slot, tail] = lethal;
             _pendingHeadshot[slot, tail] = headshot;
+            _pendingBeam[slot, tail] = (byte)Bucket(beam);
+            _pendingClaim[slot, tail] = 0;
+            _pendingSpent[slot, tail] = false;
+            _pendingSelf[slot, tail] = self;
             _pendingCount[slot]++;
+            if (!self)
+            {
+                int bucket = Bucket(beam);
+                _beamPredicted[bucket]++;
+                _beamDamage[bucket] += Math.Max(0, damage);
+                if (lethal)
+                {
+                    _beamLethal[bucket]++;
+                }
+            }
+            return tail;
+        }
+
+        /// <summary>
+        /// Take the oldest outstanding prediction for a slot off the books and
+        /// file it under the weapon it was made with. One place, so the
+        /// per-weapon tally cannot drift from the aggregate one.
+        /// </summary>
+        private static int RetireHead(int slot, bool confirmed)
+        {
+            int head = _pendingHead[slot];
+            bool spent = _pendingSpent[slot, head] || _pendingSelf[slot, head];
+            int bucket = _pendingBeam[slot, head];
+            if (!spent && bucket >= 0 && bucket < BeamBuckets)
+            {
+                if (confirmed)
+                {
+                    _beamConfirmed[bucket]++;
+                }
+                else
+                {
+                    _beamDenied[bucket]++;
+                }
+            }
+            bool answered = _pendingSpent[slot, head];
+            // Not a self-hit: SelfPredicted is counted apart from Predicted,
+            // so counting its timeouts in Denied breaks the one arithmetic
+            // that makes these numbers readable -- Predicted == Confirmed +
+            // Denied. A run with three unanswered rocket-jump splashes read
+            // "13 predicted, 12 confirmed, 2 denied".
+            if (!answered && !confirmed && !_pendingSelf[slot, head])
+            {
+                Denied++;
+            }
+            _pendingClaim[slot, head] = 0;
+            _pendingSpent[slot, head] = false;
+            _pendingSelf[slot, head] = false;
+            _pendingHead[slot] = (head + 1) % PendingCapacity;
+            _pendingCount[slot]--;
+            return answered ? -1 : head;
+        }
+
+        /// <summary>
+        /// Retire the one prediction a hit claim was declared under, because
+        /// the authority has answered that claim by name.
+        ///
+        /// <b>The exact retirement, and the only one there is.</b> The
+        /// snapshot's is approximate by construction -- see
+        /// <see cref="_pendingClaim"/> -- and its failure mode is a debit that
+        /// stays on the books after the authority's own health already has the
+        /// hit in it, which draws a victim lower than they are and eventually
+        /// predicts a kill on somebody standing on most of a health bar. A
+        /// verdict names the claim; the claim names the hit; nothing is
+        /// guessed.
+        ///
+        /// <paramref name="confirmed"/> is true for the two verdicts that mean
+        /// the damage happened on the authority as well -- it resolved the
+        /// same shot itself (<c>Duplicate</c>) or it applied this claim
+        /// (<c>Applied</c>) -- and false for every refusal, which is a
+        /// prediction that was wrong and should stop holding the picture.
+        /// </summary>
+        public static void Settle(int slot, ushort claimId, bool confirmed)
+        {
+            if (!Enabled || slot < 0 || slot >= Slots || claimId == 0
+                || _pendingCount[slot] == 0)
+            {
+                return;
+            }
+            for (int i = 0; i < _pendingCount[slot]; i++)
+            {
+                int at = (_pendingHead[slot] + i) % PendingCapacity;
+                if (_pendingClaim[slot, at] != claimId)
+                {
+                    continue;
+                }
+                int bucket = _pendingSelf[slot, at] ? -1 : _pendingBeam[slot, at];
+                if (bucket >= 0 && bucket < BeamBuckets)
+                {
+                    if (confirmed)
+                    {
+                        _beamConfirmed[bucket]++;
+                    }
+                    else
+                    {
+                        _beamDenied[bucket]++;
+                    }
+                }
+                if (confirmed)
+                {
+                    Confirmed++;
+                    if (_settledCredit[slot] < SettledCreditMax)
+                    {
+                        _settledCredit[slot]++;
+                    }
+                }
+                else
+                {
+                    Denied++;
+                    if (_pendingLethal[slot, at])
+                    {
+                        DeathsUndone++;
+                        if (bucket >= 0 && bucket < BeamBuckets)
+                        {
+                            _beamUndone[bucket]++;
+                        }
+                    }
+                    // A refused prediction is one whose bar should spring back
+                    // up, so the floor under the drawn health goes with it.
+                    _shownHealth[slot] = 0;
+                }
+                // Out of the middle of the ring: the entry is emptied rather
+                // than removed, since the ones in front of it are still
+                // outstanding and the ones behind it are still owed answers.
+                _pendingDamage[slot, at] = 0;
+                _pendingLethal[slot, at] = false;
+                _pendingHeadshot[slot, at] = false;
+                _pendingClaim[slot, at] = 0;
+                _pendingSpent[slot, at] = true;
+                // Then walk the head past anything already answered, so the
+                // ring does not fill with spent entries.
+                while (_pendingCount[slot] > 0 && _pendingSpent[slot, _pendingHead[slot]])
+                {
+                    _pendingSpent[slot, _pendingHead[slot]] = false;
+                    _pendingHead[slot] = (_pendingHead[slot] + 1) % PendingCapacity;
+                    _pendingCount[slot]--;
+                }
+                return;
+            }
+        }
+
+        /// <summary>
+        /// Stamp the claim a prediction was declared under onto it.
+        /// </summary>
+        private static void StampClaim(int slot, int at, ushort claimId)
+        {
+            if (claimId != 0 && slot >= 0 && slot < Slots && at >= 0 && at < PendingCapacity)
+            {
+                _pendingClaim[slot, at] = claimId;
+            }
         }
 
         /// <summary>One line for the harness reports and the diagnostics screen.</summary>
@@ -1096,6 +1474,49 @@ namespace MphRead.Mods.Network
             return $"hit prediction: {Predicted} predicted, {Confirmed} confirmed "
                 + $"({agreed:F1}%), {Denied} denied, {Unpredicted} unpredicted, "
                 + deaths + drain + self;
+        }
+
+        /// <summary>
+        /// The tally a weapon at a time, which is the only form of it that can
+        /// answer "the prediction is wrong with X".
+        ///
+        /// One line per weapon that predicted anything, with the damage this
+        /// machine took off with it. A weapon whose denied share stands out
+        /// from the rest is a weapon whose damage this machine and the
+        /// authority compute differently -- the charge tier, a powerup one of
+        /// them has and the other does not, a splash one of them resolved as a
+        /// direct hit -- and that is invisible in the aggregate line, which is
+        /// dominated by whatever was fired most.
+        /// </summary>
+        public static string DescribeByWeapon()
+        {
+            var text = new System.Text.StringBuilder();
+            text.Append("hit prediction by weapon:");
+            bool any = false;
+            for (int i = 0; i < BeamBuckets; i++)
+            {
+                if (_beamPredicted[i] == 0)
+                {
+                    continue;
+                }
+                any = true;
+                long answered = _beamConfirmed[i] + _beamDenied[i];
+                string rate = answered > 0
+                    ? $"{_beamConfirmed[i] * 100.0 / answered:F0}%"
+                    : "unanswered";
+                text.Append($"\n  {BucketName(i),-13} {_beamPredicted[i],5} predicted, "
+                    + $"{_beamConfirmed[i],5} confirmed ({rate}), {_beamDenied[i],5} denied, "
+                    + $"{_beamDamage[i],6} damage");
+                if (_beamLethal[i] > 0 || _beamUndone[i] > 0)
+                {
+                    text.Append($", {_beamLethal[i]} kills ({_beamUndone[i]} undone)");
+                }
+            }
+            if (!any)
+            {
+                return "hit prediction by weapon: nothing predicted here";
+            }
+            return text.ToString();
         }
 
         /// <summary>

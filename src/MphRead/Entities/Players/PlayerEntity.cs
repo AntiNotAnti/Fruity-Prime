@@ -1774,7 +1774,10 @@ namespace MphRead.Entities
                 else if (source.Type == EntityType.Player)
                 {
                     attacker = (PlayerEntity)source;
-                    if (attacker._doubleDmgTimer > 0)
+                    // Not again for a rescued hit claim: the shooter's own
+                    // machine already doubled it before it sent the number.
+                    // Mods.Network.NetDamage.ApplyingClaim.
+                    if (attacker._doubleDmgTimer > 0 && !Mods.Network.NetDamage.ApplyingClaim)
                     {
                         damage *= 2;
                     }
@@ -1806,7 +1809,9 @@ namespace MphRead.Entities
                     GameState.BeamDamageMax[attacker.SlotIndex]
                 );
             }
-            if (damage > 0)
+            // Likewise: the damage level is in the number a claim carries
+            // already. Mods.Network.NetDamage.ApplyingClaim.
+            if (damage > 0 && !Mods.Network.NetDamage.ApplyingClaim)
             {
                 damage = (uint)(damage * Metadata.DamageLevels[GameState.DamageLevel]);
                 if (damage == 0)
@@ -1861,8 +1866,12 @@ namespace MphRead.Entities
             }
             // todo?: something for wifi
             // else...
+            // beam.ModLaunchFrame identifies the *shot*, not the moment it
+            // landed, so the authority's record of this hit and a claim for the
+            // same shot can be paired however long the projectile was in the
+            // air. Mods.Network.NetHitClaims.
             Mods.Network.NetDamage.Note(this, attacker, beam?.Beam ?? BeamType.None, flags, direction,
-                damage, bomb != null);
+                damage, bomb != null, beam?.ModLaunchFrame ?? 0);
             // The last point at which the damage is final and the death has
             // not been decided: a hit this machine's own player has landed is
             // marked here, and a predicted one on somebody else is clamped
@@ -1870,7 +1879,8 @@ namespace MphRead.Entities
             // *this* player is not -- a fall into the void or a rocket jump at
             // low health kills on the frame it happens.
             // Mods.Network.NetHitPrediction.
-            Mods.Network.NetHitPrediction.NoteHit(this, attacker, flags, ref damage);
+            Mods.Network.NetHitPrediction.NoteHit(this, attacker, flags, ref damage,
+                beam?.Beam ?? BeamType.None, beam?.ModLaunchFrame ?? 0);
             bool dead = false;
             if (IsBot && GameState.SinglePlayer && AiData.Flags1 && _health <= AiData.HealthThreshold)
             {

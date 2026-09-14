@@ -303,6 +303,25 @@ namespace MphRead.Mods.Network
         public bool FriendlyFire { get; set; }
 
         /// <summary>
+        /// The damage level this server plays at, broadcast so that nobody's
+        /// copy of <c>TakeDamage</c> uses a different multiplier from the
+        /// machine resolving the shot.
+        ///
+        /// <b>Always medium, which is x1.</b> It is not an option and there is
+        /// no flag for it: see <see cref="GameState.DamageLevel"/>. Sent
+        /// anyway, because sending it is what puts right a client that has one
+        /// of the other two from somewhere.
+        /// </summary>
+        public int DamageLevel => 1;
+
+        /// <summary>
+        /// Whether weapon pickups are the picking hunter's affinity variant,
+        /// broadcast for the same reason: the affinity weapons are a different
+        /// row of the damage table. <c>-affinityweapons</c>.
+        /// </summary>
+        public bool AffinityWeapons { get; set; }
+
+        /// <summary>
         /// Whether the shadow freeze glitch is allowed here. On by default,
         /// because it is what the cartridge does and a server that quietly
         /// changed the game would be a surprising one; <c>-noshadowfreeze</c>
@@ -509,7 +528,16 @@ namespace MphRead.Mods.Network
                             // prints now that no client is the authority.
                             Log($"sim: {_sim.DescribeUnlagged()}");
                             Log($"sim: {_sim.DescribeRewindDepths()}");
+                            string? claimLine = _sim.DescribeClaims();
+                            if (claimLine != null)
+                            {
+                                Log($"sim: {claimLine}");
+                            }
                             Log($"sim: {_sim.DescribeShots()}");
+                            foreach (string line in _sim.DescribeAgreement().Split('\n'))
+                            {
+                                Log($"sim: {line}");
+                            }
                         }
                     }
                     // A millisecond between passes while anyone is connected --
@@ -569,6 +597,7 @@ namespace MphRead.Mods.Network
             // done before it starts another.
             _sim?.Stop();
             _sim = null;
+            NetHitClaims.VerdictSink = null;
         }
 
         /// <summary>
@@ -658,7 +687,8 @@ namespace MphRead.Mods.Network
                 PlayerCount = (byte)_peers.Count,
                 Flags = (byte)((ending ? MatchStatePacket.FlagEnding : MatchStatePacket.FlagInProgress)
                     | (FriendlyFire ? MatchStatePacket.FlagFriendlyFire : 0)
-                    | (ShadowFreeze ? 0 : MatchStatePacket.FlagNoShadowFreeze)),
+                    | (ShadowFreeze ? 0 : MatchStatePacket.FlagNoShadowFreeze)
+                    | MatchStatePacket.RuleFlags(DamageLevel, AffinityWeapons)),
                 PointGoal = (ushort)Math.Clamp(entry.PointGoal, 0, UInt16.MaxValue),
                 MatchId = _matchId,
                 RoomKey = entry.RoomKey,
@@ -732,6 +762,10 @@ namespace MphRead.Mods.Network
                 throw new ProgramException($"the server could not load \"{entry.RoomKey}\"");
             }
             _sim = sim;
+            // This server arbitrates its clients' hit claims for as long as it
+            // is running the match, so it needs a way to answer them.
+            // NetHitClaims.
+            NetHitClaims.VerdictSink = SendVerdicts;
             SyncSimulationState(_now);
         }
 
@@ -817,6 +851,59 @@ namespace MphRead.Mods.Network
                 case PacketType.MapPick:
                     HandleMapPick(packet, now);
                     break;
+                case PacketType.HitClaim:
+                    HandleHitClaim(packet, now);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// The hits one client says it landed.
+        ///
+        /// The slot comes from the endpoint the datagram arrived on and from
+        /// nowhere else, exactly as it does for chat and for a vote: a claim
+        /// that could be made on somebody else's behalf is not a claim. What
+        /// happens to it after that is <see cref="NetHitClaims"/>'s, which
+        /// runs inside the simulation -- this handler and the simulation step
+        /// are the same thread, which is what makes it safe to apply damage
+        /// from here.
+        ///
+        /// A server that is not running the match has no history to check a
+        /// claim against and no simulation to apply it to, so it drops them.
+        /// The client repeats a few times, gives up, and plays the game every
+        /// build before protocol 7 played.
+        /// </summary>
+        private void HandleHitClaim(ReceivedPacket packet, double now)
+        {
+            Peer? peer = Find(packet.Sender);
+            if (peer == null || peer.SlotIndex < 0 || !Simulating)
+            {
+                return;
+            }
+            peer.LastSeen = now;
+            NetHitClaims.Receive(peer.SlotIndex, packet.Payload);
+        }
+
+        /// <summary>
+        /// Answer one client's claims. Hung off
+        /// <see cref="NetHitClaims.VerdictSink"/> when the simulation starts.
+        /// </summary>
+        private void SendVerdicts(int slot, ReadOnlySpan<(ushort Id, byte Result)> verdicts)
+        {
+            if (verdicts.Length == 0 || _transport == null)
+            {
+                return;
+            }
+            for (int i = 0; i < _peers.Count; i++)
+            {
+                if (_peers[i].SlotIndex != slot)
+                {
+                    continue;
+                }
+                HitVerdictPacket.Write(_scratch, verdicts);
+                _transport.Send(_peers[i].EndPoint, PacketType.HitVerdict,
+                    _scratch.AsSpan(0, 1 + verdicts.Length * HitVerdictPacket.EntrySize));
+                return;
             }
         }
 
