@@ -1034,6 +1034,20 @@ namespace MphRead.Mods.Launcher.Gui
                     ? WindowStartMode.BorderlessFullscreen
                     : WindowStartMode.Windowed;
                 WindowMode.Startup = LauncherPrefs.WindowMode;
+                // And now, not at the next launch. There is one window and
+                // this setting is about the one you are looking at: picking
+                // "Fullscreen" and having nothing happen reads as a setting
+                // that did not take. Asked for rather than done -- a window
+                // attribute belongs to the thread that owns the window, and
+                // this runs inside the toolkit; PauseMenu.Poll does it at the
+                // end of the frame, which is the same route Escape's own
+                // fullscreen entry takes.
+                bool wantFullscreen =
+                    LauncherPrefs.WindowMode == WindowStartMode.BorderlessFullscreen;
+                if (wantFullscreen != WindowMode.IsFullscreen)
+                {
+                    PauseMenu.RequestFullscreenToggle();
+                }
             }
             if (_clipSecondsRow != null)
             {

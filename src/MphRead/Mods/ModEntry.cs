@@ -385,6 +385,19 @@ namespace MphRead.Mods
             // text launcher offering matches it cannot play.
             doubleClicked = false;
 #endif
+            // Display flags, before the launcher and not after it. They used
+            // to be read further down, which is past the block below: the
+            // shell opens its window there and reads the saved window mode as
+            // it does, so `-launcher -fullscreen` was answered windowed by a
+            // preference that had not yet been overridden.
+            if (HasFlag(args, "fullscreen") || HasFlag(args, "borderless"))
+            {
+                WindowMode.ForceStartup(WindowStartMode.BorderlessFullscreen);
+            }
+            else if (HasFlag(args, "windowed"))
+            {
+                WindowMode.ForceStartup(WindowStartMode.Windowed);
+            }
             if ((HasFlag(args, "launcher") || doubleClicked) && !HasFlag(args, "menu"))
             {
 #if MPHREAD_AVALONIA
@@ -873,15 +886,6 @@ namespace MphRead.Mods
             // remote slots have state. The failure worth catching is not
             // visible on the wire: two correctly connected clients can each
             // hold a scene containing only themselves.
-            // Display flags, for the paths that never open a launcher.
-            if (HasFlag(args, "fullscreen") || HasFlag(args, "borderless"))
-            {
-                WindowMode.Startup = WindowStartMode.BorderlessFullscreen;
-            }
-            else if (HasFlag(args, "windowed"))
-            {
-                WindowMode.Startup = WindowStartMode.Windowed;
-            }
             if (HasFlag(args, "nohelmet"))
             {
                 // Both of them: the helmet is drawn as three layers and the

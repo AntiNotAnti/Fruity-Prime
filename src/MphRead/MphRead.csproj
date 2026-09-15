@@ -120,6 +120,16 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The backdrop again, as a plain embedded resource, for the same reason
+         the mark is above: on the desktop the photograph is drawn by GL under
+         the screens rather than rasterised into them (Mods/Render/
+         LauncherPhoto.cs, which explains why), and that side of the window
+         knows nothing about avares://. Not inside the Avalonia group: the
+         server build carries no toolkit and still compiles the file. -->
+    <EmbeddedResource Include="Assets\Backgrounds\launcher-bg.jpg" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Remove="Export\modules\__pycache__\**" />
     <EmbeddedResource Remove="Export\modules\__pycache__\**" />
     <None Remove="Export\modules\__pycache__\**" />

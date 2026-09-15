@@ -41,6 +41,38 @@ namespace MphRead.Mods.Network
         public static int PlacementsRefused;
 
         /// <summary>
+        /// Respawns where this machine's own player was turned to face the
+        /// spawn point the authority had actually put them on, and the
+        /// largest correction any of them needed.
+        ///
+        /// Both are expected to be non-zero in a real match: the two machines
+        /// choose spawn points independently, so most respawns land on a
+        /// point this client did not pick. A worst of ~180 degrees is a
+        /// respawn that used to leave the player looking backwards, which is
+        /// what the measurement is for -- the netdbg line carries it so the
+        /// fix can be seen working rather than taken on trust.
+        /// </summary>
+        public static int SpawnFacingsTurned;
+        public static float WorstSpawnFacing;
+
+        /// <summary>
+        /// Snapshots ignored because they still described the life this
+        /// machine's own player had already left. Zero on a match nobody
+        /// respawned early in; a handful on any other.
+        /// </summary>
+        public static int StaleDeathsIgnored;
+
+        /// <summary>
+        /// How long this machine has been waiting for the authority to
+        /// acknowledge a respawn it performed locally, in snapshots, and
+        /// whether its own player was standing in the map when the previous
+        /// one was applied. Together they find the moment the two machines
+        /// disagree about which life is being described.
+        /// </summary>
+        private static readonly int[] _localSpawnUnacked = new int[PlayerEntity.SlotCapacity];
+        private static readonly bool[] _prevInPlay = new bool[PlayerEntity.SlotCapacity];
+
+        /// <summary>
         /// What the last snapshot said each slot's form was, so the netdbg
         /// line can print it beside what this machine actually has. 0 not
         /// said, 1 biped, 2 alt.
@@ -677,6 +709,16 @@ namespace MphRead.Mods.Network
                 GameState.Kills[slot] = state.Kills;
                 GameState.Deaths[slot] = state.Deaths;
             }
+            // Everything below this line reads the snapshot as a statement
+            // about the life this player is living now. When it is a
+            // statement about the one they have just left, none of it may be
+            // acted on -- see DescribesTheLifeBefore.
+            bool stale = DescribesTheLifeBefore(spawned, wasInPlay, isLocal, slot);
+            if (stale)
+            {
+                StaleDeathsIgnored++;
+                return;
+            }
             // Before health is reconciled, because the engine's damage
             // feedback is produced by the hit rather than by the number: a
             // client that only assigned the new health showed a bar dropping
@@ -817,6 +859,32 @@ namespace MphRead.Mods.Network
                     if (player.ModPlacementBelongsHere(state.Position))
                     {
                         Move(player, state.Position);
+                        // And turned to face the way that point faces. The
+                        // position was never the whole of a spawn: a player
+                        // put on the authority's point while still looking
+                        // down the one this machine had chosen is standing
+                        // correctly and facing a wall, which is the report
+                        // about the facing being wrong after a respawn. Only
+                        // here -- everywhere else the aim is this machine's
+                        // to decide, and taking it from a snapshot would put
+                        // the mouse a round trip behind.
+                        Vector3? facing = player.ModSpawnFacingAt(state.Position);
+                        if (facing.HasValue)
+                        {
+                            float was = Vector3.Dot(player.ModGunVector.Normalized(),
+                                facing.Value.Normalized());
+                            SpawnFacingsTurned++;
+                            float degrees = MathHelper.RadiansToDegrees(
+                                MathF.Acos(Math.Clamp(was, -1, 1)));
+                            if (degrees > WorstSpawnFacing)
+                            {
+                                WorstSpawnFacing = degrees;
+                            }
+                            player.ModSetSpawnFacing(facing.Value);
+                            NetLog.Event($"slot {player.SlotIndex} turned to its spawn "
+                                + $"point's facing, {degrees:0.#} degrees from where it "
+                                + "was looking");
+                        }
                     }
                     else
                     {
@@ -1018,6 +1086,8 @@ namespace MphRead.Mods.Network
             Array.Clear(_divergedFrames);
             Array.Clear(_spawnIntentFrame);
             Array.Clear(_wasInPlay);
+            Array.Clear(_localSpawnUnacked);
+            Array.Clear(_prevInPlay);
             Array.Clear(_staleFrames);
         }
 
@@ -1028,6 +1098,9 @@ namespace MphRead.Mods.Network
             WorstSnap = 0;
             NodeLookupsUnresolved = 0;
             PlacementsRefused = 0;
+            SpawnFacingsTurned = 0;
+            WorstSpawnFacing = 0;
+            StaleDeathsIgnored = 0;
             Array.Clear(_formSaid);
             Array.Clear(_formAttempts);
             Array.Clear(_lastPressFrame);
@@ -1038,6 +1111,8 @@ namespace MphRead.Mods.Network
             Array.Clear(_divergedFrames);
             Array.Clear(_spawnIntentFrame);
             Array.Clear(_wasInPlay);
+            Array.Clear(_localSpawnUnacked);
+            Array.Clear(_prevInPlay);
             Array.Clear(_staleFrames);
             Array.Clear(_lastReportPosition);
             Array.Clear(_lastReportFrame);
@@ -1084,6 +1159,8 @@ namespace MphRead.Mods.Network
             _divergedFrames[slot] = 0;
             _spawnIntentFrame[slot] = 0;
             _wasInPlay[slot] = false;
+            _localSpawnUnacked[slot] = 0;
+            _prevInPlay[slot] = false;
             _staleFrames[slot] = 0;
             _lastReportPosition[slot] = Vector3.Zero;
             _lastReportFrame[slot] = 0;
@@ -1287,6 +1364,91 @@ namespace MphRead.Mods.Network
             _spawnIntentFrame[slot] = intent.Frame;
             _staleFrames[slot] = 0;
             return false;
+        }
+
+        /// <summary>
+        /// Whether this snapshot is describing the life this machine's own
+        /// player has already left, and so must not be acted on.
+        ///
+        /// The mirror image of <see cref="StaleSinceSpawn"/>, which is the
+        /// same round trip seen from the authority. A client respawns itself
+        /// the moment the player holds fire -- that is what makes a respawn
+        /// feel immediate rather than arrive a round trip later -- and the
+        /// authority does not hear about it for half a trip. Every snapshot
+        /// in between is composed, correctly, of a dead player, and they
+        /// arrive in order: nothing about them is late or out of sequence,
+        /// they are simply answers to a question that has since changed.
+        ///
+        /// Applied to the new life they read as a death. Two separate paths
+        /// deliver it:
+        ///
+        /// * the "killed by something that leaves no damage record" branch
+        ///   below, which sees health zero against a player who is standing
+        ///   up and calls <c>ModNetDie</c>, and
+        /// * <see cref="NetDamage.Replay"/>, where a killing blow from the
+        ///   previous life that this client had not seen yet replays with
+        ///   <c>DamageFlags.Death</c> onto a player at full health.
+        ///
+        /// Both run the engine's death sequence, and its multiplayer branch
+        /// plays <c>HunterSfx.Death</c> -- the hunter's own death cry, on the
+        /// frame the player respawns. That is the report. It is "sometimes"
+        /// because it needs a snapshot of the old life to arrive *after* the
+        /// local respawn: hold fire the instant you die on a slow line and it
+        /// happens, wait out the timer and the authority has already spawned
+        /// you and there is nothing stale left to arrive.
+        ///
+        /// The moment to find is the rising edge -- this player back in play
+        /// here while the authority still has them down. The first snapshot
+        /// of the real death does not qualify: they were in play on the
+        /// previous one too, so there is no edge, and the death lands as it
+        /// always did.
+        ///
+        /// Bounded, for the reason <see cref="StaleSinceSpawn"/> is bounded:
+        /// a guard that waits for the authority to agree can wait forever if
+        /// it never does, and a client that ignored its own death for the
+        /// rest of a match would be a player nobody can kill. Past the
+        /// ceiling the snapshot is believed and the death applied.
+        /// </summary>
+        private static bool DescribesTheLifeBefore(bool spawned, bool inPlayHere,
+            bool isLocal, int slot)
+        {
+            if (!isLocal || slot < 0 || slot >= _localSpawnUnacked.Length)
+            {
+                return false;
+            }
+            bool wasInPlayHere = _prevInPlay[slot];
+            _prevInPlay[slot] = inPlayHere;
+            if (spawned)
+            {
+                // The authority has caught up; whatever it says next is about
+                // the life this player is living now.
+                _localSpawnUnacked[slot] = 0;
+                return false;
+            }
+            if (!inPlayHere)
+            {
+                // Down on both machines, which is the ordinary wait for a
+                // spawn point and nothing to guard against.
+                _localSpawnUnacked[slot] = 0;
+                return false;
+            }
+            if (_localSpawnUnacked[slot] == 0 && wasInPlayHere)
+            {
+                // In play here and in play when the last snapshot was applied
+                // -- no local respawn has happened, so this is the authority
+                // reporting a death that has genuinely just occurred.
+                return false;
+            }
+            if (++_localSpawnUnacked[slot] > StaleAfterSpawnFrames)
+            {
+                NetLog.Event($"slot {slot} has been standing up for "
+                    + $"{_localSpawnUnacked[slot]} snapshots the authority still calls "
+                    + "dead; believing it");
+                _localSpawnUnacked[slot] = 0;
+                _prevInPlay[slot] = inPlayHere;
+                return false;
+            }
+            return true;
         }
 
         private static readonly Vector3[] _lastReportPosition = new Vector3[PlayerEntity.SlotCapacity];

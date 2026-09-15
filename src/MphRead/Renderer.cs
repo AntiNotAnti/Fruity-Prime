@@ -6808,18 +6808,41 @@ namespace MphRead
         /// </summary>
         public static void LogCreatingWindow()
         {
+            // The mode the window is actually about to open in, which is the
+            // saved one unless the command line overrode it for this run --
+            // this used to print the preference, and so said "Windowed" for a
+            // session started with -fullscreen.
             Mods.DebugLog.Line("render", "creating the game window and GL context "
-                + $"({Mods.Launcher.LauncherPrefs.WindowMode})");
+                + $"({Mods.WindowMode.Startup}"
+                + (Mods.WindowMode.StartupForced ? ", from the command line" : "") + ")");
         }
 
         public RenderWindow(bool shell = false) : base(_gameWindowSettings, _nativeWindowSettings)
         {
             _shell = shell;
+            // First, before anything asks GLFW a question it may not be able
+            // to answer. GLFW is initialised by the base constructor, so this
+            // is the earliest point the callback can be replaced -- and it has
+            // to be the *first* statement here, not merely an early one: every
+            // line below is a question, and the one under it was enough to
+            // bring the Wayland startup crash back. See
+            // IgnoreUnavailableGlfwFeatures for why a throw here is fatal
+            // rather than catchable.
+            IgnoreUnavailableGlfwFeatures();
             // The mark, on this window: it is the only one the program has
             // now, so it is the only one that can carry it. Set here rather
             // than in the settings above because those are static and shared
             // by every window this process opens, and decoding a PNG is not
             // work for a type initializer.
+            //
+            // Under the callback above, deliberately: glfwSetWindowIcon is one
+            // of the calls Wayland answers with FEATURE_UNAVAILABLE ("the
+            // platform does not support setting the window icon" -- an icon
+            // there comes from the .desktop file the app-id names, not from
+            // the client). Setting it before the callback was replaced put an
+            // OpenTK throw on a native GLFW frame the runtime cannot unwind,
+            // and the process aborted with "terminate called after throwing an
+            // instance of 'pal_sehexception'" before any window appeared.
             OpenTK.Windowing.Common.Input.WindowIcon? icon = Mods.Render.AppIcon.Load();
             if (icon != null)
             {
@@ -6828,10 +6851,6 @@ namespace MphRead
             Mods.DebugLog.Line("render",
                 $"game window created, {ClientSize.X}x{ClientSize.Y} client, "
                 + $"{FramebufferSize.X}x{FramebufferSize.Y} pixels");
-            // Before anything asks GLFW a question it may not be able to
-            // answer. GLFW is initialised by the base constructor, so this is
-            // the first point the callback can be replaced.
-            IgnoreUnavailableGlfwFeatures();
             // Where the player left it, and only for the window the player
             // uses. Every other RenderWindow this process opens was given a
             // size on purpose -- a map sweep, a thumbnail run, the network
@@ -6840,6 +6859,11 @@ namespace MphRead
             // static and shared by all of them.
             if (shell)
             {
+                // Said before the restore, because it is also what lets
+                // WindowMode write the mode down when the player presses F11:
+                // that happens far from here, with no window to ask whether it
+                // is this one.
+                Mods.WindowGeometry.Owned = true;
                 Mods.WindowGeometry.Restore(this, _minimumSize);
             }
             // The scene first, and the size floor after it: applying size
