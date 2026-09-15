@@ -66,6 +66,14 @@
     { "Position": [ 62.5665, -4.58838, -18.7578 ], "yaw": 180 },
     { "Position": [ 43.2163, -4.58838, 37.4923 ], "yaw": 90 }
   ],
+  // The plinths are legibility, not decoration: a pickup the colour of the
+  // area it stands in disappears into the floor without one. Green area,
+  // Battlehammer (green); blue, Judicator (purple); red, Imperialist (red).
+  // The yellow area's Volt Driver is yellow too, but it stands on the grey
+  // ground rather than on the coloured floor, so it is legible as it is.
+  // The UA is yellow-green and needs one in the yellow area and in the green;
+  // it has one in all four, because two opposite corners would be a half-turn
+  // of symmetry inside a quarter-turn layout and read as a mistake.
   "Items": [
     { "Position": [ 24.99, -0.89, 0 ], "Type": "DoubleDamage", "hasBase": false },
 
@@ -104,15 +112,15 @@
     { "Position": [ 24.7664, -4.68734, -38.1079], "Type": "VoltDriver", "hasBase": false },
     { "Position": [ 62.5665, -4.68734, -0.30777], "Type": "VoltDriver", "hasBase": false },
 
-    { "Position": [ 15.0938, -0.506107, 29.1169], "Type": "Battlehammer", "hasBase": true },
-    { "Position": [ -4.36616, -0.506107, -9.52774], "Type": "Battlehammer", "hasBase": false },
-    { "Position": [ 33.9863, -0.506107, -29.4403], "Type": "Battlehammer", "hasBase": false },
-    { "Position": [ 53.8989, -0.506107, 8.91219], "Type": "Battlehammer", "hasBase": false },
+    { "Position": [ 15.2247, -0.506107, 29.5839], "Type": "Battlehammer", "hasBase": true },
+    { "Position": [ -4.9103, -0.506107, -9.6445], "Type": "Battlehammer", "hasBase": false },
+    { "Position": [ 34.3181, -0.506107, -29.7795], "Type": "Battlehammer", "hasBase": false },
+    { "Position": [ 54.4531, -0.506107, 9.4489], "Type": "Battlehammer", "hasBase": false },
 
-    { "Position": [ -4.9285, -0.506107, 10.0136], "Type": "Judicator", "hasBase": false },
-    { "Position": [ 15.193, -0.506107, -30.6165], "Type": "Judicator", "hasBase": false },
-    { "Position": [ 55.0751, -0.506107, -9.88113], "Type": "Judicator", "hasBase": false },
-    { "Position": [ 34.3397, -0.506107, 30.001], "Type": "Judicator", "hasBase": true },
+    { "Position": [ -4.9103, -0.506107, 9.4489], "Type": "Judicator", "hasBase": false },
+    { "Position": [ 15.2247, -0.506107, -29.7795], "Type": "Judicator", "hasBase": false },
+    { "Position": [ 54.4531, -0.506107, -9.6445], "Type": "Judicator", "hasBase": false },
+    { "Position": [ 34.3181, -0.506107, 29.5839], "Type": "Judicator", "hasBase": true },
 
     { "Position": [ 34.9035, -4.68734, 35.2003 ], "Type": "UASmall", "hasBase": false },
     { "Position": [ 14.6292, -4.68734, 35.2003 ], "Type": "UASmall", "hasBase": false },
