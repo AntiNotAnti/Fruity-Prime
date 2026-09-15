@@ -78,8 +78,8 @@
     { "Position": [ 24.99, -0.89, 0 ], "Type": "DoubleDamage", "hasBase": false },
 
     { "Position": [ -2.58491, -0.506107, 27.0647], "Type": "Imperialist", "hasBase": false },
-    { "Position": [ -2.60612, -0.506107, -27.659], "Type": "Imperialist", "hasBase": true },
-    { "Position": [ 52.1176, -0.506107, -27.6802], "Type": "Imperialist", "hasBase": false },
+    { "Position": [ -2.5836, -0.506107, -27.6329], "Type": "Imperialist", "hasBase": true },
+    { "Position": [ 52.0911, -0.506107, -27.6579], "Type": "Imperialist", "hasBase": false },
     { "Position": [ 52.1388, -0.506107, 27.0435], "Type": "Imperialist", "hasBase": false },
 
     { "Position": [ 1.82844, 3.58007,  0.307778], "Type": "ShockCoil", "hasBase": false },
