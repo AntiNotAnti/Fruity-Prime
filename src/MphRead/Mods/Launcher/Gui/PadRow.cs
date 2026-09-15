@@ -32,6 +32,7 @@ namespace MphRead.Mods.Launcher.Gui
         private bool _listening;
         private bool _hot;
         private DispatcherTimer? _watch;
+        private readonly Tap _tap = new();
 
         /// <summary>
         /// What the pad already had held when listening began, so a button
@@ -58,12 +59,35 @@ namespace MphRead.Mods.Launcher.Gui
         protected override void OnPointerPressed(PointerPressedEventArgs e)
         {
             Focus();
+            // On the release, and only if the finger stayed: see KeyRow, and
+            // Tap for why a press decides nothing on a page that scrolls.
             if (!_listening && Box.Contains(e.GetPosition(this)))
             {
-                Listen();
+                _tap.Press(e, this);
             }
             e.Handled = true;
             base.OnPointerPressed(e);
+        }
+
+        protected override void OnPointerMoved(PointerEventArgs e)
+        {
+            _tap.Moved(e, this);
+            base.OnPointerMoved(e);
+        }
+
+        protected override void OnPointerReleased(PointerReleasedEventArgs e)
+        {
+            if (!_listening && _tap.Release(e, this) && Box.Contains(e.GetPosition(this)))
+            {
+                Listen();
+            }
+            base.OnPointerReleased(e);
+        }
+
+        protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+        {
+            _tap.Cancel();
+            base.OnPointerCaptureLost(e);
         }
 
         protected override void OnKeyDown(KeyEventArgs e)

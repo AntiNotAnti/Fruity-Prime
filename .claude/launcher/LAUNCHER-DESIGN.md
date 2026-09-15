@@ -30,6 +30,32 @@ Painting and controls
   platform has, and a launcher that renders in whatever fontconfig happens to
   pick looks different on every distribution.
 
+A press is not a tap
+
+- **No control here acts on `OnPointerPressed`.** Every scroll on a phone
+  begins as a press on whatever is under the finger, so a row that answers the
+  press answers every drag that starts on it: scrolling the settings toggled
+  the toggles, stepped the choice rows, started the rebind rows listening and
+  slammed the sliders to wherever the finger went down. `Tap.cs` is the rule --
+  the press only remembers where it landed, a finger that travels more than
+  eight points has stopped meaning the row, and the **release** acts, and only
+  inside the control. `ChoiceRow`, `ToggleRow`, `SliderRow`, `KeyRow`,
+  `PadRow`, `UiListRow`, `ServerRow`, `PickRow`, `UiWord` and `UiMark` all go
+  through it.
+- **The distance test is for a finger or a stylus only.** A mouse scrolls with
+  the wheel, so a button held across a row is not a scroll: the desktop keeps
+  press-here-release-here and nothing on it changes feel.
+- Eight points is deliberate: above the jitter of a finger held still, and well
+  under the thirty Avalonia's `ScrollGestureRecognizer` wants before it calls a
+  drag a scroll and takes the pointer (which arrives as
+  `OnPointerCaptureLost`, and is a cancel).
+- `SliderRow` is the one control with a gesture of its own to defend, and it
+  waits for a direction: sideways past the slop is the track, anything else is
+  the page. A tap that never moved still sets the value.
+- `MphRead -tapcheck` drives that rule with the coordinates a finger would have
+  produced -- there is no touchscreen on a build box, and a screenshot of a
+  settings page says nothing about what a drag across it does.
+
 Windows have frames
 
 The WinForms screen was borderless and dragged by its picture. Every window here

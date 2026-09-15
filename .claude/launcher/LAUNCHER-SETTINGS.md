@@ -19,6 +19,11 @@ Layout
   which is not taken off the measured width.
 - The footer's button says **Save and close** from the launcher and **Apply**
   from a match.
+- **Every row on the page acts on the release, not the press**, and gives the
+  gesture up if the finger travels: this is the page people scroll, and a row
+  that answered its press answered every drag that started on it. The rule is
+  `Mods/Launcher/Gui/Tap.cs`, the check is `MphRead -tapcheck`, and the
+  reasoning is in `.claude/launcher/LAUNCHER-DESIGN.md`.
 
 Sections
 

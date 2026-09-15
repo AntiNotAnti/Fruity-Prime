@@ -41,6 +41,7 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly Action<GlfwKeys>? _set;
         private bool _listening;
         private bool _hot;
+        private readonly Tap _tap = new();
 
         public event EventHandler? Rebound;
 
@@ -73,10 +74,12 @@ namespace MphRead.Mods.Launcher.Gui
             PointerPointProperties properties = e.GetCurrentPoint(this).Properties;
             if (!_listening)
             {
+                // Listening begins on the release, not here: a press that
+                // starts a scroll down the Controls page would otherwise put
+                // every row it passed over into "press a key". See Tap.
                 if (Box.Contains(e.GetPosition(this)))
                 {
-                    _listening = true;
-                    InvalidateVisual();
+                    _tap.Press(e, this);
                 }
                 e.Handled = true;
                 base.OnPointerPressed(e);
@@ -99,6 +102,28 @@ namespace MphRead.Mods.Launcher.Gui
             }
             e.Handled = true;
             base.OnPointerPressed(e);
+        }
+
+        protected override void OnPointerMoved(PointerEventArgs e)
+        {
+            _tap.Moved(e, this);
+            base.OnPointerMoved(e);
+        }
+
+        protected override void OnPointerReleased(PointerReleasedEventArgs e)
+        {
+            if (!_listening && _tap.Release(e, this) && Box.Contains(e.GetPosition(this)))
+            {
+                _listening = true;
+                InvalidateVisual();
+            }
+            base.OnPointerReleased(e);
+        }
+
+        protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+        {
+            _tap.Cancel();
+            base.OnPointerCaptureLost(e);
         }
 
         protected override void OnPointerWheelChanged(PointerWheelEventArgs e)

@@ -3,6 +3,18 @@
 What's below is unproven or partially proven, not broken. Say so rather than
 claiming coverage that isn't there.
 
+- **The tap rule has never met a finger.** *Written 2026-09-15.*
+  `Mods/Launcher/Gui/Tap.cs` is the answer to "scrolling the settings on
+  Android activates the buttons": no row acts on its press any more, and a
+  gesture that travels more than eight points is given up. `-tapcheck` proves
+  the rule on written-down coordinates and the desktop's `-uishot`/`-shellshot`
+  prove the screens still take a click, but nothing here has dragged a real
+  settings page on a real phone -- the emulator available cannot load a match,
+  and touch is the one input this box does not have. What could still be wrong
+  is the *interaction* with Avalonia's `ScrollGestureRecognizer` (it is assumed
+  to take the pointer at thirty points, which is its default and was not
+  measured on a device), not the rule.
+
 - **A client's own beam is spawned before its puppets are placed, and turning
   snapshot-owned puppets on made that visible.** *Found and fixed
   2026-09-14; the fix is not yet re-measured.* `ProcessInput` runs before the

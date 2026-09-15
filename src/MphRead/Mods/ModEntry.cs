@@ -1135,6 +1135,16 @@ namespace MphRead.Mods
                 return true;
             }
 
+            // The rule that tells a tap from the beginning of a scroll, which
+            // is what every row on a settings page dragged by a finger turns
+            // on. No display, no toolkit and no touchscreen -- see
+            // Mods/Launcher/Gui/TapCheck.cs.
+            if (HasFlag(args, "tapcheck"))
+            {
+                Environment.ExitCode = Launcher.Gui.TapCheck.Run();
+                return true;
+            }
+
             // The headless simulation on its own, with nobody connected: what
             // a room costs a server in memory and in milliseconds a step. The
             // one measurement that decides whether a given box can be the

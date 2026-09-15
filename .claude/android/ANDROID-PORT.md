@@ -348,6 +348,28 @@ The catch-all is unchanged and still sits after the buttons: while the results
 screen is up, everything the buttons did not take belongs to the HUD, because
 there is no world to aim at.
 
+### Scrolling the settings used to answer the rows
+
+The launcher's screens are the desktop's, and the desktop's rows acted on the
+press: `ToggleRow` flipped in `OnPointerPressed`, `ChoiceRow` stepped there,
+`KeyRow` and `PadRow` began listening there, `SliderRow` took the value and the
+pointer there. A mouse never notices -- it scrolls with the wheel and presses
+only what it means. A finger has one gesture for both, and every scroll starts
+as a press on whatever is under it, so dragging the settings page toggled,
+cycled, re-bound and re-slid every row the drag began on.
+
+The rule is now in one place, `Mods/Launcher/Gui/Tap.cs`, and it is the same
+one Android itself uses: the press decides nothing, travel past eight points
+gives the gesture up, and the release acts only if it lands inside the control.
+It applies to a finger and a stylus and not to a mouse, so the desktop keeps
+what it had. `MphRead -tapcheck` is the check; see
+`.claude/launcher/LAUNCHER-DESIGN.md` for the rest, including why `SliderRow`
+waits to see which way the finger went.
+
+**Untested on a device**, like everything else in this head: the emulator here
+cannot load a match, and what a real finger does to a real scroller is exactly
+what a written-down gesture cannot prove.
+
 ### Controls no longer reset when the app closes
 
 Two faults, both of them "the desktop does this somewhere this head never runs":

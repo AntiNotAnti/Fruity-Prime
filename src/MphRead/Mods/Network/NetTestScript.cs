@@ -465,7 +465,26 @@ namespace MphRead.Mods.Network
             // through the turn scatters shots across the room, where they
             // hurt everybody except the one player this phase is about.
             bool aimed = MathF.Abs(turnX) < FiringCone && MathF.Abs(turnY) < FiringCone;
-            Hold(c.Shoot, aimed && _frame % 10 < 6);
+            // Charged, and that is the whole of it. The Magmaul carries
+            // `AoeCharged`, not `AoeUncharged`: its uncharged shot has no
+            // area damage to catch anybody with, least of all the person who
+            // fired it. A phase that tapped the trigger put 135 shots into
+            // the floor for an empty damage table and not one self-kill,
+            // which reads exactly like a splash rule that does not apply to
+            // the owner and was really a splash that was never there. The
+            // affliction phase above learned the same lesson about the same
+            // 24-frames-of-30 fire pattern.
+            if (_releaseFrames > 0)
+            {
+                _releaseFrames--;
+                return;
+            }
+            if (aimed && player.ModChargeReady)
+            {
+                _releaseFrames = 4;
+                return;
+            }
+            Hold(c.Shoot, true);
         }
 
         /// <summary>

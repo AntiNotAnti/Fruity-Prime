@@ -71,6 +71,8 @@ namespace MphRead.Mods.Launcher.Gui
             }
         }
 
+        private readonly Tap _tap = new();
+
         public UiListRow(string title, string detail = "")
         {
             _title = title;
@@ -108,21 +110,40 @@ namespace MphRead.Mods.Launcher.Gui
         protected override void OnPointerExited(PointerEventArgs e)
         {
             _hot = false;
+            _tap.Cancel();
             InvalidateVisual();
             base.OnPointerExited(e);
         }
 
+        protected override void OnPointerPressed(PointerPressedEventArgs e)
+        {
+            _tap.Press(e, this);
+            base.OnPointerPressed(e);
+        }
+
+        protected override void OnPointerMoved(PointerEventArgs e)
+        {
+            _tap.Moved(e, this);
+            base.OnPointerMoved(e);
+        }
+
         protected override void OnPointerReleased(PointerReleasedEventArgs e)
         {
-            // See UiWord.OnPointerReleased: a finger hovers nothing, so the
-            // release position is what decides, not IsPointerOver.
-            Point p = e.GetPosition(this);
-            if (p.X >= 0 && p.Y >= 0 && p.X <= Bounds.Width && p.Y <= Bounds.Height)
+            // A release is not a choice on its own: a list is the thing most
+            // likely to be scrolled, and a flick that ends over a row used to
+            // pick it. See Tap -- the press has to have landed here and stayed.
+            if (_tap.Release(e, this))
             {
                 Focus();
                 Clicked?.Invoke(this, EventArgs.Empty);
             }
             base.OnPointerReleased(e);
+        }
+
+        protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+        {
+            _tap.Cancel();
+            base.OnPointerCaptureLost(e);
         }
 
         protected override void OnKeyDown(KeyEventArgs e)

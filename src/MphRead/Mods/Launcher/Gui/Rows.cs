@@ -64,6 +64,7 @@ namespace MphRead.Mods.Launcher.Gui
         private int _index;
         private bool _leftHot;
         private bool _rightHot;
+        private readonly Tap _tap = new();
 
         public event EventHandler? Changed;
 
@@ -175,12 +176,15 @@ namespace MphRead.Mods.Launcher.Gui
                 _rightHot = right;
                 InvalidateVisual();
             }
+            // A finger on its way down the page is not answering this row.
+            _tap.Moved(e, this);
             base.OnPointerMoved(e);
         }
 
         protected override void OnPointerExited(PointerEventArgs e)
         {
             _leftHot = _rightHot = false;
+            _tap.Cancel();
             InvalidateVisual();
             base.OnPointerExited(e);
         }
@@ -188,18 +192,29 @@ namespace MphRead.Mods.Launcher.Gui
         protected override void OnPointerPressed(PointerPressedEventArgs e)
         {
             Focus();
-            Point p = e.GetPosition(this);
-            // Anywhere that is not the back arrow steps forward, so the row can
-            // be poked at without aiming.
-            if (LeftArrow.Contains(p))
-            {
-                Step(-1);
-            }
-            else
-            {
-                Step(1);
-            }
+            // The press decides nothing: see Tap. This row used to step here,
+            // which meant scrolling the settings page cycled every row the
+            // drag began on.
+            _tap.Press(e, this);
             base.OnPointerPressed(e);
+        }
+
+        protected override void OnPointerReleased(PointerReleasedEventArgs e)
+        {
+            if (_tap.Release(e, this))
+            {
+                // Anywhere that is not the back arrow steps forward, so the row
+                // can be poked at without aiming.
+                Step(LeftArrow.Contains(e.GetPosition(this)) ? -1 : 1);
+            }
+            base.OnPointerReleased(e);
+        }
+
+        protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+        {
+            // The scroll gesture above has taken the pointer.
+            _tap.Cancel();
+            base.OnPointerCaptureLost(e);
         }
 
         protected override void OnKeyDown(KeyEventArgs e)
@@ -304,6 +319,7 @@ namespace MphRead.Mods.Launcher.Gui
     {
         private readonly string _label;
         private bool _on;
+        private readonly Tap _tap = new();
 
         public event EventHandler? Changed;
 
@@ -333,8 +349,38 @@ namespace MphRead.Mods.Launcher.Gui
         protected override void OnPointerPressed(PointerPressedEventArgs e)
         {
             Focus();
-            On = !On;
+            // Not On = !On: a toggle flipped by the press is a toggle flipped
+            // by every scroll that starts on it, and there is no taking it
+            // back once it has happened. See Tap.
+            _tap.Press(e, this);
             base.OnPointerPressed(e);
+        }
+
+        protected override void OnPointerMoved(PointerEventArgs e)
+        {
+            _tap.Moved(e, this);
+            base.OnPointerMoved(e);
+        }
+
+        protected override void OnPointerReleased(PointerReleasedEventArgs e)
+        {
+            if (_tap.Release(e, this))
+            {
+                On = !On;
+            }
+            base.OnPointerReleased(e);
+        }
+
+        protected override void OnPointerExited(PointerEventArgs e)
+        {
+            _tap.Cancel();
+            base.OnPointerExited(e);
+        }
+
+        protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+        {
+            _tap.Cancel();
+            base.OnPointerCaptureLost(e);
         }
 
         protected override void OnKeyDown(KeyEventArgs e)
