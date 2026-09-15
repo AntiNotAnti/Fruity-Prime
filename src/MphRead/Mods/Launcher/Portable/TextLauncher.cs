@@ -62,7 +62,10 @@ namespace MphRead.Mods.Launcher
                 MenuSettings settings = GameState.LoadSettings();
                 Mods.GameSettings.Apply(settings);
                 LauncherPrefs.Load();
-                Mods.WindowMode.Startup = LauncherPrefs.WindowMode;
+                if (!Mods.WindowMode.StartupForced)
+                {
+                    Mods.WindowMode.Startup = LauncherPrefs.WindowMode;
+                }
                 if (rooms.Count == 0 && GameFiles.Ready)
                 {
                     // Needs the game files: the room list is read out of them.

@@ -57,6 +57,20 @@ namespace MphRead.Mods
         public static bool Enabled { get; set; } = true;
 
         /// <summary>
+        /// Whether this process has a shell window at all -- the one window a
+        /// player uses, as opposed to the measuring instruments.
+        ///
+        /// <see cref="Enabled"/> says whether the shape is the player's to
+        /// keep; this says whether there is a player's window in the first
+        /// place. Both are needed because <see cref="NoteMode"/> is called
+        /// from <see cref="WindowMode"/>, which is handed a window and has no
+        /// way to tell which one it is: `-maptest -fullscreen` enters
+        /// fullscreen too, and it must not leave the launcher opening that way
+        /// afterwards.
+        /// </summary>
+        public static bool Owned { get; set; }
+
+        /// <summary>
         /// Apply the saved geometry, before the window is shown.
         ///
         /// Everything here is best-effort by nature. GLFW will refuse a
@@ -193,7 +207,42 @@ namespace MphRead.Mods
             DebugLog.Line("window", $"kept {LauncherPrefs.WindowWidth}x"
                 + $"{LauncherPrefs.WindowHeight} at {LauncherPrefs.WindowX},"
                 + $"{LauncherPrefs.WindowY}"
-                + (LauncherPrefs.WindowMaximized ? ", maximized" : ""));
+                + (LauncherPrefs.WindowMaximized ? ", maximized" : "")
+                + (LauncherPrefs.WindowMode == WindowStartMode.BorderlessFullscreen
+                    ? ", fullscreen" : ""));
+        }
+
+        /// <summary>
+        /// The window went fullscreen, or came back: keep that too, so the
+        /// next session opens the way this one was left.
+        ///
+        /// The size and the corner have been remembered since they existed;
+        /// the *mode* was not, and only the drop-down in Settings ever wrote
+        /// it. So F11 was a decision the program forgot the moment it closed
+        /// -- a player who plays fullscreen pressed it again every single
+        /// launch -- and now that the launcher and the match are one window,
+        /// that is the launcher opening in a window as well.
+        ///
+        /// The window's live state, not an intention: whichever of F11,
+        /// Alt+Enter, the pause menu or the settings row put it there, what
+        /// gets written down is where it ended up.
+        /// </summary>
+        public static void NoteMode()
+        {
+            if (!Enabled || !Owned)
+            {
+                return;
+            }
+            WindowStartMode mode = WindowMode.IsFullscreen
+                ? WindowStartMode.BorderlessFullscreen
+                : WindowStartMode.Windowed;
+            if (LauncherPrefs.WindowMode == mode)
+            {
+                return;
+            }
+            LauncherPrefs.WindowMode = mode;
+            _dirty = true;
+            _changedAt = DateTime.UtcNow;
         }
 
         /// <summary>How long the window has to hold still before the file is written.</summary>

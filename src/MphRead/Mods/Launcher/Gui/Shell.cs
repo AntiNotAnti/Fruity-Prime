@@ -69,6 +69,12 @@ namespace MphRead.Mods.Launcher.Gui
                 return false;
             }
             LauncherPrefs.Load();
+            // The backdrop is GL's from here on: this is the one head with a
+            // window under the screens, and the photograph is worth the
+            // window's own pixels rather than the screens' capped ones. Said
+            // before the first screen is built, because it decides what goes
+            // into the bake. See Mods.Render.LauncherPhoto.
+            Mods.Render.LauncherPhoto.Enabled = true;
             if (GameFiles.Ready)
             {
                 // Upstream's CheckSetup does this before anything runs; the
@@ -80,7 +86,12 @@ namespace MphRead.Mods.Launcher.Gui
                 // no sweep coming to give it one.
                 ThumbnailGenerator.EnsureCustomPreviews();
             }
-            Mods.WindowMode.Startup = LauncherPrefs.WindowMode;
+            // How the window opens: the way this one was left, unless the
+            // command line said otherwise for this run.
+            if (!Mods.WindowMode.StartupForced)
+            {
+                Mods.WindowMode.Startup = LauncherPrefs.WindowMode;
+            }
             RenderWindow.LogCreatingWindow();
             RenderWindow? window = null;
             try

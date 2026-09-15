@@ -34,6 +34,31 @@ namespace MphRead.Mods
         /// </summary>
         public static WindowStartMode Startup { get; set; } = WindowStartMode.Windowed;
 
+        /// <summary>
+        /// Whether <see cref="Startup"/> came from the command line, and so
+        /// must not be overwritten by the saved preference.
+        ///
+        /// The launcher reads the preference as it opens its window, and it
+        /// does that *after* the flags have been parsed: without this,
+        /// `-launcher -fullscreen` opened windowed, because the preference
+        /// landed on top of the flag. The flag is the more specific
+        /// instruction -- somebody typed it for this run.
+        ///
+        /// What happens to the preference afterwards is not this flag's
+        /// business: the window goes fullscreen, and
+        /// <see cref="WindowGeometry.NoteMode"/> writes down where the window
+        /// ended up, the same as it would for F11. Somebody who starts
+        /// fullscreen and quits from fullscreen was last in fullscreen.
+        /// </summary>
+        public static bool StartupForced { get; private set; }
+
+        /// <summary>The command line asking for a mode, once.</summary>
+        public static void ForceStartup(WindowStartMode mode)
+        {
+            Startup = mode;
+            StartupForced = true;
+        }
+
         public static bool IsFullscreen { get; private set; }
 
         private static WindowBorder _savedBorder = WindowBorder.Resizable;
@@ -107,7 +132,20 @@ namespace MphRead.Mods
                 _savedSize = window.ClientSize;
                 _saved = true;
             }
+            // Before the window is touched, not after the geometry is set --
+            // and after the monitor lookup, which is the one line above that
+            // can fail and leave this method without a fullscreen window to
+            // describe.
+            //
+            // Windows dispatches WM_SIZE from inside SetWindowPos, so the
+            // resize callback for the lines below runs *during* them, and
+            // WindowGeometry.Capture reads this flag to decide whether the
+            // rectangle it is being handed is the player's window or the
+            // monitor. Set at the end instead, the one callback that matters
+            // arrived while it still said "windowed", and the monitor's
+            // rectangle went into the remembered window size.
             MonitorInfo monitor = Monitors.GetMonitorFromWindow(window);
+            IsFullscreen = true;
             // State first: leaving any Maximized/Minimized state before the
             // border changes, so the window manager isn't asked to strip
             // decorations off a window it still considers snapped.
@@ -131,7 +169,6 @@ namespace MphRead.Mods
             // nobody asked for. One pixel is not visible and keeps it from
             // triggering.
             window.ClientSize = new Vector2i(monitor.ClientArea.Size.X, monitor.ClientArea.Size.Y - 1);
-            IsFullscreen = true;
             // And above the taskbar, which is the other half of covering the
             // screen. A borderless window is an ordinary window as far as the
             // desktop is concerned: it sits in the normal z-band, and the
@@ -145,6 +182,10 @@ namespace MphRead.Mods
             // every reason borderless was chosen (instant alt-tab, no display
             // mode change, no black flash).
             SetTopmost(window, true);
+            // And written down, so the next session opens this way. See
+            // WindowGeometry.NoteMode: F11 used to be a decision the program
+            // forgot on exit.
+            WindowGeometry.NoteMode();
         }
 
         public static void Leave(NativeWindow window)
@@ -170,6 +211,7 @@ namespace MphRead.Mods
             // it was just at.
             _saved = false;
             SetTopmost(window, false);
+            WindowGeometry.NoteMode();
         }
 
         /// <summary>

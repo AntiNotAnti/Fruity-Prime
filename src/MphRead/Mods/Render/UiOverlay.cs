@@ -205,6 +205,13 @@ namespace MphRead.Mods.Render
             GL.ClearColor(0f, 0f, 0f, 1f);
             GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit
                 | ClearBufferMask.StencilBufferBit);
+            // The photograph under the screens, at the window's resolution
+            // rather than at the raster cap theirs is drawn at. See
+            // LauncherPhoto for why it is no longer in the same bitmap as the
+            // washes over it -- and note that the composite is unchanged: the
+            // overlay blends premultiplied, which is the same "over" Avalonia
+            // applied when it owned both layers.
+            LauncherPhoto.Draw(width, height);
             Draw(width, height);
         }
 

@@ -203,23 +203,93 @@ namespace MphRead.Entities
         /// </summary>
         internal bool ModPlacementBelongsHere(OpenTK.Mathematics.Vector3 position)
         {
+            bool any = false;
+            return ModNearestSpawn(position, ref any) != null
+                // A room with no spawn points at all is not a room this rule
+                // can say anything about, so it says nothing.
+                || !any;
+        }
+
+        /// <summary>
+        /// The spawn point a placement was made from, or null if it was made
+        /// from none of this room's.
+        ///
+        /// <paramref name="any"/> comes back true when the room has spawn
+        /// points at all, which is what tells "the authority meant a point
+        /// somewhere else" apart from "there is nothing here to mean".
+        /// </summary>
+        private PlayerSpawnEntity? ModNearestSpawn(OpenTK.Mathematics.Vector3 position,
+            ref bool any)
+        {
             // Generous: the authority may have published a frame or two after
             // the placement, by which time the player has begun to fall to
             // the floor, and a spawn point sits above it.
             const float reach = 12;
-            bool any = false;
+            PlayerSpawnEntity? nearest = null;
+            float nearestDist = reach * reach;
             foreach (PlayerSpawnEntity spawn in _scene.GetPlayerSpawnEntities())
             {
                 any = true;
                 OpenTK.Mathematics.Vector3 between = spawn.Position - position;
-                if (between.LengthSquared <= reach * reach)
+                float dist = between.LengthSquared;
+                if (dist <= nearestDist)
                 {
-                    return true;
+                    nearestDist = dist;
+                    nearest = spawn;
                 }
             }
-            // A room with no spawn points at all is not a room this rule can
-            // say anything about, so it says nothing.
-            return !any;
+            return nearest;
+        }
+
+        /// <summary>
+        /// Which way the level author meant a player standing at a placement
+        /// the authority made to be looking.
+        ///
+        /// Read off the spawn point rather than off the snapshot because the
+        /// snapshot's facing is already stale by the time it arrives: the
+        /// authority spawns this player looking down the point's own vector
+        /// and then eases that facing 10% a frame towards whatever aim the
+        /// owner's intents are still carrying from the life that just ended
+        /// (<see cref="ModSetAim"/>, UpdateAimFacing). The point itself does
+        /// not drift, and it is the exact vector the engine's own respawn
+        /// passes to Spawn().
+        ///
+        /// Null when the placement came from no point in this room, which is
+        /// the case <see cref="ModPlacementBelongsHere"/> refuses outright.
+        /// </summary>
+        internal OpenTK.Mathematics.Vector3? ModSpawnFacingAt(OpenTK.Mathematics.Vector3 position)
+        {
+            bool any = false;
+            PlayerSpawnEntity? spawn = ModNearestSpawn(position, ref any);
+            return spawn?.FacingVector;
+        }
+
+        /// <summary>
+        /// Turn this machine's own player to face the way the spawn point the
+        /// authority placed them on faces.
+        ///
+        /// A respawn happens twice: once here the moment the player asks for
+        /// it, and once on the authority, which owns where they end up. The
+        /// two run GetRespawnPoint a few frames apart against different sets
+        /// of living players and rotate their choice with the frame counter,
+        /// so they routinely pick *different* points -- which is why the
+        /// placement is handed over at all. Handing over the position alone
+        /// left the player standing on the authority's point while still
+        /// looking down the local one's vector: the report about facing the
+        /// wrong way after respawning, and it was only ever "sometimes"
+        /// because it needs the two choices to disagree.
+        ///
+        /// Both halves have to move. <see cref="_facingVector"/> is what the
+        /// first-person camera aims (UpdateCameraFirst) and what the body's
+        /// heading is rebuilt from every frame (UpdateAimVecs); _gunVec1 is
+        /// where the gun points and what the next intent publishes. Setting
+        /// only the first leaves the aim behind and UpdateAimFacing drags the
+        /// facing straight back to it.
+        /// </summary>
+        internal void ModSetSpawnFacing(OpenTK.Mathematics.Vector3 facing)
+        {
+            ModSetFacing(facing);
+            ModSetAim(facing);
         }
 
         internal void ModRefreshNodeRef(OpenTK.Mathematics.Vector3 previousPosition)

@@ -512,11 +512,25 @@ namespace MphRead.Mods.Launcher.Gui
         public static Panel BackdropLayers(BackdropWash wash)
         {
             var root = new Panel();
-            root.Children.Add(new Image
+            bool photoBelow = false;
+#if MPHREAD_SHELL
+            photoBelow = Mods.Render.LauncherPhoto.Enabled;
+#endif
+            if (!photoBelow)
             {
-                Source = _background.Value,
-                Stretch = Stretch.UniformToFill
-            });
+                // Only where nothing else is drawing it. The desktop shell
+                // puts the photograph on the screen as a GL quad at the
+                // window's own resolution -- see LauncherPhoto -- because this
+                // bitmap is capped at 1080p and magnified, and a photograph is
+                // the one layer that shows it. The washes below stay here
+                // either way: they are gradients, and a gradient magnifies for
+                // nothing.
+                root.Children.Add(new Image
+                {
+                    Source = _background.Value,
+                    Stretch = Stretch.UniformToFill
+                });
+            }
             root.Children.Add(new Border
             {
                 Background = new LinearGradientBrush
