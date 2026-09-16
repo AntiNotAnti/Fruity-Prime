@@ -362,7 +362,7 @@ namespace MphRead.Mods.Network
         /// player owns the session; simulating here would have
         /// <c>ServerSim.Start</c> call <c>NetSession.StartServerAuthority</c>
         /// on top of the player who started it.</item>
-        /// <item><see cref="NetMaster"/> -- "Host: online". The directory runs
+        /// <item><see cref="MasterServer"/> -- "Host: online". The directory runs
         /// one of these per hosted match, several at a time, in one
         /// process.</item>
         /// </list>

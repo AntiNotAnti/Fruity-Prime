@@ -103,6 +103,14 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly Image _preview = new() { Stretch = Stretch.UniformToFill };
         private readonly Border _previewBox;
 
+        /// <summary>
+        /// The hunter, turning, at the map picture's right-hand end -- see
+        /// <see cref="AddHunter"/> for why it is here and not under the row
+        /// that names it. Only the faces that ask which hunter you are taking
+        /// in show it.
+        /// </summary>
+        private readonly HunterStand _stand;
+
         /// <summary>The three things the well holds, kept so the shape can change.</summary>
         private readonly Grid _body;
         private readonly ScrollViewer _side;
@@ -161,6 +169,9 @@ namespace MphRead.Mods.Launcher.Gui
             }
             _compact = compact;
             _previewBox.IsVisible = _previewWanted;
+            _stand.IsVisible = _standWanted && _previewWanted;
+            // A band rather than a landscape box leaves less to stand in.
+            _stand.Height = compact ? 110 : 150;
             if (_bar != null)
             {
                 // The online face lays row 0 out itself; letting the compact
@@ -182,6 +193,8 @@ namespace MphRead.Mods.Launcher.Gui
                 _side.Margin = new Thickness(18, 0, 0, 0);
                 Grid.SetColumn(_previewBox, 1);
                 Grid.SetRow(_previewBox, 1);
+                Grid.SetColumn(_stand, 1);
+                Grid.SetRow(_stand, 1);
                 // Stretched into what is left rather than given a height:
                 // whatever that is, it is the room there is, and a fixed
                 // number here would either overlap the line under the list on
@@ -192,6 +205,7 @@ namespace MphRead.Mods.Launcher.Gui
                 _previewBox.MaxHeight = 150;
                 _previewBox.VerticalAlignment = VerticalAlignment.Stretch;
                 _previewBox.Margin = new Thickness(18, 12, 0, 0);
+                _stand.Margin = _previewBox.Margin;
                 Grid.SetRow(_list, 0);
                 Grid.SetRowSpan(_list, 2);
                 Grid.SetColumnSpan(_list, 1);
@@ -202,12 +216,15 @@ namespace MphRead.Mods.Launcher.Gui
                 Grid.SetRow(_side, 0);
                 Grid.SetRowSpan(_side, 1);
                 _side.Margin = new Thickness(0);
+                Grid.SetColumn(_stand, 0);
+                Grid.SetRow(_stand, 0);
                 Grid.SetColumn(_previewBox, 0);
                 Grid.SetRow(_previewBox, 0);
                 _previewBox.Height = 172;
                 _previewBox.MaxHeight = Double.PositiveInfinity;
                 _previewBox.VerticalAlignment = VerticalAlignment.Stretch;
                 _previewBox.Margin = new Thickness(0, 0, 24, 14);
+                _stand.Margin = _previewBox.Margin;
                 Grid.SetRow(_list, 1);
                 Grid.SetRowSpan(_list, 1);
                 Grid.SetColumnSpan(_list, 2);
@@ -234,7 +251,11 @@ namespace MphRead.Mods.Launcher.Gui
         {
             _previewWanted = wanted;
             _previewBox.IsVisible = wanted;
+            _stand.IsVisible = _standWanted && wanted;
         }
+
+        /// <summary>Whether this face asks which hunter you are taking in.</summary>
+        private bool _standWanted;
 
         protected override Size MeasureOverride(Size availableSize)
         {
@@ -262,6 +283,20 @@ namespace MphRead.Mods.Launcher.Gui
                 ClipToBounds = true,
                 IsVisible = false,
                 Child = _preview
+            };
+
+            // In the picture's cell rather than a cell of its own: a column
+            // for it would take width off the picture on every face,
+            // including the ones with no hunter to show.
+            _stand = new HunterStand
+            {
+                Width = 96,
+                Height = 150,
+                IsVisible = false,
+                IsHitTestVisible = false,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Name2 = _hunters[0]
             };
 
             // The picture above the list rather than beside it, and the
@@ -293,6 +328,9 @@ namespace MphRead.Mods.Launcher.Gui
             Grid.SetColumn(_previewBox, 0);
             Grid.SetRow(_previewBox, 0);
             body.Children.Add(_previewBox);
+            Grid.SetColumn(_stand, 0);
+            Grid.SetRow(_stand, 0);
+            body.Children.Add(_stand);
             // Scrolled, because a short window gives this row less height than
             // the options asked for -- and a StackPanel given less height than
             // it wants does not shrink and is not clipped, it simply draws
@@ -506,6 +544,7 @@ namespace MphRead.Mods.Launcher.Gui
             _note.Foreground = GuiTheme.TextDimBrush;
             _hunter = _mode = _bots = _skill = _resume = null;
             _name = _address = null;
+            _standWanted = false;
             WantPreview(false);
 
             switch (Current)
@@ -550,15 +589,13 @@ namespace MphRead.Mods.Launcher.Gui
             // off the screen. A name in a list is not what anybody recognises
             // a hunter by, the silhouette is, so it goes where there is room
             // for it to be one.
-            if (_stand != null)
-            {
-                _stand.Name2 = _hunters[row.Index];
-                row.Changed += (_, _) => _stand.Name2 = _hunters[row.Index];
-            }
+            _standWanted = true;
+            _stand.IsVisible = _previewBox.IsVisible;
+            _stand.Margin = _previewBox.Margin;
+            _stand.Name2 = _hunters[row.Index];
+            row.Changed += (_, _) => _stand.Name2 = _hunters[row.Index];
             return row;
         }
-
-        private HunterStand? _stand;
 
         private static string PlayerName()
         {

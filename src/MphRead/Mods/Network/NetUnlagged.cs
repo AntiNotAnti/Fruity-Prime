@@ -750,7 +750,7 @@ namespace MphRead.Mods.Network
 
         /// <summary>
         /// Move every player but <paramref name="exceptSlot"/> to where they
-        /// stood at <paramref name="frame"/>. Returns whether the history
+        /// stood at <paramref name="targetFrame"/>. Returns whether the history
         /// still held it.
         /// </summary>
         private static bool Reconcile(int exceptSlot, double targetFrame)

@@ -28,7 +28,7 @@ namespace MphRead.Mods.Launcher.Gui
     ///
     /// It is a <see cref="UserControl"/> rather than a <see cref="Window"/>
     /// for one reason: nothing shows it in a window. The desktop renders it
-    /// into the game window through <see cref="UiSurface"/>; the Android head
+    /// into the game window through <c>UiSurface</c>; the Android head
     /// hands this same object to Avalonia as its single view.
     /// There is no second front screen to keep in step, which is the point --
     /// a phone-shaped copy was the previous arrangement and it drifted within
@@ -248,14 +248,15 @@ namespace MphRead.Mods.Launcher.Gui
 
         private void LayOutBar(double width)
         {
-            if (_bar == null)
+            StackPanel? bar = _bar;
+            if (bar == null)
             {
                 return;
             }
             bool column = width < BarTurnsWidth;
-            _bar.Orientation = column ? Orientation.Vertical : Orientation.Horizontal;
-            _bar.Spacing = column ? 9 : 12;
-            _bar.Width = column ? Math.Max(160, Math.Min(320, width - 48)) : double.NaN;
+            bar.Orientation = column ? Orientation.Vertical : Orientation.Horizontal;
+            bar.Spacing = column ? 9 : 12;
+            bar.Width = column ? Math.Max(160, Math.Min(320, width - 48)) : double.NaN;
             if (_foot != null)
             {
                 // Turned, the foot is one column: the profile above the faces
@@ -271,11 +272,8 @@ namespace MphRead.Mods.Launcher.Gui
                         ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
                     _chip.Margin = new Thickness(0, 0, 0, column ? 9 : 0);
                 }
-                if (_bar != null)
-                {
-                    Grid.SetColumn(_bar, column ? 0 : 1);
-                    Grid.SetRow(_bar, column ? 1 : 0);
-                }
+                Grid.SetColumn(bar, column ? 0 : 1);
+                Grid.SetRow(bar, column ? 1 : 0);
                 if (_heart != null)
                 {
                     Grid.SetColumn(_heart, column ? 0 : 2);
@@ -287,7 +285,7 @@ namespace MphRead.Mods.Launcher.Gui
                 }
                 _foot.Margin = new Thickness(column ? 14 : 26, 0, column ? 14 : 26, column ? 18 : 24);
             }
-            foreach (Control child in _bar.Children)
+            foreach (Control child in bar.Children)
             {
                 child.HorizontalAlignment = column
                     ? HorizontalAlignment.Stretch

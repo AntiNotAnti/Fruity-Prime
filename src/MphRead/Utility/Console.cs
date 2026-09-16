@@ -30,6 +30,37 @@ namespace MphRead
         /// </summary>
         public static string LaunchDirectory { get; private set; } = Directory.GetCurrentDirectory();
 
+        /// <summary>
+        /// "Press any key to exit", where there may be no key to press.
+        ///
+        /// <see cref="Console.ReadKey()"/> throws when the process has no
+        /// console or its input is a pipe, and both are ordinary: the Windows
+        /// game build is a GUI binary with no console at all, and every
+        /// command run by a script or by the launcher has its streams
+        /// captured. An unhandled exception on the way out of a message that
+        /// was only being polite is how a Windows build ends up exiting with
+        /// nothing on the screen.
+        /// </summary>
+        public static void PauseIfInteractive()
+        {
+            if (Console.IsInputRedirected)
+            {
+                return;
+            }
+            try
+            {
+                Console.ReadKey();
+            }
+            catch (InvalidOperationException)
+            {
+                // No console to read from. The message above it was still
+                // printed, which is the part that mattered.
+            }
+            catch (IOException)
+            {
+            }
+        }
+
         public static void Run()
         {
             CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;

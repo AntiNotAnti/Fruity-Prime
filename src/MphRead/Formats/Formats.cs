@@ -1438,7 +1438,16 @@ namespace MphRead
 
         public static string FileSystem => _allPaths[MphKey];
         public static string FhFileSystem => _allPaths[FhKey];
-        public static string Export => _allPaths["Export"];
+        /// <summary>
+        /// Where anything this program writes goes: recordings, exports,
+        /// screenshots. Empty until paths.txt has been read, and empty rather
+        /// than an exception -- it is a place to write, not a game file, and
+        /// the launcher asks for it on screens a player reaches before they
+        /// have set anything up. A missing key here used to take the whole
+        /// launcher down with a KeyNotFoundException.
+        /// </summary>
+        public static string Export =>
+            _allPaths.TryGetValue("Export", out string? export) ? export : "";
 
         public static bool IsMphAmericas => MphKey == Ver.AMHE0 || MphKey == Ver.AMHE1;
         public static bool IsMphEurope => MphKey == Ver.AMHP0 || MphKey == Ver.AMHP1;

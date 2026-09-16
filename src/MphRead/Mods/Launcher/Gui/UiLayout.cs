@@ -176,7 +176,7 @@ namespace MphRead.Mods.Launcher.Gui
         /// How many device pixels one layout point is, for whoever is cutting
         /// a bitmap rather than drawing into the frame.
         ///
-        /// <see cref="UiSurface"/> scales the whole screen with a layout
+        /// <c>UiSurface</c> scales the whole screen with a layout
         /// transform, so a control's own <c>Bounds</c> are in points and
         /// nothing in the visual tree can see what those land on. The
         /// backdrop has to know: baked at the point size it would be blown up
@@ -190,7 +190,7 @@ namespace MphRead.Mods.Launcher.Gui
         /// How much bigger than its own layout a box this tall draws the
         /// screens.
         ///
-        /// Here rather than in <see cref="UiSurface"/>, where it was written,
+        /// Here rather than in <c>UiSurface</c>, where it was written,
         /// because it is not the desktop's rule -- it is the launcher's, and
         /// there are two heads. The desktop asks about the game window and
         /// scales the surface it composites; Android asks about the view the
@@ -268,14 +268,6 @@ namespace MphRead.Mods.Launcher.Gui
         public const double MinBoxHeight = 600;
 
         /// <summary>
-        /// The column itself: what the screen is called, the strip of pages or
-        /// sources under it, and the screen's own content under that.
-        ///
-        /// <paramref name="centreBody"/> for content that is shorter than the
-        /// well -- a menu, a question. A list or a page of settings wants the
-        /// height it is given, so it stretches.
-        /// </summary>
-        /// <summary>
         /// How short a box has to be before the well stops spending a third of
         /// it on its own margins.
         ///
@@ -287,10 +279,6 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         public const double ShortBox = 560;
 
-        /// <summary>
-        /// The pair of marks at the foot, in reading order: no on the left,
-        /// yes on the right, together rather than in opposite corners.
-        /// </summary>
         /// <summary>
         /// Leaving on the left, everything else on the right.
         ///
@@ -417,6 +405,11 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         /// <param name="widthEms">
         /// The panel's cap, in frame ems. 44 for a screen, 19 for a dialog.
+        /// </param>
+        /// <param name="centreBody">
+        /// Centre the content for what is shorter than the well -- a menu, a
+        /// question. A list or a page of settings wants the height it is
+        /// given, so it stretches.
         /// </param>
         /// <param name="extra">
         /// A third mark, between the two, for a screen whose foot carries an

@@ -12,7 +12,7 @@ namespace MphRead.Mods.Launcher.Gui
     /// <summary>
     /// Setting the toolkit up, and the way in to the launcher.
     ///
-    /// The loop itself is <see cref="Shell"/>'s: one window for the whole
+    /// The loop itself is <c>Shell</c>'s: one window for the whole
     /// program, the front screen drawn inside it, a match loaded into it and
     /// unloaded again. What is left here is the decision nobody else can make
     /// -- whether there is a toolkit on this machine at all -- and the
@@ -35,7 +35,7 @@ namespace MphRead.Mods.Launcher.Gui
     ///
     /// The backend is headless plus Skia rather than the platform's own: the
     /// screens are drawn into a buffer and composited into the game window
-    /// (<see cref="UiSurface"/>, <see cref="Mods.Render.UiOverlay"/>), so this
+    /// (<c>UiSurface</c>, <c>Mods.Render.UiOverlay</c>), so this
     /// program opens exactly one window on every platform.
     /// </summary>
     public static class GuiLauncher

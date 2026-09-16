@@ -133,7 +133,7 @@ namespace MphRead.Mods.Launcher.Gui
             set => _button.Idle = value;
         }
 
-        public new bool Focus() => _button.Focus();
+        public bool Focus() => _button.Focus();
 
         protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
         {

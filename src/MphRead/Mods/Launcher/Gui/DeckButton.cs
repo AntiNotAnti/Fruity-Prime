@@ -7,6 +7,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Threading;
 
 namespace MphRead.Mods.Launcher.Gui
 {
@@ -357,6 +358,41 @@ namespace MphRead.Mods.Launcher.Gui
             return -1.25 * (1 - Math.Cos(phase * Math.PI * 2));
         }
 
+        /// <summary>Whether a frame has already been asked for and not yet drawn.</summary>
+        private bool _framePending;
+
+        /// <summary>
+        /// Ask for the next frame of an animation, from inside the pass
+        /// drawing this one.
+        ///
+        /// <b>Not <c>InvalidateVisual</c> directly.</b> Avalonia's compositing
+        /// renderer walks a list of dirty visuals and refuses to have one
+        /// added while it is walking it: the call throws "Visual was
+        /// invalidated during the render pass", the exception comes out of the
+        /// dispatcher rather than out of this method, and what the player sees
+        /// is the launcher failing on its first frame -- which on a Windows
+        /// build, a GUI binary with no console, is a program that starts and
+        /// shows nothing at all.
+        ///
+        /// Posted at <see cref="DispatcherPriority.Render"/> instead, so the
+        /// invalidation happens between passes. One at a time: a button that
+        /// bobs would otherwise queue an operation per frame per button, and
+        /// the queue is what the renderer drains.
+        /// </summary>
+        private void RequestAnotherFrame()
+        {
+            if (_framePending)
+            {
+                return;
+            }
+            _framePending = true;
+            Dispatcher.UIThread.Post(() =>
+            {
+                _framePending = false;
+                InvalidateVisual();
+            }, DispatcherPriority.Render);
+        }
+
         public override void Render(DrawingContext context)
         {
             bool moving = Settle();
@@ -488,7 +524,7 @@ namespace MphRead.Mods.Launcher.Gui
             // RenderTargetBitmap refuses to finish. See Deck.Still.
             if ((moving || Idle) && !Deck.Still)
             {
-                InvalidateVisual();
+                RequestAnotherFrame();
             }
         }
     }

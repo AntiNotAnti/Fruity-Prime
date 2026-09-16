@@ -23,7 +23,7 @@ namespace MphRead.Mods.Render
     /// (<c>Scene._textureCount</c>), and the counter restarts with every room,
     /// so a binding kept across a map change is a name the next room will
     /// count its way onto and overwrite -- the trap written up in
-    /// <see cref="UiOverlay"/>. Rebuilding costs four PNG decodes per results
+    /// <c>UiOverlay</c>. Rebuilding costs four PNG decodes per results
     /// screen and removes the whole class of bug.
     /// </para>
     ///
@@ -60,7 +60,7 @@ namespace MphRead.Mods.Render
         /// <summary>
         /// Where this cache's texture names start: above anything
         /// <c>Scene._textureCount</c> reaches, and above
-        /// <see cref="UiOverlay"/>'s own reserved name.
+        /// <c>UiOverlay</c>'s own reserved name.
         /// </summary>
         private const int ReservedName = 1_100_000;
 
