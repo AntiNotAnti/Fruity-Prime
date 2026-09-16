@@ -7,6 +7,14 @@ This file documents the first-run flow and the extraction child process used to 
   - `-launcher` is dispatched before upstream's `CheckSetup` to avoid a "press any key" console stop.
   - `GameFiles.Problem()` signals the rest of the screen whether paths are missing or invalid.
 
+Game-file locations
+
+- New ROM extractions under the installation's `files/` directory are recorded relative to `paths.txt`. Moving the installation with `paths.txt` and `files/` together therefore does not require extracting the ROM again.
+- Older `paths.txt` files may contain absolute paths. If such a path is missing and matches an extracted game directory under the old `files/` layout, the reader uses the corresponding directory beside the current `paths.txt` when it exists. Existing absolute locations, including deliberately external game directories, are left alone.
+- A separate local-server install receives only a copy of `paths.txt`, so its copied ROM entries are resolved to absolute paths pointing back at this installation's game files. The original `paths.txt` remains portable.
+- Moving only the extracted `files/` directory to an arbitrary new location cannot be inferred automatically; keep it beside `paths.txt` or configure a new path.
+- Run `dotnet run --project tools/pathstest/pathstest.csproj -c Release` for an asset-free regression that moves a temporary installation and checks both new and legacy paths.
+
 Progress bar
 
 - `SetupProgress` classifies each output line into a phase (writing files, unpacking, converting music, decompressing code) and moves asymptotically within that phase; total is unknown and a counting pass would require reading the cartridge twice.
