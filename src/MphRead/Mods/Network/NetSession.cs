@@ -1696,7 +1696,9 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
-            _transport.Send(_hostEndPoint, PacketType.MatchEnd, ReadOnlySpan<byte>.Empty);
+            BinaryPrimitives.WriteUInt16LittleEndian(_scratch, CurrentMatchId);
+            BinaryPrimitives.WriteUInt64LittleEndian(_scratch.AsSpan(2), AuthorityEpoch);
+            _transport.Send(_hostEndPoint, PacketType.MatchEnd, _scratch.AsSpan(0, 10));
         }
 
         /// <summary>Host -> clients: authoritative state for every active player.</summary>

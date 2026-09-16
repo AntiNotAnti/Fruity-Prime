@@ -110,6 +110,7 @@ namespace MphRead.NetTest
                 byte[] hello = new byte[7] { (byte)PacketType.Hello, NetConfig.ProtocolVersion, 255, 42, 0, 0, 0 };
                 socket.Send(hello, hello.Length, endpoint);
                 bool welcome = false, match = false, roster = false, grant = false;
+                MatchStatePacket admission = default;
                 for (int i = 0; i < 20 && !(welcome && match && roster && grant); i++)
                 {
                     var from = endpoint;
@@ -123,7 +124,8 @@ namespace MphRead.NetTest
                                 && BinaryPrimitives.ReadUInt16LittleEndian(body[15..]) == 1;
                             break;
                         case PacketType.MatchState:
-                            match = MatchStatePacket.Read(body).AuthorityEpoch > uint.MaxValue; break;
+                            admission = MatchStatePacket.Read(body);
+                            match = admission.AuthorityEpoch > uint.MaxValue; break;
                         case PacketType.Roster:
                             var members = RosterPacket.Read(body);
                             roster = members.AuthorityEpoch > uint.MaxValue && members.Generations[0] == 1; break;
@@ -142,6 +144,32 @@ namespace MphRead.NetTest
                     refused = socket.Receive(ref from)[0] == (byte)PacketType.Refused;
                 }
                 Check(refused, "old protocol is explicitly refused");
+                // Drain the admission responses, then bracket each end request
+                // with Hello so its response reports the server's resulting state.
+                while (socket.Available > 0) { var from = endpoint; socket.Receive(ref from); }
+                MatchStatePacket EndRequest(ushort requestedMatch, ulong requestedEpoch)
+                {
+                    byte[] end = new byte[11]; end[0] = (byte)PacketType.MatchEnd;
+                    BinaryPrimitives.WriteUInt16LittleEndian(end.AsSpan(1), requestedMatch);
+                    BinaryPrimitives.WriteUInt64LittleEndian(end.AsSpan(3), requestedEpoch);
+                    socket.Send(end, end.Length, endpoint);
+                    hello[1] = NetConfig.ProtocolVersion;
+                    socket.Send(hello, hello.Length, endpoint);
+                    for (int i = 0; i < 20; i++)
+                    {
+                        var from = endpoint; byte[] reply = socket.Receive(ref from);
+                        if (reply[0] == (byte)PacketType.MatchState) return MatchStatePacket.Read(reply.AsSpan(1));
+                    }
+                    throw new InvalidOperationException("No match state after end request");
+                }
+                Check(!EndRequest((ushort)(admission.MatchId + 1), admission.AuthorityEpoch).Ending,
+                    "stale match-end cannot finish another match");
+                while (socket.Available > 0) { var from = endpoint; socket.Receive(ref from); }
+                Check(!EndRequest(admission.MatchId, admission.AuthorityEpoch - 1).Ending,
+                    "previous authority cannot finish current match");
+                while (socket.Available > 0) { var from = endpoint; socket.Receive(ref from); }
+                Check(EndRequest(admission.MatchId, admission.AuthorityEpoch).Ending,
+                    "current authority can finish its own match");
             }
             finally
             {

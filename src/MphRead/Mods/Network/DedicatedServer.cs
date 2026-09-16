@@ -1813,6 +1813,9 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
+            if (packet.Payload.Length != 10
+                || BinaryPrimitives.ReadUInt16LittleEndian(packet.Payload) != _matchId
+                || BinaryPrimitives.ReadUInt64LittleEndian(packet.Payload[2..]) != _authorityEpoch) return;
             EndMatch(now, "a player reached the goal");
         }
 

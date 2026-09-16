@@ -72,6 +72,7 @@ version-refusal response. All desktop, Android, server and test consumers share
 | Roster header / entry | 15 / 23 | match 1, epoch 3, revision 11; entry generation 21 |
 | Welcome | 17 | slot 0, client ID 1, match 5, epoch 7, generation 15 |
 | Authority grant | 13 | slot 0, match 1, epoch 3, generation 11 |
+| MatchEnd | 10 | match 0, epoch 2 |
 | Snapshot header | 23 | match 13, epoch 15 |
 | PlayerState | 174 | generation 64, life 66, newest damage event 68, history 70 |
 | Intent / extended | 88 / 92 | match 74, epoch 76, generation 84, life 86 |
