@@ -301,6 +301,13 @@ namespace MphRead.Mods.Launcher.Gui
             Selected = null;
         }
 
+        /// <summary>For a choice pasted outside the rows currently shown.</summary>
+        public void ClearSelection()
+        {
+            Selected = null;
+            MarkSelection();
+        }
+
         /// <summary>
         /// Add a row and say what pressing it means. The row keeps its own
         /// drawing and its own click; what is added here is that pressing it
