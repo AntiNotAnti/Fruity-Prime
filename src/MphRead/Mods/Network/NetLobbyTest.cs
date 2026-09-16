@@ -239,15 +239,21 @@ namespace MphRead.Mods.Network
             rig.Expect(a, a.Command(LobbyCommandType.StartMatch), LobbyResultCode.PlayersNotReady);
             rig.Expect(a, a.Command(LobbyCommandType.SetReady, true, revision: 0), LobbyResultCode.StaleRevision);
             rig.ReadyAll();
-            var config = a.State.Value; config.Match = config.Match with { RoomKey = Rooms()[1], TimeLimitSeconds = 0 };
+            var config = a.State.Value; config.Match = config.Match with { RoomKey = Rooms()[1], TimeLimitSeconds = 600 };
             rig.Expect(a, a.Command(LobbyCommandType.UpdateMatch, config: config), LobbyResultCode.Ok);
             Check(a.Roster.LobbyReady.Take(a.Roster.Count).All(r => !r), "configuration clears ready");
+            var lobbyStatus = NetStatus.Query("127.0.0.1", rig.Server.BoundPort, allowJoinProbe: false);
+            Check(lobbyStatus.Online && lobbyStatus.Phase == SessionPhase.Lobby && lobbyStatus.TimeRemaining == 600,
+                "browser status clock stays at the full time limit in the lobby");
             rig.ReadyAll();
             var start = a.Command(LobbyCommandType.StartMatch); rig.Expect(a, start, LobbyResultCode.Ok);
             Check(a.State.Value.Phase == SessionPhase.Starting, "start enters barrier");
             a.Loaded((ushort)(a.State.Value.MatchId - 1));
             a.Loaded(); rig.Wait(() => a.State.Value.LoadedParticipants == (1 << a.Slot), "one participant loaded");
             Check(a.State.Value.Phase == SessionPhase.Starting, "one loaded cannot release barrier");
+            var loadingStatus = NetStatus.Query("127.0.0.1", rig.Server.BoundPort, allowJoinProbe: false);
+            Check(loadingStatus.Phase == SessionPhase.Starting && loadingStatus.TimeRemaining == 600,
+                "browser status clock stays frozen through the load barrier");
             Client late = rig.Add(3); Check((late.State!.Value.ExpectedParticipants & (1 << late.Slot)) == 0, "late join excluded from barrier");
             b.Loaded(); rig.Wait(() => a.State.Value.Phase == SessionPhase.InMatch, "barrier released");
             b.Send(PacketType.MatchEnd, Array.Empty<byte>());

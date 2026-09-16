@@ -689,7 +689,7 @@ namespace MphRead.Mods.Network
         private MatchStatePacket BuildState(double now)
         {
             MatchDefinition entry = CurrentDefinition;
-            float elapsed = _phase == SessionPhase.Starting ? 0 : (float)(now - _matchStarted);
+            float elapsed = _phase is SessionPhase.Lobby or SessionPhase.Starting ? 0 : (float)(now - _matchStarted);
             bool ending = _matchEndedAt >= 0;
             return new MatchStatePacket
             {
