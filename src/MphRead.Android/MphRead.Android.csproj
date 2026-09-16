@@ -130,7 +130,7 @@
 
          **Globbed rather than listed, and that is the point.** This was five
          named files, and it is the same screens drawn from the same sources
-         as the desktop -- so the deck theme added three weights of Pixelify
+         as the desktop, so the deck theme added three weights of Pixelify
          Sans and two of JetBrains Mono to the desktop project, every label on
          every screen started naming one of them, this list was not touched,
          and the app died on its first layout pass on a device while all six
@@ -145,7 +145,7 @@
     <AvaloniaResource Include="..\MphRead\Assets\Backgrounds\*.jpg"
                       Link="Assets\Backgrounds\%(Filename)%(Extension)" />
     <!-- The IP-to-country ranges the server browser puts a flag with. Not a
-         font, and a missing one here is only a browser with no flags in it --
+         font, and a missing one here is only a browser with no flags in it,
          but it is named by the same kind of URI from the same shared file, so
          it is shipped by the same rule rather than by remembering. -->
     <AvaloniaResource Include="..\MphRead\Assets\Geo\*.gz"
