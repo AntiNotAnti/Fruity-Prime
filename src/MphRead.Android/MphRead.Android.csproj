@@ -33,6 +33,8 @@
     <AssemblyName>FruityPrime</AssemblyName>
     <ApplicationId>fr.livetek.fruityprime</ApplicationId>
     <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <!-- Release builds replace this local fallback with the versionCode
+         derived from the vMAJOR.MINOR.PATCH release tag. -->
     <ApplicationVersion>1</ApplicationVersion>
     <!-- The launcher's own define, the same one the desktop game builds with:
          the shared sources gate the Avalonia screens on it. -->

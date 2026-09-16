@@ -125,11 +125,30 @@ jobs:
             exit 1
           fi
 
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tag '$TAG' must use the vMAJOR.MINOR.PATCH format."
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          IFS=. read -r MAJOR MINOR PATCH <<< "$VERSION"
+          if (( 10#$MAJOR > 999 || 10#$MINOR > 999 || 10#$PATCH > 999 )); then
+            echo "::error::Release tag '$TAG' cannot be represented by Android's versionCode."
+            exit 1
+          fi
+          ANDROID_VERSION_CODE=$((10#$MAJOR * 1000000 + 10#$MINOR * 1000 + 10#$PATCH))
+          if (( ANDROID_VERSION_CODE < 1 )); then
+            echo "::error::Release tag '$TAG' produces an invalid Android versionCode."
+            exit 1
+          fi
+
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          # The bare number, for -p:Version. The updater compares this against
-          # the tag on GitHub, so a build that is not stamped here is one that
-          # can never know it is out of date.
-          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          # All published packages consume this one release number. The
+          # updater compares it against the tag on GitHub, so a build that is
+          # not stamped here can never know it is out of date.
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          # Android also needs a monotonically increasing integer versionCode;
+          # encode the same semver as MAJOR.MINOR.PATCH without losing order.
+          echo "android_version_code=$ANDROID_VERSION_CODE" >> "$GITHUB_OUTPUT"
           echo "### Fruity Prime $TAG" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/checkout@v7
@@ -233,6 +252,7 @@ jobs:
       - name: publish the APK
         env:
           VERSION: ${{ steps.name.outputs.version }}
+          ANDROID_VERSION_CODE: ${{ steps.name.outputs.android_version_code }}
           HAVE_KEYSTORE: ${{ steps.keystore.outputs.have }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -260,6 +280,7 @@ jobs:
             "${signing[@]}" \
             -p:Version="$VERSION" -p:InformationalVersion="$VERSION" \
             -p:ApplicationDisplayVersion="$VERSION" \
+            -p:ApplicationVersion="$ANDROID_VERSION_CODE" \
             -o publish/android
 
       # What the updater will compare against on every phone. Printed, not
