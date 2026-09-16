@@ -118,7 +118,6 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly Note _note = new("");
         private readonly UiMark _go;
         private readonly UiMark _back;
-        private readonly UiMark _create;
 
         private DispatcherTimer? _statusTimer;
         private CancellationTokenSource? _statusCancel;
@@ -129,8 +128,8 @@ namespace MphRead.Mods.Launcher.Gui
         private ChoiceRow? _bots;
         private ChoiceRow? _skill;
         private ChoiceRow? _resume;
-        private FieldRow? _name;
-        private FieldRow? _address;
+        private DeckField? _name;
+        private DeckField? _address;
 
         /// <summary>
         /// Picture above the list, or options beside it.
@@ -162,6 +161,13 @@ namespace MphRead.Mods.Launcher.Gui
             }
             _compact = compact;
             _previewBox.IsVisible = _previewWanted;
+            if (_bar != null)
+            {
+                // The online face lays row 0 out itself; letting the compact
+                // rule move the list back over it is how the column headings
+                // ended up on top of the address box.
+                return;
+            }
             if (compact)
             {
                 // The list down the left, the options and the picture down the
@@ -206,6 +212,21 @@ namespace MphRead.Mods.Launcher.Gui
                 Grid.SetRowSpan(_list, 1);
                 Grid.SetColumnSpan(_list, 2);
             }
+        }
+
+        /// <summary>
+        /// Undo what a face added outside the options column. Only the online
+        /// face has anything here, and it has to go before the next face lays
+        /// its own row 0 out on top of it.
+        /// </summary>
+        private void ClearFaceExtras()
+        {
+            if (_bar != null)
+            {
+                _body.Children.Remove(_bar);
+                _bar = null;
+            }
+            _side.IsVisible = true;
         }
 
         /// <summary>This face wants the picture; whether it gets it is the box's.</summary>
@@ -258,10 +279,14 @@ namespace MphRead.Mods.Launcher.Gui
             // The preview stretches and the options do not: a room's picture
             // is better bigger, and a row of settings at 320 is the width it
             // was drawn for.
-            var body = new Grid
+            // `.body`: a scrolling column with a `.6em` gap and `.3em` of
+            // padding on the right, which is the gutter the scrollbar lives
+            // in. Without it the list runs to the panel's inside edge and the
+            // thumb is drawn over the last column.
+            var body = new BodyGrid
             {
                 ColumnDefinitions = new ColumnDefinitions("*,Auto"),
-                RowDefinitions = new RowDefinitions("Auto,*,Auto")
+                RowDefinitions = new RowDefinitions("Auto,*")
             };
             _body = body;
             _previewBox.Margin = new Thickness(0, 0, 24, 14);
@@ -289,25 +314,17 @@ namespace MphRead.Mods.Launcher.Gui
             Grid.SetColumnSpan(_list, 2);
             Grid.SetRow(_list, 1);
             body.Children.Add(_list);
-            Grid.SetColumn(_note, 0);
-            Grid.SetColumnSpan(_note, 2);
-            Grid.SetRow(_note, 2);
-            body.Children.Add(_note);
 
             _back = new UiMark(UiMark.Shape.Cancel, "back");
             _back.Click += (_, _) => Leave();
             _go = new UiMark(UiMark.Shape.Accept, "play");
             _go.Click += (_, _) => Go();
-            // Between the two because that is what it is: running a server is
-            // neither leaving the browser nor joining a row on it, and the one
-            // place on the browser it belongs is beside the act it is an
-            // alternative to. Drawn only on Online -- there is nothing to
-            // create on any other face.
-            _create = new UiMark(UiMark.Shape.Add, "create server")
-            {
-                IsVisible = false
-            };
-            _create.Click += (_, _) => CreateRequested?.Invoke(this, EventArgs.Empty);
+            // One commit on the right, not two. The browser used to carry
+            // both CREATE SERVER and JOIN down there, which is a foot offering
+            // two acts of equal weight when only one of them is ever the one
+            // meant -- and the reference has a single blue button whose word
+            // is whatever the list is currently about. Nothing picked, and it
+            // creates; a row picked, and it joins that row.
 
             if (face != Face.Vote)
             {
@@ -317,7 +334,7 @@ namespace MphRead.Mods.Launcher.Gui
             }
             Content = UiLayout.Page(overGame, UiLayout.WellPlay,
                 face == Face.Vote ? "vote" : "play", _tabs, body, _back, _go,
-                extra: _create);
+                note: _note);
 
             _list.Activated += (_, _) => Go();
             // Subscribed once, not per face: the list outlives every rebuild,
@@ -327,16 +344,68 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 RefreshPreview();
                 RefreshStory();
+                RefreshGoLabel();
             };
             Rebuild();
         }
 
         private Face Current => _tabs == null ? _only : (Face)_tabs.Index;
 
+        /// <summary>
+        /// The one blue button says what it is about to do, and on the browser
+        /// that depends on whether a row is picked.
+        ///
+        /// Nothing picked and there is nothing to join, so the offer is the
+        /// other one the screen has: run a server of your own. It is the same
+        /// rule the reference uses and it is what lets the foot carry one act
+        /// instead of two competing ones.
+        /// </summary>
+        private void RefreshGoLabel()
+        {
+            if (Current != Face.Online)
+            {
+                return;
+            }
+            _go.Label = _list.Selected is ServerRow ? "join" : "create server";
+        }
+
+        /// <summary>
+        /// `.body { gap: .6em; padding-right: .3em }`, in ems.
+        /// </summary>
+        private sealed class BodyGrid : Grid
+        {
+            protected override Size MeasureOverride(Size availableSize)
+            {
+                double em = Deck.GetEm(this);
+                double gap = Math.Round(em * 0.6);
+                if (Math.Abs(gap - RowSpacing) > 0.01)
+                {
+                    RowSpacing = gap;
+                }
+                var want = new Thickness(0, 0, Math.Round(em * 0.3), 0);
+                if (Margin != want)
+                {
+                    Margin = want;
+                }
+                return base.MeasureOverride(availableSize);
+            }
+        }
+
         protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
         {
             base.OnAttachedToVisualTree(e);
-            _list.FocusFirst();
+            // The way out takes the keyboard, not the list. A screen that
+            // opens with a row already under the caret has picked for you, and
+            // Escape is the one key somebody arriving on a screen they did not
+            // mean to open is reaching for.
+            if (Current == Face.Online)
+            {
+                Dispatcher.UIThread.Post(() => _back.Focus());
+            }
+            else
+            {
+                _list.FocusFirst();
+            }
         }
 
         protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
@@ -423,18 +492,21 @@ namespace MphRead.Mods.Launcher.Gui
             // for one action, which is the habit this screen exists to break.
             _go.Label = Current switch
             {
-                Face.Online => "join",
+                // Nothing is picked yet on a browser that has just been
+                // rebuilt, so the word is the one for the act that needs no
+                // selection. Picking a row changes it -- see SelectServer.
+                Face.Online => "create server",
                 Face.Clips => "watch",
                 Face.Vote => "vote",
                 _ => "start"
             };
             _options.Children.Clear();
+            ClearFaceExtras();
             _note.Text = "";
             _note.Foreground = GuiTheme.TextDimBrush;
             _hunter = _mode = _bots = _skill = _resume = null;
             _name = _address = null;
             WantPreview(false);
-            _create.IsVisible = Current == Face.Online;
 
             switch (Current)
             {
@@ -455,7 +527,15 @@ namespace MphRead.Mods.Launcher.Gui
                 break;
             }
             RefreshPreview();
-            _list.FocusFirst();
+            // Every face but the browser opens with its list ready under the
+            // arrow keys. The browser does not: selecting a row is what turns
+            // the commit into JOIN, and a screen that picks a server for you
+            // the moment it opens has answered the question it is asking.
+            if (Current != Face.Online)
+            {
+                _list.FocusFirst();
+            }
+            RefreshGoLabel();
         }
 
         private ChoiceRow AddHunter()
@@ -463,8 +543,22 @@ namespace MphRead.Mods.Launcher.Gui
             var row = new ChoiceRow("Hunter", _hunters,
                 Math.Max(0, Array.IndexOf(_hunters, LauncherPrefs.LastHunter.ToString())));
             _options.Children.Add(row);
+
+            // The hunter, turning, beside the map rather than under the row
+            // that names it: the options column is a fixed height and anything
+            // added to it pushes the rows at the bottom -- Address, Refresh --
+            // off the screen. A name in a list is not what anybody recognises
+            // a hunter by, the silhouette is, so it goes where there is room
+            // for it to be one.
+            if (_stand != null)
+            {
+                _stand.Name2 = _hunters[row.Index];
+                row.Changed += (_, _) => _stand.Name2 = _hunters[row.Index];
+            }
             return row;
         }
+
+        private HunterStand? _stand;
 
         private static string PlayerName()
         {
@@ -476,28 +570,100 @@ namespace MphRead.Mods.Launcher.Gui
 
         private void BuildOnline()
         {
-            _go.Label = "join";
-            _list.SetHeader(new ServerHeader());
-            _name = new FieldRow("Name", PlayerName(), boxWidth: 150);
-            _hunter = AddHunter();
-            _options.Children.Insert(0, _name);
-            _address = new FieldRow("Address",
-                $"{LauncherPrefs.ServerAddress}:{LauncherPrefs.ServerPort}", boxWidth: 170);
+            // No column headings, and no labels on the two boxes. The
+            // reference drops both and it is right to: a name, a map, a mode,
+            // a count and a number need no labelling, and "Name" printed
+            // beside a box that already says livetek is a word taking the
+            // width the address needs.
+            //
+            // The `.blist` bar: a short box for who you are, a box that takes
+            // the rest for where you are going, and the button that asks
+            // again. `.short` is 7 ems, `.grow` is `flex: 1`, and the gap
+            // between them is `.45em` of the frame.
+            _name = new DeckField(PlayerName(), widthEms: 7);
+            _address = new DeckField(
+                $"{LauncherPrefs.ServerAddress}:{LauncherPrefs.ServerPort}",
+                widthEms: 0, watermark: "host:port \u2014 or pick a row");
             _address.Box.LostFocus += (_, _) => QueryStatusSoon();
-            _options.Children.Add(_address);
-            // The same picture the map list shows. A server row says which map
-            // it is running and the map is most of what decides whether to
-            // join, so the one screen that had the name without the picture
-            // was the one where the picture would have answered the question.
-            WantPreview(true);
-            var refresh = new UiWord("Refresh", 15, colour: GuiTheme.TextDim)
-            {
-                Margin = new Thickness(4, 10, 0, 0)
-            };
+
+            // No separate preview on this face any more: every row carries its
+            // own map behind it (ServerRow), which answers "which map is that"
+            // for the whole list at once instead of for the one row selected.
+            // What the column it used to share was costing was the list: three
+            // rows of a browser, with a third of the card empty beside them.
+            WantPreview(false);
+
+            // `.slist { gap: .32em }`, less the three points each row already
+            // spends on its own edge.
+            _list.SpacingEms = 0.32;
+            // Nothing picked on arrival. Every other face's list is a set of
+            // things you are choosing between and the first is as good a place
+            // to start as any; a browser's first row is whichever server the
+            // directory happened to name first, and highlighting it is the
+            // screen answering its own question.
+            _list.AutoSelectFirst = false;
+
+            var refresh = new DeckButton("Refresh", Deck.Face.Slate,
+                sizeEms: 0.95, padXEms: 0.8, padYEms: 0.4, lip: 3);
             refresh.Click += (_, _) => ReloadServers();
-            _options.Children.Add(refresh);
+            var bar = new BarRow();
+            DockPanel.SetDock(_name, Dock.Left);
+            DockPanel.SetDock(refresh, Dock.Right);
+            bar.Children.Add(_name);
+            bar.Children.Add(refresh);
+            // Last and undocked, so it fills what the other two leave: that is
+            // `flex: 1` in a DockPanel's own terms.
+            bar.Children.Add(_address);
+            _bar = bar;
+            Grid.SetColumn(_bar, 0);
+            Grid.SetColumnSpan(_bar, 2);
+            Grid.SetRow(_bar, 0);
+            _body.Children.Add(_bar);
+            _side.IsVisible = false;
+            // SetCompact spans the list across rows 0 and 1 when the options
+            // are beside it. They are not on this face -- the bar is above it
+            // -- so the span has to come off, or the list starts in row 0 and
+            // draws over the two boxes.
+            Grid.SetRow(_list, 1);
+            Grid.SetRowSpan(_list, 1);
+            Grid.SetColumnSpan(_list, 2);
+
             ReloadServers();
             StartPolling();
+        }
+
+        /// <summary>The online face's row of fields, cleared with the face.</summary>
+        private Control? _bar;
+
+        /// <summary>
+        /// `.blist`: a flex row with a `.45em` gap and one item that grows.
+        ///
+        /// A DockPanel rather than a StackPanel because one of the three has
+        /// to take what the other two leave, and a StackPanel has no way to
+        /// say that. The gap is an em, so it is applied here -- the last
+        /// child gets no trailing margin, or the address box would stop short
+        /// of the Refresh button by one gap too many.
+        /// </summary>
+        private sealed class BarRow : DockPanel
+        {
+            protected override Size MeasureOverride(Size availableSize)
+            {
+                double gap = Math.Round(Deck.GetEm(this) * 0.45);
+                foreach (Control child in Children)
+                {
+                    Thickness want = GetDock(child) switch
+                    {
+                        Dock.Left => new Thickness(0, 0, gap, 0),
+                        Dock.Right => new Thickness(gap, 0, 0, 0),
+                        _ => new Thickness(0)
+                    };
+                    if (child.Margin != want)
+                    {
+                        child.Margin = want;
+                    }
+                }
+                return base.MeasureOverride(availableSize);
+            }
         }
 
         /// <summary>
@@ -510,6 +676,28 @@ namespace MphRead.Mods.Launcher.Gui
         private void ReloadServers()
         {
             _list.Clear();
+            _replied = 0;
+            _live = 0;
+            if (Sample != null)
+            {
+                // A browser with rows in it, with no directory and no network.
+                // -uishot exists to photograph a layout, and a layout with
+                // "asking..." on every row is a photograph of the one state
+                // that says nothing about the other two.
+                foreach ((string name, string endpoint, ServerStatus status) in Sample)
+                {
+                    var row = new ServerRow(name, endpoint);
+                    _list.Add(row);
+                    row.SetStatus(status);
+                    _replied++;
+                    if (status.Online)
+                    {
+                        _live++;
+                    }
+                }
+                Answered(Sample.Count);
+                return;
+            }
             _note.Text = $"Asking {LauncherPrefs.MasterHost}...";
             _note.Foreground = GuiTheme.TextDimBrush;
             Task.Run(() =>
@@ -535,14 +723,48 @@ namespace MphRead.Mods.Launcher.Gui
                         _note.Foreground = GuiTheme.WarmBrush;
                         return;
                     }
-                    _note.Text = $"{result.Servers.Count} listed.";
+                    _asked = result.Servers.Count;
+                    _note.Text = $"asking {_asked} servers\u2026";
                     foreach (MasterListing listing in result.Servers)
                     {
                         AddServerRow(listing);
                     }
-                    _list.FocusFirst();
                 });
             });
+        }
+
+        /// <summary>
+        /// Rows to draw instead of asking anybody: <c>-uishot</c>'s, and
+        /// nothing else's. Null in every shipped path.
+        /// </summary>
+        internal static IReadOnlyList<(string Name, string Endpoint, ServerStatus Status)>? Sample
+        {
+            get;
+            set;
+        }
+
+        private int _asked;
+        private int _replied;
+        private int _live;
+
+        /// <summary>
+        /// The reference's line under the foot: how many of the servers asked
+        /// have said something, and what to do about it. Counting rather than
+        /// listing, because "13 listed" is what the *directory* said and what
+        /// a player wants to know is how many of those are actually there.
+        /// </summary>
+        private void Answered(int asked)
+        {
+            _asked = asked;
+            _note.Foreground = GuiTheme.TextDimBrush;
+            // A server that says "I am not here" has still replied, so the
+            // progress count and the final count are different numbers: the
+            // first is how much of the sweep is done and the second is how
+            // many servers there are to join. Reporting the same number twice
+            // left a browser stuck on "12 answered" with thirteen rows drawn.
+            _note.Text = _replied < asked
+                ? $"asking {asked} servers\u2026 {_replied} answered"
+                : $"{_live} of {asked} answered. Click one to join.";
         }
 
         private void AddServerRow(MasterListing listing)
@@ -568,6 +790,12 @@ namespace MphRead.Mods.Launcher.Gui
                 Dispatcher.UIThread.Post(() =>
                 {
                     row.SetStatus(status);
+                    _replied++;
+                    if (status.Online)
+                    {
+                        _live++;
+                    }
+                    Answered(_asked);
                     // The answers come back in whatever order the servers
                     // reply in, and the selected row is usually the first one
                     // -- which means its map arrives after the preview was
@@ -634,6 +862,15 @@ namespace MphRead.Mods.Launcher.Gui
                 {
                     if (cancel.IsCancellationRequested || _finished
                         || Current != Face.Online)
+                    {
+                        return;
+                    }
+                    // Only while the list has nothing to say. The browser's
+                    // own line -- "12 of 13 answered" -- is the one the note
+                    // is for once there are rows, and a probe firing every
+                    // four seconds was overwriting it with a sentence about a
+                    // server nobody had picked.
+                    if (_asked > 0)
                     {
                         return;
                     }
@@ -1011,7 +1248,17 @@ namespace MphRead.Mods.Launcher.Gui
             switch (Current)
             {
             case Face.Online:
-                _ = Join();
+                // Whatever the word on it says: a row picked means join it,
+                // nothing picked means there is nothing to join and the offer
+                // is to run one. See RefreshGoLabel.
+                if (_list.Selected is ServerRow)
+                {
+                    _ = Join();
+                }
+                else
+                {
+                    CreateRequested?.Invoke(this, EventArgs.Empty);
+                }
                 break;
             case Face.Offline:
                 StartMatch();

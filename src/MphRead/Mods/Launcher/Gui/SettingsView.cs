@@ -525,7 +525,40 @@ namespace MphRead.Mods.Launcher.Gui
 
         // ------------------------------------------------------------ controls
 
-        private void BuildControls(StackPanel page)
+        /// <summary>
+        /// Three devices, three pages.
+        ///
+        /// A keyboard, a pad and a pen tablet do not share a list: "Sensitivity"
+        /// is a different number on each of them, the key list means nothing on
+        /// two of the three, and the bottom-screen zone means nothing on two
+        /// either. They were one page with three headings, which made the page
+        /// long enough that the thing you came to change was usually below the
+        /// fold -- so they are three pages behind a strip now, and the strip is
+        /// the same <see cref="UiTabs"/> the sections above it use.
+        /// </summary>
+        private void BuildControls(StackPanel outer)
+        {
+            var keyboard = new StackPanel { Spacing = 2 };
+            var gamepad = new StackPanel { Spacing = 2, IsVisible = false };
+            var stylus = new StackPanel { Spacing = 2, IsVisible = false };
+            var subs = new UiTabs(new[] { "Keyboard", "Gamepad", "Stylus" });
+            subs.Margin = new Thickness(0, 0, 0, 8);
+            subs.Changed += (_, _) =>
+            {
+                keyboard.IsVisible = subs.Index == 0;
+                gamepad.IsVisible = subs.Index == 1;
+                stylus.IsVisible = subs.Index == 2;
+            };
+            outer.Children.Add(subs);
+            outer.Children.Add(keyboard);
+            outer.Children.Add(gamepad);
+            outer.Children.Add(stylus);
+            BuildKeyboard(keyboard);
+            BuildGamepad(gamepad);
+            BuildStylus(stylus);
+        }
+
+        private void BuildKeyboard(StackPanel page)
         {
             Heading(page, "Mouse");
             // A slider over an index (0-100 mapped across a range) could only
@@ -546,14 +579,26 @@ namespace MphRead.Mods.Launcher.Gui
             // real player's aim rather than protecting it. Turning it on is
             // also the gate for everything below it -- the bottom-screen
             // zone means nothing to a mouse. See Mods.Input.PointerInput.
+            BuildTouchControls(page);
+        }
+
+        /// <summary>The pen tablet's page: the guard, and the zone it gates.</summary>
+        private void BuildStylus(StackPanel page)
+        {
+            Heading(page, "Pen tablet");
+            // Off by default: a fast flick with a high-DPI mouse at high
+            // sensitivity can clear the jump threshold too, which zeroed a
+            // real player's aim rather than protecting it. Turning it on is
+            // also the gate for everything below it. See Mods.Input.PointerInput.
             _penTablet = Add(page, new ToggleRow("Stylus mode", Mods.Input.PointerInput.GuardJumps));
             BuildStylusZone(page);
             _penTablet.Changed += (_, _) => ShowStylusRows();
             ShowStylusRows();
+        }
 
-            BuildTouchControls(page);
-
-            // Its own section rather than more rows under "Mouse": a pad has
+        private void BuildGamepad(StackPanel page)
+        {
+            // Its own page rather than more rows under "Mouse": a pad has
             // its own sensitivity, and somebody who inverts one of the two
             // very often does not invert the other.
             Heading(page, "Gamepad");
@@ -859,6 +904,39 @@ namespace MphRead.Mods.Launcher.Gui
                 GameFiles.Ready ? GuiTheme.Good : GuiTheme.Warm));
 
             BuildDebugLogs(page);
+
+            // Nothing behind it yet, and the row says so when pressed rather
+            // than being absent until the day there is: a player who wonders
+            // whether their times count anywhere gets an answer either way,
+            // and "coming soon" is an answer.
+            // The hunter you start as, and the hunter itself. A name in a
+            // drop-down is not what anybody recognises a hunter by; the
+            // silhouette is. The picker on the results screen is the one that
+            // matters mid-session -- this is the one that answers "who am I by
+            // default", which is a settings question.
+            Heading(page, "Hunter");
+            string[] standNames = HunterStand.Names;
+            var hunterRow = Add(page, new ChoiceRow("Default hunter", standNames,
+                Math.Max(0, Array.IndexOf(standNames, LauncherPrefs.LastHunter.ToString()))));
+            var stand = new HunterStand
+            {
+                Height = 150,
+                Margin = new Thickness(0, 4, 0, 4),
+                Name2 = standNames[hunterRow.Index]
+            };
+            hunterRow.Changed += (_, _) => stand.Name2 = standNames[hunterRow.Index];
+            page.Children.Add(stand);
+
+            Heading(page, "Account");
+            var signIn = new UiWord("Sign in", 15, colour: GuiTheme.Accent);
+            var signInNote = new Note("") { IsVisible = false };
+            signIn.Click += (_, _) =>
+            {
+                signInNote.Text = "Ranking feature will be coming soon!";
+                signInNote.IsVisible = true;
+            };
+            page.Children.Add(signIn);
+            page.Children.Add(signInNote);
         }
 
         /// <summary>

@@ -432,9 +432,15 @@ namespace MphRead.Mods.Launcher.Gui
             set => Box.Text = value;
         }
 
-        public FieldRow(string label, string value, double boxWidth = 150)
+        /// <param name="compact">
+        /// A bare box in a bar rather than a labelled row in a column: 21
+        /// points tall, which is what the layout this is a port of gives the
+        /// two fields over its server list.
+        /// </param>
+        public FieldRow(string label, string value, double boxWidth = 150,
+            bool compact = false)
         {
-            Height = 36;
+            Height = compact ? 21 : 36;
             var caption = new TextBlock
             {
                 Text = label,
@@ -453,12 +459,18 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 Text = value,
                 Width = boxWidth,
+                Height = compact ? 21 : Double.NaN,
+                MinHeight = compact ? 21 : 0,
                 FontFamily = GuiTheme.Display,
-                FontSize = 13,
+                FontSize = compact ? 11 : 13,
                 CornerRadius = new CornerRadius(4),
-                Padding = new Thickness(8, 4, 8, 4),
+                Padding = compact
+                    ? new Thickness(6, 0, 6, 0)
+                    : new Thickness(8, 4, 8, 4),
+                VerticalContentAlignment = VerticalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
-                HorizontalAlignment = HorizontalAlignment.Right
+                HorizontalAlignment = compact
+                    ? HorizontalAlignment.Left : HorizontalAlignment.Right
             };
             Children.Add(caption);
             Children.Add(Box);
@@ -471,11 +483,38 @@ namespace MphRead.Mods.Launcher.Gui
         public Note(string text, Color? color = null)
         {
             Text = text;
-            FontFamily = GuiTheme.Display;
-            FontSize = 12;
+            // The body face, not the display one. This is the one string on
+            // the screen that is a *sentence* -- "12 of 13 answered. Click one
+            // to pick your hunter and join." -- and a sentence set in a pixel
+            // font at eight points is a texture.
+            FontFamily = Deck.Mono;
             Foreground = new SolidColorBrush(color ?? GuiTheme.TextDim);
             TextWrapping = TextWrapping.Wrap;
-            Margin = new Thickness(4, 4, 4, 4);
+            MaxLines = 2;
+            TextTrimming = TextTrimming.CharacterEllipsis;
+            Margin = new Thickness(0);
+        }
+
+        /// <summary>
+        /// `.76em`, and a fixed `2.3em` of height whatever it says.
+        ///
+        /// Fixed on purpose: the note changes on every keystroke in the
+        /// browser ("asking 13 servers... 4 answered") and a box that grew and
+        /// shrank with it would walk the whole foot up and down the panel
+        /// while the list was still answering.
+        /// </summary>
+        protected override Size MeasureOverride(Size availableSize)
+        {
+            double em = Deck.GetEm(this);
+            double size = em * 0.76;
+            if (Math.Abs(size - FontSize) > 0.01)
+            {
+                FontSize = size;
+                LineHeight = Math.Round(size * 1.15);
+            }
+            double height = Math.Round(size * 2.3);
+            Size measured = base.MeasureOverride(availableSize);
+            return new Size(measured.Width, height);
         }
     }
 }

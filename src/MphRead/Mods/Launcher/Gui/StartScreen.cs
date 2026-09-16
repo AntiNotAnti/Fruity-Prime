@@ -84,30 +84,104 @@ namespace MphRead.Mods.Launcher.Gui
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            Image wordmark = UiLayout.Wordmark();
-            wordmark.Width = 280;
-            wordmark.HorizontalAlignment = HorizontalAlignment.Center;
-            wordmark.VerticalAlignment = VerticalAlignment.Center;
-            wordmark.Margin = new Thickness(0, 0, 0, 38);
-            _menu.Children.Add(wordmark);
-            UiWord play = Word("Play", GuiTheme.Title, 56, GuiTheme.Warm,
-                () => _ = OpenPlay());
-            play.HorizontalAlignment = HorizontalAlignment.Center;
-            _menu.Children.Add(play);
-            // Each word centred in the column rather than the column centred
-            // with its words left-aligned: a ragged edge down the middle of
-            // the frame is what makes a centred menu look like an accident.
-            var rest = new StackPanel { Spacing = 15, Margin = new Thickness(0, 22, 0, 0) };
-            UiWord options = Word("Settings", GuiTheme.Display, UiLayout.WordSize,
-                GuiTheme.Text, () => _ = OpenSettings());
-            options.HorizontalAlignment = HorizontalAlignment.Center;
-            rest.Children.Add(options);
-            UiWord quit = Word("Quit", GuiTheme.Display, UiLayout.WordSize,
-                GuiTheme.Text, AskToQuit);
-            quit.HorizontalAlignment = HorizontalAlignment.Center;
-            rest.Children.Add(quit);
-            _menu.Children.Add(rest);
+            // Set, not the shipped bitmap: the PNG is smooth-edged art and it
+            // is the one thing on this screen drawn by a different hand from
+            // the pixel-type row under it. The mark itself is untouched --
+            // it is still the window icon and still the release art.
+            _wordmark = new DeckWordmark(64)
+            {
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 0, 30)
+            };
+            _menu.Children.Add(_wordmark);
+            _menu.Children.Add(new TextBlock
+            {
+                Text = "METROID PRIME HUNTERS  \u00b7  REBORN",
+                FontFamily = GuiTheme.Display,
+                FontSize = 11,
+                Foreground = GuiTheme.TextDimBrush,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, -18, 0, 0)
+            });
+            // A row of faces rather than a column of words. Three of them,
+            // which is what the screen has always offered; what changed is
+            // that each is now an object you press rather than a word that
+            // brightens, and the row reads as one bar across the screen
+            // instead of a stack down the middle of the photograph.
+            var bar = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 12,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 6, 0, 0)
+            };
+            // The front screen's three faces are the reference's plain
+            // `.btn`: `font-size: 1.55em`, `padding: .85em 1.5em`, a
+            // six-point edge -- which is what the constructor defaults to.
+            // Play is the one that bobs, and the only one on any screen that
+            // does.
+            var play = new DeckButton("PLAY", Deck.Face.Blue) { Idle = true };
+            play.Click += (_, _) => _ = OpenPlay();
+            bar.Children.Add(play);
+            var options = new DeckButton("SETTINGS", Deck.Face.Brass);
+            options.Click += (_, _) => _ = OpenSettings();
+            bar.Children.Add(options);
+            var quit = new DeckButton("QUIT", Deck.Face.Rust);
+            quit.Click += (_, _) => AskToQuit();
+            bar.Children.Add(quit);
             root.Children.Add(_menu);
+
+            // A bar across the foot, not a stack in the middle: the three
+            // faces between the profile on one end and the support mark on
+            // the other. The photograph gets its middle back, which is what
+            // it is there for.
+            _chip = new DeckChip("Profile", PlayerNameOrDefault())
+            {
+                VerticalAlignment = VerticalAlignment.Bottom
+            };
+            DeckChip chip = _chip;
+            var heart = new DeckHeart { VerticalAlignment = VerticalAlignment.Bottom };
+            heart.Click += (_, _) => Updater.OpenLink(Mods.Credits.SupportUrl);
+            _heart = heart;
+
+            // Upright there is no room beside a column of full-width faces, so
+            // the mark goes to the corner the way it does on a phone. Its own
+            // layer, because the foot is a three-column row and this is not in
+            // it any more once the row has turned.
+            _heartCorner = new DeckHeart
+            {
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(14, 14, 0, 0),
+                IsVisible = false
+            };
+            _heartCorner.Click += (_, _) => Updater.OpenLink(Mods.Credits.SupportUrl);
+            root.Children.Add(_heartCorner);
+
+            var foot = new Grid
+            {
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(26, 0, 26, 24),
+                ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto")
+            };
+            Grid.SetColumn(chip, 0);
+            foot.Children.Add(chip);
+            bar.VerticalAlignment = VerticalAlignment.Bottom;
+            Grid.SetColumn(bar, 1);
+            foot.Children.Add(bar);
+            Grid.SetColumn(heart, 2);
+            foot.Children.Add(heart);
+            root.Children.Add(foot);
+            _foot = foot;
+
+            // A phone held upright has no room for three of these across, and
+            // a row that overflows is worse than a column: the first and last
+            // entry lose their ends off the edges of the screen. There is no
+            // media query here, so the row watches its own width and turns.
+            _bar = bar;
+            root.SizeChanged += (_, e) => LayOutBar(e.NewSize.Width);
+            LayOutBar(_windowWidthGuess);
 
             _version = new TextBlock
             {
@@ -124,9 +198,9 @@ namespace MphRead.Mods.Launcher.Gui
             _versionBox = new Border
             {
                 Background = Brushes.Transparent,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Bottom,
-                Margin = new Thickness(0, 0, 0, UiLayout.MarksBottom),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 18, 24, 0),
                 Child = _version
             };
             _versionBox.PointerPressed += (_, e) =>
@@ -154,6 +228,71 @@ namespace MphRead.Mods.Launcher.Gui
             }
             RefreshVersionLine();
             _ = CatchUpPreviews();
+        }
+
+        /// <summary>The width below which the three faces will not fit across.</summary>
+        private const double BarTurnsWidth = 470;
+        private const double _windowWidthGuess = 940;
+        private StackPanel? _bar;
+        private DeckWordmark? _wordmark;
+        private Grid? _foot;
+        private DeckChip? _chip;
+        private DeckHeart? _heart;
+        private DeckHeart? _heartCorner;
+
+        private static string PlayerNameOrDefault()
+        {
+            string name = LauncherPrefs.PlayerName.Trim();
+            return name.Length > 0 ? name : "Player";
+        }
+
+        private void LayOutBar(double width)
+        {
+            if (_bar == null)
+            {
+                return;
+            }
+            bool column = width < BarTurnsWidth;
+            _bar.Orientation = column ? Orientation.Vertical : Orientation.Horizontal;
+            _bar.Spacing = column ? 9 : 12;
+            _bar.Width = column ? Math.Max(160, Math.Min(320, width - 48)) : double.NaN;
+            if (_foot != null)
+            {
+                // Turned, the foot is one column: the profile above the faces
+                // and the support mark up in the corner, which is the only
+                // place left for it.
+                _foot.ColumnDefinitions = new ColumnDefinitions(column ? "*" : "Auto,*,Auto");
+                _foot.RowDefinitions = new RowDefinitions(column ? "Auto,Auto" : "*");
+                if (_chip != null)
+                {
+                    Grid.SetColumn(_chip, 0);
+                    Grid.SetRow(_chip, 0);
+                    _chip.HorizontalAlignment = column
+                        ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
+                    _chip.Margin = new Thickness(0, 0, 0, column ? 9 : 0);
+                }
+                if (_bar != null)
+                {
+                    Grid.SetColumn(_bar, column ? 0 : 1);
+                    Grid.SetRow(_bar, column ? 1 : 0);
+                }
+                if (_heart != null)
+                {
+                    Grid.SetColumn(_heart, column ? 0 : 2);
+                    _heart.IsVisible = !column;
+                }
+                if (_heartCorner != null)
+                {
+                    _heartCorner.IsVisible = column;
+                }
+                _foot.Margin = new Thickness(column ? 14 : 26, 0, column ? 14 : 26, column ? 18 : 24);
+            }
+            foreach (Control child in _bar.Children)
+            {
+                child.HorizontalAlignment = column
+                    ? HorizontalAlignment.Stretch
+                    : HorizontalAlignment.Center;
+            }
         }
 
         private static UiWord Word(string text, FontFamily font, double size,

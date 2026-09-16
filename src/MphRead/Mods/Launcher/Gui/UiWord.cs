@@ -70,7 +70,7 @@ namespace MphRead.Mods.Launcher.Gui
         {
             return new FormattedText(Text, CultureInfo.InvariantCulture,
                 FlowDirection.LeftToRight,
-                new Typeface(_font, FontStyle.Normal, FontWeight.Bold),
+                new Typeface(_font, FontStyle.Normal, FontWeight.Normal),
                 _size, brush);
         }
 

@@ -78,11 +78,16 @@ namespace MphRead.Mods.Launcher.Gui
         /// a centred heading. These leave room either side at every size the
         /// program allows.
         /// </summary>
-        public const double WellPlay = 820;
-        public const double WellSettings = 640;
+        // In *ems*, not points, since the deck theme: the reference's panel is
+        // `width: min(44em, 100%)` and the em is the frame's own (see Deck).
+        // Every sheet in it is the same 44 -- a browser and a settings page
+        // are the same object with different things in them -- and only the
+        // small dialogs are narrower.
+        public const double WellPlay = 44;
+        public const double WellSettings = 44;
 
         /// <summary>A question, a menu, a progress log: content, not a table.</summary>
-        public const double WellShort = 480;
+        public const double WellShort = 19;
 
         /// <summary>What the well clears at the top, and at the foot for the marks.</summary>
         public const double WellTop = 44;
@@ -283,179 +288,235 @@ namespace MphRead.Mods.Launcher.Gui
         public const double ShortBox = 560;
 
         /// <summary>
-        /// The well, which gives its margins back when there is no height to
-        /// spare.
-        ///
-        /// A Grid that reads the height it is being measured with, because
-        /// there is nowhere else to read it: the box comes from the window on
-        /// one head and the activity's view on the other, and by the time this
-        /// is built neither has said anything.
+        /// The pair of marks at the foot, in reading order: no on the left,
+        /// yes on the right, together rather than in opposite corners.
         /// </summary>
-        private sealed class WellGrid : Grid
+        /// <summary>
+        /// Leaving on the left, everything else on the right.
+        ///
+        /// They used to sit together in the middle, which reads as a row of
+        /// equals -- and they are not: one of them undoes the screen and the
+        /// others do what the screen is for. Pushed apart, the thumb has a
+        /// side for each and neither is ever pressed by mistake for the other.
+        /// </summary>
+        public static Panel Marks(params UiMark?[] marks)
         {
-            private readonly double _top;
-            private readonly double _bottom;
-            private bool _short;
-
-            public WellGrid(double top, double bottom)
+            var row = new GapDock(0.6)
             {
-                _top = top;
-                _bottom = bottom;
-                Margin = new Thickness(WellGutter, top, WellGutter, bottom);
+                LastChildFill = false,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            // Docked right in reverse, so the order they were passed in reads
+            // left to right along the right-hand side: extra, then the tick.
+            for (int i = marks.Length - 1; i >= 1; i--)
+            {
+                if (marks[i] is not UiMark mark)
+                {
+                    continue;
+                }
+                mark.VerticalAlignment = VerticalAlignment.Center;
+                DockPanel.SetDock(mark, Dock.Right);
+                row.Children.Add(mark);
+            }
+            if (marks.Length > 0 && marks[0] is UiMark cancel)
+            {
+                cancel.VerticalAlignment = VerticalAlignment.Center;
+                DockPanel.SetDock(cancel, Dock.Left);
+                row.Children.Add(cancel);
+            }
+            return row;
+        }
+
+        /// <summary>
+        /// A Grid whose row gap is an em rather than a number.
+        ///
+        /// Avalonia has <c>RowSpacing</c> and it takes points, so the one
+        /// place the em can be read is a measure pass -- and it is written
+        /// only when it has moved, or an inherited property assigned on every
+        /// measure invalidates every control that reads it, on every measure.
+        /// </summary>
+        private sealed class GapGrid : Grid
+        {
+            private readonly double _gapEms;
+
+            public GapGrid(double gapEms, string rows)
+            {
+                _gapEms = gapEms;
+                RowDefinitions = new RowDefinitions(rows);
             }
 
             protected override Size MeasureOverride(Size availableSize)
             {
-                if (!Double.IsInfinity(availableSize.Height) && availableSize.Height > 0)
+                double gap = Math.Round(Deck.GetEm(this) * _gapEms);
+                if (Math.Abs(gap - RowSpacing) > 0.01)
                 {
-                    // The full margin plus the height it is inside: what the
-                    // box would have been. Compared against the threshold
-                    // rather than the arrived-at height, or the answer would
-                    // flip every time it changed.
-                    bool tight = availableSize.Height + _top + _bottom < ShortBox;
-                    if (tight != _short)
+                    RowSpacing = gap;
+                }
+                return base.MeasureOverride(availableSize);
+            }
+        }
+
+        /// <summary>The same, for the row of marks: a flex gap in ems.</summary>
+        private sealed class GapDock : DockPanel
+        {
+            private readonly double _gapEms;
+
+            public GapDock(double gapEms)
+            {
+                _gapEms = gapEms;
+            }
+
+            protected override Size MeasureOverride(Size availableSize)
+            {
+                double gap = Math.Round(Deck.GetEm(this) * _gapEms);
+                foreach (Control child in Children)
+                {
+                    Thickness want = GetDock(child) == Dock.Right
+                        ? new Thickness(gap, 0, 0, 0)
+                        : new Thickness(0);
+                    if (child.Margin != want)
                     {
-                        _short = tight;
-                        // Still enough under the well for the marks (a mark is
-                        // about 26 and sits MarksBottom off the floor); the
-                        // rest of both numbers is breathing room, and a short
-                        // screen has none to lend.
-                        Margin = tight
-                            ? new Thickness(WellGutter, 16, WellGutter,
-                                _bottom > _top ? 58 : 16)
-                            : new Thickness(WellGutter, _top, WellGutter, _bottom);
+                        child.Margin = want;
                     }
                 }
                 return base.MeasureOverride(availableSize);
             }
         }
 
-        public static Grid Well(double width, string heading, Control? strip,
-            Control body, bool centreBody = false, bool room = true)
-        {
-            var title = new TextBlock
-            {
-                Text = heading.ToLowerInvariant(),
-                FontFamily = GuiTheme.Display,
-                FontSize = HeadingSize,
-                Foreground = GuiTheme.TextDimBrush,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(0, 0, 0, strip == null ? 20 : 10),
-                IsVisible = heading.Length > 0
-            };
-            if (strip != null)
-            {
-                strip.HorizontalAlignment = HorizontalAlignment.Center;
-                strip.Margin = new Thickness(0, 0, 0, 22);
-            }
-            // The foot only has to clear the marks when there are any. A
-            // screen with none -- the pause menu -- was being pushed into the
-            // top half of the frame by a gap left for nothing.
-            var well = new WellGrid(WellTop, room ? WellBottom : WellTop)
-            {
-                // A maximum, not a size, and stretched rather than centred:
-                // stretch-with-a-maximum is the one combination that fills the
-                // box up to the width asked for and centres what is left over,
-                // which is "820 points wherever there is room for it and the
-                // screen's width where there is not". See WellGutter.
-                MaxWidth = width,
-                HorizontalAlignment = HorizontalAlignment.Stretch
-            };
-            if (centreBody)
-            {
-                // The heading travels with the content rather than staying at
-                // the top of the well. A menu centred in the frame under a
-                // word pinned forty points above it does not read as one
-                // thing, and a pause menu is one thing.
-                var group = new StackPanel
-                {
-                    Spacing = 0,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                group.Children.Add(title);
-                if (strip != null)
-                {
-                    group.Children.Add(strip);
-                }
-                group.Children.Add(body);
-                well.Children.Add(group);
-                return well;
-            }
-            well.RowDefinitions = new RowDefinitions("Auto,Auto,*");
-            Grid.SetRow(title, 0);
-            well.Children.Add(title);
-            if (strip != null)
-            {
-                Grid.SetRow(strip, 1);
-                well.Children.Add(strip);
-            }
-            Grid.SetRow(body, 2);
-            well.Children.Add(body);
-            return well;
-        }
-
         /// <summary>
-        /// The pair of marks at the foot, in reading order: no on the left,
-        /// yes on the right, together rather than in opposite corners.
-        /// </summary>
-        public static StackPanel Marks(params UiMark?[] marks)
-        {
-            var row = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Spacing = MarksGap,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Bottom,
-                Margin = new Thickness(0, 0, 0, MarksBottom)
-            };
-            foreach (UiMark? mark in marks)
-            {
-                if (mark == null)
-                {
-                    continue;
-                }
-                mark.HorizontalAlignment = HorizontalAlignment.Left;
-                mark.VerticalAlignment = VerticalAlignment.Center;
-                row.Children.Add(mark);
-            }
-            return row;
-        }
-
-        /// <summary>
-        /// A whole screen: the backdrop, the wash, the well and the marks, in
-        /// that order.
+        /// The scrim a sheet lays over whatever is behind it:
+        /// <c>rgba(5,7,10,.72)</c>.
         ///
+        /// Not a wash and not a vignette -- flat, edge to edge, so the panel
+        /// on top of it is the only thing with a shape. The photograph is
+        /// still visible through it, which is the point: these screens sit on
+        /// a table rather than replacing it.
+        /// </summary>
+        public static readonly IBrush SheetBrush =
+            new SolidColorBrush(Color.FromArgb(184, 5, 7, 10));
+
+        /// <summary>
+        /// A whole screen: the backdrop, the sheet over it, and one panel
+        /// centred on that.
+        ///
+        /// <para>
         /// Every screen behind the front one is built from this and nothing
         /// else, so none of them can invent its own answer to where a heading
         /// goes -- which is what nine screens with nine layouts was, and what
         /// this file exists to stop happening again.
+        /// </para>
         ///
-        /// Extra things a screen needs in the frame rather than in the well --
-        /// a line of status under the marks, say -- are added to the returned
-        /// panel afterwards.
+        /// <para>
+        /// The panel is three rows and they are always the same three: the
+        /// strip of faces, the content, and the foot. The reference writes it
+        /// <c>grid-template-rows: auto minmax(0, 1fr) auto</c> and the middle
+        /// term is the load-bearing one -- <c>minmax(0, 1fr)</c>, not
+        /// <c>1fr</c>, is what lets a list of thirteen servers scroll inside
+        /// the panel instead of growing it off the bottom of the frame.
+        /// </para>
         /// </summary>
+        /// <param name="widthEms">
+        /// The panel's cap, in frame ems. 44 for a screen, 19 for a dialog.
+        /// </param>
         /// <param name="extra">
         /// A third mark, between the two, for a screen whose foot carries an
-        /// act that is neither leaving nor committing -- creating a server on
-        /// the browser, say. Deliberately awkward to reach: the pair is the
-        /// rule, and a screen that wants a third has to say so.
+        /// act that is neither leaving nor committing. Deliberately awkward to
+        /// reach: the pair is the rule, and a screen that wants a third has to
+        /// say so.
         /// </param>
-        public static Panel Page(bool overGame, double width, string heading,
+        /// <param name="note">
+        /// The line under the foot. Part of the foot in the reference rather
+        /// than the last row of the content, which is what keeps it in the
+        /// same place whether the content scrolled or not.
+        /// </param>
+        public static Panel Page(bool overGame, double widthEms, string heading,
             Control? strip, Control body, UiMark? no = null, UiMark? yes = null,
-            bool centreBody = false, UiMark? extra = null)
+            bool centreBody = false, UiMark? extra = null, Control? note = null)
         {
             // The wash goes into the backdrop rather than over it: baked
             // together they are one blit a frame instead of four full-window
             // rasterisations. See BakedBackdrop for what that was costing.
             Panel root = Backdrop(overGame,
                 overGame ? BackdropWash.None : BackdropWash.Standard);
-            root.Children.Add(Well(width, heading, strip, body, centreBody,
-                room: no != null || yes != null || extra != null));
-            if (no != null || yes != null || extra != null)
+            root.Children.Add(new Border { Background = SheetBrush });
+
+            bool hasMarks = no != null || yes != null || extra != null;
+
+            // The heading, for the screens with no strip -- where it is the
+            // only thing saying which screen this is. A strip of named faces
+            // says it already, and the word above it was saying it twice.
+            Control? title = strip == null && heading.Length > 0
+                ? Heading(heading.ToLowerInvariant())
+                : null;
+
+            var inside = new GapGrid(0.65, "Auto,*,Auto");
+            if (title != null)
             {
-                root.Children.Add(Marks(no, extra, yes));
+                title.HorizontalAlignment = HorizontalAlignment.Center;
+                Grid.SetRow(title, 0);
+                inside.Children.Add(title);
             }
+            else if (strip != null)
+            {
+                strip.HorizontalAlignment = HorizontalAlignment.Center;
+                Grid.SetRow(strip, 0);
+                inside.Children.Add(strip);
+            }
+            Grid.SetRow(body, 1);
+            if (centreBody)
+            {
+                body.VerticalAlignment = VerticalAlignment.Center;
+            }
+            inside.Children.Add(body);
+
+            if (hasMarks || note != null)
+            {
+                // `.foot`: the row of marks, and the line under it, .45em apart.
+                var foot = new GapGrid(0.45, hasMarks ? "Auto,Auto" : "Auto");
+                if (hasMarks)
+                {
+                    Panel marks = Marks(no, extra, yes);
+                    Grid.SetRow(marks, 0);
+                    foot.Children.Add(marks);
+                }
+                if (note != null)
+                {
+                    Grid.SetRow(note, hasMarks ? 1 : 0);
+                    foot.Children.Add(note);
+                }
+                Grid.SetRow(foot, 2);
+                inside.Children.Add(foot);
+            }
+
+            // The panel: `min(44em, 100%)` wide, its own height, centred in
+            // what the sheet's padding leaves. See DeckCard.
+            var card = new DeckCard
+            {
+                Child = inside,
+                MaxWidthEms = widthEms
+            };
+            var sheet = new SheetPad { Child = card };
+            root.Children.Add(sheet);
             return root;
+        }
+
+        /// <summary>
+        /// The sheet's own padding: <c>1.1em .9em</c>, in ems, around the one
+        /// panel it holds.
+        /// </summary>
+        private sealed class SheetPad : Decorator
+        {
+            protected override Size MeasureOverride(Size availableSize)
+            {
+                double em = Deck.GetEm(this);
+                var want = new Thickness(Math.Round(em * 0.9), Math.Round(em * 1.1),
+                    Math.Round(em * 0.9), Math.Round(em * 1.1));
+                if (Padding != want)
+                {
+                    Padding = want;
+                }
+                return base.MeasureOverride(availableSize);
+            }
         }
 
         private static readonly Lazy<Bitmap?> _background =
@@ -492,13 +553,31 @@ namespace MphRead.Mods.Launcher.Gui
         public static Panel Backdrop(bool overGame = false,
             BackdropWash wash = BackdropWash.None)
         {
-            var root = new Panel();
+            // A DeckStage, not a bare Panel: this is the frame, and the frame
+            // is where the em comes from. A plain Panel here left every screen
+            // on Deck's default em, which happens to be exactly right at the
+            // capture's 940 points and wrong everywhere else -- so a phone
+            // laid its rows out as if it were a monitor and kept the columns
+            // the reference drops below 560.
+            var root = new DeckStage();
             if (overGame)
             {
                 root.Children.Add(new Border { Background = GuiTheme.ScrimBrush });
-                return root;
+                // One stamp at the root of every screen: these are attached
+            // properties and they flow down the visual tree, so the whole
+            // launcher is aliased from here rather than control by control --
+            // and the control that would have been forgotten is the one that
+            // shows.
+            GuiTheme.PixelPerfect(root);
+            return root;
             }
             root.Children.Add(new BakedBackdrop(wash));
+            // One stamp at the root of every screen: these are attached
+            // properties and they flow down the visual tree, so the whole
+            // launcher is aliased from here rather than control by control --
+            // and the control that would have been forgotten is the one that
+            // shows.
+            GuiTheme.PixelPerfect(root);
             return root;
         }
 

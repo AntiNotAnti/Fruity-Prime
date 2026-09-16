@@ -1,28 +1,40 @@
 using System;
-using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
-using Avalonia.Interactivity;
-using Avalonia.Media;
 
 namespace MphRead.Mods.Launcher.Gui
 {
     /// <summary>
-    /// The two marks in the bottom corners: a cross on the left that means
-    /// "no", a tick on the right that means "yes".
+    /// The pair at the foot of every screen: leaving on the left, and what the
+    /// screen is for on the right.
     ///
+    /// <para>
     /// One pair on every screen that asks anything, always in the same two
     /// places, so that leaving and committing stop being things to look for.
-    /// The screens used to answer this five different ways -- "Back", "Launch",
-    /// "Connect", "Start", the window's own close button -- which is five words
-    /// for two actions.
+    /// The screens used to answer this five different ways -- "Back",
+    /// "Launch", "Connect", "Start", the window's own close button -- which is
+    /// five words for two actions.
+    /// </para>
     ///
-    /// Drawn with two strokes rather than set as text: the tick and the cross
-    /// are not in every font that might be substituted, and a missing glyph in
-    /// the one control that means "go" is worse than a few lines of geometry.
+    /// <para>
+    /// It <b>is</b> a <see cref="DeckButton"/> now, rather than a second
+    /// control that drew the same slab, the same edge and the same spring in
+    /// its own code. Two implementations of one object is how the tick came to
+    /// have a four-point edge while the tabs above it had three, and why a
+    /// change to the press had to be made twice. What is left here is the part
+    /// that is actually this control's: which face a role wears, which key does
+    /// the same thing, and how a role's label is cased.
+    /// </para>
+    ///
+    /// <para>
+    /// The metrics are the reference's, per role: <c>.back</c> is a 1.05em
+    /// label on a four-point edge, <c>.go</c> a 1.4em label on a six-point
+    /// one. They are different sizes on purpose -- the commit is the biggest
+    /// thing on the foot and the way out is not.
+    /// </para>
     /// </summary>
-    internal sealed class UiMark : Control
+    internal sealed class UiMark : Decorator
     {
         public enum Shape
         {
@@ -46,111 +58,94 @@ namespace MphRead.Mods.Launcher.Gui
         public event EventHandler? Click;
 
         private readonly Shape _shape;
-        private readonly Tap _tap = new();
+        private readonly DeckButton _button;
 
-        private const double Glyph = 22;
-        private const double Gap = 12;
-        private const double LabelSize = 15;
-
-        static UiMark()
+        /// <summary>
+        /// Two roles, two colours. Leaving is brass; everything that does what
+        /// the screen is for is the one blue, whether it is a tick or a plus.
+        /// Three colours across three marks made a foot that looked like three
+        /// unrelated offers rather than one choice and a way out.
+        /// </summary>
+        private static Deck.Face FaceFor(Shape shape) => shape switch
         {
-            AffectsRender<UiMark>(LabelProperty, IsEnabledProperty);
-            AffectsMeasure<UiMark>(LabelProperty);
-        }
+            Shape.Cancel => Deck.Face.Brass,
+            Shape.Accept => Deck.Face.Blue,
+            _ => Deck.Face.Slate
+        };
+
+        /// <summary>
+        /// The key that does the same thing. Only the two that have one: a
+        /// keycap invented for "install the server files" would be a lie in a
+        /// chip.
+        /// </summary>
+        private static string KeyFor(Shape shape) => shape switch
+        {
+            Shape.Cancel => "ESC",
+            Shape.Accept => "⏎",
+            _ => ""
+        };
 
         public UiMark(Shape shape, string label)
         {
             _shape = shape;
-            Label = label;
-            Height = 34;
-            Focusable = true;
-            Cursor = new Cursor(StandardCursorType.Hand);
-        }
-
-        private FormattedText Caption(IBrush brush)
-        {
-            return new FormattedText(Label.ToUpperInvariant(), CultureInfo.InvariantCulture,
-                FlowDirection.LeftToRight, GuiTheme.Face(bold: true), LabelSize, brush);
-        }
-
-        protected override Size MeasureOverride(Size availableSize)
-        {
-            double width = Glyph;
-            if (Label.Length > 0)
+            bool accept = shape == Shape.Accept;
+            _button = new DeckButton(Case(label), FaceFor(shape),
+                sizeEms: accept ? 1.4 : 1.05,
+                padXEms: accept ? 1.4 : 1.0,
+                padYEms: accept ? 0.4 : 0.5,
+                lip: accept ? 6 : 4)
             {
-                width += Gap + Caption(GuiTheme.TextBrush).Width;
-            }
-            return new Size(Math.Min(width, availableSize.Width), Height);
-        }
-
-        protected override void OnPointerEntered(PointerEventArgs e)
-        {
-            InvalidateVisual();
-            base.OnPointerEntered(e);
-        }
-
-        protected override void OnPointerExited(PointerEventArgs e)
-        {
-            _tap.Cancel();
-            InvalidateVisual();
-            base.OnPointerExited(e);
-        }
-
-        protected override void OnPointerPressed(PointerPressedEventArgs e)
-        {
-            _tap.Press(e, this);
-            Focus();
-            e.Pointer.Capture(this);
-            e.Handled = true;
-            InvalidateVisual();
-            base.OnPointerPressed(e);
-        }
-
-        protected override void OnPointerMoved(PointerEventArgs e)
-        {
-            // A finger that has set off across the screen is scrolling
-            // whatever this sits in, and is no longer pressing this. See Tap.
-            _tap.Moved(e, this);
-            base.OnPointerMoved(e);
-        }
-
-        protected override void OnPointerReleased(PointerReleasedEventArgs e)
-        {
-            // Tap decides: the press has to have landed here, stayed within a
-            // finger's slop, and let go inside. Where the release landed, not
-            // IsPointerOver -- a finger hovers nothing, so the pointer has
-            // already left by the time it lets go.
-            bool tapped = _tap.Release(e, this);
-            InvalidateVisual();
-            if (ReferenceEquals(e.Pointer.Captured, this))
+                KeyCap = KeyFor(shape)
+            };
+            _button.Click += (_, _) =>
             {
-                e.Pointer.Capture(null);
-            }
-            base.OnPointerReleased(e);
-            if (tapped && IsEnabled)
+                if (IsEnabled)
+                {
+                    Click?.Invoke(this, EventArgs.Empty);
+                }
+            };
+            Child = _button;
+            SetCurrentValue(LabelProperty, label);
+        }
+
+        /// <summary>
+        /// The commit shouts and the way out does not.
+        ///
+        /// Upper case on the tick, sentence case on the cross: the reference
+        /// writes "START" and "Back", and the difference is the whole of how a
+        /// foot says which of the two is the act.
+        /// </summary>
+        private string Case(string label)
+        {
+            if (label.Length == 0)
             {
-                Click?.Invoke(this, EventArgs.Empty);
+                return label;
             }
+            return _shape == Shape.Accept
+                ? label.ToUpperInvariant()
+                : char.ToUpperInvariant(label[0]) + label[1..];
         }
 
-        protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+        /// <summary>The bob, for the one button on a screen that wants looking at.</summary>
+        public bool Idle
         {
-            // The scroll gesture above has taken the pointer.
-            _tap.Cancel();
-            InvalidateVisual();
-            base.OnPointerCaptureLost(e);
+            get => _button.Idle;
+            set => _button.Idle = value;
         }
 
-        protected override void OnGotFocus(GotFocusEventArgs e)
-        {
-            InvalidateVisual();
-            base.OnGotFocus(e);
-        }
+        public new bool Focus() => _button.Focus();
 
-        protected override void OnLostFocus(RoutedEventArgs e)
+        protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
         {
-            InvalidateVisual();
-            base.OnLostFocus(e);
+            base.OnPropertyChanged(change);
+            if (change.Property == LabelProperty)
+            {
+                _button.Text = Case(Label);
+            }
+            else if (change.Property == IsEnabledProperty)
+            {
+                _button.IsEnabled = IsEnabled;
+            }
         }
 
         protected override void OnKeyDown(KeyEventArgs e)
@@ -165,55 +160,6 @@ namespace MphRead.Mods.Launcher.Gui
                 return;
             }
             base.OnKeyDown(e);
-        }
-
-        public override void Render(DrawingContext context)
-        {
-            context.FillRectangle(Brushes.Transparent,
-                new Rect(0, 0, Bounds.Width, Bounds.Height));
-            bool lit = (IsPointerOver || IsFocused) && IsEnabled;
-            Color colour = !IsEnabled ? GuiTheme.Edge
-                : lit ? GuiTheme.Accent
-                : _shape == Shape.Accept ? GuiTheme.Text
-                : _shape == Shape.Fetch ? GuiTheme.Warm : GuiTheme.TextDim;
-            var pen = new Pen(new SolidColorBrush(colour), 2.4)
-            {
-                LineCap = PenLineCap.Round
-            };
-            double cy = Bounds.Height / 2;
-            double half = Glyph / 2;
-            if (_shape == Shape.Accept)
-            {
-                // A tick: down to the low point, then up and out past it.
-                context.DrawLine(pen, new Point(half - 7, cy + 1), new Point(half - 2, cy + 6));
-                context.DrawLine(pen, new Point(half - 2, cy + 6), new Point(half + 8, cy - 7));
-            }
-            else if (_shape == Shape.Add)
-            {
-                context.DrawLine(pen, new Point(half - 7, cy), new Point(half + 7, cy));
-                context.DrawLine(pen, new Point(half, cy - 7), new Point(half, cy + 7));
-            }
-            else if (_shape == Shape.Fetch)
-            {
-                // Down the shaft, out to the two barbs, and a floor under it:
-                // the arrow says which way, the floor says it lands here.
-                context.DrawLine(pen, new Point(half, cy - 8), new Point(half, cy + 2));
-                context.DrawLine(pen, new Point(half - 5, cy - 3), new Point(half, cy + 2));
-                context.DrawLine(pen, new Point(half + 5, cy - 3), new Point(half, cy + 2));
-                context.DrawLine(pen, new Point(half - 7, cy + 7), new Point(half + 7, cy + 7));
-            }
-            else
-            {
-                context.DrawLine(pen, new Point(half - 7, cy - 7), new Point(half + 7, cy + 7));
-                context.DrawLine(pen, new Point(half + 7, cy - 7), new Point(half - 7, cy + 7));
-            }
-            if (Label.Length == 0)
-            {
-                return;
-            }
-            FormattedText caption = Caption(new SolidColorBrush(colour));
-            context.DrawText(caption,
-                new Point(Glyph + Gap, (Bounds.Height - caption.Height) / 2));
         }
     }
 }
