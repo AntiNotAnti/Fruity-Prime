@@ -1,5 +1,11 @@
 # Demos: recording a match and watching it back
 
+> Protocol 8: see [NETWORK-LIFECYCLE.md](NETWORK-LIFECYCLE.md) for current
+> lifecycle, identity, wire and reset rules. The protocol-7 measurements below
+> are historical. Remote death prediction is now always disabled, including
+> with `-deathprediction`; only a new authoritative LifeId permits respawn.
+> Older protocol demos are refused.
+
 `Mods/Network/DemoRecorder.cs`, `DemoFile.cs`, `DemoPlayback.cs`,
 `DemoInfo.cs`. Started and stopped from the pause menu ("Record demo",
 online matches only) and from `-netcheck ... -recorddemo`; watched from the

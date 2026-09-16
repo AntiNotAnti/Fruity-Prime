@@ -1,5 +1,11 @@
 # Testing — test harness
 
+Protocol-8 lifecycle regression: `dotnet run --project tools/nettest/nettest.csproj
+-c Release -- --lifecycle` (one command). It runs production code and seeded
+packet faults without game assets. See [NETWORK-LIFECYCLE.md](../multiplayer/NETWORK-LIFECYCLE.md)
+for coverage and the separate live gameplay acceptance checks.
+
+
 This document explains the netcheck, maptest and the harness scripts used in `~/mph-net-test`.
 
 > **`~/mph-net-test` is not on this box any more.** Every `run-*.sh` and

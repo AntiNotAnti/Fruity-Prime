@@ -1,5 +1,11 @@
 # Lag compensation
 
+> Protocol 8: see [NETWORK-LIFECYCLE.md](NETWORK-LIFECYCLE.md) for current
+> lifecycle, identity, wire and reset rules. The protocol-7 measurements below
+> are historical. Remote death prediction is now always disabled, including
+> with `-deathprediction`; only a new authoritative LifeId permits respawn.
+> Older protocol demos are refused.
+
 Ported from [Q-Zandronum](https://github.com/IgeNiaI/Q-Zandronum)'s
 `unlagged.cpp` — itself Spleen's Skulltag work, with Q-Zandronum's own
 addition on top. Code: `Mods/Network/NetUnlagged.cs`.
