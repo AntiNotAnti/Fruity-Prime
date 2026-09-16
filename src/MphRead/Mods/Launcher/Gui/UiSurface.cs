@@ -676,6 +676,16 @@ namespace MphRead.Mods.Launcher.Gui
                 {
                     continue;
                 }
+                // Is it actually the thing at that point? A control can be in
+                // the tree and under something else -- the setup panel covers
+                // the front screen's whole menu on a fresh install -- and a
+                // check that reported a press it did not make would be worse
+                // than no check. Asked of the toolkit, in the same
+                // coordinates the toolkit lays out in.
+                if (!Covers(control, centre.Value))
+                {
+                    continue;
+                }
                 // Points to surface pixels, then back out to the window's,
                 // because PointerMoved takes the window's and is the thing
                 // being proven. Undoing the conversion here rather than
@@ -716,9 +726,36 @@ namespace MphRead.Mods.Launcher.Gui
                 {
                     continue;
                 }
+                if (!Covers(control, centre.Value))
+                {
+                    continue;
+                }
                 PointerMoved(centre.Value.X * _factor / _raster,
                     centre.Value.Y * _factor / _raster);
                 return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Whether a press at that point reaches that control: the topmost
+        /// input element there is it, or something inside it (a button's own
+        /// label is what a press on a button actually lands on).
+        /// </summary>
+        private bool Covers(Control control, Point point)
+        {
+            if (_view == null)
+            {
+                return false;
+            }
+            IInputElement? hit = _view.InputHitTest(point);
+            for (Visual? visual = hit as Visual; visual != null;
+                visual = visual.GetVisualParent())
+            {
+                if (ReferenceEquals(visual, control))
+                {
+                    return true;
+                }
             }
             return false;
         }

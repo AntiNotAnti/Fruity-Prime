@@ -480,8 +480,20 @@ namespace MphRead.Mods.Launcher.Gui
     /// <summary>A line of explanation, wrapped, under a group of rows.</summary>
     internal sealed class Note : TextBlock
     {
-        public Note(string text, Color? color = null)
+        /// <summary>How many lines it is held to, or 0 for as many as it takes.</summary>
+        private readonly int _lines;
+
+        /// <param name="lines">
+        /// Two by default -- see <see cref="MeasureOverride"/>. Zero for a
+        /// note that is a paragraph rather than a status line: the setup
+        /// screen explains what it is about to do with somebody's cartridge
+        /// dump, and two lines of that ended mid-sentence in an ellipsis. Its
+        /// own log is the same shape, and was showing two lines of an
+        /// extraction inside a box 160 points tall.
+        /// </param>
+        public Note(string text, Color? color = null, int lines = 2)
         {
+            _lines = lines;
             Text = text;
             // The body face, not the display one. This is the one string on
             // the screen that is a *sentence* -- "12 of 13 answered. Click one
@@ -490,8 +502,11 @@ namespace MphRead.Mods.Launcher.Gui
             FontFamily = Deck.Mono;
             Foreground = new SolidColorBrush(color ?? GuiTheme.TextDim);
             TextWrapping = TextWrapping.Wrap;
-            MaxLines = 2;
-            TextTrimming = TextTrimming.CharacterEllipsis;
+            if (lines > 0)
+            {
+                MaxLines = lines;
+                TextTrimming = TextTrimming.CharacterEllipsis;
+            }
             Margin = new Thickness(0);
         }
 
@@ -512,8 +527,12 @@ namespace MphRead.Mods.Launcher.Gui
                 FontSize = size;
                 LineHeight = Math.Round(size * 1.15);
             }
-            double height = Math.Round(size * 2.3);
             Size measured = base.MeasureOverride(availableSize);
+            if (_lines <= 0)
+            {
+                return measured;
+            }
+            double height = Math.Round(size * 1.15 * _lines);
             return new Size(measured.Width, height);
         }
     }

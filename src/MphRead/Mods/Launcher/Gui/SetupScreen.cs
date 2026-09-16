@@ -27,11 +27,21 @@ namespace MphRead.Mods.Launcher.Gui
         /// <summary>Raised when the files are there, or when the player backed out.</summary>
         public event EventHandler? Closed;
 
-        private readonly Note _log = new("");
+        private readonly Note _log = new("", lines: 0);
         private readonly ProgressRow _progress = new();
         private readonly UiMark _choose;
         private readonly UiMark _back;
         private readonly UiWord _previews;
+
+        /// <summary>
+        /// The path, typed. The last resort, and on a Linux box with neither
+        /// zenity nor kdialog the only one -- see
+        /// <see cref="NativeFilePicker"/> for why the toolkit's own picker is
+        /// not available to these screens.
+        /// </summary>
+        private readonly DeckField _typed = new("", widthEms: 26,
+            watermark: "C:\\path\\to\\your.nds");
+        private readonly StackPanel _typedRow;
 
         public SetupScreen()
         {
@@ -42,13 +52,13 @@ namespace MphRead.Mods.Launcher.Gui
             body.Children.Add(new Note(Mods.Branding.Name
                 + " needs your own Metroid Prime Hunters cartridge dump. It unpacks what "
                 + "it needs next to this program and leaves the file alone. No game data "
-                + "is included in this download, and none is downloaded."));
+                + "is included in this download, and none is downloaded.", lines: 0));
             if (GameFiles.InProcessSetup)
             {
                 body.Children.Add(new Note("The unpacked files land in " + GameFiles.Root
                     + " -- this device's own folder for the app, which shows up over USB "
                     + "under Android/data. Files already copied there are found without "
-                    + "picking anything.", GuiTheme.TextDim));
+                    + "picking anything.", GuiTheme.TextDim, lines: 0));
             }
             // Previews are rendered here, from the files that are here. A run
             // can be interrupted and files can arrive after one, so asking for
@@ -56,6 +66,25 @@ namespace MphRead.Mods.Launcher.Gui
             _previews = new UiWord("Render map previews", 15, colour: GuiTheme.TextDim);
             _previews.Click += async (_, _) => await RenderPreviews();
             body.Children.Add(_previews);
+            // The path, typed, beside the button that opens a dialog -- always
+            // both, never one instead of the other. A desktop with no picker
+            // installed has no other way in at all (see NativeFilePicker), and
+            // a player who already knows where the file is would rather paste
+            // it than walk a tree to it.
+            var typedGo = new UiWord("Use this file", 15, colour: GuiTheme.Accent);
+            typedGo.Click += async (_, _) => await UseTypedPath();
+            _typedRow = new StackPanel { Spacing = 6 };
+            _typedRow.Children.Add(_typed);
+            _typedRow.Children.Add(typedGo);
+            _typed.Box.KeyDown += async (_, key) =>
+            {
+                if (key.Key == Key.Enter)
+                {
+                    key.Handled = true;
+                    await UseTypedPath();
+                }
+            };
+            body.Children.Add(_typedRow);
             _progress.IsVisible = false;
             body.Children.Add(_progress);
             body.Children.Add(new ScrollViewer
@@ -101,11 +130,65 @@ namespace MphRead.Mods.Launcher.Gui
             base.OnKeyDown(e);
         }
 
+        /// <summary>Put the caret in the typed path, for when it is the only way in.</summary>
+        private void ShowTyped()
+        {
+            Dispatcher.UIThread.Post(() => _typed.Box.Focus(), DispatcherPriority.Background);
+        }
+
+        /// <summary>
+        /// The path the player typed, checked before it is acted on: a wrong
+        /// path has to say so here rather than come back as an extractor error
+        /// about a file it could not open.
+        /// </summary>
+        private async Task UseTypedPath()
+        {
+            string path = _typed.Value.Trim().Trim('"');
+            if (path.Length == 0)
+            {
+                return;
+            }
+            path = Path.GetFullPath(path, ConsoleSetup.LaunchDirectory);
+            if (!File.Exists(path))
+            {
+                _log.Text = $"There is no file at {path}.";
+                return;
+            }
+            await RunSetup(path, null);
+        }
+
+        /// <summary>
+        /// Ask for the cartridge dump, however this platform can be asked.
+        ///
+        /// Android has a real windowing backend and so a real
+        /// <c>StorageProvider</c>. The desktop heads draw their screens with
+        /// the headless one and have none, so they ask the operating system
+        /// directly -- see <see cref="NativeFilePicker"/>, which is also where
+        /// what happened before this is written down.
+        /// </summary>
         private async Task ChooseRom()
         {
             TopLevel? top = TopLevel.GetTopLevel(this);
             if (top == null)
             {
+                return;
+            }
+            if (!top.StorageProvider.CanOpen)
+            {
+                if (!NativeFilePicker.Available)
+                {
+                    _log.Text = "This desktop has no file dialog to open "
+                        + "(install zenity or kdialog). Type the path instead.";
+                    ShowTyped();
+                    return;
+                }
+                string? chosen = await NativeFilePicker.OpenFile(
+                    "Your Metroid Prime Hunters cartridge dump",
+                    "Nintendo DS ROM", "nds");
+                if (chosen != null)
+                {
+                    await RunSetup(chosen, null);
+                }
                 return;
             }
             var options = new FilePickerOpenOptions
@@ -130,15 +213,31 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 return;
             }
+            await RunSetup(picked[0].TryGetLocalPath(), picked[0]);
+        }
+
+        /// <summary>
+        /// Unpack the file that was picked, however it was picked.
+        ///
+        /// <paramref name="path"/> is a real path when there is one;
+        /// <paramref name="file"/> is the toolkit's handle, which on Android
+        /// is a content:// document with no path behind it and has to be
+        /// copied before the extractor can read it.
+        /// </summary>
+        private async Task RunSetup(string? path, IStorageFile? file)
+        {
+            if (path == null && file == null)
+            {
+                return;
+            }
             _choose.IsEnabled = false;
             _choose.Label = "working...";
             _log.Text = "";
             var progress = new SetupProgress();
             _progress.IsVisible = true;
             _progress.Set(0, "Starting");
-            string? path = picked[0].TryGetLocalPath();
             string? scratch = null;
-            if (path == null)
+            if (path == null && file != null)
             {
                 // Android hands back a content:// document with no path behind
                 // it. Copying is the only way to give the extractor a file, and
@@ -148,7 +247,7 @@ namespace MphRead.Mods.Launcher.Gui
                 try
                 {
                     scratch = Path.Combine(GameFiles.Root, "picked.nds");
-                    await using (Stream source = await picked[0].OpenReadAsync())
+                    await using (Stream source = await file.OpenReadAsync())
                     await using (var target = File.Create(scratch))
                     {
                         await source.CopyToAsync(target);
@@ -162,10 +261,17 @@ namespace MphRead.Mods.Launcher.Gui
                     return;
                 }
             }
+            if (path == null)
+            {
+                _log.Text = "That file could not be opened.";
+                Ready();
+                return;
+            }
+            string romPath = path;
             // Extraction takes minutes. Off the UI thread, or the screen stops
             // answering at the exact moment it is doing the one thing a fresh
             // install needs.
-            bool ok = await Task.Run(() => GameFiles.RunSetup(path, line =>
+            bool ok = await Task.Run(() => GameFiles.RunSetup(romPath, line =>
                 Dispatcher.UIThread.Post(() =>
                 {
                     _log.Text = Tail(_log.Text, line);

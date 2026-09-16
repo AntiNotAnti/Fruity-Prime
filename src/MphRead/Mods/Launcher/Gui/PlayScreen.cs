@@ -1203,6 +1203,27 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 return;
             }
+            // The desktop draws these screens with the headless backend and so
+            // has no StorageProvider at all: ask the operating system instead.
+            // See NativeFilePicker.
+            if (!top.StorageProvider.CanOpen)
+            {
+                if (!NativeFilePicker.Available)
+                {
+                    _note.Text = "This desktop has no file dialog to open "
+                        + $"(install zenity or kdialog). Clips in {DemoLibrary.Directory} "
+                        + "are listed here without one.";
+                    _note.Foreground = GuiTheme.BadBrush;
+                    return;
+                }
+                string? chosen = await NativeFilePicker.OpenFile("Clips",
+                    $"{Branding.Name} demo", DemoFile.Extension.TrimStart('.'));
+                if (chosen != null)
+                {
+                    await Watch(chosen);
+                }
+                return;
+            }
             var options = new FilePickerOpenOptions { Title = "Clips", AllowMultiple = false };
             if (!OperatingSystem.IsAndroid())
             {

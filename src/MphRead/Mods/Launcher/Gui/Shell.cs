@@ -47,6 +47,35 @@ namespace MphRead.Mods.Launcher.Gui
         public static bool UiVisible => UiSurface.Current?.Visible == true;
 
         private static RenderWindow? _window;
+
+        /// <summary>
+        /// Hand the game window to whatever needs it as a parent.
+        ///
+        /// One thing does: a native file dialog has to be *owned* by the game
+        /// window or Windows is free to put it behind a borderless-fullscreen
+        /// game -- a modal dialog nobody can see, which from the player's side
+        /// is a button that does nothing and then a program that has stopped
+        /// answering. See <see cref="NativeFilePicker"/>.
+        /// </summary>
+        private static void PublishNativeHandle(RenderWindow window)
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return;
+            }
+            try
+            {
+                unsafe
+                {
+                    NativeFilePicker.Owner = OpenTK.Windowing.GraphicsLibraryFramework.GLFW
+                        .GetWin32Window(window.WindowPtr);
+                }
+            }
+            catch (Exception)
+            {
+                // An owner is an improvement, not a requirement.
+            }
+        }
         private static StartScreen? _front;
         private static InGameMenu? _menu;
         private static MenuSettings _settings = new MenuSettings();
@@ -97,6 +126,7 @@ namespace MphRead.Mods.Launcher.Gui
             try
             {
                 window = new RenderWindow(shell: true);
+                PublishNativeHandle(window);
                 _window = window;
                 Active = true;
                 ShowFrontScreen();
@@ -411,6 +441,18 @@ namespace MphRead.Mods.Launcher.Gui
         private static int _shotWait;
 
         /// <summary>
+        /// Clicks and hovers the script asked for and the screen did not have.
+        ///
+        /// Counted rather than printed, because printed is what it was: the
+        /// front screen's words became deck buttons, every predicate here went
+        /// on matching nothing, and the capture wrote its pictures and exited
+        /// zero for weeks while proving none of the pointer arithmetic it
+        /// exists to prove. <c>-shellshot</c> now fails when a step could not
+        /// press what it named.
+        /// </summary>
+        public static int ShotMisses { get; private set; }
+
+        /// <summary>
         /// Photograph the shell rather than play in it: `-shellshot DIR`.
         ///
         /// <c>-uishot</c> renders the screens on their own and proves the
@@ -431,6 +473,7 @@ namespace MphRead.Mods.Launcher.Gui
             _shotDirectory = directory;
             _shotStep = 0;
             _shotWait = 0;
+            ShotMisses = 0;
             // The window is the capture's for the duration, not the player's:
             // the script maximizes it half way through, and a screenshot run
             // must not be how somebody's window size changes. See
@@ -489,7 +532,7 @@ namespace MphRead.Mods.Launcher.Gui
             // frames is a quarter of a second, so the glide is over by the
             // time it is taken. Settings rather than Play, because Play starts
             // amber and was the only word whose reaction was ever visible.
-            _ => { Hover(c => c is UiWord word && word.Text == "Settings"); Wait(15); },
+            _ => { HoverFront(); Wait(15); },
             w => { Shot(w, "shell-hover"); Wait(2); },
             // A click on a word rather than a key: the pointer has its own
             // arithmetic between GLFW and a screen drawn into the frame, and a
@@ -520,15 +563,15 @@ namespace MphRead.Mods.Launcher.Gui
             // picking a map is two presses now -- one to select the row, one
             // on the tick -- and the picture after the first of them has to be
             // the play screen and not a match.
-            _ => { Click(c => c is UiWord word && word.Text == "Play"); Wait(20); },
+            _ => { ClickIfReady(c => c is DeckButton button && button.Text == "PLAY"); Wait(20); },
             w => { Shot(w, "shell-play"); Key(Keys.Right); Wait(15); },
-            w => { Shot(w, "shell-play-offline"); Click(c => c is UiListRow); Wait(15); },
+            w => { Shot(w, "shell-play-offline"); ClickIfReady(c => c is UiListRow); Wait(15); },
             w =>
             {
                 // Still the play screen: a click on a row selects it and
                 // starts nothing. A picture of a room here is the regression.
                 Shot(w, "shell-play-selected");
-                Click(c => c is UiMark mark && mark.Label == "start");
+                ClickIfReady(c => c is UiMark mark && mark.Label == "start");
                 Wait(40);
             },
             w =>
@@ -571,7 +614,7 @@ namespace MphRead.Mods.Launcher.Gui
             // The settings, in a match and in the smallest window the
             // sequence uses: the page that has to fit is this one, and the
             // in-game screens are drawn larger than the launcher's.
-            w => { Shot(w, "shell-pause"); Click(c => c is UiWord word && word.Text == "Settings"); Wait(20); },
+            w => { Shot(w, "shell-pause"); Click(c => c is DeckButton button && button.Text == "Settings"); Wait(20); },
             w => { Shot(w, "shell-settings-ingame"); Escape(); Wait(15); },
             // The match *ending*, in fullscreen, rather than being left: a
             // different path out (the engine fades and quits the scene itself)
@@ -589,15 +632,61 @@ namespace MphRead.Mods.Launcher.Gui
             _shotWait = frames;
         }
 
+        /// <summary>
+        /// Press something on whatever the front screen is.
+        ///
+        /// Two screens, because there are two: with game files it is the menu,
+        /// and the SETTINGS button is a <see cref="DeckButton"/> since the
+        /// deck theme -- the predicate that still said <see cref="UiWord"/> is
+        /// why every click here quietly matched nothing for weeks. Without
+        /// them the setup screen is pushed over the menu and *is* the front
+        /// screen, so a press aimed at the menu lands on the panel covering
+        /// it. CI is always the second case; a machine set up to play is
+        /// always the first.
+        /// </summary>
         private static void ClickSettings()
         {
-            Click(c => c is UiWord word && word.Text == "Settings");
+            if (GameFiles.Ready)
+            {
+                Click(c => c is DeckButton button && button.Text == "SETTINGS");
+                return;
+            }
+            // The setup screen's own "Use this file", with nothing typed in
+            // the box beside it: always on that screen, always on top, and it
+            // returns without doing anything when the field is empty. What is
+            // being proven is that the press arrives, not what it does.
+            Click(c => c is UiWord word && word.Text == "Use this file");
+        }
+
+        private static void HoverFront()
+        {
+            if (GameFiles.Ready)
+            {
+                Hover(c => c is DeckButton button && button.Text == "SETTINGS");
+                return;
+            }
+            Hover(c => c is UiMark mark && mark.Label == "choose your .nds file");
+        }
+
+        /// <summary>
+        /// The steps that need a room to load. Skipped rather than failed
+        /// where there are no game files: a browser with no rooms in it has no
+        /// row to select and no tick to press, and that is the machine CI is,
+        /// not a fault.
+        /// </summary>
+        private static void ClickIfReady(Func<Control, bool> match)
+        {
+            if (GameFiles.Ready)
+            {
+                Click(match);
+            }
         }
 
         private static void Hover(Func<Control, bool> match)
         {
             if (!(UiSurface.Current?.HoverOn(match) ?? false))
             {
+                ShotMisses++;
                 Console.WriteLine("[shellshot] nothing on screen matched the hover");
             }
         }
@@ -606,6 +695,7 @@ namespace MphRead.Mods.Launcher.Gui
         {
             if (!(UiSurface.Current?.ClickOn(match) ?? false))
             {
+                ShotMisses++;
                 Console.WriteLine("[shellshot] nothing on screen matched the click");
             }
         }

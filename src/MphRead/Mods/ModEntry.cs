@@ -1760,7 +1760,21 @@ namespace MphRead.Mods
         {
 #if MPHREAD_SHELL
             Launcher.Gui.Shell.RequestShots(directory);
-            return Launcher.Gui.GuiLauncher.TryRun() ? 0 : 1;
+            if (!Launcher.Gui.GuiLauncher.TryRun())
+            {
+                return 1;
+            }
+            // A step that could not press what it named is the check failing,
+            // not a note in the log: what it proves is that a click reaches
+            // the control it was aimed at, and a predicate matching nothing
+            // proves that of nothing.
+            int misses = Launcher.Gui.Shell.ShotMisses;
+            if (misses > 0)
+            {
+                Console.WriteLine($"[shellshot] {misses} step(s) found nothing to press");
+                return 1;
+            }
+            return 0;
 #else
             Console.WriteLine("[shellshot] this build has no launcher");
             return 1;
