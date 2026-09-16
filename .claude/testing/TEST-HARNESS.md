@@ -1,5 +1,11 @@
 # Testing — test harness
 
+For protocol 8 persistent lobby regression, run `-netlobbytest`. It uses real
+local UDP without cartridge assets and includes the actual NetSession client,
+control-command loss/retry and two-round connection persistence. `-lobbyshot DIR`
+renders desktop/phone lobby layouts. Scope and remaining rendered acceptance
+checks are documented in [NETWORK-LOBBY.md](../multiplayer/NETWORK-LOBBY.md).
+
 This document explains the netcheck, maptest and the harness scripts used in `~/mph-net-test`.
 
 > **`~/mph-net-test` is not on this box any more.** Every `run-*.sh` and

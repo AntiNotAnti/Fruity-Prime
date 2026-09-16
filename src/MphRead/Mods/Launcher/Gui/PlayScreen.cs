@@ -677,7 +677,7 @@ namespace MphRead.Mods.Launcher.Gui
 
             // Joining blocks for up to eight seconds while it retries; on the
             // UI thread that is eight seconds of a screen that does not redraw.
-            bool joined = await Task.Run(() => NetLaunch.Join(host, port, name, hunter));
+            bool joined = await Task.Run(() => NetLaunch.Connect(host, port, name, hunter));
             _go.IsEnabled = true;
             _go.Label = "join";
             if (!joined)
@@ -894,6 +894,14 @@ namespace MphRead.Mods.Launcher.Gui
         }
 
         /// <summary>Load a demo file and, if it reads, start playing it.</summary>
+        public void SessionEnded(string reason)
+        {
+            _finished = false;
+            _note.Text = reason;
+            _note.Foreground = GuiTheme.BadBrush;
+            StartPolling();
+        }
+
         private async Task Watch(string path)
         {
             // Joined here, not inside MatchStart: a failure has to land back on
