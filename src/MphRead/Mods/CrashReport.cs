@@ -113,17 +113,27 @@ namespace MphRead.Mods
             text.AppendLine($"source={source}");
             text.AppendLine();
             text.AppendLine(ex.ToString());
+            // Named .log because LogArchive gathers "*.log", and this has to
+            // travel with the rest of them.
             string name = $"{Branding.Name.Replace(" ", "")}-crash-"
                 + $"{DateTime.Now:yyyyMMdd-HHmmss}.log";
-            // Beside the executable first, because that is where somebody who
-            // has just downloaded a release will look; the temporary directory
-            // when that folder is read-only, which an installation under
-            // Program Files is.
+            // The logs folder first, and not because it is tidy: that is the
+            // one directory LogArchive gathers and the share sheet hands out,
+            // so a crash written anywhere else is a crash a player on a phone
+            // has no way to send. Then beside the executable, where somebody
+            // who has just downloaded a desktop release will look, and the
+            // temporary directory for an installation under Program Files.
             foreach (string directory in new[]
-                     { AppContext.BaseDirectory, System.IO.Path.GetTempPath() })
+                     {
+                         LogArchive.Directory,
+                         Launcher.LauncherPrefs.Directory,
+                         AppContext.BaseDirectory,
+                         System.IO.Path.GetTempPath()
+                     })
             {
                 try
                 {
+                    Directory.CreateDirectory(directory);
                     string path = System.IO.Path.Combine(directory, name);
                     File.WriteAllText(path, text.ToString());
                     return path;

@@ -33,6 +33,18 @@ namespace MphRead.Droid
 
         public override void Initialize()
         {
+            // Before anything else builds a screen. Android has no console to
+            // print a stack into and the process is gone by the time anybody
+            // could look, so a crash writes a file the log-sharing entry can
+            // hand out -- see Mods/CrashReport.cs, which exists because the
+            // same fault on Windows was invisible for the same reason.
+            CrashReport.Install();
+            Android.Runtime.AndroidEnvironment.UnhandledExceptionRaiser += (_, e) =>
+            {
+                // The Java side's own: an exception crossing back out of a
+                // callback the runtime invoked. AppDomain never sees these.
+                CrashReport.Report(e.Exception, "android");
+            };
             Styles.Add(new FluentTheme());
             RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Dark;
             base.Initialize();
