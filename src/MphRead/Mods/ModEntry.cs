@@ -44,13 +44,21 @@ namespace MphRead.Mods
             // on for a single run without the setting, for the case where the
             // launcher itself is what will not start.
             Launcher.LauncherPrefs.Load();
-            if (HasFlag(args, "debuglog"))
+            if (HasFlag(args, "debuglog") || HasFlag(args, "respawnrendercheck"))
             {
                 DebugLog.Force();
             }
             DebugLog.Attach();
             Update.Updater.Disabled = HasFlag(args, "noupdate");
             ApplyRenderOverrides(args);
+
+            // This diagnostic needs assets, but must not apply/clean updates
+            // or enter any of the launcher/network command paths.
+            if (HasFlag(args, "respawnrendercheck"))
+            {
+                Update.Updater.Disabled = true;
+                return false;
+            }
 
             // The copying half of a desktop update, which is this build
             // started by the *previous* one. First, and before anything reads
@@ -868,6 +876,15 @@ namespace MphRead.Mods
 
         public static bool TryHandle(string[] args)
         {
+            if (HasFlag(args, "respawnrendercheck"))
+            {
+                Environment.ExitCode = Render.RespawnRenderCheck.Run(
+                    ValueAfter(args, "respawnrendercheck"),
+                    HasFlag(args, "cycles") ? ValueAfter(args, "cycles") ?? "" : null,
+                    HasFlag(args, "timeout") ? ValueAfter(args, "timeout") ?? "" : null);
+                return true;
+            }
+
             (int width, int height) = ParseSize(args);
 
             // Custom maps are registered as rooms from their JSON at startup,
