@@ -106,6 +106,19 @@ namespace MphRead.Mods
                 Console.WriteLine($"[net] -netloss {netLoss} is not a percentage");
                 return true;
             }
+            foreach (var option in new (string Name, Func<string?, bool> Configure)[]
+            {
+                ("netjitter", Network.NetLag.ConfigureJitter), ("netseed", Network.NetLag.ConfigureSeed),
+                ("netreorder", Network.NetLag.ConfigureReorder), ("netduplicate", Network.NetLag.ConfigureDuplicate)
+            })
+            {
+                string? value = ValueAfter(args, option.Name);
+                if (value != null && !option.Configure(value))
+                {
+                    Console.WriteLine($"[net] invalid -{option.Name} value: {value}");
+                    return true;
+                }
+            }
             if (Network.NetLag.Active)
             {
                 Console.WriteLine($"[net] simulating a bad line: {Network.NetLag.Describe()}");
@@ -223,17 +236,9 @@ namespace MphRead.Mods
             // is predicted whatever this says, and this does not turn it off:
             // there is nothing to disagree about when the source, the target
             // and the input are all on this machine.
-            if (HasFlag(args, "deathprediction"))
+            if (HasFlag(args, "deathprediction") || HasFlag(args, "nodeathprediction"))
             {
-                Network.NetHitPrediction.DeathEnabled = true;
-                Console.WriteLine("[net] death prediction on: a client's "
-                    + "kills land the frame it lands them");
-            }
-            if (HasFlag(args, "nodeathprediction"))
-            {
-                Network.NetHitPrediction.DeathEnabled = false;
-                Console.WriteLine("[net] death prediction off: a client's "
-                    + "kills land when the authority says so");
+                Console.WriteLine("[net] remote death waits for authority; self-death remains predicted");
             }
 
             // A client declaring which of its own shots landed, and the

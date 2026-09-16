@@ -292,6 +292,21 @@ namespace MphRead.Mods.Network
         // The ring. All slots are written in one pass, so one frame stamp per
         // cell covers the lot: a stamp that does not match the frame being
         // asked for means the cell has been overwritten by a later one.
+        private static readonly ushort[,] _life = new ushort[Slots, HistoryFrames];
+        private static readonly ushort[,] _generation = new ushort[Slots, HistoryFrames];
+
+        public static void ResetSlot(int slot)
+        {
+            if (slot < 0 || slot >= Slots) return;
+            for (int i = 0; i < HistoryFrames; i++)
+            {
+                _inPlay[slot, i] = false;
+                _life[slot, i] = 0;
+                _generation[slot, i] = 0;
+            }
+            _moved[slot] = false;
+        }
+
         private static readonly Vector3[,] _position = new Vector3[Slots, HistoryFrames];
         private static readonly bool[,] _altForm = new bool[Slots, HistoryFrames];
         private static readonly bool[,] _inPlay = new bool[Slots, HistoryFrames];
@@ -403,6 +418,8 @@ namespace MphRead.Mods.Network
                 }
                 PlayerEntity player = PlayerEntity.Players[i];
                 bool active = player.LoadFlags.TestFlag(LoadFlags.Active) && player.ModIsInPlay;
+                _life[i, index] = NetPlayerLifecycle.Get(i);
+                _generation[i, index] = NetPlayerLifecycle.Generation(i);
                 _inPlay[i, index] = active;
                 if (active)
                 {
@@ -422,7 +439,7 @@ namespace MphRead.Mods.Network
         /// of impact is nowhere near the body this returns. Read-only -- it
         /// moves nobody, unlike <see cref="Reconcile"/>.
         /// </summary>
-        public static bool PositionAt(int slot, uint frame, out Vector3 position)
+        public static bool PositionAt(int slot, uint frame, ushort expectedGeneration, ushort expectedLife, out Vector3 position)
         {
             position = Vector3.Zero;
             if (slot < 0 || slot >= Slots || frame == 0)
@@ -430,7 +447,8 @@ namespace MphRead.Mods.Network
                 return false;
             }
             int index = (int)(frame % HistoryFrames);
-            if (_stamp[index] != frame || !_inPlay[slot, index])
+            if (_stamp[index] != frame || !_inPlay[slot, index]
+                || _life[slot, index] != expectedLife || _generation[slot, index] != expectedGeneration)
             {
                 return false;
             }
@@ -771,7 +789,8 @@ namespace MphRead.Mods.Network
             Restore();
             for (int i = 0; i < Slots && i < PlayerEntity.Players.Count; i++)
             {
-                if (i == exceptSlot || !_inPlay[i, index])
+                if (i == exceptSlot || !_inPlay[i, index]
+                    || !NetPlayerLifecycle.Matches(i, _generation[i, index], _life[i, index]))
                 {
                     continue;
                 }
@@ -792,7 +811,8 @@ namespace MphRead.Mods.Network
                 // respawn or a teleporter between them is a jump to blend
                 // across, not a step. NetSmoothing does the same three checks
                 // at the other end, which is what makes the two agree.
-                if (haveNext && _inPlay[i, next] && _altForm[i, next] == _altForm[i, index])
+                if (haveNext && _inPlay[i, next] && _altForm[i, next] == _altForm[i, index]
+                    && _life[i, next] == _life[i, index] && _generation[i, next] == _generation[i, index])
                 {
                     Vector3 then = _position[i, next];
                     Vector3 travel = then - was;

@@ -23,6 +23,10 @@ namespace MphRead.Entities
         /// without guessing at a time window. Zero for anything nobody aimed.
         /// </summary>
         public uint ModLaunchFrame { get; set; }
+        public ushort ModLaunchMatch { get; set; }
+        public ulong ModLaunchAuthority { get; set; }
+        public ushort ModLaunchGeneration { get; set; }
+        public ushort ModLaunchLife { get; set; }
         public BeamType Beam { get; set; }
         public BeamType BeamKind { get; set; }
 
@@ -1654,6 +1658,7 @@ namespace MphRead.Entities
                     }
                 }
                 beam.Owner = owner;
+                NetPlayerLifecycle.StampProjectile(beam);
                 beam.Beam = weapon.Beam;
                 beam.BeamKind = weapon.BeamKind;
                 beam.Flags = flags;
