@@ -119,25 +119,37 @@
          can see. -->
     <AndroidAsset Include="..\..\maps\*.json;..\..\maps\*.bsp;..\..\maps\*.tex;..\..\maps\*.fpmap"
                   Link="Assets\maps\%(Filename)%(Extension)" />
-    <AvaloniaResource Include="..\MphRead\Assets\fruity-prime-logo.png"
-                      Link="Assets\fruity-prime-logo.png" />
-    <AvaloniaResource Include="..\MphRead\Assets\fruity-prime-mark.png"
-                      Link="Assets\fruity-prime-mark.png" />
-    <!-- The launcher's two faces and its backdrop, and they are not optional
-         here: GuiTheme names the fonts by avares:// URI, and Avalonia does
-         not fall back when one of those cannot be resolved. It throws
-         `Could not create glyphTypeface` out of the measure pass, which on
-         this head is a crash on the front screen before anything is drawn.
-         The pictures are guarded (UiLayout.Load catches and draws nothing);
-         the fonts are not. The Link paths have to match the desktop's
-         Assets\... layout exactly, since the URI is the same string in the
-         same file on both platforms. ~940 KB in the package. -->
-    <AvaloniaResource Include="..\MphRead\Assets\Fonts\heyNovember.ttf"
-                      Link="Assets\Fonts\heyNovember.ttf" />
-    <AvaloniaResource Include="..\MphRead\Assets\Fonts\Roboto-Bold.ttf"
-                      Link="Assets\Fonts\Roboto-Bold.ttf" />
-    <AvaloniaResource Include="..\MphRead\Assets\Backgrounds\launcher-bg.jpg"
-                      Link="Assets\Backgrounds\launcher-bg.jpg" />
+    <!-- Everything the launcher's screens name by avares:// URI, and none of
+         it is optional here: Avalonia does not fall back when a font behind
+         one of those cannot be resolved. It throws `Could not create
+         glyphTypeface` out of the measure pass, which on this head is a crash
+         on the front screen before anything is drawn. The pictures are
+         guarded (UiLayout.Load catches and draws nothing); the fonts are not.
+         The Link paths have to match the desktop's Assets\... layout exactly,
+         since the URI is the same string in the same file on both platforms.
+
+         **Globbed rather than listed, and that is the point.** This was five
+         named files, and it is the same screens drawn from the same sources
+         as the desktop -- so the deck theme added three weights of Pixelify
+         Sans and two of JetBrains Mono to the desktop project, every label on
+         every screen started naming one of them, this list was not touched,
+         and the app died on its first layout pass on a device while all six
+         desktop targets and the APK build itself stayed green. A list that
+         has to be kept in step by hand with a file it is not next to will
+         drift, and the drift is not a warning, it is a phone that no longer
+         starts. ~1.9 MB in the package. -->
+    <AvaloniaResource Include="..\MphRead\Assets\*.png"
+                      Link="Assets\%(Filename)%(Extension)" />
+    <AvaloniaResource Include="..\MphRead\Assets\Fonts\*.ttf"
+                      Link="Assets\Fonts\%(Filename)%(Extension)" />
+    <AvaloniaResource Include="..\MphRead\Assets\Backgrounds\*.jpg"
+                      Link="Assets\Backgrounds\%(Filename)%(Extension)" />
+    <!-- The IP-to-country ranges the server browser puts a flag with. Not a
+         font, and a missing one here is only a browser with no flags in it --
+         but it is named by the same kind of URI from the same shared file, so
+         it is shipped by the same rule rather than by remembering. -->
+    <AvaloniaResource Include="..\MphRead\Assets\Geo\*.gz"
+                      Link="Assets\Geo\%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

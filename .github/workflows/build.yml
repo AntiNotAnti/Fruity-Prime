@@ -115,6 +115,17 @@ jobs:
         if: matrix.id == 'win-x64'
         run: tools/check-subsystem.sh gui publish/${{ matrix.id }}/FruityPrime.exe
 
+      # Every avares:// asset the screens name has to be in the package.
+      # Avalonia does not fall back for a font behind one of those: it throws
+      # out of the measure pass, which is a crash on the first screen. Cheap,
+      # and it reads the project rather than the picture, so it holds for the
+      # targets nothing here can start.
+      - name: the launcher's assets are in the package
+        if: matrix.extra == ''
+        run: >
+          tools/check-avares.py src/MphRead/MphRead.csproj
+          -p:RuntimeIdentifier=${{ matrix.rid }}
+
       # The launcher has to actually come up.
       #
       # Nothing else here opens a window: every check above reads the files a
@@ -218,6 +229,15 @@ jobs:
           -p:AndroidSdkDirectory="$ANDROID_HOME"
           -p:JavaSdkDirectory="$JAVA_HOME"
           -p:AcceptAndroidSDKLicenses=True
+
+      # The same check, on the head it was written for: this is the project
+      # whose asset list drifted from the desktop's, and the APK builds and
+      # signs perfectly well without the fonts its every label asks for.
+      - name: the launcher's assets are in the APK
+        run: >
+          tools/check-avares.py src/MphRead.Android/MphRead.Android.csproj
+          -p:AndroidSdkDirectory="$ANDROID_HOME"
+          -p:JavaSdkDirectory="$JAVA_HOME"
 
       # The one a player would install. Release runs the IL trimmer over this
       # app, which matters here more than usual: the touch controls reach
