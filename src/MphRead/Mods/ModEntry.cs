@@ -80,10 +80,13 @@ namespace MphRead.Mods
                     relaunch);
                 return true;
             }
-            // Whatever the last update left behind. Here rather than in the
-            // copying process, which cannot delete the directory it is running
-            // from, and cheap when there is nothing there.
-            Update.DesktopUpdate.Clean();
+            // Whatever the last update left behind. The form regression is a
+            // read-only diagnostic of a running match; it must not erase an
+            // update staged beside the executable just because it was run.
+            if (!(ValueAfter(args, "simcheck") != null && HasFlag(args, "formcheck")))
+            {
+                Update.DesktopUpdate.Clean();
+            }
             // And the desktop's own installer, unless a platform head has
             // already put its own in place.
             Update.UpdateInstall.UseDesktopIfPossible();
@@ -1163,7 +1166,7 @@ namespace MphRead.Mods
                     simMode = parsedSimMode;
                 }
                 Environment.ExitCode = Network.ServerSimCheck.Run(simCheck, simPlayers,
-                    simSeconds, simMode);
+                    simSeconds, simMode, formCheck: HasFlag(args, "formcheck"));
                 return true;
             }
 

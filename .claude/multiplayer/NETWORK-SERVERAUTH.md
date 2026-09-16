@@ -229,17 +229,18 @@ reported *"their form stayed wrong for 78 frames in a row -- authority wanted
 biped, puppet alt/Morph/ended"*. In the relay run ALPHA does not report it
 because ALPHA **is** the authority, and `NetFeatureCheck` skips this check on
 the authority: it is the one machine with nothing to compare against.
-`NetPlayerBridge` reconciles a puppet's form against `IntentButtons.AltFormState`
-**only on the authority**, deliberately -- a client doing it too would take
-form corrections from the owner's intent and the authority's snapshot at once,
-and the two disagree for as long as the authority takes to converge.
+At the time of this run, `NetPlayerBridge` reconciled a puppet's form against
+`IntentButtons.AltFormState` only on the authority. Clients replayed the morph
+press but had no snapshot-based correction.
 
 So the refactor did not create this. It removed slot 0's exemption from it:
-what ALPHA now reports is what the other seven players have always seen. What
-it does raise is a fair follow-up -- with the authority no longer a player,
-the "two sources" objection is weaker, and clients reconciling form from the
-snapshot may now be safe. That is a change to make with a measurement, not
-because it sounds right.
+what ALPHA reported is what the other seven players had already seen. The
+current bridge reconciles the owner's form state on the authority and
+the authority's snapshot on each client. The transition-aware guard lets a
+puppet finish morphing while an older state is still in flight, then corrects
+a lasting mismatch. This 78-frame result predates that change; a restart-free
+latency run is still needed to measure it in play. See
+`NETWORK-DIAGNOSTICS.md` and `.claude/KNOWN-GAPS.md`.
 
 ## The relay is gone from a dedicated server, and not from the other two
 
