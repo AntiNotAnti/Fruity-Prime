@@ -929,6 +929,28 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 return;
             }
+            string demoDir = DemoLibrary.Directory;
+            IStorageFile? file = null;
+            string? path = null;
+            // Headless has no chooser and answers with an empty list rather
+            // than a failure, which is a button that does nothing at all.
+            if (!top.StorageProvider.CanOpen)
+            {
+                NativeFileDialog.FilePick pick = await NativeFileDialog.OpenAsync(
+                    "Clips", $"{Branding.Name} demo", DemoFile.Extension, demoDir);
+                if (pick.Problem != null)
+                {
+                    _note.Text = pick.Problem;
+                    _note.Foreground = GuiTheme.BadBrush;
+                    return;
+                }
+                if (pick.Path == null)
+                {
+                    return;
+                }
+                await Watch(pick.Path);
+                return;
+            }
             var options = new FilePickerOpenOptions { Title = "Clips", AllowMultiple = false };
             if (!OperatingSystem.IsAndroid())
             {
@@ -946,7 +968,6 @@ namespace MphRead.Mods.Launcher.Gui
             }
             try
             {
-                string demoDir = DemoLibrary.Directory;
                 if (Directory.Exists(demoDir))
                 {
                     options.SuggestedStartLocation =
@@ -964,7 +985,8 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 return;
             }
-            string? path = picked[0].TryGetLocalPath();
+            file = picked[0];
+            path = file.TryGetLocalPath();
             if (path == null)
             {
                 // Android hands back a content:// document with no file behind
@@ -974,7 +996,7 @@ namespace MphRead.Mods.Launcher.Gui
                 try
                 {
                     string scratch = Path.Combine(GameFiles.Root, $"picked{DemoFile.Extension}");
-                    await using (Stream source = await picked[0].OpenReadAsync())
+                    await using (Stream source = await file.OpenReadAsync())
                     await using (var target = File.Create(scratch))
                     {
                         await source.CopyToAsync(target);

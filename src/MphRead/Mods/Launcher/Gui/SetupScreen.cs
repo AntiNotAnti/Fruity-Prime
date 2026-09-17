@@ -108,27 +108,52 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 return;
             }
-            var options = new FilePickerOpenOptions
+            const string title = "Your Metroid Prime Hunters cartridge dump";
+            IStorageFile? file = null;
+            string? path = null;
+            // Headless has no chooser to open and says so by returning an empty
+            // list, which is the whole of "browse does nothing" on the desktop.
+            if (top.StorageProvider.CanOpen)
             {
-                Title = "Your Metroid Prime Hunters cartridge dump",
-                AllowMultiple = false
-            };
-            if (!OperatingSystem.IsAndroid())
-            {
-                // Patterns are what Windows, Linux and the browser filter on.
-                // Android filters by MIME type, and .nds has none -- inventing
-                // one there produces a picker in which every file is refused.
-                options.FileTypeFilter = new[]
+                var options = new FilePickerOpenOptions
                 {
-                    new FilePickerFileType("Nintendo DS ROM") { Patterns = new[] { "*.nds" } },
-                    new FilePickerFileType("Every file") { Patterns = new[] { "*" } }
+                    Title = title,
+                    AllowMultiple = false
                 };
+                if (!OperatingSystem.IsAndroid())
+                {
+                    // Patterns are what Windows, Linux and the browser filter on.
+                    // Android filters by MIME type, and .nds has none -- inventing
+                    // one there produces a picker in which every file is refused.
+                    options.FileTypeFilter = new[]
+                    {
+                        new FilePickerFileType("Nintendo DS ROM") { Patterns = new[] { "*.nds" } },
+                        new FilePickerFileType("Every file") { Patterns = new[] { "*" } }
+                    };
+                }
+                IReadOnlyList<IStorageFile> picked =
+                    await top.StorageProvider.OpenFilePickerAsync(options);
+                if (picked.Count == 0)
+                {
+                    return;
+                }
+                file = picked[0];
+                path = file.TryGetLocalPath();
             }
-            IReadOnlyList<IStorageFile> picked =
-                await top.StorageProvider.OpenFilePickerAsync(options);
-            if (picked.Count == 0)
+            else
             {
-                return;
+                NativeFileDialog.FilePick pick =
+                    await NativeFileDialog.OpenAsync(title, "Nintendo DS ROM", ".nds");
+                if (pick.Problem != null)
+                {
+                    _log.Text = pick.Problem;
+                    return;
+                }
+                if (pick.Path == null)
+                {
+                    return;
+                }
+                path = pick.Path;
             }
             _choose.IsEnabled = false;
             _choose.Label = "working...";
@@ -136,9 +161,8 @@ namespace MphRead.Mods.Launcher.Gui
             var progress = new SetupProgress();
             _progress.IsVisible = true;
             _progress.Set(0, "Starting");
-            string? path = picked[0].TryGetLocalPath();
             string? scratch = null;
-            if (path == null)
+            if (path == null && file != null)
             {
                 // Android hands back a content:// document with no path behind
                 // it. Copying is the only way to give the extractor a file, and
@@ -148,7 +172,7 @@ namespace MphRead.Mods.Launcher.Gui
                 try
                 {
                     scratch = Path.Combine(GameFiles.Root, "picked.nds");
-                    await using (Stream source = await picked[0].OpenReadAsync())
+                    await using (Stream source = await file.OpenReadAsync())
                     await using (var target = File.Create(scratch))
                     {
                         await source.CopyToAsync(target);
@@ -161,6 +185,12 @@ namespace MphRead.Mods.Launcher.Gui
                     Ready();
                     return;
                 }
+            }
+            if (path == null)
+            {
+                _log.Text = "That file could not be read.";
+                Ready();
+                return;
             }
             // Extraction takes minutes. Off the UI thread, or the screen stops
             // answering at the exact moment it is doing the one thing a fresh
