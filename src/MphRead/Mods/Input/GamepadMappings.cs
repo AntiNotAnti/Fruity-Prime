@@ -104,7 +104,7 @@ namespace MphRead.Mods.Input
         /// </summary>
         private static string[] Paths()
         {
-            string beside = Path.Combine(Platform.AppPaths.ExecutableDirectory, FileName);
+            string beside = Path.Combine(MphRead.Mods.Platform.AppPaths.ExecutableDirectory, FileName);
             string settings = Path.Combine(Launcher.LauncherPrefs.Directory, FileName);
             return beside == settings
                 ? new string[] { beside }
