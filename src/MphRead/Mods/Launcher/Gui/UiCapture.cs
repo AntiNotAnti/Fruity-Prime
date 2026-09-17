@@ -55,7 +55,7 @@ namespace MphRead.Mods.Launcher.Gui
             Dispatcher.UIThread.Invoke(() =>
             {
                 List<string> rooms = RoomList();
-                var state = new SessionStatePacket { Policy = ServerSessionPolicy.Lobby, Phase = SessionPhase.Lobby,
+                var state = new SessionStatePacket { MatchId = 1, AuthorityEpoch = 1, Policy = ServerSessionPolicy.Lobby, Phase = SessionPhase.Lobby,
                     MaxPlayers = 8, OwnerSlot = 0, Revision = 7, RuleFlags = SessionRules.RequireReady | SessionRules.AllowJoinInProgress,
                     Match = new MatchDefinition { RoomKey = rooms[0], Mode = GameMode.BattleTeams, Format = MatchFormat.FourVsFour,
                         TimeLimitSeconds = 600, PointGoal = 20, ShadowFreeze = true } };
@@ -72,10 +72,12 @@ namespace MphRead.Mods.Launcher.Gui
                     state.RuleFlags = SessionRules.RequireReady | SessionRules.AllowJoinInProgress | (locked ? SessionRules.LockTeams : 0);
                     NetSession.ApplySessionState(state);
                     var roster = RosterPacket.Create(); roster.Count = (byte)layout.TotalPlayers; roster.Revision = state.Revision;
+                    roster.MatchId = 1; roster.AuthorityEpoch = 1; roster.SessionRevision = state.Revision;
                     int[] counts = new int[4];
                     for (int i = 0; i < roster.Count; i++)
                     {
                         roster.Slots[i] = (byte)i; roster.Names[i] = i == 0 ? "Jarrett" : $"Player {i + 1}";
+                        roster.Generations[i] = 1;
                         roster.Hunters[i] = (byte)(i % 7); roster.Colors[i] = (byte)(i % 4);
                         roster.Teams[i] = TeamRules.ChooseTeam(layout, counts); counts[roster.Teams[i]]++;
                         roster.LobbyReady[i] = i < 5; roster.Pings[i] = (ushort)(23 + 11 * i);

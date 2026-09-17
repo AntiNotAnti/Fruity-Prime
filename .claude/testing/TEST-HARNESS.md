@@ -1,5 +1,8 @@
 # Testing — test harness
 
+For protocol-10 integration results and limits, see [INTEGRATION.md](../INTEGRATION.md).
+Protocol numbers and counts below also describe historical branch-specific runs.
+
 For protocol 9 persistent lobby regression, run `-netlobbytest`. It uses real
 local UDP without cartridge assets and includes the actual NetSession client,
 control-command loss/retry and two-round connection persistence. `-lobbyshot DIR`

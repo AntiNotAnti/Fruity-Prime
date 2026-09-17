@@ -49,7 +49,7 @@ namespace MphRead.Mods.Network
 
         private static void ProtocolChecks()
         {
-            Check(NetConfig.ProtocolVersion == 9 && (byte)PacketType.SessionState == 36
+            Check(NetConfig.ProtocolVersion == 10 && (byte)PacketType.SessionState == 36
                 && (byte)PacketType.MapDone == 35, "protocol and reserved IDs");
             var state = new SessionStatePacket { Phase = SessionPhase.Starting, Policy = ServerSessionPolicy.Lobby,
                 OwnerSlot = 7, MaxPlayers = 8, Revision = ushort.MaxValue, MatchId = 19,
@@ -124,7 +124,7 @@ namespace MphRead.Mods.Network
                 bytes[5] = (byte)(NetConfig.ProtocolVersion - 1);
                 File.WriteAllBytes(path, bytes);
                 Check(!DemoPlayback.Join(path) && !DemoPlayback.IsActive
-                    && DemoPlayback.LastError?.Contains("requires protocol") == true,
+                    && DemoPlayback.LastResult == ReplayOpenResult.ProtocolMismatch,
                     "incompatible demo fails before scene or session construction");
                 using var exclusive = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
                 Check(exclusive.Length >= DemoFile.HeaderSize, "rejected demo releases its file handle");
@@ -183,7 +183,7 @@ namespace MphRead.Mods.Network
         {
             NetSession.StartPlayback();
             Check(!NetSession.SessionTimedOut, "playback has no network timeout");
-            var state = new SessionStatePacket { Policy = ServerSessionPolicy.Lobby,
+            var state = new SessionStatePacket { AuthorityEpoch = 1, Policy = ServerSessionPolicy.Lobby,
                 Phase = SessionPhase.Lobby, Revision = ushort.MaxValue, MatchId = 4, MaxPlayers = 8,
                 OwnerSlot = 255, Match = new MatchDefinition { RoomKey = Rooms()[0], Mode = GameMode.Battle } };
             NetSession.ApplySessionState(state);
@@ -240,7 +240,14 @@ namespace MphRead.Mods.Network
             public void Loaded(ushort? id = null)
             { byte[] bytes = new byte[2]; new MatchLoadedPacket(id ?? State!.Value.MatchId).Write(bytes); Send(PacketType.MatchLoaded, bytes); }
             public void ReadyResults()
-            { var intent = new IntentPacket { Frame = ++_frame, Buttons = IntentButtons.ReadyState }; byte[] bytes = new byte[IntentPacket.FullSize]; intent.Write(bytes); Send(PacketType.Intent, bytes); }
+            { var intent = new IntentPacket { Frame = ++_frame, Buttons = IntentButtons.ReadyState,
+                MatchId = State!.Value.MatchId, AuthorityEpoch = State.Value.AuthorityEpoch,
+                SlotGeneration = Roster.Generations[Array.IndexOf(Roster.Slots, (byte)Slot)] };
+                byte[] bytes = new byte[IntentPacket.FullSize]; intent.Write(bytes); Send(PacketType.Intent, bytes); }
+            public void EndMatch()
+            { byte[] bytes = new byte[10]; BinaryPrimitives.WriteUInt16LittleEndian(bytes, State!.Value.MatchId);
+                BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(2), State.Value.AuthorityEpoch);
+                Send(PacketType.MatchEnd, bytes); }
             public void Drain()
             {
                 foreach (var packet in Transport.Drain())
@@ -252,7 +259,7 @@ namespace MphRead.Mods.Network
                     if (packet.Type == PacketType.SessionState && SessionStatePacket.TryRead(packet.Payload, out var state)
                         && (State == null || state.Revision == State.Value.Revision || SessionStatePacket.IsNewer(state.Revision, State.Value.Revision))) State = state;
                     if (packet.Type == PacketType.Roster && RosterPacket.TryRead(packet.Payload, out var roster)
-                        && (roster.Revision == Roster.Revision || SessionStatePacket.IsNewer(roster.Revision, Roster.Revision))) Roster = roster;
+                        && (roster.Revision == Roster.Revision || NetLifecycleTracker.Newer(roster.Revision, Roster.Revision))) Roster = roster;
                     if (packet.Type == PacketType.LobbyCommandResult && LobbyCommandResultPacket.TryRead(packet.Payload, out var result)) Results[result.CommandId] = result;
                     if (packet.Type == PacketType.MatchState && packet.Payload.Length == MatchStatePacket.Size) Match = MatchStatePacket.Read(packet.Payload);
                 }
@@ -281,7 +288,7 @@ namespace MphRead.Mods.Network
                 Stable(); return client;
             }
             public void Stable() => Wait(() => Clients.Count > 0 && Clients.All(c => c.State?.Revision == Clients[0].State?.Revision
-                && c.Roster.Revision == c.State?.Revision && c.Roster.Count == Clients.Count
+                && c.Roster.SessionRevision == c.State?.Revision && c.Roster.Count == Clients.Count
                 && Enumerable.Range(0, c.Roster.Count).All(i => c.Roster.Names[i] == $"Test{Clients.Single(p => p.Slot == c.Roster.Slots[i]).Id}")), "roster and state converge");
             public void Wait(Func<bool> condition, string label, int ms = 4000)
             {
@@ -341,7 +348,7 @@ namespace MphRead.Mods.Network
                 "browser status clock stays frozen through the load barrier");
             Client late = rig.Add(3); Check((late.State!.Value.ExpectedParticipants & (1 << late.Slot)) == 0, "late join excluded from barrier");
             b.Loaded(); rig.Wait(() => a.State.Value.Phase == SessionPhase.InMatch, "barrier released");
-            b.Send(PacketType.MatchEnd, Array.Empty<byte>());
+            b.EndMatch();
             rig.Wait(() => a.State.Value.Phase == SessionPhase.PostMatch, "results entered");
             foreach (var client in rig.Clients) client.ReadyResults();
             rig.Wait(() => a.State.Value.Phase == SessionPhase.Lobby, "results return to lobby", 18000);
@@ -455,7 +462,7 @@ namespace MphRead.Mods.Network
             using var rig = new Rig(ServerSessionPolicy.Continuous); Client client = rig.Add(20);
             Check(client.State!.Value.Phase == SessionPhase.InMatch, "continuous starts in match");
             ushort match = client.State.Value.MatchId;
-            client.Send(PacketType.MatchEnd, Array.Empty<byte>());
+            client.EndMatch();
             rig.Wait(() => client.State.Value.Phase == SessionPhase.PostMatch, "continuous results"); client.ReadyResults();
             rig.Wait(() => client.State.Value.Phase == SessionPhase.InMatch && client.State.Value.MatchId != match, "continuous rotates automatically", 18000);
         }
@@ -471,9 +478,9 @@ namespace MphRead.Mods.Network
             {
                 rig.Wait(() => { NetSession.Pump(); return condition(); }, message, timeout);
             }
-            PumpUntil(() => NetSession.LocalIsLobbyOwner && NetSession.LobbyRoster().Revision == NetSession.SessionRevision,
+            PumpUntil(() => NetSession.LocalIsLobbyOwner && NetSession.LobbyRoster().SessionRevision == NetSession.SessionRevision,
                 "real client owns a consistent lobby");
-            Check(NetSession.ServerMatch == null, "connection does not require a running match");
+            Check(NetSession.IsInLobby && !NetSession.ShouldLoadMatch, "connection does not require a running match");
             // Lose the first command and its first retry entirely. The same command ID must recover.
             NetLag.ConfigureLoss("100");
             Check(NetSession.SendLobbyCommand(LobbyCommandType.SetReady, ready: true), "enqueue ready");
@@ -482,7 +489,7 @@ namespace MphRead.Mods.Network
             Check(NetSession.LobbyCommandPending, "lost command remains pending");
             NetLag.ConfigureLoss("0");
             PumpUntil(() => !NetSession.LobbyCommandPending && NetSession.SlotLobbyReady[slot], "retransmission recovers lost ready");
-            PumpUntil(() => NetSession.LobbyRoster().Revision == NetSession.SessionRevision, "ready state converged");
+            PumpUntil(() => NetSession.LobbyRoster().SessionRevision == NetSession.SessionRevision, "ready state converged");
             Check(NetSession.SendLobbyCommand(LobbyCommandType.StartMatch), "real client starts");
             PumpUntil(() => NetSession.IsStarting && !NetSession.LobbyCommandPending, "real client load barrier");
             Check(NetSession.FreezeGameplay, "gameplay frozen before loaded");
@@ -500,7 +507,7 @@ namespace MphRead.Mods.Network
             NetSession.ResetMatchState();
             Check(NetSession.Active && NetSession.ConnectionPort == port && NetSession.LocalSlot == slot
                 && NetSession.ClientId == clientId && NetSession.LocalIsLobbyOwner, "real client socket/slot/id/owner survive match teardown");
-            PumpUntil(() => NetSession.LobbyRoster().Revision == NetSession.SessionRevision, "next lobby consistent");
+            PumpUntil(() => NetSession.LobbyRoster().SessionRevision == NetSession.SessionRevision, "next lobby consistent");
             Check(NetSession.SendLobbyCommand(LobbyCommandType.SetReady, ready: true), "ready for second real-client match");
             PumpUntil(() => !NetSession.LobbyCommandPending && NetSession.SlotLobbyReady[slot], "second ready received");
             Check(NetSession.SendLobbyCommand(LobbyCommandType.StartMatch), "second real-client start");

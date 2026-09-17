@@ -270,7 +270,7 @@ namespace MphRead.Mods.Network
                         lock (_heldLock)
                         {
                             _heldIn.Enqueue(Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency,
-                                new ReceivedPacket(sender, data, data.Length));
+                                new ReceivedPacket(sender, data, data.Length), lossOverride: NetLag.LossPercent / 100);
                         }
                         continue;
                     }
@@ -365,7 +365,8 @@ namespace MphRead.Mods.Network
                 lock (_heldLock)
                 {
                     _heldOut.Enqueue(Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency,
-                        (target, copy, copy.Length), extraHoldTicks * 1000.0 / Stopwatch.Frequency);
+                        (target, copy, copy.Length), extraHoldTicks * 1000.0 / Stopwatch.Frequency,
+                        lossOverride: NetLag.LossPercent / 100);
                 }
                 return;
             }

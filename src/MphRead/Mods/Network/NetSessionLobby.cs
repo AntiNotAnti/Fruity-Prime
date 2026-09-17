@@ -33,6 +33,7 @@ namespace MphRead.Mods.Network
         private static Guid _ownerToken;
         private static uint _nextCommandId;
         private static ushort? _loadedMatch;
+        private static ushort _rosterSessionRevision;
         private static double _lastLoadAck, _lastIdentity;
         private sealed class PendingLobbyCommand
         {
@@ -157,6 +158,7 @@ namespace MphRead.Mods.Network
         {
             ServerSession = null; _pendingLobby.Clear(); _loadedMatch = null;
             _rosterRevision = 0; _hasRoster = false; _ownerToken = Guid.Empty;
+            _rosterSessionRevision = 0;
             LobbyMessage = ""; _lastLoadAck = _lastIdentity = 0;
             Array.Fill(SlotTeamIndex, (sbyte)-1); Array.Clear(SlotLobbyReady);
             Chat.NetChat.Clear();
@@ -166,6 +168,7 @@ namespace MphRead.Mods.Network
         {
             var roster = RosterPacket.Create();
             roster.Revision = _rosterRevision;
+            roster.SessionRevision = _rosterSessionRevision;
             roster.MatchId = CurrentMatchId;
             roster.AuthorityEpoch = AuthorityEpoch;
             for (int slot = 0; slot < SlotOccupied.Length; slot++)

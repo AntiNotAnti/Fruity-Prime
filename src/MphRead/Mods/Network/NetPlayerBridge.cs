@@ -706,7 +706,7 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
-            FormCorrection correction = _formReconciliation[slot].Step(NetSession.NetFrame,
+            FormCorrection correction = ReconcileForm(slot, NetSession.NetFrame,
                 altForm, player.IsAltForm, player.IsMorphing, player.IsUnmorphing,
                 NetSession.SlotPing[slot]);
             // First the real transition, because that is what creates the
@@ -724,6 +724,11 @@ namespace MphRead.Mods.Network
                 player.ModForceForm(altForm);
             }
         }
+
+        internal static FormCorrection ReconcileForm(int slot, uint frame, bool desiredAlt,
+            bool actualAlt, bool morphing, bool unmorphing, int ping)
+            => slot < 0 || slot >= _formReconciliation.Length ? FormCorrection.None
+                : _formReconciliation[slot].Step(frame, desiredAlt, actualAlt, morphing, unmorphing, ping);
 
         private static readonly int[] _divergedFrames = new int[PlayerEntity.SlotCapacity];
 

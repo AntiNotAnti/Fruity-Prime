@@ -53,8 +53,8 @@ namespace MphRead.Mods.Network
                 packet[0] = (byte)PacketType.MatchState; state.Write(packet.AsSpan(1));
                 packets.Add(packet);
             }
-            var roster = RosterPacket.Create();
-            roster.Revision = NetSession.SessionRevision;
+            var roster = NetSession.LobbyRoster();
+            roster.Count = 0;
             for (int slot = 0; slot < RosterPacket.MaxSlots; slot++)
             {
                 if (!NetSession.SlotOccupied[slot]) continue;
@@ -91,7 +91,8 @@ namespace MphRead.Mods.Network
         {
             int slot = state.SlotIndex;
             if (DemoPlayback.IsActive || slot >= Known.Length) return;
-            if (Known[slot])
+            if (Known[slot] && Previous[slot].SlotGeneration == state.SlotGeneration
+                && Previous[slot].LifeId == state.LifeId)
             {
                 var old = Previous[slot];
                 if (old.Points != state.Points) Event(ReplayEventType.ScoreChanged, slot, value: state.Points);
@@ -103,9 +104,11 @@ namespace MphRead.Mods.Network
                     if (state.AttackerSlot < RosterPacket.MaxSlots && state.AttackerSlot != slot)
                         Event(ReplayEventType.Kill, state.AttackerSlot, slot);
                 }
-                if (old.DamageSeq != state.DamageSeq) Event(ReplayEventType.Damage, state.AttackerSlot, slot,
+                if (old.DamageEventId != state.DamageEventId) Event(ReplayEventType.Damage, state.AttackerSlot, slot,
                     Math.Max(0, old.Health - state.Health));
             }
+            else if (state.LifeId != 0 && (state.Flags & PlayerState.FlagSpawned) != 0)
+                Event(ReplayEventType.PlayerSpawn, slot);
             Previous[slot] = state; Known[slot] = true;
         }
     }

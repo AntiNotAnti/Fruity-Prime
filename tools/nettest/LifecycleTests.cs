@@ -55,8 +55,9 @@ namespace MphRead.NetTest
         private static void Wire()
         {
             Check(PlayerState.Size == 174, "player wire size includes event history");
-            Check(1 + SnapshotHeader.Size + PlayerState.Size * PlayerEntity.SlotCapacity <= NetConfig.MaxPacketSize
-                && NetConfig.MaxPacketSize <= 1472, "eight-player snapshot fits one Ethernet UDP datagram");
+            Check(1 + SnapshotHeader.Size + PlayerState.Size * PlayerEntity.SlotCapacity + 64 + 3 + 56 * 7
+                <= NetConfig.MaxPacketSize && NetConfig.MaxPacketSize <= 2048,
+                "eight-player lifecycle, clocks and health snapshot fits the combined bounded datagram");
             byte[] buffer = new byte[NetConfig.MaxPacketSize];
             var state = State(ushort.MaxValue, 99, 65400);
             state.DamageEventId = 65535;
@@ -252,7 +253,7 @@ namespace MphRead.NetTest
 
         private static byte[] Packet(uint frame, PlayerState state, ushort match = 51, ulong epoch = 4)
         {
-            byte[] bytes = new byte[1 + SnapshotHeader.Size + PlayerState.Size];
+            byte[] bytes = new byte[1 + SnapshotHeader.Size + PlayerState.Size + 64 + 3];
             bytes[0] = (byte)PacketType.Snapshot;
             new SnapshotHeader { MatchId = match, AuthorityEpoch = epoch, Frame = frame, PlayerCount = 1 }.Write(bytes.AsSpan(1));
             state.Write(bytes.AsSpan(1 + SnapshotHeader.Size));

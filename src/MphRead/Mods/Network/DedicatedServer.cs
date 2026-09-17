@@ -646,13 +646,13 @@ namespace MphRead.Mods.Network
             RotationEntry entry = _rotation.Advance();
             _phase = SessionPhase.InMatch;
             NormalizeTeams();
-            TouchLobbyRevision("rotation advanced");
             _matchStarted = now;
             _matchEndedAt = -1;
             _matchId = NetLifecycleTracker.Next(_matchId);
             _snapshotSeen = false;
             Array.Clear(_slotLives);
             foreach (Peer connected in _peers) connected.LastIntentFrame = 0;
+            TouchLobbyRevision("rotation advanced");
             // A vote about which map to play next has been answered by the
             // match ending, whatever the room was going to say.
             if (_voteRunning)
@@ -2010,6 +2010,7 @@ namespace MphRead.Mods.Network
             roster.MatchId = _matchId;
             roster.AuthorityEpoch = _authorityEpoch;
             roster.Revision = ++_rosterRevision;
+            roster.SessionRevision = _sessionRevision;
             for (int i = 0; i < _peers.Count && i < RosterPacket.MaxSlots; i++)
             {
                 roster.Slots[roster.Count] = (byte)_peers[i].SlotIndex;

@@ -1,5 +1,8 @@
 # Persistent multiplayer lobbies (protocol 9)
 
+Integration note: the combined build uses protocol 10, authority epochs and
+separate roster/session revisions; see [INTEGRATION.md](../INTEGRATION.md).
+
 `DedicatedServer` owns the session outside the game scene. `SessionPhase` is
 Lobby → Starting → InMatch → PostMatch → Lobby; it is independent of the
 engine's `MatchState`. Standalone `-server` retains **Continuous** rotation by

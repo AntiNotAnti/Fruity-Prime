@@ -80,80 +80,47 @@ namespace MphRead.Testing
         private static void CheckReconciliation(Action<bool, string> check)
         {
             const int slot = 2;
-            FormCorrection Tick(bool current, bool wanted, bool active = false)
-                => ReconcileForm(slot, current, wanted, active);
-            void ExpectFrames(int count, bool current, bool wanted, string name)
-            {
-                bool passed = true;
-                for (int i = 0; i < count; i++)
-                {
-                    passed &= Tick(current, wanted) == FormCorrection.None;
-                }
-                check(passed, name);
-            }
-            Reset();
-            check(ReconcileForm(-1, false, true, false) == FormCorrection.None
-                && ReconcileForm(PlayerEntity.SlotCapacity, false, true, false) == FormCorrection.None,
+            FormCorrection At(uint frame, bool current, bool wanted, bool morphing = false, bool unmorphing = false)
+                => ReconcileForm(slot, frame, wanted, current, morphing, unmorphing, 300);
+            check(ReconcileForm(-1, 0, true, false, false, false, 0) == FormCorrection.None
+                && ReconcileForm(PlayerEntity.SlotCapacity, 0, true, false, false, false, 0) == FormCorrection.None,
                 "invalid slots ignored");
             foreach (bool target in new[] { false, true })
             {
                 Reset();
-                check(Tick(target, target) == FormCorrection.None, "matching form");
-                ExpectFrames(7, !target, target, "stable mismatch waits seven frames");
-                check(Tick(!target, target) == FormCorrection.Switch, "switch on eighth mismatch");
-                ExpectFrames(11, !target, target, "refused or unstarted switch has bounded wait");
-                check(Tick(!target, target) == FormCorrection.Force, "force on twelfth failed-start frame");
-                ExpectFrames(7, !target, target, "force resets counters");
-                check(Tick(!target, target) == FormCorrection.Switch, "next recovery tries engine first");
-                bool observed = true;
-                for (int frame = 0; frame < 120; frame++)
+                for (uint frame = 0; frame <= 20; frame++)
+                    check(At(frame, !target, target) == (frame == 8 ? FormCorrection.Start
+                        : frame == 20 ? FormCorrection.Force : FormCorrection.None), "bounded lost-press recovery");
+                Reset();
+                for (uint frame = 0; frame <= 90; frame++)
+                    check(At(frame, false, target, morphing: target, unmorphing: !target)
+                        == (frame == 90 ? FormCorrection.Force : FormCorrection.None),
+                        "stalled transition completes within ninety frames");
+                Reset();
+                for (uint frame = 0; frame < 60; frame++)
                 {
-                    observed &= Tick(!target, target, true) == FormCorrection.None;
+                    bool active = frame < 20;
+                    bool actual = target && !active;
+                    bool desired = frame >= 38 ? target : !target;
+                    check(At(frame, actual, desired, active && target, active && !target) == FormCorrection.None,
+                        "normal animation and stale snapshots receive latency grace");
                 }
-                check(observed, "never interrupt corrective animation, even past fallback deadline");
-                check(Tick(target, target) == FormCorrection.None, "successful correction resets");
-                ExpectFrames(7, !target, target, "successful correction has no leftover attempt");
-                check(Tick(!target, target) == FormCorrection.Switch, "new correction uses real transition");
-                check(Tick(!target, target, true) == FormCorrection.None, "observe failed correction");
-                check(Tick(!target, target) == FormCorrection.Force, "wrong corrective result forced without grace");
-
-                Reset();
-                check(Tick(!target, !target, true) == FormCorrection.None,
-                    "morph/unmorph observed even when form currently matches");
-                ExpectFrames(30, target, !target, "completed normal transition gets thirty frames");
-                ExpectFrames(7, target, !target, "mismatch counted only after grace");
-                check(Tick(target, !target) == FormCorrection.Switch, "stale state eventually repaired");
-
-                Reset();
-                Tick(!target, !target, true);
-                Tick(target, !target);
-                check(Tick(target, target) == FormCorrection.None, "snapshot catches up during grace");
-                ExpectFrames(7, target, !target, "matching snapshot clears grace");
-                check(Tick(target, !target) == FormCorrection.Switch, "no stale grace after match");
             }
             foreach (Action reset in new Action[] { Reset, NoteRoomChanged, () => ForgetSlot(slot) })
             {
-                // Exercise each history component at each lifecycle boundary.
-                for (int state = 0; state < 4; state++)
-                {
-                    Reset();
-                    if (state == 0) { Tick(false, true); }
-                    if (state == 1) { for (int i = 0; i < 8; i++) Tick(false, true); }
-                    if (state >= 2) { Tick(false, false, true); }
-                    if (state == 3) { Tick(true, false); }
-                    reset();
-                    ExpectFrames(7, false, true, "lifecycle clears history");
-                    check(Tick(false, true) == FormCorrection.Switch, "clean recovery after lifecycle reset");
-                }
+                Reset();
+                for (uint frame = 0; frame <= 8; frame++) At(frame, false, true);
+                reset();
+                for (uint frame = 9; frame < 17; frame++)
+                    check(At(frame, false, true) == FormCorrection.None, "lifecycle clears recovery history");
+                check(At(17, false, true) == FormCorrection.Start, "recovery restarts after lifecycle reset");
             }
             Reset();
-            Tick(false, true);
-            check(ReconcileForm(slot + 1, false, true, false) == FormCorrection.None,
-                "slots maintain independent histories");
-            // Measure after initialization/JIT: per-frame decisions allocate nothing.
-            Tick(false, false);
+            for (int repeat = 0; repeat < 100; repeat++)
+                check(At(0, false, true) == FormCorrection.None, "repeated packets cannot advance recovery");
+            At(1, false, true);
             long before = GC.GetAllocatedBytesForCurrentThread();
-            for (int i = 0; i < 10000; i++) ReconcileForm(slot, false, true, true);
+            for (uint frame = 2; frame < 10002; frame++) At(frame, false, true, true);
             check(GC.GetAllocatedBytesForCurrentThread() == before, "allocation-free reconciliation");
         }
     }
@@ -191,11 +158,20 @@ namespace MphRead.Entities
             intent.WeaponSelect = 0xFF;
             intent.Aim = Vector3.UnitZ;
             intent.Frame = 11;
+            intent.SlotGeneration = 1;
+            intent.LifeId = 1;
             byte[] wire = new byte[IntentPacket.FullSize];
             intent.Write(wire);
             IntentPacket received = IntentPacket.Read(wire);
             var authority = new PlayerEntity(2, null!);
             var viewer = new PlayerEntity(3, null!);
+            foreach (var receiver in new[] { authority, viewer })
+            {
+                NetPlayerLifecycle.SetOccupant(receiver.SlotIndex, 1);
+                NetPlayerLifecycle.AcceptState(new PlayerState { SlotIndex = (byte)receiver.SlotIndex,
+                    SlotGeneration = 1, LifeId = 1, Health = 99,
+                    Flags = PlayerState.FlagActive | PlayerState.FlagSpawned }, 1);
+            }
             IntentPacket baseline = received;
             baseline.Frame = 10;
             baseline.Presses = new uint[IntentPacket.PressHistory];

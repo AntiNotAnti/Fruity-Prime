@@ -741,7 +741,7 @@ namespace MphRead.Mods.Network
             // Reconnects/authority handovers belong to the recording client's connection,
             // never to the spectator watching it. In particular Welcome must not assign a
             // local player, and Bye must not destroy the final replay scene.
-            if (_playback && packet.Type is PacketType.Welcome or PacketType.Authority
+            if (DemoPlayback.IsActive && packet.Type is PacketType.Welcome or PacketType.Authority
                 or PacketType.Bye or PacketType.Refused) return;
             if (Role == NetRole.Client && !_playback
                 && (_hostEndPoint == null || !packet.Sender.Equals(_hostEndPoint))) return;
@@ -1408,6 +1408,7 @@ namespace MphRead.Mods.Network
             }
             _hasRoster = true;
             _rosterRevision = roster.Revision;
+            _rosterSessionRevision = roster.SessionRevision;
             for (int slot = 0; slot < SlotOccupied.Length; slot++)
             {
                 bool present = false;

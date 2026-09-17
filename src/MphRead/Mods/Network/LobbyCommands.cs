@@ -180,15 +180,17 @@ namespace MphRead.Mods.Network
                     _frozenWorldProfile = LobbyRules.ResolveWorldProfile(_frozenMatch, _maxPlayers);
                     // Build before publishing Starting. A failure must not strand clients in loading.
                     double buildStarted = NetSession.Clock;
+                    ushort previousMatch = _matchId;
+                    _matchId = NetLifecycleTracker.Next(_matchId);
                     try { StartSimulation(); }
                     catch (Exception ex)
                     {
+                        _matchId = previousMatch;
                         _sim?.Stop(); _sim = null;
                         Log($"[lobby] map load failed: {ex.Message}");
                         reason = "The server could not load this map.";
                         return LobbyResultCode.MapUnavailable;
                     }
-                    _matchId = NetLifecycleTracker.Next(_matchId);
                     _snapshotSeen = false;
                     Array.Clear(_slotLives);
                     foreach (Peer connected in _peers) connected.LastIntentFrame = 0;

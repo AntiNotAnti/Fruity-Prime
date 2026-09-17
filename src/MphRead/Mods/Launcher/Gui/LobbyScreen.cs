@@ -39,7 +39,7 @@ namespace MphRead.Mods.Launcher.Gui
         private MatchDefinition? _shownMatch;
         private ushort? _shownRevision;
         private int _chatRevision = -1, _rosterCount;
-        private ushort? _shownRosterRevision;
+        private uint? _shownRosterRevision;
         private double _nextPingRefresh;
         private SessionRules _shownRules;
         private bool _syncing, _suspended, _closed;

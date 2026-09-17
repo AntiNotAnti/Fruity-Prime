@@ -20,12 +20,18 @@ namespace MphRead.Mods.Network
             }
             try
             {
-                var match = new MatchStatePacket { RoomKey = "MP1 SANCTORUS", NextRoomKey = "",
+                var match = new MatchStatePacket { MatchId = 1, AuthorityEpoch = 1, RoomKey = "MP1 SANCTORUS", NextRoomKey = "",
                     Mode = (byte)GameMode.Battle, TimeRemaining = 300, Flags = MatchStatePacket.FlagInProgress };
-                var matchBytes = new byte[1 + MatchStatePacket.Size];
-                matchBytes[0] = (byte)PacketType.MatchState; match.Write(matchBytes.AsSpan(1));
-                var metadata = new ReplayMetadata { RoomKey = match.RoomKey, Mode = GameMode.Battle,
-                    Bootstrap = new ReplayBootstrap { Packets = new[] { matchBytes } } };
+                NetSession.StartPlayback();
+                NetSession.ApplyMatchState(match, false);
+                var roster = RosterPacket.Create();
+                roster.MatchId = match.MatchId; roster.AuthorityEpoch = match.AuthorityEpoch;
+                roster.Revision = 42; roster.SessionRevision = 7; roster.Count = 2;
+                roster.Slots[0] = 1; roster.Generations[0] = 3; roster.Teams[0] = 0; roster.Names[0] = "First";
+                roster.Slots[1] = 6; roster.Generations[1] = 9; roster.Teams[1] = 1; roster.Names[1] = "Second";
+                NetSession.ApplyRoster(roster);
+                var metadata = ReplayCapture.Capture(ReplayType.FullMatch, hashMap: false);
+                NetSession.Stop();
                 byte[] packet = { (byte)PacketType.Ping, 17, 42 };
                 string clean = Path.Combine(directory, "clean.fpdemo");
                 using (var writer = new ReplayWriterV3(clean, metadata))
@@ -94,6 +100,14 @@ namespace MphRead.Mods.Network
                     new byte[] { (byte)PacketType.Authority }, new byte[] { (byte)PacketType.Bye } })
                     NetSession.InjectPlaybackPacket(control, control.Length);
                 NetSession.Update(0);
+                var restoredRoster = NetSession.LobbyRoster();
+                Require(restoredRoster.MatchId == 1 && restoredRoster.AuthorityEpoch == 1
+                    && restoredRoster.Revision == 42 && restoredRoster.SessionRevision == 7,
+                    "captured bootstrap preserves lifecycle and lobby revisions");
+                Require(restoredRoster.Count == 2 && restoredRoster.Slots[0] == 1 && restoredRoster.Slots[1] == 6
+                    && restoredRoster.Generations[0] == 3 && restoredRoster.Generations[1] == 9
+                    && restoredRoster.Teams[0] == 0 && restoredRoster.Teams[1] == 1,
+                    "captured bootstrap restores sparse roster generations and teams");
                 Require(NetSession.Active && NetSession.LocalSlot == -1 && !NetSession.IsAuthority,
                     "reconnect/control packets cannot create a local player or end playback");
                 DemoPlayback.Stop(); NetSession.Stop();
@@ -169,7 +183,8 @@ namespace MphRead.Mods.Network
                     checks++;
                 }
                 NetSession.StartPlayback();
-                NetSession.ApplyMatchState(new MatchStatePacket { RoomKey = "", NextRoomKey = "", Mode = (byte)GameMode.Battle }, false);
+                NetSession.ApplyMatchState(new MatchStatePacket { MatchId = 1, AuthorityEpoch = 1,
+                    RoomKey = "", NextRoomKey = "", Mode = (byte)GameMode.Battle }, false);
                 int priorSeconds = DemoClip.Seconds;
                 try
                 {

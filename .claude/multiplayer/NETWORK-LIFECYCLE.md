@@ -1,5 +1,8 @@
 # Network lifecycle (protocol 8)
 
+Integration note: this is the original branch design. The combined build uses
+protocol 10 and a larger snapshot budget; see [INTEGRATION.md](../INTEGRATION.md).
+
 The simulation authority owns health, death, spawn, scores and life allocation.
 Clients predict hit feedback and nonlethal damage. A remote lethal prediction
 stops at 1 HP and clears the engine's forced-death flag. Its hit claim retains

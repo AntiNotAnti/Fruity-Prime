@@ -1,5 +1,8 @@
 # Team layouts and world resources
 
+For the combined lifecycle/lobby wire format, packet-size caveat and current
+verification scope, see [INTEGRATION.md](../INTEGRATION.md).
+
 The persistent lobby's authoritative definition resolves exact team capacities
 and a `MatchWorldProfile` before the loading barrier. Exact formats use total
 capacity; flexible FFA/Auto use the server's configured player limit. The

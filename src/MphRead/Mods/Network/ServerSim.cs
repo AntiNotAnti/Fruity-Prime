@@ -232,8 +232,8 @@ namespace MphRead.Mods.Network
                 // the first four.
                 PlayerEntity.MaxPlayers = Math.Clamp(maxPlayers, 2, PlayerEntity.SlotCapacity);
                 NetSession.StartServerAuthority(sink, matchEnded);
-                if (roster is { } players) NetSession.ApplyRoster(players);
                 if (session is { } state) NetSession.ApplySessionState(state);
+                if (roster is { } players) NetSession.ApplyRoster(players);
                 // A size, because the scene divides by it when it builds a
                 // projection. Nothing here ever builds one; this is the DS's
                 // own, so a stray aspect ratio is at least the right one.

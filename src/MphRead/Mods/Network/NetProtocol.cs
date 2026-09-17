@@ -892,8 +892,9 @@ namespace MphRead.Mods.Network
         // slot, the server is the only party that can measure it for
         // everybody, and it already sends this packet every second.
         public const int EntrySize = 1 + 1 + 1 + 2 + MaxNameBytes + 4;
-        public const int HeaderSize = 15;
+        public const int HeaderSize = 17;
         public const int Size = HeaderSize + MaxSlots * EntrySize;
+        public ushort SessionRevision;
         public ushort MatchId;
         public ulong AuthorityEpoch;
         public uint Revision;
@@ -931,6 +932,7 @@ namespace MphRead.Mods.Network
             BinaryPrimitives.WriteUInt16LittleEndian(dest[1..], MatchId);
             BinaryPrimitives.WriteUInt64LittleEndian(dest[3..], AuthorityEpoch);
             BinaryPrimitives.WriteUInt32LittleEndian(dest[11..], Revision);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[15..], SessionRevision);
             int offset = HeaderSize;
             for (int i = 0; i < Count && i < MaxSlots; i++)
             {
@@ -972,6 +974,7 @@ namespace MphRead.Mods.Network
             roster.MatchId = BinaryPrimitives.ReadUInt16LittleEndian(src[1..]);
             roster.AuthorityEpoch = BinaryPrimitives.ReadUInt64LittleEndian(src[3..]);
             roster.Revision = BinaryPrimitives.ReadUInt32LittleEndian(src[11..]);
+            roster.SessionRevision = BinaryPrimitives.ReadUInt16LittleEndian(src[15..]);
             int offset = HeaderSize;
             for (int i = 0; i < roster.Count; i++)
             {
@@ -1901,7 +1904,9 @@ namespace MphRead.Mods.Network
     public static class NetConfig
     {
         public const ushort DefaultPort = 27888;
-        public const int MaxPacketSize = 2048; // bounded combined lifecycle, team-clock and health-spawner snapshot
+        // Combined lifecycle + team clocks + health spawners can exceed a single
+        // Ethernet MTU. This is a buffer bound, not a no-fragmentation guarantee.
+        public const int MaxPacketSize = 2048;
         /// <summary>
         /// Bumped when the wire format changes in a way an older build would
         /// misread rather than notice. Version 2 added the ping to the roster:
@@ -1983,6 +1988,10 @@ namespace MphRead.Mods.Network
         /// now use one per-stream firing phase on every machine. Packet layout
         /// is unchanged, but version 7 peers would simulate different ammo
         /// and damage events, so mixed builds must be refused.
+        /// Version 10 integrates lifecycle, persistent lobby, team-resource and
+        /// continuous-phase branches. Rosters retain generations, teams and ready
+        /// flags with separate roster/session revisions; SessionState has an epoch.
+        /// Snapshots retain lifecycle identities, team clocks and health spawners.
         /// </summary>
         public const int ProtocolVersion = 10;
         /// <summary>
