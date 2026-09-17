@@ -75,6 +75,21 @@ images are beside the desktop DLL under `artifacts/ui-enhancement/matrix/`.
 
 ## Remaining acceptance gates
 
+### Highlight and controller integration (2026-09-17)
+
+Merged player highlights through `384034b` and controller support through
+`b481299`. The integration keeps its desktop ROM browser, extraction safeguards,
+Mac user-data paths, and renderer teardown fixes. Visibility controls live under
+HUD and accessibility; controller capture from a keyboard binding switches to
+the separate Controller page. CI runs controller and UI checks on Windows and
+both Mac architectures with distinct screenshot artifacts.
+
+Local Release builds pass without warnings. The 177 controller checks, highlight
+policy/preferences, frame timing, graphics resource checks, UI copy, ROM browser
+and extraction regressions pass. The 152-layout matrix has zero failures; the
+20-screen capture run also passes, and its visibility page was visually checked.
+These checks do not certify physical controllers or Mac GPU rendering.
+
 P0 cross-platform acceptance is **not complete**. This host has no Linux/Mesa/
 XWayland environment. Issue #34 must remain open until its 9-, 100- and
 500-cycle sequence passes there. Windows/NVIDIA results cannot substitute.

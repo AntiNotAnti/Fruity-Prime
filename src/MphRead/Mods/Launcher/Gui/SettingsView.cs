@@ -297,6 +297,8 @@ namespace MphRead.Mods.Launcher.Gui
         internal void ShowVisibilitySettings()
         {
             ShowSection("HUD and accessibility");
+            // The HUD page is initially hidden, so measure it before reading row positions.
+            TopLevel.GetTopLevel(this)?.UpdateLayout();
             if (_sections[_tabs.Index].Page is ScrollViewer scroll)
             {
                 scroll.Offset = new Avalonia.Vector(0, Math.Max(0, _brightSkinsRow.Bounds.Y - 40));
