@@ -8,11 +8,6 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using MphRead.Mods.Network;
-#if MPHREAD_SHELL
-using Avalonia.Headless;
-using Avalonia.Input;
-using Avalonia.VisualTree;
-#endif
 
 namespace MphRead.Mods.Launcher.Gui
 {
@@ -46,7 +41,7 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         private static readonly Size _windowSize = new Size(940, 560);
 
-        public static int Run(string directory, bool browserOnly = false)
+        public static int Run(string directory)
         {
             if (!GuiLauncher.EnsureSetup())
             {
@@ -61,317 +56,27 @@ namespace MphRead.Mods.Launcher.Gui
             // below, and it is still only offered when real logs exist.
             Mods.LogShare.Current ??= new CaptureLogShare();
             int written = 0;
-            bool browserPassed = true;
             // On the toolkit's own thread, and drained afterwards: the views
             // post work to the dispatcher as they are built (the front screen
             // focuses its first control that way), and a render before that
             // has run is a picture of a half-built screen.
             Dispatcher.UIThread.Invoke(() =>
             {
-                if (!browserOnly)
+                var settings = new MenuSettings();
+                List<string> rooms = RoomList();
+                foreach ((string name, Control view, Size size) in Screens(settings, rooms))
                 {
-                    var settings = new MenuSettings();
-                    List<string> rooms = RoomList();
-                    foreach ((string name, Control view, Size size) in Screens(settings, rooms))
+                    string path = Path.Combine(directory, $"{name}.png");
+                    if (Capture(view, path, size))
                     {
-                        string path = Path.Combine(directory, $"{name}.png");
-                        if (Capture(view, path, size))
-                        {
-                            written++;
-                            Console.WriteLine($"[uishot] {path}");
-                        }
+                        written++;
+                        Console.WriteLine($"[uishot] {path}");
                     }
                 }
-#if MPHREAD_SHELL
-                browserPassed = CaptureRomBrowser(directory, ref written);
-#endif
             });
             Console.WriteLine($"[uishot] {written} screen(s) written to {directory}");
-            return written > 0 && browserPassed ? 0 : 1;
+            return written > 0 ? 0 : 1;
         }
-
-#if MPHREAD_SHELL
-        /// <summary>
-        /// Exercise the actual setup button and browser controls with headless
-        /// pointer/key input. No game data is needed and confirmation is not
-        /// pressed, so the extractor never starts.
-        /// </summary>
-        private static bool CaptureRomBrowser(string output, ref int written)
-        {
-            string sample = Path.Combine(Path.GetTempPath(),
-                "FruityPrime-RomBrowser-" + Guid.NewGuid().ToString("N"));
-            string oldDirectory = LauncherPrefs.LastRomDirectory;
-            string oldPrefsDirectory = LauncherPrefs.Directory;
-            Window? window = null;
-            try
-            {
-                var v = OpenTK.Windowing.GraphicsLibraryFramework.Keys.V;
-                if (!Shell.IsRomPasteShortcut(v, control: true, command: false,
-                        alt: false, macOS: false)
-                    || !Shell.IsRomPasteShortcut(v, control: false, command: true,
-                        alt: false, macOS: true)
-                    || Shell.IsRomPasteShortcut(v, control: true, command: false,
-                        alt: true, macOS: false)
-                    || Shell.IsRomPasteShortcut(v, control: false, command: true,
-                        alt: true, macOS: true))
-                {
-                    throw new InvalidOperationException("The desktop paste shortcut was misidentified.");
-                }
-                string games = Path.Combine(sample, "Games");
-                string transient = Path.Combine(sample, "Gone");
-                Directory.CreateDirectory(games);
-                Directory.CreateDirectory(transient);
-                File.WriteAllBytes(Path.Combine(sample, "PRIME.NDS"), Array.Empty<byte>());
-                File.WriteAllBytes(Path.Combine(sample, "ignore.txt"), Array.Empty<byte>());
-                File.WriteAllBytes(Path.Combine(games, "hunters.nds"), Array.Empty<byte>());
-                LauncherPrefs.LastRomDirectory = sample;
-                var setup = new SetupScreen();
-                window = new Window
-                {
-                    Width = _windowSize.Width,
-                    Height = _windowSize.Height,
-                    Background = GuiTheme.PanelBrush,
-                    RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Dark,
-                    SystemDecorations = SystemDecorations.None,
-                    ShowInTaskbar = false,
-                    ShowActivated = false,
-                    WindowStartupLocation = WindowStartupLocation.Manual,
-                    Position = new PixelPoint(-4000, -4000),
-                    Content = setup
-                };
-                window.Show();
-                Drain(window, _windowSize);
-                Click(window, Find<UiMark>(window,
-                    mark => mark.Label == "choose your .nds file"));
-                Drain(window, _windowSize);
-                if (setup.Content is not RomFileBrowser browser
-                    || Find<UiListRow>(window, row => row.Choice is RomFileEntry
-                        { Name: "PRIME.NDS" }) == null)
-                {
-                    throw new InvalidOperationException("The setup button did not show ROM rows.");
-                }
-                if (Find<UiListRow>(window, row => row.Choice is RomFileEntry
-                    { Name: "ignore.txt" }) != null)
-                {
-                    throw new InvalidOperationException("Unrelated files reached the browser.");
-                }
-                SaveBrowserShot(window, output, "rom-browser", _windowSize, ref written);
-
-                // The row remains on screen when a drive/folder disappears.
-                // It must be usable again when that path comes back.
-                Directory.Delete(transient);
-                Click(window, Find<UiListRow>(window, row => row.Choice is RomFileEntry
-                    { Name: "Gone" }));
-                Drain(window, _windowSize);
-                if (Find<Note>(window, note => note.Text?.StartsWith(
-                    "This folder could not be opened:", StringComparison.Ordinal) == true
-                    && note.IsVisible) == null)
-                {
-                    throw new InvalidOperationException("A removed folder had no inline error.");
-                }
-                Directory.CreateDirectory(transient);
-                File.WriteAllBytes(Path.Combine(transient, "return.nds"), Array.Empty<byte>());
-                Click(window, Find<UiListRow>(window, row => row.Choice is RomFileEntry
-                    { Name: "Gone" }));
-                Drain(window, _windowSize);
-                if (Find<UiListRow>(window, row => row.Choice is RomFileEntry
-                    { Name: "return.nds" }) == null)
-                {
-                    throw new InvalidOperationException("A restored folder could not be retried.");
-                }
-                window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.None, "");
-                window.KeyRelease(Key.Escape, RawInputModifiers.None, PhysicalKey.None, "");
-                Drain(window, _windowSize);
-
-                Click(window, Find<UiListRow>(window, row => row.Choice is RomFileEntry
-                    { Name: "Games" }));
-                Drain(window, _windowSize);
-                if (Find<UiListRow>(window, row => row.Choice is RomFileEntry
-                    { Name: "hunters.nds" }) == null)
-                {
-                    throw new InvalidOperationException("Directory activation did not navigate.");
-                }
-                Click(window, Find<UiListRow>(window, row => row.Choice is RomFileEntry
-                    { Name: "hunters.nds" }));
-                Drain(window, _windowSize);
-                if (Find<UiMark>(window, mark => mark.Label == "use file")?.IsEnabled != true)
-                {
-                    throw new InvalidOperationException("ROM activation did not select the file.");
-                }
-                if (browser.PastePath("unfocused"))
-                {
-                    throw new InvalidOperationException("Paste reached an unfocused path field.");
-                }
-                window.KeyPress(Key.Up, RawInputModifiers.None, PhysicalKey.None, "");
-                window.KeyRelease(Key.Up, RawInputModifiers.None, PhysicalKey.None, "");
-                Drain(window, _windowSize);
-                if (Find<UiMark>(window, mark => mark.Label == "use file")?.IsEnabled != false)
-                {
-                    throw new InvalidOperationException("The parent row left a ROM selected.");
-                }
-                Click(window, Find<UiListRow>(window, row => row.Choice is RomFileEntry
-                    { Name: "hunters.nds" }));
-                Drain(window, _windowSize);
-
-                window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.None, "");
-                window.KeyRelease(Key.Escape, RawInputModifiers.None, PhysicalKey.None, "");
-                Drain(window, _windowSize);
-                if (Find<UiListRow>(window, row => row.Choice is RomFileEntry
-                    { Name: "PRIME.NDS" }) == null)
-                {
-                    throw new InvalidOperationException("Escape did not navigate to the parent.");
-                }
-
-                TextBox path = Find<TextBox>(window, _ => true)
-                    ?? throw new InvalidOperationException("The path field is missing.");
-                path.Text = Path.Combine(sample, "ignore.txt");
-                path.Focus();
-                window.KeyPress(Key.Enter, RawInputModifiers.None, PhysicalKey.None, "");
-                window.KeyRelease(Key.Enter, RawInputModifiers.None, PhysicalKey.None, "");
-                Drain(window, _windowSize);
-                if (Find<Note>(window, note => note.Text == "Choose a .nds file."
-                    && note.IsVisible) == null)
-                {
-                    throw new InvalidOperationException("An unrelated path had no inline error.");
-                }
-                path.Text = "selected text";
-                path.SelectAll();
-                if (!browser.PastePath("") || path.Text != "selected text")
-                {
-                    throw new InvalidOperationException("Empty clipboard text changed the path.");
-                }
-                path.SelectAll();
-                path.Focus();
-                if (!browser.PastePath(Path.Combine(sample, "PRIME.NDS"))
-                    || path.Text != Path.Combine(sample, "PRIME.NDS"))
-                {
-                    throw new InvalidOperationException("Pasted text did not reach the path field.");
-                }
-                window.KeyPress(Key.Enter, RawInputModifiers.None, PhysicalKey.None, "");
-                window.KeyRelease(Key.Enter, RawInputModifiers.None, PhysicalKey.None, "");
-                Drain(window, _windowSize);
-                if (Find<UiMark>(window, mark => mark.Label == "use file")?.IsEnabled != true)
-                {
-                    throw new InvalidOperationException("Enter did not accept a pasted ROM path.");
-                }
-
-                var large = new Size(1280, 720);
-                window.Width = large.Width;
-                window.Height = large.Height;
-                Drain(window, large);
-                SaveBrowserShot(window, output, "rom-browser-large", large, ref written);
-                Click(window, Find<UiMark>(window, mark => mark.Label == "cancel"));
-                Drain(window, large);
-                if (ReferenceEquals(setup.Content, browser))
-                {
-                    throw new InvalidOperationException("Cancel did not return to setup.");
-                }
-
-                // Confirmation is checked on a detached browser so the fake
-                // file is never passed to the real cartridge extractor.
-                var standalone = new RomFileBrowser(sample);
-                string? chosen = null;
-                standalone.Selected += path => chosen = path;
-                window.Content = standalone;
-                Drain(window, large);
-                Click(window, Find<UiListRow>(window, row => row.Choice is RomFileEntry
-                    { Name: "PRIME.NDS" }));
-                Drain(window, large);
-                Click(window, Find<UiMark>(window, mark => mark.Label == "use file"));
-                if (chosen != Path.Combine(sample, "PRIME.NDS"))
-                {
-                    throw new InvalidOperationException("Confirmation did not return the ROM path.");
-                }
-
-                LauncherPrefs.Directory = sample;
-                LauncherPrefs.LastRomDirectory = games;
-                LauncherPrefs.Save();
-                LauncherPrefs.LastRomDirectory = "";
-                LauncherPrefs.Load();
-                if (LauncherPrefs.LastRomDirectory != games)
-                {
-                    throw new InvalidOperationException("The last ROM folder was not persisted.");
-                }
-                Console.WriteLine("[uishot] ROM browser navigation, selection, path and cancel passed");
-                return true;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[uishot] ROM browser smoke failed: {ex.Message}");
-                return false;
-            }
-            finally
-            {
-                window?.Close();
-                LauncherPrefs.LastRomDirectory = oldDirectory;
-                LauncherPrefs.Directory = oldPrefsDirectory;
-                string tempRoot = Path.GetFullPath(Path.GetTempPath());
-                string fullSample = Path.GetFullPath(sample);
-                if (fullSample.StartsWith(tempRoot.TrimEnd(Path.DirectorySeparatorChar)
-                        + Path.DirectorySeparatorChar, OperatingSystem.IsWindows()
-                            ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
-                    && Path.GetFileName(fullSample).StartsWith(
-                        "FruityPrime-RomBrowser-", StringComparison.Ordinal)
-                    && Directory.Exists(fullSample))
-                {
-                    Directory.Delete(fullSample, recursive: true);
-                }
-            }
-        }
-
-        private static T? Find<T>(Control root, Func<T, bool> match) where T : Control
-        {
-            foreach (Visual visual in root.GetVisualDescendants())
-            {
-                if (visual is T control && match(control))
-                {
-                    return control;
-                }
-            }
-            return null;
-        }
-
-        private static void Click(Window window, Control? control)
-        {
-            if (control == null)
-            {
-                throw new InvalidOperationException("A browser control could not be found.");
-            }
-            Point? point = control.TranslatePoint(
-                new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window);
-            if (point == null)
-            {
-                throw new InvalidOperationException("A browser control has no screen position.");
-            }
-            window.MouseMove(point.Value, RawInputModifiers.None);
-            window.MouseDown(point.Value, MouseButton.Left,
-                RawInputModifiers.LeftMouseButton);
-            window.MouseUp(point.Value, MouseButton.Left, RawInputModifiers.None);
-        }
-
-        private static void Drain(Window window, Size size)
-        {
-            for (int i = 0; i < 8; i++)
-            {
-                Dispatcher.UIThread.RunJobs();
-            }
-            window.Measure(size);
-            window.Arrange(new Rect(size));
-            Dispatcher.UIThread.RunJobs();
-        }
-
-        private static void SaveBrowserShot(Window window, string output,
-            string name, Size size, ref int written)
-        {
-            string path = Path.Combine(output, name + ".png");
-            var bitmap = new RenderTargetBitmap(
-                new PixelSize((int)size.Width, (int)size.Height), new Vector(96, 96));
-            bitmap.Render(window);
-            bitmap.Save(path);
-            written++;
-            Console.WriteLine($"[uishot] {path}");
-        }
-#endif
 
         private static List<string> RoomList()
         {
