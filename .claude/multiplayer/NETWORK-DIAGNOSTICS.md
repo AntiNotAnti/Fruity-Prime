@@ -140,9 +140,9 @@ which this is not.
 `alt-attack` at ~40% (one-frame presses collapsing into one intent window),
 `movement` at ~50% (a 30 Hz reconstruction of a 60 Hz path with a fifth of the
 updates reordered and refused), `zoom` lagging (a toggle with a half-second round
-trip), `form stayed wrong for 181 frames` (the correction machinery's full budget
--- and the check fails at 60, *below* that budget, so it cannot pass whenever the
-machinery has acted), and `never took a single hit` on a large map (check
+trip), `form stayed wrong for 181 frames` (the old 90-frame grace and fallback
+budget; current reconciliation is described below), and `never took a single
+hit` on a large map (check
 `player overlaps by shooter`: empty for *everybody* means the room, not the
 network).
 
@@ -319,11 +319,31 @@ knows better is the owner's, and nothing was asking: `IntentButtons.AltFormState
 has always been in the packet, and was used only to convert the reported
 position between forms.
 
-`ApplyIntent` now feeds it to `ApplyForm` -- the same grace period, the same
-attempt-then-force -- but **only on the authority**. A client that also acted on
-it would be taking form corrections from two sources at once, its owner's
-intent and the authority's snapshot, and the two disagree for exactly as long
-as it takes the authority to converge.
+`ApplyIntent` feeds the owner's form state to `ApplyForm` **only on the
+authority**. Clients reconcile against the authority's snapshot. Both paths
+protect an observed morph or unmorph through its animation and a bounded
+latency allowance (ping plus eight simulation frames, capped at 32). A mismatch
+without a transition gets eight simulation frames before the normal switch is
+tried. A failed switch is forced after 12 more frames; a transition that never
+finishes is forced after 90. A stalled unmorph can already have the correct
+form bit; forced completion clears its animation flag and restores the biped
+model without shifting the collision centre again. These are elapsed
+`NetFrame` intervals, not packet or call counts. `Reset`, `ForgetSlot`, and
+room change clear the timing state.
+An observed settled frame also ends the active transition timer. A later
+same-direction morph gets its own 90-frame ceiling, including after a
+cancel/death returned the player to biped without an observed unmorph.
+The last transition time is retained separately for post-animation latency grace.
+The position conversion through `InForm` still applies when forms disagree.
+
+The headless runtime regression is `-simcheck "MP3 PROVING GROUND" -players 1
+-seconds 2 -formcheck` with extracted game files configured. It creates a real
+player, begins an unmorph, holds the animation while the 90-frame fallback is
+timed, and calls `ModForceForm(false)`. It fails if the transition flag remains,
+the biped position or collision volume moves, or the camera node and idle model
+are not restored. `tools/formtest` covers the timing without game files.
+The `-formcheck` invocation skips desktop update staging cleanup, so running
+this diagnostic does not remove a pending `.update` directory.
 
 ## The death cry on the frame you respawn (2026-09-15)
 
