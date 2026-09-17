@@ -402,7 +402,18 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
-            File.Copy(source, target, overwrite: true);
+            string[] lines = File.ReadAllLines(source);
+            for (int i = 0; i < lines.Length; i++)
+            {
+                // The copy is read from a directory with no files/ beside it.
+                int split = lines[i].IndexOf('=');
+                string value = split == -1 ? "" : lines[i][(split + 1)..].Trim();
+                if (value.Length > 0)
+                {
+                    lines[i] = $"{lines[i][..split].Trim()}={Path.GetFullPath(value, GameFiles.Root)}";
+                }
+            }
+            File.WriteAllText(target, String.Join(Environment.NewLine, lines));
         }
 
         /// <summary>
