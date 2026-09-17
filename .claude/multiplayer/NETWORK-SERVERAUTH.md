@@ -58,6 +58,14 @@ and the old objection -- "a reimplementation on the server would be a second
 answer free to disagree with the first" -- disappears: it is the same answer,
 compiled from the same file.
 
+Spire's alt attack has one simulation-owned exception to the old draw-derived
+pose: after the alt animation frame update, `PlayerProcess` animates its rock
+nodes and stores both world-space collision positions. `PlayerDraw` animates
+the nodes again for the picture but does not write collision positions. This
+keeps the headless server's slam collision current without changing the startup
+positions set when the attack begins or the render transforms. The
+`-spireposecheck` headless probe verifies moving rock positions with no draw.
+
 | Piece | What it does |
 |---|---|
 | `Mods.Headless.Active` | one switch, in the shape `ThumbnailMode` established. Turns off only work whose output is a picture, a sound or an answer to a person |
