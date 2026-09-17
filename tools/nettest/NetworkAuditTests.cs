@@ -28,10 +28,27 @@ namespace MphRead.NetTest
                 FullSnapshot();
                 SessionOrdering();
                 TeamConvergence();
+                SpireDiagnosticIdentity();
                 if (_failures != 0) throw new InvalidOperationException($"{_failures} network audit regressions failed");
                 return _checks;
             }
             finally { NetSession.Stop(); }
+        }
+
+        private static void SpireDiagnosticIdentity()
+        {
+            NetSession.StartServerAuthority(_ => { }, () => { });
+            typeof(SpireAltPoseCheck).GetMethod("InitializeRoster", Private)!.Invoke(null, new object[] { "MP3 PROVING GROUND" });
+            Check(NetSession.CurrentMatchId == 1 && NetSession.AuthorityEpoch == 1
+                && NetSession.SlotOccupied[0] && NetPlayerLifecycle.Generation(0) == 1,
+                "Spire diagnostic establishes a valid lifecycle roster");
+            NetPlayerLifecycle.AcceptState(new PlayerState { SlotIndex = 0, SlotGeneration = 1,
+                LifeId = 1, Health = 50, Flags = PlayerState.FlagActive | PlayerState.FlagSpawned }, 1);
+            typeof(SpireAltPoseCheck).GetMethod("FeedIntent", Private)!.Invoke(null,
+                new object[] { 2u, IntentButtons.AltAttack, new uint[IntentPacket.PressHistory], Vector3.Zero });
+            Check(NetSession.RemoteIntentValid[0] && NetSession.RemoteIntents[0].LifeId == 1,
+                "Spire diagnostic sends an accepted current-life intent");
+            NetSession.Stop();
         }
 
         private static void Check(bool ok, string name)

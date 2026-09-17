@@ -24,14 +24,7 @@ namespace MphRead.Mods.Network
             }
             try
             {
-                RosterPacket roster = RosterPacket.Create();
-                roster.Slots[0] = 0;
-                roster.Hunters[0] = (byte)Hunter.Spire;
-                roster.Colors[0] = 0;
-                roster.Pings[0] = 0;
-                roster.Names[0] = "SPIREPOSE";
-                roster.Count = 1;
-                NetSession.ApplyRoster(roster);
+                InitializeRoster(room);
 
                 bool morphSent = false;
                 bool attackSent = false;
@@ -68,17 +61,7 @@ namespace MphRead.Mods.Network
                     }
                     Array.Clear(presses);
                     presses[0] = (uint)(buttons & (IntentButtons.Morph | IntentButtons.AltAttack));
-                    NetSession.AcceptSlotIntent(0, new IntentPacket
-                    {
-                        Frame = frame,
-                        Buttons = buttons,
-                        Presses = presses,
-                        Aim = Vector3.UnitZ,
-                        Position = player.Position,
-                        WeaponSelect = 0xFF,
-                        AmmoUa = 400,
-                        AmmoMissiles = 50
-                    });
+                    FeedIntent(frame, buttons, presses, player.Position);
                     sim.Step();
                     if (sim.StepFailures != 0)
                     {
@@ -133,6 +116,38 @@ namespace MphRead.Mods.Network
             {
                 sim.Stop();
             }
+        }
+        private static void InitializeRoster(string room)
+        {
+            NetSession.ApplyMatchState(new MatchStatePacket { MatchId = 1, AuthorityEpoch = 1,
+                RoomKey = room, Mode = (byte)GameMode.Battle }, false);
+            RosterPacket roster = RosterPacket.Create();
+            roster.MatchId = 1; roster.AuthorityEpoch = 1; roster.Revision = 1;
+            roster.Slots[0] = 0;
+            roster.Generations[0] = 1;
+            roster.Hunters[0] = (byte)Hunter.Spire;
+            roster.Names[0] = "SPIREPOSE";
+            roster.Count = 1;
+            NetSession.ApplyRoster(roster);
+        }
+
+        private static void FeedIntent(uint frame, IntentButtons buttons, uint[] presses, Vector3 position)
+        {
+            NetSession.AcceptSlotIntent(0, new IntentPacket
+            {
+                Frame = frame,
+                MatchId = NetSession.CurrentMatchId,
+                AuthorityEpoch = NetSession.AuthorityEpoch,
+                SlotGeneration = NetPlayerLifecycle.Generation(0),
+                LifeId = NetPlayerLifecycle.Get(0),
+                Buttons = buttons,
+                Presses = presses,
+                Aim = Vector3.UnitZ,
+                Position = position,
+                WeaponSelect = 0xFF,
+                AmmoUa = 400,
+                AmmoMissiles = 50
+            });
         }
     }
 }

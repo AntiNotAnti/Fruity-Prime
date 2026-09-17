@@ -2,6 +2,9 @@
 
 For protocol-10 integration results and limits, see [INTEGRATION.md](../INTEGRATION.md).
 Protocol numbers and counts below also describe historical branch-specific runs.
+The integrated Spire pose diagnostic stamps its synthetic roster and intents with
+current lifecycle identities. Its asset-free identity regression is included in
+`tools/nettest --lifecycle`; actual collision movement still requires game files.
 
 For protocol 9 persistent lobby regression, run `-netlobbytest`. It uses real
 local UDP without cartridge assets and includes the actual NetSession client,
