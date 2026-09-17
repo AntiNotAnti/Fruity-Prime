@@ -33,6 +33,18 @@ namespace MphRead.Mods
         /// </summary>
         public static bool TryHandleHeadless(string[] args)
         {
+            if (HasFlag(args, "netlobbytest"))
+            {
+                Environment.ExitCode = NetLobbyTest.Run();
+                return true;
+            }
+#if MPHREAD_AVALONIA
+            if (ValueAfter(args, "lobbyshot") is string lobbyShot)
+            {
+                Environment.ExitCode = RunLobbyCapture(lobbyShot);
+                return true;
+            }
+#endif
             // Keys and mouse feel, before anything creates a player. Called
             // here because this runs for every invocation, launcher or not.
             InputSettings.Load();
@@ -626,6 +638,8 @@ namespace MphRead.Mods
 
             var server = new Network.DedicatedServer(port, maxPlayers, rotation)
             {
+                SessionPolicy = HasFlag(args, "lobby") ? Network.ServerSessionPolicy.Lobby : Network.ServerSessionPolicy.Continuous,
+                OwnerToken = Guid.TryParse(ValueAfter(args, "ownertoken"), out var ownerToken) ? ownerToken : Guid.Empty,
                 ServerName = ValueAfter(args, "servername") ?? ValueAfter(args, "name")
                     ?? Environment.MachineName,
                 FriendlyFire = HasFlag(args, "friendlyfire"),
@@ -1799,6 +1813,11 @@ namespace MphRead.Mods
             return 1;
 #endif
         }
+
+#if MPHREAD_AVALONIA
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static int RunLobbyCapture(string directory) => Launcher.Gui.UiCapture.RunLobby(directory);
+#endif
 
         /// <summary>
         /// The layout studies: `-uidesign DIR`. Same shape as the capture
