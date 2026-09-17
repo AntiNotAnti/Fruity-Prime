@@ -1,12 +1,12 @@
 # All-branches integration
 
-`integration/all-branches` combines the local branch commits present during the
-2026-09-16 integration. Source branches are retained. The working checkout is
-the sibling `Fruity-Prime-integration` worktree; the original checkout and its
-seven uncommitted stylus-related edits were left untouched. Uncommitted edits
-are not part of a branch merge. The integration branch remains local; focused
-audit fixes were pushed to existing source branches. See
-[MERGE-AUDIT.md](testing/MERGE-AUDIT.md) for exact source tips and limits.
+`integration/all-branches` combines every local and fork source branch audited
+on 2026-09-16, including upstream collision PR #28. Source branches are retained.
+The working checkout is the sibling `Fruity-Prime-integration` worktree, and the
+integration branch is published to origin. Seven missing upstream PRs (#47–53)
+were opened. See [FRESH-MERGE-AUDIT.md](testing/FRESH-MERGE-AUDIT.md) for current
+branch coverage, conflict resolutions, verification and remaining gates;
+[MERGE-AUDIT.md](testing/MERGE-AUDIT.md) preserves the earlier audit boundary.
 
 ## Combined behavior
 
@@ -54,7 +54,7 @@ Asset-free checks passed:
 - `-frametimingcheck`, `-brightskinscheck`, `-replaycontrolcheck`.
 - `tools/formtest`: 699; `tools/continuous-phase-check`: eight cases;
   `tools/pathstest`: 33; `tools/rombrowsercheck`: 22.
-- `tools/mapcheck`: 105; `tools/mapcheck --network`: 26. Bundled maps stay
+- `tools/mapcheck`: 126; `tools/mapcheck --network`: 26. Bundled maps stay
   read-only on macOS; editor/cache/download outputs use Application Support.
   The platform suite exercises synthetic Mac paths on Windows.
 - Canceling a lobby start during map verification returns clients to the same
