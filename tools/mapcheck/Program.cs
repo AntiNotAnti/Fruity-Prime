@@ -6,6 +6,8 @@ using MphRead.Mods.Network;
 using System.Buffers.Binary;
 using System.Text.Json;
 
+if(args.Length==1&&args[0]=="--network")return MapNetworkTests.Run();
+
 if(args.Length==2&&args[0]=="--join")
 {
     Directory.SetCurrentDirectory(AppContext.BaseDirectory);
