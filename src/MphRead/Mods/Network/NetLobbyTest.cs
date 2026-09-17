@@ -26,6 +26,7 @@ namespace MphRead.Mods.Network
             {
                 NetHealthSyncTest.Run();
                 ProtocolChecks();
+                ActiveTeamConvergence();
                 DemoProtocolCheck();
                 LayoutChecks();
                 ClientStateChecks();
@@ -448,6 +449,38 @@ namespace MphRead.Mods.Network
             rig.Expect(owner, owner.Command(LobbyCommandType.StartMatch), LobbyResultCode.Ok);
             foreach (Client client in rig.Clients) client.Loaded();
             rig.Wait(() => owner.State.Value.Phase == SessionPhase.InMatch, "four-team barrier starts");
+        }
+
+        private static void ActiveTeamConvergence()
+        {
+            int maxPlayers = Entities.PlayerEntity.MaxPlayers;
+            bool teams = GameState.Teams; int teamCount = GameState.TeamCount;
+            Entities.PlayerEntity previous = Entities.PlayerEntity._players[7];
+            try
+            {
+                NetSession.StartServerAuthority(_ => { }, () => { });
+                var roster = RosterPacket.Create(); roster.Revision = 1; roster.Count = 1; roster.Slots[0] = 7;
+                NetSession.ApplyRoster(roster);
+                var player = (Entities.PlayerEntity)System.Runtime.CompilerServices.RuntimeHelpers
+                    .GetUninitializedObject(typeof(Entities.PlayerEntity));
+                typeof(Entities.PlayerEntity).GetProperty(nameof(Entities.PlayerEntity.SlotIndex))!.SetValue(player, 7);
+                player.TeamIndex = 0; player.Health = 50; Entities.PlayerEntity._players[7] = player;
+                Entities.PlayerEntity.MaxPlayers = 8; GameState.Teams = true; GameState.TeamCount = 4;
+                var activated = (bool[])typeof(NetSlotManager).GetField("_activated",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.GetValue(null)!;
+                activated[7] = true;
+                roster.Teams[0] = 3; roster.Revision++;
+                NetSession.ApplyRoster(roster); NetSlotManager.Sync();
+                Check(player.TeamIndex == 3 && player.Health == 50,
+                    "late roster corrects active slot-seven team without reinitializing the player");
+                GameState.Teams = false; NetSlotManager.Sync();
+                Check(player.TeamIndex == 7, "FFA restores slot scoring identity for an active player");
+            }
+            finally
+            {
+                Entities.PlayerEntity._players[7] = previous; NetSlotManager.Reset(); NetSession.Stop();
+                Entities.PlayerEntity.MaxPlayers = maxPlayers; GameState.Teams = teams; GameState.TeamCount = teamCount;
+            }
         }
 
         private static void ContinuousScenario()
