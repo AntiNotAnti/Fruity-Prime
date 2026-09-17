@@ -4252,6 +4252,14 @@ namespace MphRead
                 }
             }
             Read.ClearCache();
+            // The cel target also owns a reference to _screenTexture. Release
+            // it before deleting that texture in the shell's persistent context.
+            if (_celFrameBuffer != 0)
+            {
+                GL.DeleteFramebuffer(_celFrameBuffer);
+                _celFrameBuffer = 0;
+            }
+            _celFrameBufferColor = 0;
             if (_frameBuffer != 0)
             {
                 GL.DeleteFramebuffer(_frameBuffer);
