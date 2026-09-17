@@ -1,0 +1,136 @@
+using System;
+using System.IO;
+using System.IO.Compression;
+using System.Buffers.Binary;
+using System.Collections.Generic;
+
+namespace MphRead.Mods.Network
+{
+    internal static class ReplayFormatCheck
+    {
+        public static int Run()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "fruity-replay-check-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            int checks = 0;
+            void Require(bool condition, string name)
+            {
+                if (!condition) throw new InvalidOperationException(name);
+                checks++;
+            }
+            try
+            {
+                var match = new MatchStatePacket { RoomKey = "MP1 SANCTORUS", NextRoomKey = "",
+                    Mode = (byte)GameMode.Battle, TimeRemaining = 300, Flags = MatchStatePacket.FlagInProgress };
+                var matchBytes = new byte[1 + MatchStatePacket.Size];
+                matchBytes[0] = (byte)PacketType.MatchState; match.Write(matchBytes.AsSpan(1));
+                var metadata = new ReplayMetadata { RoomKey = match.RoomKey, Mode = GameMode.Battle,
+                    Bootstrap = new ReplayBootstrap { Packets = new[] { matchBytes } } };
+                byte[] packet = { (byte)PacketType.Ping, 17, 42 };
+                string clean = Path.Combine(directory, "clean.fpdemo");
+                using (var writer = new ReplayWriterV3(clean, metadata))
+                {
+                    for (uint frame = 0; frame < 400; frame++)
+                    {
+                        writer.WriteRecord(frame, packet);
+                        if (frame % 60 == 0) writer.WriteEvent(new(frame, ReplayEventType.ScoreChanged, 0, Value: (int)frame));
+                    }
+                }
+                Require(File.Exists(clean) && !File.Exists(clean + ".part"), "atomic finalization");
+                using (var reader = DemoReader.Open(clean, out var result))
+                {
+                    Require(result == ReplayOpenResult.Success && reader?.Metadata?.DurationFrames == 399, "metadata-only duration");
+                    Require(reader!.Metadata!.Events.Count == 7, "event index");
+                    uint count = 0;
+                    while (reader.ReadNext() is { } record)
+                    {
+                        Require(record.Frame == count++ && record.Data.AsSpan().SequenceEqual(packet), "ordered packet roundtrip");
+                    }
+                    Require(count == 400 && reader.LastResult == ReplayOpenResult.Success, "clean EOF");
+                    Require(reader.Metadata.Integrity == ReplayIntegrity.Healthy, "validated integrity");
+                }
+                Require(ReplayArchive.Validate(clean) == ReplayOpenResult.Success, "validator");
+                string extracted = Path.Combine(directory, "extracted.fpdemo");
+                Require(ReplayArchive.Extract(clean, 60, 180, extracted) == ReplayOpenResult.Success, "extract clip");
+                using (var reader = DemoReader.Open(extracted))
+                {
+                    Require(reader?.Metadata?.Type == ReplayType.Clip && reader.DurationFrames == 120, "clip metadata");
+                    Require(reader!.Metadata!.Events.Count == 3 && reader.Metadata.Events[0].Frame == 0, "clip event rebase");
+                    Require(reader.ReadNext()?.Frame == 0, "clip frame rebase");
+                }
+                string interrupted = Path.Combine(directory, "interrupted.fpdemo");
+                var partialWriter = new ReplayWriterV3(interrupted, metadata);
+                for (uint i = 0; i < 360; i++) partialWriter.WriteRecord(i, packet);
+                partialWriter.Abort();
+                string part = interrupted + ".part";
+                Require(ReplayArchive.Validate(part) == ReplayOpenResult.Truncated, "missing footer");
+                using (var stream = new FileStream(part, FileMode.Open, FileAccess.Write)) stream.SetLength(stream.Length - 10);
+                Require(ReplayArchive.Recover(part, out string? recovered, out var recovery) && recovered != null
+                    && recovery == ReplayOpenResult.Truncated, "recover interrupted chunk");
+                using (var reader = DemoReader.Open(recovered!))
+                {
+                    int count = 0; while (reader!.ReadNext() != null) count++;
+                    Require(count == 120 && reader.Metadata!.Recovered && reader.LastResult == ReplayOpenResult.Success,
+                        "only complete CRC-valid chunks recovered");
+                }
+                byte[] bytes = File.ReadAllBytes(clean);
+                int firstChunk = 14 + BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(6));
+                string corrupt = Path.Combine(directory, "corrupt.fpdemo");
+                byte[] changed = (byte[])bytes.Clone(); changed[firstChunk + 24] ^= 0x80;
+                File.WriteAllBytes(corrupt, changed);
+                Require(ReplayArchive.Validate(corrupt) == ReplayOpenResult.Corrupt, "bad chunk CRC");
+                changed = (byte[])bytes.Clone();
+                BinaryPrimitives.WriteInt32LittleEndian(changed.AsSpan(firstChunk + 20), int.MaxValue);
+                File.WriteAllBytes(corrupt, changed);
+                Require(ReplayArchive.Validate(corrupt) == ReplayOpenResult.Corrupt, "bounded decompression allocation");
+                changed = (byte[])bytes.Clone(); changed[14] ^= 1; File.WriteAllBytes(corrupt, changed);
+                Require(DemoReader.Open(corrupt, out var damagedHeader) == null && damagedHeader == ReplayOpenResult.Corrupt, "header CRC");
+                changed = (byte[])bytes.Clone(); changed[0] = 0; File.WriteAllBytes(corrupt, changed);
+                Require(DemoReader.Open(corrupt, out var magic) == null && magic == ReplayOpenResult.InvalidMagic, "bad magic");
+                changed = (byte[])bytes.Clone(); changed[4] = 77; File.WriteAllBytes(corrupt, changed);
+                Require(DemoReader.Open(corrupt, out var version) == null && version == ReplayOpenResult.UnsupportedFormat, "unknown format");
+                changed = (byte[])bytes.Clone(); changed[5]++; File.WriteAllBytes(corrupt, changed);
+                Require(!DemoPlayback.Join(corrupt) && DemoPlayback.LastResult == ReplayOpenResult.ProtocolMismatch, "protocol refuses before playback");
+                Require(DemoReader.Open(Path.Combine(directory, "missing"), out var missing) == null
+                    && missing == ReplayOpenResult.FileMissing, "missing file");
+                string legacy = Path.Combine(directory, "v2.fpdemo");
+                using (var writer = new DemoWriter(legacy)) { writer.WriteRecord(0, packet); writer.WriteRecord(900, packet); }
+                using (var reader = DemoReader.Open(legacy))
+                {
+                    Require(reader?.FormatVersion == 2 && reader.ReadNext()?.Frame == 0 && reader.ReadNext()?.Frame == 900,
+                        "unchanged v2 delta/long-gap compatibility");
+                    Require(reader!.ReadNext() == null && reader.LastResult == ReplayOpenResult.Success, "v2 EOF");
+                }
+                string truncated = Path.Combine(directory, "v2-truncated.fpdemo");
+                using (var stream = File.Create(truncated))
+                {
+                    stream.Write(DemoFile.Magic); stream.WriteByte(2); stream.WriteByte((byte)NetConfig.ProtocolVersion);
+                    using var deflate = new DeflateStream(stream, CompressionLevel.Fastest);
+                    deflate.Write(new byte[] { 0, 10, 0, 1 });
+                }
+                Require(ReplayArchive.Validate(truncated) == ReplayOpenResult.Truncated, "explicit v2 partial record");
+                string empty = Path.Combine(directory, "empty.fpdemo");
+                using (var writer = new DemoWriter(empty)) { }
+                Require(ReplayArchive.Validate(empty) == ReplayOpenResult.Empty, "empty replay");
+                // Mutate packet/chunk/footer/header bytes without trusting any unverified length.
+                var random = new Random(173);
+                for (int i = 0; i < 80; i++)
+                {
+                    changed = (byte[])bytes.Clone(); changed[random.Next(6, changed.Length)] ^= (byte)(1 << random.Next(8));
+                    File.WriteAllBytes(corrupt, changed);
+                    _ = ReplayArchive.Validate(corrupt);
+                    checks++;
+                }
+                Console.WriteLine($"[replayformat] PASS {checks} checks (v2/v3, order, metadata, CRC, recovery, extraction, malformed files)");
+                return 0;
+            }
+            catch (Exception ex) { Console.WriteLine($"[replayformat] FAIL: {ex}"); return 1; }
+            finally
+            {
+                DemoPlayback.Stop(); NetSession.Stop();
+                // Only this freshly created, unpredictable temporary directory is removed.
+                Directory.Delete(directory, true);
+            }
+        }
+    }
+}
