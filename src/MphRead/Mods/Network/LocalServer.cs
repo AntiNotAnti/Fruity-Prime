@@ -407,7 +407,7 @@ namespace MphRead.Mods.Network
             for (int i = 0; i < lines.Length; i++)
             {
                 int equals = lines[i].IndexOf('=');
-                if (equals < 0 || lines[i].IndexOf('=', equals + 1) >= 0)
+                if (equals < 0)
                 {
                     continue;
                 }

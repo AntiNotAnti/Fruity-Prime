@@ -1488,7 +1488,7 @@ namespace MphRead
                 string directory = Path.GetDirectoryName(Path.GetFullPath("paths.txt"))!;
                 foreach (string line in lines)
                 {
-                    string[] split = line.Trim().Split('=');
+                    string[] split = line.Trim().Split('=', 2);
                     string key = split[0].Trim();
                     if (split.Length == 2 && _allPaths.ContainsKey(key))
                     {
