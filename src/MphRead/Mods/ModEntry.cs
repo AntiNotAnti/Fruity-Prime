@@ -52,6 +52,13 @@ namespace MphRead.Mods
             Update.Updater.Disabled = HasFlag(args, "noupdate");
             ApplyRenderOverrides(args);
 
+            // Arithmetic and cosmetic-noise checks need no extracted game files.
+            if (HasFlag(args, "frametimingcheck"))
+            {
+                Environment.ExitCode = Render.FrameTimingCheck.Run();
+                return true;
+            }
+
             // The copying half of a desktop update, which is this build
             // started by the *previous* one. First, and before anything reads
             // a file or draws a window: it is not the game, it waits for the
@@ -1126,12 +1133,6 @@ namespace MphRead.Mods
             if (shellShot != null)
             {
                 Environment.ExitCode = RunShellCapture(shellShot);
-                return true;
-            }
-
-            if (HasFlag(args, "frametimingcheck"))
-            {
-                Environment.ExitCode = Render.FrameTimingCheck.Run();
                 return true;
             }
 
