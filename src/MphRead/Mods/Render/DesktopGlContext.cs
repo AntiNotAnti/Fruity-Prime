@@ -2,11 +2,20 @@ using System;
 using OpenTK.Mathematics;
 using OpenTK.Windowing.Common;
 using OpenTK.Windowing.Desktop;
+using OpenTK.Windowing.GraphicsLibraryFramework;
 
 namespace MphRead.Mods.Render
 {
     internal static class DesktopGlContext
     {
+        public static void PreserveWorkingDirectory()
+        {
+            // GLFW otherwise changes a bundled Mac app to Contents/Resources,
+            // separating launcher validation/settings from the extraction child.
+            if (OperatingSystem.IsMacOS())
+                GLFW.InitHint(InitHintBool.CocoaChdirResources, false);
+        }
+
         public static NativeWindowSettings Settings()
         {
             // Install before NativeWindowSettings initializes GLFW/monitors.
@@ -15,6 +24,7 @@ namespace MphRead.Mods.Render
             // throws safely after returning to managed code.
             GLFWProvider.SetErrorCallback((code, description) =>
                 Console.Error.WriteLine($"[window] GLFW {code}: {description}"));
+            PreserveWorkingDirectory();
             return new NativeWindowSettings
             {
                 ClientSize = new Vector2i(1280, 768),

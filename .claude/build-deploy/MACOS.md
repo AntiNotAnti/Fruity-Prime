@@ -52,6 +52,12 @@ callback is installed before GLFW initialization so window-creation failures
 report their native reason and return to OpenTK's managed failure check instead
 of throwing through a native callback and aborting without a useful message.
 
+GLFW initialization must set `CocoaChdirResources=false` before creating any
+window or polling controllers. Its default changes cwd to the bundle Resources
+directory: the extraction child still writes to Application Support, but the
+launcher then reads paths.txt from the wrong directory and reports missing files.
+The init hint preserves the writable working directory for settings and saves too.
+
 ## Smoke coverage and limits
 
 `-smoketest` exits before game setup and checks configuration access, real
@@ -64,6 +70,11 @@ directory, with a 120-second process timeout. On a graphics-capable host it also
 runs `-windowcheck`: the real launcher renders, compiles world/composite/cel/
 disruption shaders, checks non-black readback and GL errors, resizes, and closes.
 The packaged and re-extracted app receive the same check.
+
+`-glfwpathcheck` is mandatory even without a GPU. In a temporary writable
+fixture it creates an empty extraction directory and relative paths.txt entry,
+initializes the actual GLFW/monitor path, and verifies cwd and launcher readiness
+are preserved. Staged and re-extracted .app bundles run it too; no game data is used.
 
 `check-macos-graphics.sh` queries CGL's renderer list before attempting graphics.
 Exit 77 means no accelerated renderer (GLFW requires one), so rendered checks

@@ -28,6 +28,12 @@ with tempfile.TemporaryDirectory(prefix="fruity-smoke-") as temp:
     result = subprocess.run([sys.argv[1], "-smoketest"], cwd=temp, env=env, timeout=120)
     if result.returncode:
         sys.exit(result.returncode)
+    result = subprocess.run([sys.argv[1], "-glfwpathcheck"], cwd=temp, env=env,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, timeout=120)
+    print(result.stdout, end="")
+    if result.returncode or "GLFW extraction path check passed." not in result.stdout:
+        sys.exit(result.returncode or 1)
     if sys.argv[2] != "true":
         sys.exit(0)
     result = subprocess.run([sys.argv[1], "-windowcheck"], cwd=temp, env=env,

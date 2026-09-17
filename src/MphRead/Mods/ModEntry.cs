@@ -43,6 +43,11 @@ namespace MphRead.Mods
             }
 #endif
 #if MPHREAD_SHELL
+            if (HasFlag(args, "glfwpathcheck"))
+            {
+                Environment.ExitCode = Diagnostics.GlfwPathCheck.Run();
+                return true;
+            }
             if (HasFlag(args, "windowcheck"))
             {
                 Environment.ExitCode = Diagnostics.LauncherWindowCheck.Run();
