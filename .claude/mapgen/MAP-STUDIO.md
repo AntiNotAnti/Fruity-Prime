@@ -21,6 +21,18 @@ The v1 material/brush/spawn/pad/item fields stay compatible. V2 adds Box, Wedge,
 
 Undo/redo retains 50 commands. A drag is one command. Autosaves occur after three seconds of inactivity in `maps/.autosave`, with source context stored beside the recovery JSON. Opening an existing project offers Restore/Discard/Inspect; Library > Recover unsaved also finds never-saved documents. Autosave never overwrites the source. Delete and unsaved-discard actions require confirmation.
 
+On macOS the writable map library is `~/Library/Application Support/Fruity Prime/maps`.
+Bundled `Contents/Resources/maps` remain read-only discovery inputs. User maps take
+precedence over shipped copies only for the same runtime name and map identity;
+conflicting names/IDs remain diagnostics. Opening bundled JSON or a package gives
+Save a new project folder in the writable library. Preview/asset imports materialize
+that project before writing, and library Delete refuses bundled paths. Missing
+import texture packs bake into the user library's `.cache/textures` even when
+validation compiles a loose bundled source before Save. Autosave, recovery, Q3
+imports, exported packages, `.transfer`, `.downloads`, and `.installed` use writable
+paths. Windows/Linux retain portable roots; Android and explicit `-mapdir` retain
+their directory override, except macOS app resources can never become a write root.
+
 The library refreshes its own catalog and shows previews, metadata, source type, diagnostics and build status. Package and source precedence is identity-aware. Background jobs lock editing, accept cancellation, and publish UI results on the UI thread. Existing Q3 conversion/packing calls finish their current stage before cancellation is observed; audit cancellation terminates only its child process.
 
 ## Validation and reproducible output
@@ -56,6 +68,10 @@ A received file is verified, compiled in staging and atomically installed as `ma
 ## Verification and current limits
 
 `dotnet run --project tools/mapcheck -c Release` exercises migration, all-output invalidation, content hashes independent of timestamps, malformed/bomb packages, identity, primitives and outward normals, collision/entity readback, custom textures, package Save As, undo/redo, recovery, navigation and transfer framing/retries. `--fixtures DIR` writes a synthetic arena for `-maptest`; no proprietary data is included. `--join PORT` is an opt-in private loopback client requiring a local server and paths.txt in the test output directory. `-mapstudioshot DIR` captures 1440x900 and 960x600 editor layouts.
+
+`tools/platformtest` checks synthetic macOS/portable resource and user-data roots
+and app-bundle write guards on any host. `tools/pathstest` also checks multi-root
+identity precedence/conflicts, explicit overrides, and bundled-source copy/recovery.
 
 The viewport uses shaded authoring polygons, not runtime textured lighting. Imported architecture is read-only; imports expose settings and editable authored entities, and reject added native primitives rather than silently dropping them. Convex brushes support numeric transforms and serialized vertices/faces; full vertex/edge modeling, reusable prefabs, CSG and scripting are outside this first editor. Spawn weighting and per-mode entity filtering are not yet runtime features. Mode capabilities reject unsupported objective modes instead of producing nonfunctional matches. Custom audio uses the existing player with volume/loop/pause support; decode failure falls back to room music.
 

@@ -61,8 +61,12 @@ Windows/Linux keep their portable behavior; Android keeps its activity overrides
 
 Existing portable Mac data is not moved or deleted automatically. Copy it into
 the user-data directory or rerun extraction as described in the installation
-note. Custom map sources still resolve from the bundle; `-mapdir` explicitly
-overrides that location. The application bundle's dependencies are not moved
+note. Bundled maps remain read-only; runtime and Map Studio discovery also read
+the writable `Application Support/Fruity Prime/maps` library. Map Studio saves
+bundled sources as user copies, and derived import textures, previews, autosaves,
+packages and transfers never target the app. `-mapdir` explicitly overrides the
+map library; choosing an app resource directory keeps it read-only and retains
+Application Support for writes. The application bundle's dependencies are not moved
 to Frameworks/ or Resources/, where native probing would need separate testing.
 
 macOS disables the file-copy desktop updater: changing signed bundle resources

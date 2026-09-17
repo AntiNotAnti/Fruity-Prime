@@ -17,6 +17,10 @@ var cases = new (string Directory, string Expected)[]
 };
 foreach (var item in cases)
 {
+    string syntheticMac = Path.Combine(AppPaths.GetResourceDirectory(item.Directory, true), "maps");
+    if (syntheticMac != item.Expected) throw new Exception($"Synthetic macOS resource mismatch: {syntheticMac}");
+    string portable = Path.Combine(AppPaths.GetResourceDirectory(item.Directory, false), "maps");
+    if (portable != Path.Combine(item.Directory, "maps")) throw new Exception("Portable map directory changed.");
     AppContext.SetData("APP_CONTEXT_BASE_DIRECTORY", item.Directory);
     if (AppContext.BaseDirectory != item.Directory)
     {
@@ -29,4 +33,19 @@ foreach (var item in cases)
         throw new Exception($"Map path mismatch: expected {expected}, got {actual}");
     }
 }
-Console.WriteLine($"Platform map path regressions passed ({cases.Length} cases).");
+string profile = Path.Combine(root, "test user");
+string userData = Path.Combine(profile, "Library", "Application Support", MphRead.Mods.Branding.Name);
+if (AppPaths.GetUserDataDirectory(executable, profile, true) != userData
+    || AppPaths.GetUserDataDirectory(executable, profile, false) != executable)
+    throw new Exception("Writable user-data roots changed.");
+string writableMaps = Path.Combine(userData, "maps");
+foreach (string path in new[] { resources, Path.Combine(resources, "arena.json"),
+    Path.Combine(resources, "..", "maps", "preview", "image.png"), Path.Combine(executable, "other.json") })
+{
+    if (!AppPaths.IsReadOnlyMapPath(path, resources, true)) throw new Exception("Bundle write allowed: " + path);
+    if (AppPaths.IsReadOnlyMapPath(path, resources, false)) throw new Exception("Portable write blocked: " + path);
+}
+foreach (string path in new[] { writableMaps, Path.Combine(writableMaps, ".downloads", "map.tmp"),
+    Path.Combine(root, "maps-user"), Path.Combine(root, "external", "map.json") })
+    if (AppPaths.IsReadOnlyMapPath(path, resources, true)) throw new Exception("User map write blocked: " + path);
+Console.WriteLine("Platform map path regressions passed (synthetic macOS, portable roots and bundle write guards).");
