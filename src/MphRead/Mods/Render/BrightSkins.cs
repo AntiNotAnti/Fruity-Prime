@@ -22,6 +22,21 @@ namespace MphRead.Mods.Render
                 player.Health, player.Flags2, player.CurAlpha, player.BrightSkinStatusOverride);
         }
 
+        public static Vector4? GetOutlineColor(PlayerEntity player)
+        {
+            if (player.BrightSkinFrozenOverlay || !ShouldApply(RenderOptions.PlayerOutline != PlayerOutlineStyle.Off, GameState.Multiplayer,
+                player.IsMainPlayer, player.Health, player.Flags2, player.CurAlpha, player.BrightSkinStatusOverride))
+            {
+                return null;
+            }
+            return ResolveOutlineColor(RenderOptions.PlayerOutline, GameState.Teams, player.TeamIndex);
+        }
+
+        internal static Vector4 ResolveOutlineColor(PlayerOutlineStyle style, bool teams, int teamIndex)
+        {
+            return style == PlayerOutlineStyle.Team && teams ? GetTeamColor(teamIndex) : new Vector4(1, 0.05f, 0.05f, 1);
+        }
+
         internal static bool ShouldApply(bool enabled, bool multiplayer, bool mainPlayer,
             int health, PlayerFlags2 flags, float alpha, bool statusOverride)
         {
@@ -86,5 +101,6 @@ namespace MphRead.Entities
     {
         internal bool BrightSkinStatusOverride => PaletteOverride != null || DoubleDamage || _targetAlpha < 1
             || _timeSinceDamage < Values.DamageFlashTime * 2;
+        internal bool BrightSkinFrozenOverlay => _frozenGfxTimer > 0;
     }
 }

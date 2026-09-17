@@ -210,6 +210,13 @@ namespace MphRead.Mods.Launcher.Gui
                             Console.WriteLine($"[uishot] {path}");
                         }
                     }
+                    var visibility = new SettingsView(settings);
+                    string visibilityPath = Path.Combine(directory, "settings-visibility.png");
+                    if (Capture(visibility, visibilityPath, _windowSize, afterLayout: visibility.ShowVisibilitySettings))
+                    {
+                        written++;
+                        Console.WriteLine($"[uishot] {visibilityPath}");
+                    }
                 }
 #if MPHREAD_SHELL
                 browserPassed = CaptureRomBrowser(directory, ref written);
@@ -716,7 +723,8 @@ namespace MphRead.Mods.Launcher.Gui
             return passed;
         }
 
-        internal static bool Capture(Control view, string path, Size size, bool surfaceScale = false, bool checkLayout = false)
+        internal static bool Capture(Control view, string path, Size size, bool surfaceScale = false,
+            bool checkLayout = false, Action? afterLayout = null)
         {
             Window? window = null;
             try
@@ -749,6 +757,9 @@ namespace MphRead.Mods.Launcher.Gui
                 }
                 window.Measure(size);
                 window.Arrange(new Rect(size));
+                Dispatcher.UIThread.RunJobs();
+                afterLayout?.Invoke();
+                window.UpdateLayout();
                 Dispatcher.UIThread.RunJobs();
                 using var bitmap = new RenderTargetBitmap(
                     new PixelSize((int)size.Width, (int)size.Height),

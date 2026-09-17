@@ -848,6 +848,9 @@ namespace MphRead
             _shaderLocations.FogMinDistance = GL.GetUniformLocation(_shaderProgramId, "fog_min");
             _shaderLocations.FogMaxDistance = GL.GetUniformLocation(_shaderProgramId, "fog_max");
             _shaderLocations.UseOverride = GL.GetUniformLocation(_shaderProgramId, "use_override");
+            _texturedPlayerSkinUniform = GL.GetUniformLocation(_shaderProgramId, "textured_player_skin");
+            _playerOutlineMaskUniform = GL.GetUniformLocation(_shaderProgramId, "player_outline_mask");
+            _playerOutlineColorUniform = GL.GetUniformLocation(_shaderProgramId, "player_outline_color");
             _shaderLocations.OverrideColor = GL.GetUniformLocation(_shaderProgramId, "override_color");
             _shaderLocations.UsePaletteOverride = GL.GetUniformLocation(_shaderProgramId, "use_pal_override");
             _shaderLocations.PaletteOverrideColor = GL.GetUniformLocation(_shaderProgramId, "pal_override_color");
@@ -2057,6 +2060,9 @@ namespace MphRead
             {
                 return;
             }
+            // A deleted depth texture can remain attached to the mask while its numeric
+            // name is recycled. Force reattachment after any scene depth lifecycle change.
+            _playerOutlineDepth = -1;
             if (!want)
             {
                 GL.FramebufferRenderbuffer(FramebufferTarget.Framebuffer,
@@ -2580,6 +2586,8 @@ namespace MphRead
             GL.Disable(EnableCap.AlphaTest);
             GL.Disable(EnableCap.StencilTest);
             GL.PolygonMode(TriangleFace.FrontAndBack, OpenTK.Graphics.OpenGL.PolygonMode.Fill);
+
+            DrawPlayerOutlines();
 
             // After the world and before the window: the preview is a corner
             // of the scene target with its own camera in it, so the HUD's own
@@ -3685,11 +3693,10 @@ namespace MphRead
 
         private RenderItem GetRenderItem()
         {
-            if (_freeRenderItems.Count > 0)
-            {
-                return _freeRenderItems.Dequeue();
-            }
-            return new RenderItem();
+            RenderItem item = _freeRenderItems.Count > 0 ? _freeRenderItems.Dequeue() : new RenderItem();
+            item.TexturedPlayerSkin = false;
+            item.PlayerOutlineColor = null;
+            return item;
         }
 
         private readonly float[] _scaleFactors = new float[16];
@@ -3697,7 +3704,8 @@ namespace MphRead
         // for meshes
         public void AddRenderItem(Material material, int polygonId, float alphaScale, Vector3 emission, LightInfo lightInfo, Matrix4 texcoordMatrix,
             Matrix4 transform, int listId, int matrixStackCount, IReadOnlyList<float> matrixStack, Vector4? overrideColor, Vector4? paletteOverride,
-            SelectionType selectionType, BillboardMode billboardMode, float scaleFactor = 1, int? bindingOverride = null)
+            SelectionType selectionType, BillboardMode billboardMode, float scaleFactor = 1, int? bindingOverride = null,
+            bool texturedPlayerSkin = false, Vector4? playerOutlineColor = null)
         {
             transform.Row0.X *= scaleFactor;
             transform.Row0.Y *= scaleFactor;
@@ -3768,6 +3776,8 @@ namespace MphRead
                 item.MatrixStack[i] = value * _scaleFactors[i - (i / 16) * 16];
             }
             item.OverrideColor = overrideColor;
+            item.TexturedPlayerSkin = texturedPlayerSkin;
+            item.PlayerOutlineColor = playerOutlineColor;
             item.PaletteOverride = paletteOverride;
             item.Points = Array.Empty<Vector3>();
             item.ScaleS = 1;
@@ -4333,6 +4343,7 @@ namespace MphRead
                 _celFrameBuffer = 0;
             }
             _celFrameBufferColor = 0;
+            DisposePlayerOutlines();
             if (_frameBuffer != 0)
             {
                 GL.DeleteFramebuffer(_frameBuffer);
@@ -4797,6 +4808,8 @@ namespace MphRead
 
         private void SetHudLayerUniforms()
         {
+            GL.Uniform1(_texturedPlayerSkinUniform, 0);
+            GL.Uniform1(_playerOutlineMaskUniform, 0);
             GL.Disable(EnableCap.DepthTest);
             GL.Enable(EnableCap.Blend);
             Matrix4 identity = Matrix4.Identity;
@@ -5513,7 +5526,8 @@ namespace MphRead
             }
             GL.Uniform1(_shaderLocations.UseTexture, item.HasTexture && _showTextures ? 1 : 0);
             SetFlatColor(item.HasTexture && _showTextures ? item.TextureBindingId : -1);
-            Vector4? overrideColor = item.OverrideColor;
+            GL.Uniform1(_texturedPlayerSkinUniform, !_drawingPlayerOutlineMask && item.TexturedPlayerSkin ? 1 : 0);
+            Vector4? overrideColor = _drawingPlayerOutlineMask ? null : item.OverrideColor;
             if (overrideColor != null)
             {
                 Vector4 overrideColorValue = overrideColor.Value;

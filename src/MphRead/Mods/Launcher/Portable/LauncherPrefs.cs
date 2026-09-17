@@ -195,6 +195,26 @@ namespace MphRead.Mods.Launcher
                                 RenderOptions.BrightSkins = brightSkins;
                             }
                             break;
+                        case "bright_skin_style":
+                            if (Enum.TryParse(value, ignoreCase: true, out PlayerSkinStyle skinStyle)
+                                && Enum.IsDefined(skinStyle))
+                            {
+                                RenderOptions.BrightSkinStyle = skinStyle;
+                            }
+                            break;
+                        case "player_outline":
+                            if (Enum.TryParse(value, ignoreCase: true, out PlayerOutlineStyle outlineStyle)
+                                && Enum.IsDefined(outlineStyle))
+                            {
+                                RenderOptions.PlayerOutline = outlineStyle;
+                            }
+                            break;
+                        case "player_outline_width":
+                            if (Int32.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int outlineWidth))
+                            {
+                                RenderOptions.PlayerOutlineWidth = outlineWidth;
+                            }
+                            break;
                         case "server_address":
                             ServerAddress = value;
                             break;
@@ -379,6 +399,9 @@ namespace MphRead.Mods.Launcher
                     $"auto_update={AutoUpdate.ToString().ToLowerInvariant()}",
                     $"debug_logs={DebugLogs.ToString().ToLowerInvariant()}",
                     $"bright_skins={RenderOptions.BrightSkins.ToString().ToLowerInvariant()}",
+                    $"bright_skin_style={RenderOptions.BrightSkinStyle.ToString().ToLowerInvariant()}",
+                    $"player_outline={RenderOptions.PlayerOutline.ToString().ToLowerInvariant()}",
+                    $"player_outline_width={RenderOptions.PlayerOutlineWidth.ToString(CultureInfo.InvariantCulture)}",
                     $"window_mode={(WindowMode == WindowStartMode.BorderlessFullscreen ? "borderless" : "windowed")}",
                     $"window_size={WindowWidth.ToString(CultureInfo.InvariantCulture)}x"
                         + WindowHeight.ToString(CultureInfo.InvariantCulture),
