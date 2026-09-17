@@ -1525,7 +1525,7 @@ namespace MphRead.Mods
 #endif
             if (ValueAfter(args, "replaydeterminism") is string replayPath)
             {
-                Environment.ExitCode = Network.ReplayDeterminism.Run(replayPath);
+                Environment.ExitCode = Network.ReplayDeterminism.Run(replayPath, ValueAfter(args, "replayhashout"));
                 return true;
             }
             // What a recorded match actually contains. Reads the file and

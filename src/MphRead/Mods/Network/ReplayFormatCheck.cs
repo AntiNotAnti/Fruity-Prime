@@ -50,6 +50,35 @@ namespace MphRead.Mods.Network
                     Require(reader.Metadata.Integrity == ReplayIntegrity.Healthy, "validated integrity");
                 }
                 Require(ReplayArchive.Validate(clean) == ReplayOpenResult.Success, "validator");
+                string hashed = Path.Combine(directory, "hashed.fpdemo");
+                var references = new[] { new ReplayExpectedHash(0, new string('A', 64)), new ReplayExpectedHash(300, new string('B', 64)) };
+                Require(ReplayArchive.WithExpectedHashes(clean, hashed, references) == ReplayOpenResult.Success, "store reference hashes in v3 copy");
+                using (var reader = DemoReader.Open(hashed))
+                {
+                    Require(reader?.Metadata?.ExpectedHashes.Count == 2 && reader.Metadata.ExpectedHashes[1] == references[1], "reference hash roundtrip");
+                    Require(reader!.Metadata!.HashSchema == ReplayStateHash.Schema && reader.Metadata.HashBuildId == ReplayStateHash.BuildId, "reference hash schema/build");
+                }
+                using (var reader = DemoReader.Open(hashed, out _, metadataOnly: true))
+                    Require(reader?.Metadata?.ExpectedHashes.Count == 0, "library does not retain reference hashes");
+                Require(ReplayArchive.Validate(hashed) == ReplayOpenResult.Success, "hash footer integrity");
+                byte[] hashBytes = File.ReadAllBytes(hashed);
+                int hashFooter = (int)BinaryPrimitives.ReadInt64LittleEndian(hashBytes.AsSpan(hashBytes.Length - 12));
+                int hashFooterLength = BinaryPrimitives.ReadInt32LittleEndian(hashBytes.AsSpan(hashFooter + 4));
+                string badHash = Path.Combine(directory, "bad-hash.fpdemo");
+                byte[] duplicateFrame = (byte[])hashBytes.Clone();
+                BinaryPrimitives.WriteUInt32LittleEndian(duplicateFrame.AsSpan(duplicateFrame.Length - 12 - 36), 0);
+                BinaryPrimitives.WriteUInt32LittleEndian(duplicateFrame.AsSpan(hashFooter + 8),
+                    ReplayFormatV3.Crc(duplicateFrame.AsSpan(hashFooter + 12, hashFooterLength)));
+                File.WriteAllBytes(badHash, duplicateFrame);
+                Require(DemoReader.Open(badHash, out var badHashResult) == null && badHashResult == ReplayOpenResult.Corrupt,
+                    "CRC-valid duplicate hash frames rejected");
+                byte[] unboundedCount = (byte[])hashBytes.Clone();
+                BinaryPrimitives.WriteInt32LittleEndian(unboundedCount.AsSpan(unboundedCount.Length - 12 - 72 - 4), int.MaxValue);
+                BinaryPrimitives.WriteUInt32LittleEndian(unboundedCount.AsSpan(hashFooter + 8),
+                    ReplayFormatV3.Crc(unboundedCount.AsSpan(hashFooter + 12, hashFooterLength)));
+                File.WriteAllBytes(badHash, unboundedCount);
+                Require(DemoReader.Open(badHash, out var badHashCount) == null && badHashCount == ReplayOpenResult.Corrupt,
+                    "bounded hash allocation");
                 using (var transport = new NetTransport(0, playbackOnly: true))
                 {
                     long sent = NetTransport.TotalPacketsSent;

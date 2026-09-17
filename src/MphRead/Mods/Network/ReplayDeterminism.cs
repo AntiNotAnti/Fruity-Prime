@@ -14,26 +14,33 @@ namespace MphRead.Mods.Network
     {
         private static readonly Dictionary<uint, string[]> Baselines = new();
         private static readonly List<string> Fields = new();
-        public static int Run(string path)
+        public static int Run(string path, string? hashOutput = null)
         {
             Headless.Enter();
+            Baselines.Clear();
+            string tracePath = Path.Combine(Path.GetTempPath(), "fruity-replay-trace-" + Guid.NewGuid().ToString("N"));
+            var expectedHashes = new List<ReplayExpectedHash>();
             try
             {
+                using var trace = new FileStream(tracePath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None,
+                    64 * 1024, FileOptions.DeleteOnClose);
                 using var reader = DemoReader.Open(path);
                 if (reader == null) throw new InvalidDataException("Replay could not be opened.");
                 uint duration = reader.FormatVersion == 3 ? reader.DurationFrames : DemoLibrary.Duration(path);
                 var random = new Random(2718);
                 uint[] targets = new[] { 0u, Math.Min(60u, duration), Math.Min(300u, duration), Math.Min(900u, duration), duration / 3, duration * 2 / 3, duration }
                     .Concat(Enumerable.Range(0, 8).Select(_ => (uint)random.NextInt64(duration + 1L))).Distinct().OrderBy(f => f).ToArray();
-                Dictionary<uint, string> baseline = Linear(path, targets);
+                Dictionary<uint, string> baseline = Linear(path, targets, trace, expectedHashes);
+                VerifyDivergenceProbe(path, trace, Math.Min(300u, duration));
                 foreach (uint target in targets)
                 {
                     Scene scene = Build(path);
                     try
                     {
+                        CompareTrace(trace);
                         ReplayController.ContinueSeek(target, resume: false);
                         int intervals = 0;
-                        while (ReplayController.IsSeeking && intervals++ < 100000) scene.OnSimulationFrame();
+                        while (ReplayController.IsSeeking && intervals++ <= target / 32 + 2) scene.OnSimulationFrame();
                         string hash = Hash(scene);
                         if (hash != baseline[target])
                         {
@@ -51,6 +58,7 @@ namespace MphRead.Mods.Network
                     Scene scene = Build(path);
                     try
                     {
+                        CompareTrace(trace);
                         ReplayController.SetPlaybackRate(rate);
                         while (!DemoPlayback.AtEnd) scene.OnSimulationFrame();
                         if (Hash(scene) != baseline[duration]) throw new InvalidOperationException($"{rate}x final state differs");
@@ -62,16 +70,34 @@ namespace MphRead.Mods.Network
                     }
                     finally { Cleanup(scene); }
                 }
-                Console.WriteLine("[replaydeterminism] PASS: real engine scene/player scalar state, transforms, score, timers and packet counts match.");
+                if (hashOutput != null)
+                {
+                    ReplayOpenResult saved = ReplayArchive.WithExpectedHashes(path, hashOutput, expectedHashes);
+                    if (saved != ReplayOpenResult.Success) throw new IOException($"Could not save reference hashes: {saved}");
+                    Console.WriteLine($"[replaydeterminism] Wrote {expectedHashes.Count} expected gameplay hashes to {hashOutput}");
+                }
+                Console.WriteLine("[replaydeterminism] PASS: every gameplay frame matches; sampled engine scalar state, transforms, score, timers and packet counts match.");
                 return 0;
             }
             catch (Exception ex) { Console.WriteLine($"[replaydeterminism] FAIL: {ex}"); return 1; }
+            finally { ReplayVerification.ObserveFrame = null; Baselines.Clear(); Fields.Clear(); }
         }
-        private static Dictionary<uint, string> Linear(string path, uint[] targets)
+        private static Dictionary<uint, string> Linear(string path, uint[] targets, FileStream trace, List<ReplayExpectedHash> expectedHashes)
         {
             Scene scene = Build(path);
             try
             {
+                uint lastTarget = targets.Max();
+                ReplayVerification.ObserveFrame = current =>
+                {
+                    uint frame = DemoPlayback.CurrentFrame;
+                    string hash = ReplayStateHash.Compute(current);
+                    // Disk-backed trace keeps verifier RAM independent of replay duration.
+                    // It enables exact first-divergence reporting even inside a seek batch.
+                    if (trace.Position != frame * 32L) throw new InvalidOperationException($"Missing/duplicate simulation frame {frame}");
+                    trace.Write(Convert.FromHexString(hash));
+                    if (frame % 300 == 0 || frame == lastTarget) expectedHashes.Add(new(frame, hash));
+                };
                 var hashes = new Dictionary<uint, string>();
                 do
                 {
@@ -83,9 +109,57 @@ namespace MphRead.Mods.Network
                     }
                 }
                 while (!DemoPlayback.AtEnd && DemoPlayback.CurrentFrame < targets.Max());
+                if (DemoPlayback.LastResult != ReplayOpenResult.Success) throw new InvalidDataException(DemoPlayback.LastError);
+                trace.Flush();
                 return hashes;
             }
             finally { Cleanup(scene); }
+        }
+        private static void CompareTrace(FileStream trace)
+        {
+            trace.Position = 0;
+            ReplayVerification.ObserveFrame = scene =>
+            {
+                uint frame = DemoPlayback.CurrentFrame;
+                if (trace.Position != frame * 32L) throw new InvalidOperationException($"Missing/duplicate simulation frame {frame}");
+                Span<byte> expected = stackalloc byte[32];
+                trace.ReadExactly(expected);
+                string actual = ReplayStateHash.Compute(scene);
+                if (!Convert.FromHexString(actual).AsSpan().SequenceEqual(expected))
+                    throw new InvalidOperationException($"First gameplay divergence at frame {frame}: expected {Convert.ToHexString(expected)}, got {actual}");
+            };
+        }
+        private static void VerifyDivergenceProbe(string path, FileStream trace, uint frame)
+        {
+            long offset = frame * 32L;
+            trace.Position = offset;
+            int original = trace.ReadByte();
+            if (original < 0) throw new InvalidDataException("Missing baseline frame.");
+            Scene scene = Build(path);
+            try
+            {
+                trace.Position = offset;
+                trace.WriteByte((byte)(original ^ 1));
+                CompareTrace(trace);
+                ReplayController.ContinueSeek(frame, resume: false);
+                try
+                {
+                    while (ReplayController.IsSeeking) scene.OnSimulationFrame();
+                }
+                catch (InvalidOperationException ex) when (ex.Message.StartsWith($"First gameplay divergence at frame {frame}: ", StringComparison.Ordinal))
+                {
+                    Console.WriteLine($"[replaydeterminism] injected reference mismatch correctly identified first frame {frame}");
+                    return;
+                }
+                throw new InvalidOperationException("The verifier did not detect an injected reference mismatch.");
+            }
+            finally
+            {
+                trace.Position = offset;
+                trace.WriteByte((byte)original);
+                trace.Flush();
+                Cleanup(scene);
+            }
         }
         private static Scene Build(string path)
         {
@@ -100,6 +174,7 @@ namespace MphRead.Mods.Network
         }
         private static void Cleanup(Scene scene)
         {
+            ReplayVerification.ObserveFrame = null;
             scene.DoCleanup();
             DemoPlayback.Stop();
             NetSession.Stop();

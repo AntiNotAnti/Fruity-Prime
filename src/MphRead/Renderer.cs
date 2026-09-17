@@ -1523,6 +1523,7 @@ namespace MphRead
                 {
                     bool seeking = Mods.Network.ReplayController.IsSeeking;
                     RunSimulationFrame();
+                    Mods.Network.ReplayVerification.AfterFrame(this);
                     Mods.Network.ReplayController.AfterFrame();
                     if (seeking && !Mods.Network.ReplayController.IsSeeking) break;
                 }
@@ -7943,4 +7944,3 @@ namespace MphRead
         }
     }
 }
-

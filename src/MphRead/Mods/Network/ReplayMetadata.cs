@@ -10,7 +10,7 @@ namespace MphRead.Mods.Network
     public enum ReplayOpenResult
     {
         Success, FileMissing, InvalidMagic, UnsupportedFormat, ProtocolMismatch,
-        Empty, Truncated, Corrupt, MissingMatchState, MapMissing, MapHashMismatch, IoError
+        Empty, Truncated, Corrupt, MissingMatchState, MapMissing, MapHashMismatch, IoError, StateMismatch
     }
 
     public enum ReplayIntegrity { Unknown, Healthy, Recovered, Truncated, Corrupt }
@@ -24,6 +24,7 @@ namespace MphRead.Mods.Network
     public readonly record struct ReplayEvent(uint Frame, ReplayEventType Type,
         byte ActorSlot = byte.MaxValue, byte TargetSlot = byte.MaxValue, int Value = 0);
     internal readonly record struct ReplayPlayerInfo(byte Slot, byte Hunter, sbyte Team, string Name);
+    internal readonly record struct ReplayExpectedHash(uint Frame, string Value);
 
     // Bootstrap is composed of existing wire packets, applied by the usual session handlers.
     // It is not a serializer of engine objects or an alternative multiplayer model.
@@ -51,6 +52,9 @@ namespace MphRead.Mods.Network
         public IReadOnlyList<ReplayPlayerInfo> Players { get; init; } = Array.Empty<ReplayPlayerInfo>();
         public ReplayBootstrap Bootstrap { get; init; } = new();
         public IReadOnlyList<ReplayEvent> Events { get; set; } = Array.Empty<ReplayEvent>();
+        public ushort HashSchema { get; set; }
+        public string HashBuildId { get; set; } = "";
+        public IReadOnlyList<ReplayExpectedHash> ExpectedHashes { get; set; } = Array.Empty<ReplayExpectedHash>();
         public bool BuildMatches => BuildId == (typeof(ReplayMetadata).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown");
     }

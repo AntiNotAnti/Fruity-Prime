@@ -14,11 +14,13 @@ namespace MphRead.Mods.Network
         internal const uint ChunkMagic = 0x334B4843; // CHK3
         internal const uint FooterMagic = 0x33584449; // IDX3
         internal const uint TrailerMagic = 0x33444E45; // END3
+        internal const uint HashMagic = 0x33485348; // HSH3, optional footer extension
         internal const int MaxHeader = 128 * 1024;
         internal const int MaxChunk = 2 * 1024 * 1024;
         internal const int MaxFooter = 16 * 1024 * 1024;
         internal const int MaxChunks = 200000;
         internal const int MaxEvents = 200000;
+        internal const int MaxHashes = 200000;
         internal const uint MaxFrame = 60 * 60 * 24 * 7;
         internal const int ChunkHeaderSize = 28;
         private static readonly UTF8Encoding Utf8 = new(false, true);
@@ -183,6 +185,9 @@ namespace MphRead.Mods.Network
         private readonly BinaryWriter _records;
         private readonly List<ReplayChunkIndex> _index = new();
         private readonly List<ReplayEvent> _events = new();
+        private readonly List<ReplayExpectedHash> _hashes = new();
+        private ushort _hashSchema;
+        private string _hashBuildId = "";
         private uint _first, _last, _count;
         private bool _disposed, _faulted;
         public string PartialPath => _path + ".part";
@@ -228,6 +233,21 @@ namespace MphRead.Mods.Network
         public void WriteEvent(ReplayEvent value)
         {
             if (_events.Count < ReplayFormatV3.MaxEvents) _events.Add(value);
+        }
+
+        public void WriteExpectedHash(ReplayExpectedHash value, ushort schema, string buildId)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (schema == 0 || buildId.Length == 0 || Encoding.UTF8.GetByteCount(buildId) > 1024
+                || value.Frame > ReplayFormatV3.MaxFrame || value.Value.Length != 64
+                || _hashes.Count >= ReplayFormatV3.MaxHashes
+                || (_hashes.Count > 0 && (value.Frame <= _hashes[^1].Frame || schema != _hashSchema || buildId != _hashBuildId)))
+                throw new InvalidDataException("Invalid replay state hash.");
+            try { _ = Convert.FromHexString(value.Value); }
+            catch (FormatException ex) { throw new InvalidDataException("Invalid replay state hash.", ex); }
+            _hashes.Add(value);
+            _hashSchema = schema;
+            _hashBuildId = buildId;
         }
 
         private void FlushChunk()
@@ -281,6 +301,19 @@ namespace MphRead.Mods.Network
                     }
                     // No checkpoints are advertised until engine restore equivalence is proven.
                     output.Write(0);
+                    if (_hashes.Count > 0)
+                    {
+                        if (_hashes[^1].Frame > _last) throw new InvalidDataException("Hash beyond replay duration.");
+                        output.Write(ReplayFormatV3.HashMagic);
+                        output.Write(_hashSchema);
+                        ReplayFormatV3.WriteString(output, _hashBuildId);
+                        output.Write(_hashes.Count);
+                        foreach (ReplayExpectedHash hash in _hashes)
+                        {
+                            output.Write(hash.Frame);
+                            output.Write(Convert.FromHexString(hash.Value));
+                        }
+                    }
                 }
                 if (footer.Length > ReplayFormatV3.MaxFooter) throw new IOException("Replay index too large.");
                 long offset = _stream.Position;
@@ -386,8 +419,33 @@ namespace MphRead.Mods.Network
                 if (!_metadataOnly) annotations.Add(e);
                 lastEvent = e.Frame;
             }
-            if (footer.ReadInt32() != 0 || footer.BaseStream.Position != bytes.Length)
+            if (footer.ReadInt32() != 0)
                 throw new InvalidDataException("Unsupported checkpoint index.");
+            // Early v3 recordings ended after the checkpoint count. Later optional hash
+            // sections are fully length/CRC protected by the same footer envelope.
+            if (footer.BaseStream.Position < bytes.Length)
+            {
+                if (footer.ReadUInt32() != ReplayFormatV3.HashMagic) throw new InvalidDataException("Unknown replay footer extension.");
+                Metadata.HashSchema = footer.ReadUInt16();
+                Metadata.HashBuildId = ReplayFormatV3.ReadString(footer);
+                int hashCount = footer.ReadInt32();
+                if (Metadata.HashSchema == 0 || Metadata.HashBuildId.Length == 0
+                    || hashCount < 1 || hashCount > ReplayFormatV3.MaxHashes
+                    || (long)hashCount * 36 != bytes.Length - footer.BaseStream.Position)
+                    throw new InvalidDataException("Invalid replay hash index.");
+                var hashes = new List<ReplayExpectedHash>(_metadataOnly ? 0 : hashCount);
+                uint priorHash = 0;
+                for (int i = 0; i < hashCount; i++)
+                {
+                    uint frame = footer.ReadUInt32();
+                    if (frame > duration || (i > 0 && frame <= priorHash)) throw new InvalidDataException("Invalid replay hash frame.");
+                    if (_metadataOnly) footer.BaseStream.Position += 32;
+                    else hashes.Add(new(frame, Convert.ToHexString(ReplayFormatV3.ReadBytes(footer, 32))));
+                    priorHash = frame;
+                }
+                Metadata.ExpectedHashes = hashes;
+            }
+            if (footer.BaseStream.Position != bytes.Length) throw new InvalidDataException("Unexpected replay footer tail.");
             Metadata.Events = annotations;
             Metadata.DurationFrames = duration;
             // Header/footer validity does not prove chunk health. Only a full validation does.

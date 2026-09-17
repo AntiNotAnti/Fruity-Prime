@@ -20,8 +20,20 @@ F toggles free camera, C selects chase, O selects orbit, 1-8 selects a player,
 and mouse buttons cycle players. The replay pause menu exposes the timeline,
 rate/camera/player controls, event filter/navigation, clip In/Out, and export.
 Gamepad input uses the existing abstraction; Android uses the shared menu and
-its scene-reconstruction path. B/N save/recall camera bookmarks. The optional
-director changes focus on kill/objective annotations only.
+its scene-reconstruction path. B/N save/preview camera keyframes. Up to 64
+frame-indexed keys persist in a checksummed `.fpdemo.camera` sidecar, atomically
+replaced and bound to the replay's size and modification time. Position/FOV
+interpolate linearly; orientation uses quaternion interpolation. Optional
+look-at targets follow a player while that player is spawned. Keys survive
+seek/restart. The shared desktop/Android menu can save, preview or remove a
+key at the current frame, and explicitly enable track playback.
+
+Faithful is the default camera profile; Presentation optionally smooths the
+chase camera and enables camera tracks. Neither profile changes packets,
+entity state, simulation timing or network smoothing. The optional director
+changes focus on kill/objective annotations only. Camera tracks are bounded
+presentation tools, without spline editing or collision avoidance along
+interpolated free-camera paths.
 
 The replay HUD shows time, duration, rate, watched player/camera, event marks,
 and stopped/error state; it dims after inactivity. Presentation is suppressed
@@ -110,7 +122,12 @@ Commands:
 - `-replayvalidate FILE`: complete integrity scan.
 - `-replayrecover FILE`: recover complete chunks into a new replay.
 - `-replaydeterminism FILE`: real engine linear/reconstructed seek comparisons and
-  final-state comparisons at all playback rates; needs extracted game assets.
+  every-frame gameplay comparisons at all playback rates; needs extracted game assets.
+- `-replaydeterminism FILE -replayhashout OUTPUT.fpdemo`: after all comparisons pass,
+  creates a separate v3 copy with expected gameplay hashes every 300 frames and at
+  EOF. The source and packet contents are preserved. A matching engine build/hash
+  schema verifies these references during playback and stops explicitly on a mismatch.
+  Different builds/schemas report that reference verification is skipped.
 - `-demoinfo FILE -replay`: original snapshot/intent distribution diagnostic, now
   also reports corruption. Network bursts already present in a source recording
   can still fail its historical burst/gap threshold.
@@ -122,6 +139,15 @@ Real engine comparisons passed on a combat recording and an instant clip at
 sampled targets, all replay rates, and frozen EOF. The comparison hashes scene
 and entity/player scalar state, positions, match score/timers and packet counts;
 it is a replay-versus-replay check, not a claim of identical live-client state.
+The verifier also writes a temporary disk-backed SHA-256 trace of an explicit
+gameplay projection (player transforms, health, form/weapon/spawn state, scores,
+match timers and flag/node objectives). It compares every complete simulation
+frame inside seek/rate batches, reporting the first differing gameplay frame.
+Camera/render/audio state is excluded. The optional v3 expected-hash footer stores
+the hash schema and reference engine build separately from the recording build.
+These hashes are produced offline from the replay baseline: a live local player's
+prediction is not a valid expected state for a replay puppet. Source clips and
+recovered files intentionally require their own reference pass.
 Desktop and dedicated-server builds were clean. Android builds passed with
 existing binding/XML warnings; device interaction remains unverified.
 
@@ -131,19 +157,18 @@ This is not the complete P0-P3 roadmap. In particular:
 
 - Full-world checkpoint DTO capture/restore and checkpoint-assisted indexed seeks
   are absent. Current seeking replays from frame zero and can be slow on long matches.
-- Periodic expected engine-state hashes are not embedded into live recordings,
-  and divergence reporting names a tested target, not necessarily the first
-  divergent simulation frame. A live local player's state cannot simply be
-  assumed identical to its replay puppet's state.
+- Reference hashes require the offline verification command; live recording does
+  not run a second engine alongside gameplay. The explicit gameplay hash is not
+  a complete serialization of all hidden simulation state.
 - Packet bootstraps capture packet-visible match/player state, not every live
   projectile, pickup, flag or other world-entity timer at a mid-match clip start.
   The broad mode/map/network-loss/8-player matrix and clip-versus-source world
   equivalence still need validation before declaring checkpoint/clip fidelity complete.
-- Camera bookmarks are basic presentation controls, not a persistent cinematic
-  keyframe editor with interpolation. The director follows annotated events;
-  it does not implement the proposed proximity/damage/lead-change scoring model.
-- Separate Faithful/Presentation smoothing profiles and server-side canonical
-  replay capture are not implemented. Client recordings remain the source.
+- Camera tracks provide bounded persistent keys and frame interpolation, without
+  spline editing or interpolated-path collision avoidance. Faithful/Presentation
+  profiles affect cameras only. The director follows annotated events; it does
+  not implement the proposed proximity/damage/lead-change scoring model.
+- Server-side canonical replay capture is absent. Client recordings remain the source.
 
 ## V2 implementation history
 
@@ -315,4 +340,3 @@ relative to the binary, not to the shell. Pass an absolute one.
   and only a dedicated server sends one. Every path the launcher offers goes
   through a dedicated server, in-process or otherwise, so this is a note
   rather than a bug.
-

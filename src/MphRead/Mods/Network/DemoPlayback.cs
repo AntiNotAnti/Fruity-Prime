@@ -36,6 +36,7 @@ namespace MphRead.Mods.Network
         public static bool IsActive { get; private set; }
         public static string? CurrentPath { get; private set; }
         public static IReadOnlyList<ReplayEvent> Events => _reader?.Metadata?.Events ?? Array.Empty<ReplayEvent>();
+        internal static ReplayMetadata? Metadata => _reader?.Metadata;
         public static uint CurrentFrame => _frame;
         public static uint LastFrame { get; private set; }
         public static ReplayOpenResult LastResult { get; private set; }
@@ -121,6 +122,8 @@ namespace MphRead.Mods.Network
             _started = false;
             if (_reader.Metadata is ReplayMetadata metadata)
             {
+                if (metadata.ExpectedHashes.Count > 0 && (metadata.HashSchema != ReplayStateHash.Schema || metadata.HashBuildId != ReplayStateHash.BuildId))
+                    Console.WriteLine("[replay] Expected state hashes belong to a different engine build/schema; packet playback remains available, hash verification is skipped.");
                 LastResult = ReplayMapIdentity.Validate(metadata);
                 if (LastResult != ReplayOpenResult.Success)
                 {
@@ -264,6 +267,7 @@ namespace MphRead.Mods.Network
 
         public static void Stop()
         {
+            ReplayVerification.Reset();
             IsActive = false;
             ReplayController.Stop();
             Replay.ReplayHud.Reset();
@@ -273,6 +277,14 @@ namespace MphRead.Mods.Network
             _pending = null;
             _frame = 0;
             _started = false;
+        }
+
+        internal static void FailVerification(string error)
+        {
+            LastResult = ReplayOpenResult.StateMismatch;
+            LastError = error;
+            _pending = null;
+            Console.WriteLine("[replay] " + error);
         }
     }
 }

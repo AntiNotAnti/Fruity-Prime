@@ -46,6 +46,29 @@ namespace MphRead.Mods.Network
                 : any ? ReplayOpenResult.Success : ReplayOpenResult.Empty;
         }
 
+        // Reference hashes come from a verified replay of the normal engine, not
+        // from a live local player whose prediction differs from a replay puppet.
+        public static ReplayOpenResult WithExpectedHashes(string source, string output, IReadOnlyList<ReplayExpectedHash> hashes)
+        {
+            using DemoReader? reader = DemoReader.Open(source, out var result);
+            if (reader?.Metadata == null) return reader == null ? result : ReplayOpenResult.UnsupportedFormat;
+            ReplayWriterV3? writer = null;
+            try
+            {
+                writer = new ReplayWriterV3(output, reader.Metadata);
+                while (reader.ReadNext() is { } record) writer.WriteRecord(record.Frame, record.Data);
+                if (reader.LastResult != ReplayOpenResult.Success) { writer.Abort(); return reader.LastResult; }
+                foreach (ReplayEvent value in reader.Metadata.Events) writer.WriteEvent(value);
+                foreach (ReplayExpectedHash value in hashes) writer.WriteExpectedHash(value, ReplayStateHash.Schema, ReplayStateHash.BuildId);
+                writer.Dispose();
+                return ReplayOpenResult.Success;
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is InvalidDataException || ex is ArgumentException)
+            {
+                writer?.Abort(); return ReplayFormatV3.Failure(ex);
+            }
+        }
+
         public static ReplayOpenResult Extract(string source, uint start, uint end, string output)
         {
             if (start > end) return ReplayOpenResult.Empty;
