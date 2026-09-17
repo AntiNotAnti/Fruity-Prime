@@ -50,7 +50,7 @@ namespace MphRead.Mods
             }
             if (HasFlag(args, "thumbnailwindowcheck"))
             {
-                Environment.ExitCode = Diagnostics.ThumbnailWindowCheck.Run();
+                Environment.ExitCode = Diagnostics.ThumbnailWindowCheck.Run(HasFlag(args, "legacyglcheck"));
                 return true;
             }
             if (HasFlag(args, "windowcheck"))

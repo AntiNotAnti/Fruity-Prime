@@ -126,3 +126,12 @@ On accelerated hosts, `-thumbnailwindowcheck` creates a separate hidden context
 with those settings, draws a legacy primitive into an offscreen framebuffer,
 and checks pixel readback and GL errors without using cartridge data. The Mac
 packaging wrapper runs it against flat, staged and re-extracted packages.
+
+Preview diagnostics must check GL 4.3 or `GL_KHR_debug` support and a nonzero
+`glDebugMessageCallback` address before enabling debug output. The Mac legacy
+context lacks that optional feature; calling its null pointer causes SIGSEGV,
+which a managed exception handler cannot catch. Context descriptions query
+flags only on GL 3.0+ and profile masks only on 3.2+ to avoid legacy GL errors.
+The hidden-thumbnail test executes these diagnostics before drawing. Linux CI
+also runs it on Mesa forced to GL 2.1 with KHR_debug disabled, verifying both
+safe diagnostic skipping and successful rendering even without a Mac GPU runner.

@@ -96,7 +96,9 @@ namespace MphRead.Mods
             Scene.Size = ClientSize;
             // Before the scene builds anything, so the driver's complaint
             // about the first refused call is caught rather than inferred.
+            ThumbnailLog.Write($"{_roomKey}: initializing preview diagnostics");
             ScreenCapture.EnableDebugOutput(ThumbnailLog.Write);
+            ThumbnailLog.Write($"{_roomKey}: loading preview scene");
             Scene.OnLoad();
             base.OnLoad();
             // OnResize normally sets the viewport and resizes the offscreen
