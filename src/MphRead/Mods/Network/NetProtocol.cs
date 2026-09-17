@@ -1805,8 +1805,13 @@ namespace MphRead.Mods.Network
         /// already forces is the same refusal that will cover the transfer,
         /// rather than a second bump a month later. See
         /// <see cref="PacketType.MapOffer"/>.
+        ///
+        /// Version 8 changes continuous-weapon damage timing. Player beams
+        /// now use one per-stream firing phase on every machine. Packet layout
+        /// is unchanged, but version 7 peers would simulate different ammo
+        /// and damage events, so mixed builds must be refused.
         /// </summary>
-        public const int ProtocolVersion = 7;
+        public const int ProtocolVersion = 8;
         /// <summary>
         /// Frames between intent packets. One, so every frame.
         ///
