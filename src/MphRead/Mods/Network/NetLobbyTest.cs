@@ -23,6 +23,7 @@ namespace MphRead.Mods.Network
             try
             {
                 ProtocolChecks();
+                EmptyContinuousRestart();
                 ClientStateChecks();
                 Scenario();
                 TeamScenario();
@@ -298,6 +299,44 @@ namespace MphRead.Mods.Network
             rig.Wait(() => owner.State.Value.Phase == SessionPhase.InMatch, "load timeout releases barrier", 18000);
         }
 
+        private static void EmptyContinuousRestart()
+        {
+            // Synchronous production handlers make the last-leave/first-join boundary deterministic.
+            const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance
+                | System.Reflection.BindingFlags.NonPublic;
+            var server = new DedicatedServer(0) { RunsTheMatch = false };
+            var sender = new IPEndPoint(IPAddress.Loopback, 31001);
+            T Field<T>(string name) => (T)typeof(DedicatedServer).GetField(name, flags)!.GetValue(server)!;
+            SessionStatePacket State() => (SessionStatePacket)typeof(DedicatedServer)
+                .GetMethod("BuildSessionState", flags)!.Invoke(server, null)!;
+            void Send(PacketType type, byte[] body)
+            {
+                byte[] data = new byte[body.Length + 1]; data[0] = (byte)type; body.CopyTo(data, 1);
+                typeof(DedicatedServer).GetMethod("Handle", flags)!.Invoke(server,
+                    new object[] { new ReceivedPacket(sender, data, data.Length), 1.0 });
+            }
+            void Hello(uint id)
+            {
+                byte[] body = new byte[6]; body[0] = NetConfig.ProtocolVersion; body[1] = 255;
+                BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(2), id);
+                Send(PacketType.Hello, body);
+            }
+            Hello(1); Send(PacketType.MatchEnd, Array.Empty<byte>());
+            Check(State().Phase == SessionPhase.PostMatch && Field<bool>("_ballotOpen"), "restart fixture reaches results and ballot");
+            ushort match = State().MatchId;
+            Send(PacketType.Bye, Array.Empty<byte>());
+            // A former authority's cached snapshot must not be offered to the next occupant.
+            typeof(DedicatedServer).GetField("_lastSnapshot", flags)!.SetValue(server, new byte[] { 1 });
+            Hello(2);
+            Check(State().Phase == SessionPhase.InMatch && State().MatchId != match,
+                "empty continuous server restarts a playable match");
+            Check(!Field<bool>("_ballotOpen") && Field<byte[]?>("_lastSnapshot") == null,
+                "empty restart closes results ballot and clears cached snapshot");
+            Send(PacketType.MatchEnd, Array.Empty<byte>());
+            Check(State().Phase == SessionPhase.PostMatch && Field<double>("_matchEndedAt") >= 0,
+                "restarted continuous match can finish again");
+        }
+
         private static void ContinuousScenario()
         {
             using var rig = new Rig(ServerSessionPolicy.Continuous); Client client = rig.Add(20);
@@ -319,7 +358,12 @@ namespace MphRead.Mods.Network
             {
                 rig.Wait(() => { NetSession.Pump(); return condition(); }, message, timeout);
             }
-            PumpUntil(() => NetSession.LocalIsLobbyOwner && NetSession.LobbyRoster().Revision == NetSession.SessionRevision,
+            // Admission and Identify are separate exchanges. Matching revisions
+            // can describe the initial unnamed roster; wait for the acknowledged
+            // identity before freezing the revision and dropping retry traffic.
+            PumpUntil(() => NetSession.LocalIsLobbyOwner
+                && GameState.Nicknames[slot] == "RealClient"
+                && NetSession.LobbyRoster().Revision == NetSession.SessionRevision,
                 "real client owns a consistent lobby");
             Check(NetSession.ServerMatch == null, "connection does not require a running match");
             // Lose the first command and its first retry entirely. The same command ID must recover.
