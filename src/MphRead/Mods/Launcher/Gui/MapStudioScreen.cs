@@ -542,7 +542,7 @@ namespace MphRead.Mods.Launcher.Gui
                         MapValidator.RequireRuntimeName(room);string directory=Path.Combine(CustomRooms.WritableMapDirectory,room.ToLowerInvariant());
                         if(Directory.Exists(directory))throw new IOException("A map folder already has this name. Choose a new name.");
                         Dismiss();_status.Text="Importing Quake 3 map…";
-                        int status=await Task.Run(()=>Q3Convert.Run(source,map,room,directory,!keep,string.IsNullOrWhiteSpace(size)?null:Number(size),64));
+                        int status=await Task.Run(()=>Q3Convert.Run(source,map,room,directory,!keep,false,string.IsNullOrWhiteSpace(size)?null:Number(size),64));
                         token.ThrowIfCancellationRequested();
                         if(status!=0)throw new IOException("Import failed; inspect the build log.");
                         string path=Directory.EnumerateFiles(directory,"*.json").Single();Load(MapProjectMigrator.Upgrade(MapProjectSerializer.Load(path)),path);

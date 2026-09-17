@@ -10,7 +10,7 @@ namespace MphRead.Mods.MapGen
         string RecipeHash, string SourceHash, string TextureHash, string ConfigurationHash)
     {
         // Bump when compiler output or build-relevant defaults change.
-        public const int CurrentCompilerVersion = 2;
+        public const int CurrentCompilerVersion = 3;
 
         public static MapBuildFingerprint Create(MapDefinition definition)
         {
@@ -22,7 +22,9 @@ namespace MphRead.Mods.MapGen
                 : definition.Import?.Textures is not { Length: > 0 } ? ""
                 : HashFile(definition.Import.ResolveTextures());
             return new(CurrentCompilerVersion, definition.FormatVersion, recipe, source, textures,
-                HashText(definition.Serialize() + AssetHashes(definition)));
+                HashText(definition.Serialize() + AssetHashes(definition)
+                    + (definition.BundlePath == null && definition.Collision is { Source.Length: > 0 } collision
+                        ? HashFile(collision.Resolve()) : "")));
         }
 
         private static string AssetHashes(MapDefinition definition)

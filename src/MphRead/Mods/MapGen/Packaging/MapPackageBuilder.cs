@@ -39,6 +39,13 @@ namespace MphRead.Mods.MapGen
                 import.Textures = textures == null ? null : "textures/map.tex";
                 if (textures != null) entries.Add(import.Textures!, textures);
             }
+            if (definition.Collision is { Source.Length: > 0 } collision)
+            {
+                byte[] bytes = collision.ReadBytes()
+                    ?? throw new InvalidDataException("Collision mesh is missing.");
+                collision.Source = "collision/mesh.obj";
+                entries.Add(collision.Source, bytes);
+            }
             foreach(var asset in definition.Assets)
             {
                 if(!entries.TryAdd(asset.Path,MapAssets.Read(source,asset.Path)))throw new InvalidDataException("Asset conflicts with a generated package entry.");
