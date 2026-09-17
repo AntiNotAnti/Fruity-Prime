@@ -1728,6 +1728,9 @@ namespace MphRead.Mods.Network
                     // was running when the last player left has nobody to show
                     // it to.
                     _matchEndedAt = -1;
+                    _phase = SessionPhase.InMatch;
+                    CloseBallot();
+                    _lastSnapshot = null;
                     _matchId++;
                 }
                 if (_phase == SessionPhase.InMatch && !AllowJoinInProgress)
