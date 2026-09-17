@@ -120,6 +120,16 @@ jobs:
           --self-contained true -p:PublishSingleFile=true
           -o publish/${{ matrix.id }}
 
+      - name: legacy thumbnail diagnostics without KHR_debug
+        if: matrix.id == 'linux-x64'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y xvfb xauth libgl1-mesa-dri libglx-mesa0 libxinerama1 libxcursor1 libxi6
+          chmod +x publish/linux-x64/FruityPrime
+          xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe \
+            MESA_GL_VERSION_OVERRIDE=2.1 MESA_EXTENSION_OVERRIDE=-GL_KHR_debug \
+            publish/linux-x64/FruityPrime -thumbnailwindowcheck -legacyglcheck
+
       - name: nothing from the game is in the output
         run: tools/check-no-game-assets.sh publish/${{ matrix.id }}
 

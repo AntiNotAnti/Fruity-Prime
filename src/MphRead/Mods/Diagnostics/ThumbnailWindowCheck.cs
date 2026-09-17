@@ -7,15 +7,32 @@ namespace MphRead.Mods.Diagnostics
 {
     internal static class ThumbnailWindowCheck
     {
-        public static int Run()
+        public static int Run(bool legacyCheck = false)
         {
             try
             {
                 // Use the worker's actual settings in a separate process, before
                 // the launcher's context can initialize GLFW or mask a failure.
-                using var window = new GameWindow(new GameWindowSettings(),
-                    ThumbnailCapture.WindowSettings(64, 64));
+                var settings = ThumbnailCapture.WindowSettings(64, 64);
+                if (legacyCheck)
+                {
+                    settings.APIVersion = new Version(2, 1);
+                    settings.Profile = OpenTK.Windowing.Common.ContextProfile.Any;
+                }
+                using var window = new GameWindow(new GameWindowSettings(), settings);
                 window.MakeCurrent();
+                bool debugSkipped = false;
+                ScreenCapture.EnableDebugOutput(line =>
+                {
+                    Console.WriteLine(line);
+                    debugSkipped |= line.Contains("GL debug output unavailable", StringComparison.Ordinal);
+                });
+                Console.WriteLine(ScreenCapture.DescribeContext());
+                if (GL.GetError() != ErrorCode.NoError)
+                    throw new InvalidOperationException("Thumbnail diagnostics raised an OpenGL error.");
+                if (legacyCheck && (!debugSkipped
+                    || !(GL.GetString(StringName.Version) ?? "").StartsWith("2.1", StringComparison.Ordinal)))
+                    throw new InvalidOperationException("Legacy regression requires GL 2.1 without KHR_debug.");
                 int texture = GL.GenTexture();
                 int framebuffer = GL.GenFramebuffer();
                 try
