@@ -746,6 +746,7 @@ namespace MphRead.Droid
                     Scene?.DoCleanup(); Scene = null; _ended = true;
                     lock (_lock) { _stopping = true; }
                     MainActivity.Instance?.RunOnUiThread(() => MainActivity.Instance?.EndMatchToLobby());
+                    return;
                 }
                 catch (Exception ex)
                 {

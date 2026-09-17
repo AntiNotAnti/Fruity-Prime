@@ -170,16 +170,19 @@ map verification step to Android's separate scene-construction path. A live
 loopback regression verifies cancellation preserves the session (26 map network
 checks total); Android's device UI path is compile-reviewed, not device-tested.
 `feature/stylus-touch-input` has no committed changes relative to the audited
-base. The seven uncommitted stylus edits in the original checkout are outside
-commit/PR review and remain untouched.
+base. The seven stylus edits that were uncommitted at audit start are outside
+this commit/PR review and were not modified, stashed or reset by this audit.
+Another audit task began during final handoff; any newer source work belongs
+to that task's scope rather than this pinned verification boundary.
 
 All private audit branches were renamed from the old tool-name prefix to
 `audit/` at the user's request. No branch was deleted or force-pushed.
 
 ## Final verification boundary
 
-Final production-code boundary: `dd01130` on `integration/all-branches`.
-Documentation-only commits may follow it. Desktop Release, Windows x64 server
+Production-code boundary: `dd01130`, plus the final Android cancellation early
+return that prevents a canceled load from firing its success callback.
+Desktop Release, Windows x64 server
 Release and Android Release builds pass. Android retains 14 XML-documentation
 warnings. Both osx-arm64 and osx-x64 self-contained publishes pass from Windows;
 these are compile/package checks, not native combined-build execution.
