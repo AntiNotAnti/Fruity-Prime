@@ -135,6 +135,7 @@ namespace MphRead.Mods.Launcher.Gui
         private ToggleRow _invertY = null!;
         private ToggleRow _invertX = null!;
         private ToggleRow _penTablet = null!;
+        private ToggleRow? _repositionFilter;
         private ToggleRow _scrollAllWeapons = null!;
         private SliderRow _gamepadLook = null!;
         private SliderRow _gamepadDeadZone = null!;
@@ -546,7 +547,8 @@ namespace MphRead.Mods.Launcher.Gui
             // real player's aim rather than protecting it. Turning it on is
             // also the gate for everything below it -- the bottom-screen
             // zone means nothing to a mouse. See Mods.Input.PointerInput.
-            _penTablet = Add(page, new ToggleRow("Stylus mode", Mods.Input.PointerInput.GuardJumps));
+            Heading(page, "Stylus / drawing tablet");
+            _penTablet = Add(page, new ToggleRow("Stylus mode", Mods.Input.PointerInput.StylusMode));
             BuildStylusZone(page);
             _penTablet.Changed += (_, _) => ShowStylusRows();
             ShowStylusRows();
@@ -612,7 +614,11 @@ namespace MphRead.Mods.Launcher.Gui
                 _sensitivity.Value = SensitivityToSlider(InputSettings.MouseSensitivity);
                 _invertY.On = InputSettings.InvertMouseY;
                 _invertX.On = InputSettings.InvertMouseX;
-                _penTablet.On = Mods.Input.PointerInput.GuardJumps;
+                _penTablet.On = Mods.Input.PointerInput.StylusMode;
+                if (_repositionFilter != null)
+                {
+                    _repositionFilter.On = Mods.Input.PointerInput.GuardJumps;
+                }
                 if (_stylusZone != null && _stylusOpacity != null)
                 {
                     _stylusZone.On = Mods.Input.StylusZone.Wanted;
@@ -694,17 +700,19 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 return;
             }
-            _stylusZone = Add(page, new ToggleRow("DS bottom screen for a pen tablet",
+            _stylusZone = Add(page, new ToggleRow("DS touch-screen zone",
                 Mods.Input.StylusZone.Wanted));
             _stylusRows.Add(_stylusZone);
+            _repositionFilter = Add(page, new ToggleRow("Reposition filtering", Mods.Input.PointerInput.GuardJumps));
+            _stylusRows.Add(_repositionFilter);
             // How faint. "Barely visible" is the design, but how faint that
             // has to be to stay out of the way and still be findable depends
             // on the screen and the eyes in front of it.
-            _stylusOpacity = Add(page, new SliderRow("Bottom screen opacity",
+            _stylusOpacity = Add(page, new SliderRow("Overlay opacity",
                 (int)MathF.Round(Mods.Input.StylusZone.Opacity * 100),
                 v => $"{v}%", min: 4, max: 60, keyStep: 2));
             _stylusRows.Add(_stylusOpacity);
-            var place = new UiWord("Place the bottom screen", 15)
+            var place = new UiWord("Configure stylus zone", 15)
             {
                 Margin = new Thickness(0, 8, 0, 0)
             };
@@ -1084,7 +1092,11 @@ namespace MphRead.Mods.Launcher.Gui
             InputSettings.MouseSensitivity = SliderToSensitivity(_sensitivity.Value);
             InputSettings.InvertMouseY = _invertY.On;
             InputSettings.InvertMouseX = _invertX.On;
-            Mods.Input.PointerInput.GuardJumps = _penTablet.On;
+            Mods.Input.PointerInput.StylusMode = _penTablet.On && !OperatingSystem.IsAndroid();
+            if (_repositionFilter != null)
+            {
+                Mods.Input.PointerInput.GuardJumps = _repositionFilter.On;
+            }
             if (_stylusZone != null && _stylusOpacity != null)
             {
                 Mods.Input.StylusZone.Enabled = _stylusZone.On;

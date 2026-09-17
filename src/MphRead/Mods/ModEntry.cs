@@ -52,6 +52,13 @@ namespace MphRead.Mods
             Update.Updater.Disabled = HasFlag(args, "noupdate");
             ApplyRenderOverrides(args);
 
+            if (HasFlag(args, "pointercheck"))
+            {
+                Environment.ExitCode = Input.PointerCheck.Run();
+                return true;
+            }
+
+
             // The copying half of a desktop update, which is this build
             // started by the *previous* one. First, and before anything reads
             // a file or draws a window: it is not the game, it waits for the

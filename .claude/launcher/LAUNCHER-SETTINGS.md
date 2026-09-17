@@ -152,3 +152,12 @@ Notable toggles
   `ApplyToPlayers`, because the players in a running match already hold their
   own copies. `KeyRow` maps the toolkit's key enumeration to GLFW's, and refuses
   anything unmapped rather than binding it to whatever key shares its number.
+
+## Stylus and drawing tablets
+
+Controls has a **Stylus / drawing tablet** section. Stylus mode enables absolute
+pointer handling; DS touch-screen zone and Reposition filtering are independent
+child toggles. Overlay opacity and Configure stylus zone retain the existing
+placement workflow. Turning off Stylus mode disables both behaviors while keeping
+the child preferences. Old `pointer_jump_guard` files migrate to the explicit
+`stylus_mode` master. See `../STYLUS-INPUT.md` for ownership and checks.

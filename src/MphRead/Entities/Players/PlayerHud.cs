@@ -991,8 +991,8 @@ namespace MphRead.Entities
         private int UpdateWeaponArc()
         {
             int selection = -1;
-            float x = Input.MouseState?.X ?? 0;
-            float y = Input.MouseState?.Y ?? 0;
+            float x = Input.PointerX;
+            float y = Input.PointerY;
             float ratioX = _scene.Size.X / 256f;
             float ratioY = _scene.Size.Y / 192f;
             float originX = 0;

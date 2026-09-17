@@ -338,6 +338,8 @@ namespace MphRead.Mods
             }
             try
             {
+                bool? stylusMode = null;
+                bool? legacyGuard = null;
                 foreach (string raw in File.ReadAllLines(Path))
                 {
                     string line = raw.Trim();
@@ -369,7 +371,12 @@ namespace MphRead.Mods
                     }
                     if (key == "pointer_jump_guard" && Boolean.TryParse(value, out bool guardJumps))
                     {
+                        legacyGuard = guardJumps;
                         Input.PointerInput.GuardJumps = guardJumps;
+                    }
+                    if (key == "stylus_mode" && Boolean.TryParse(value, out bool mode))
+                    {
+                        stylusMode = mode;
                     }
                     if (key == "stylus_zone" && Boolean.TryParse(value, out bool stylusZone))
                     {
@@ -481,6 +488,10 @@ namespace MphRead.Mods
                         ParseBind(property, value);
                     }
                 }
+                // Old files used pointer_jump_guard as the stylus master. Explicit
+                // new settings win regardless of line order.
+                Input.PointerInput.StylusMode = !OperatingSystem.IsAndroid()
+                    && (stylusMode ?? legacyGuard ?? false);
             }
             catch (Exception)
             {
@@ -526,6 +537,7 @@ namespace MphRead.Mods
                     $"invert_y={InvertMouseY.ToString().ToLowerInvariant()}",
                     $"invert_x={InvertMouseX.ToString().ToLowerInvariant()}",
                     $"scroll_all_weapons={ScrollAllWeapons.ToString().ToLowerInvariant()}",
+                    $"stylus_mode={Input.PointerInput.StylusMode.ToString().ToLowerInvariant()}",
                     $"pointer_jump_guard={Input.PointerInput.GuardJumps.ToString().ToLowerInvariant()}",
                     // What was asked for, not what is in force: the zone's
                     // switch survives stylus mode being turned off and on.
@@ -587,6 +599,10 @@ namespace MphRead.Mods
             Network.DemoClip.Seconds = 10;
             Input.PadBindings.Reset();
             Input.TouchSettings.Reset();
+            Input.PointerInput.StylusMode = false;
+            Input.PointerInput.GuardJumps = true;
+            Input.StylusZone.Enabled = false;
+            Input.PointerDevice.Reset();
             GamepadDeadZone = 0.2f;
             GamepadLookSensitivity = 1f;
             GamepadInvertY = false;
