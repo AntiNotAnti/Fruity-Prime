@@ -14,15 +14,19 @@ Every checkout created by this audit is private and rooted under
 
 | Directory | Private branch |
 | --- | --- |
-| `Fruity-Prime-audit-alt-0917` | `codex/pr-audit-alt-0917` |
-| `Fruity-Prime-audit-replay-0917` | `codex/pr-audit-replay-0917` |
-| `Fruity-Prime-audit-stylus-0917` | `codex/pr-audit-stylus-0917` |
-| `Fruity-Prime-audit-replay-combined-0917` | `codex/pr-audit-replay-combined-0917` |
+| `Fruity-Prime-audit-alt-0917` | `audit/pr-audit-alt-0917` |
+| `Fruity-Prime-audit-replay-0917` | `audit/pr-audit-replay-0917` |
+| `Fruity-Prime-audit-stylus-0917` | `audit/pr-audit-stylus-0917` |
+| `Fruity-Prime-audit-replay-combined-0917` | `audit/pr-audit-replay-combined-0917` |
 
 Existing checkouts and source branch pointers were not changed. Nothing was
 pushed, merged to master, or posted externally. The live integration branch
 advanced independently during this audit; these results describe the pinned
 combined base plus the four fixes below, not those concurrent changes.
+
+Follow-up: the main audit subsequently pushed the two focused source fixes,
+integrated all four repairs, and renamed private branches to the names above.
+See [MERGE-AUDIT.md](MERGE-AUDIT.md) for final integration/CI results.
 
 ## Confirmed findings and fixes
 

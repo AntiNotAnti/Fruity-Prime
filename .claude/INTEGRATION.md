@@ -4,12 +4,17 @@
 2026-09-16 integration. Source branches are retained. The working checkout is
 the sibling `Fruity-Prime-integration` worktree; the original checkout and its
 seven uncommitted stylus-related edits were left untouched. Uncommitted edits
-are not part of a branch merge. Nothing was pushed by this integration.
+are not part of a branch merge. The integration branch remains local; focused
+audit fixes were pushed to existing source branches. See
+[MERGE-AUDIT.md](testing/MERGE-AUDIT.md) for exact source tips and limits.
 
 ## Combined behavior
 
-- Protocol **10** combines lifecycle identity/order validation with persistent
-  lobbies, teams, authoritative resources and continuous-weapon firing phases.
+- Protocol **11** combines lifecycle identity/order validation with persistent
+  lobbies, teams, authoritative resources, continuous-weapon firing phases and
+  Map Studio's verified custom-map transfer. Map negotiation occurs at the load
+  barrier, not while connecting to an idle lobby. Map packet IDs 32-35 remain
+  separate from the lobby packet IDs starting at 36.
   All peers must use the integration build; old-protocol recordings are incompatible.
 - Roster headers are 17 bytes, entries are 25 bytes. The 32-bit roster sequence
   is independent of the 16-bit lobby session revision. SessionState includes
@@ -32,19 +37,34 @@ are not part of a branch merge. Nothing was pushed by this integration.
 ## Verification
 
 Desktop Release and Windows x64 dedicated-server Release built with zero
-warnings/errors. Android Debug built with 14 XML-documentation warnings and no errors.
+warnings/errors. Android Debug and Release built with 14 XML-documentation
+warnings and no errors. Both macOS self-contained targets cross-published on
+Windows; native execution of the final combined tree remains unverified.
 
 Asset-free checks passed:
 
-- `-netlobbytest`: 2,690 assertions, real loopback UDP, retries, two rounds,
+- `-netlobbytest`: 2,693 assertions, including map negotiation at consecutive load
+  barriers, real loopback UDP, retries, two rounds,
   owner migration, teams, rebind and continuous rotation.
-- `tools/nettest --lifecycle`: 3,660 assertions with seeded packet faults.
-- `-replayformatcheck`: 520 checks, including production capture/bootstrap with
+- `tools/nettest --lifecycle`: 3,687 assertions with seeded packet faults,
+  including live connection timestamps while map downloads pause gameplay.
+- `-replayformatcheck`: 534 checks, including production capture/bootstrap with
   sparse slots, generations, teams and independent revisions.
-- `-altformcheck`: 510; `-pointercheck`: 83; `-gamepadcheck`: 116.
+- `-altformcheck`: 512; `-pointercheck`: 83; `-gamepadcheck`: 126.
 - `-frametimingcheck`, `-brightskinscheck`, `-replaycontrolcheck`.
-- `tools/formtest`: 606; `tools/continuous-phase-check`: eight cases;
-  `tools/pathstest`: 12; `tools/rombrowsercheck`: 22.
+- `tools/formtest`: 699; `tools/continuous-phase-check`: eight cases;
+  `tools/pathstest`: 33; `tools/rombrowsercheck`: 22.
+- `tools/mapcheck`: 105; `tools/mapcheck --network`: 26. Bundled maps stay
+  read-only on macOS; editor/cache/download outputs use Application Support.
+  The platform suite exercises synthetic Mac paths on Windows.
+- Canceling a lobby start during map verification returns clients to the same
+  lobby. Desktop, terminal and Android load paths preserve the connection;
+  Android verifies the map before constructing its scene.
+- `tools/setupcheck`: six; `tools/updatecheck`: nine; release-workflow: eight
+  plus cross-job Android version-output checks; real-GL teardown: three cycles.
+- macOS PR #46's native ARM64/x64 CI passed on audited source `ce86011`,
+  including signed bundle, tamper, missing-library and displayless smoke tests.
+  These source-branch results do not certify the later all-branches tree on Mac.
 
 These checks do not establish rendered gameplay correctness, physical stylus
 or controller behavior, Android device behavior, or real Internet multiplayer.

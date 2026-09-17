@@ -1,5 +1,11 @@
 # Map Studio and custom-map projects
 
+On `integration/all-branches`, [INTEGRATION.md](../INTEGRATION.md) overrides
+the standalone protocol number below: the combined format is protocol 11.
+Map offers follow the frozen lobby selection and bind both match and authority
+epoch. Active valid chunk requests can extend the 15-second load barrier, with
+a hard cap of another 180 seconds; stalled clients cannot hold it indefinitely.
+
 Map Studio is a desktop authoring surface in the existing single GLFW window. Open **Map Studio** on the front screen or use `-mapstudio`. Android and dedicated servers share validation, compilation, assets, packages, and transfer; they do not host the editor viewport.
 
 ## Ownership and source compatibility
