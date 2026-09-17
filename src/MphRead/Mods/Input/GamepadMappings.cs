@@ -28,7 +28,8 @@ namespace MphRead.Mods.Input
     /// Three sources, in the order they are read, later ones winning:
     ///
     /// <list type="bullet">
-    /// <item><c>gamecontrollerdb.txt</c> beside the executable -- what a
+    /// <item><c>gamecontrollerdb.txt</c> in application resources (beside the executable
+    /// for portable builds, Contents/Resources for a macOS app) -- what a
     /// release ships, and where a player who
     /// unzipped the game will naturally drop a file.</item>
     /// <item><c>gamecontrollerdb.txt</c> in the settings directory, beside
@@ -98,13 +99,13 @@ namespace MphRead.Mods.Input
 
         /// <summary>
         /// Where a mapping file may sit. The settings directory is second so
-        /// that it wins: it is the copy a player edited, and the one beside
-        /// the executable is whatever the download came with.
+        /// that it wins: it is the copy a player edited, and application
+        /// resources contain whatever the download came with.
         /// </summary>
-        private static string[] Paths()
+        internal static string[] Paths(string? resourceDirectory = null, string? settingsDirectory = null)
         {
-            string beside = Path.Combine(Mods.Platform.AppPaths.ExecutableDirectory, FileName);
-            string settings = Path.Combine(Launcher.LauncherPrefs.Directory, FileName);
+            string beside = Path.Combine(resourceDirectory ?? Mods.Platform.AppPaths.ResourceDirectory, FileName);
+            string settings = Path.Combine(settingsDirectory ?? Launcher.LauncherPrefs.Directory, FileName);
             return beside == settings
                 ? new string[] { beside }
                 : new string[] { beside, settings };

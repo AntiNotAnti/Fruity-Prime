@@ -117,7 +117,10 @@ migration or new native dependency is introduced.
 
 ## Mappings and diagnostics
 
-`gamecontrollerdb.txt` and its zlib license ship beside desktop builds/releases.
+`gamecontrollerdb.txt` and its zlib license ship beside portable desktop builds;
+macOS app bundles place both in `Contents/Resources` so code signing seals them
+as data. Runtime lookup uses that resource directory, followed by the writable
+settings directory; ordinary Windows/Linux and unbundled macOS paths stay portable.
 The bundled snapshot is mdqinc/SDL_GameControllerDB commit
 `5a12daa568d19344f9b6e9286ef5929833b25c7c`. Update both files together from that
 upstream repository when refreshing mappings. Load order is bundled -> settings

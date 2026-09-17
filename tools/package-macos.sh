@@ -17,11 +17,16 @@ contents="$app/Contents"
 mkdir -p "$contents/MacOS" "$contents/Resources"
 # Keep the publish layout intact: .NET and native dependencies probe beside
 # the apphost. Apple's signer treats subdirectories of MacOS as nested code,
-# so map data belongs in Resources, resolved by AppPaths.ResourceDirectory.
+# so map and controller data belong in Resources, resolved by AppPaths.ResourceDirectory.
 ditto "$root" "$contents/MacOS"
 if [[ -d "$contents/MacOS/maps" ]]; then
     mv "$contents/MacOS/maps" "$contents/Resources/maps"
 fi
+for resource in gamecontrollerdb.txt gamecontrollerdb.LICENSE; do
+    if [[ -f "$contents/MacOS/$resource" ]]; then
+        mv "$contents/MacOS/$resource" "$contents/Resources/$resource"
+    fi
+done
 cp "$repo/src/MphRead/Platforms/macOS/Info.plist" "$contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $version" "$contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $version" "$contents/Info.plist"
