@@ -597,8 +597,8 @@ namespace MphRead.Mods
                 maxPlayers = parsedPlayers;
             }
 
-            // Rotation file lives beside the executable, the way a Quake 3
-            // server keeps its config next to the binary.
+            // Rotation follows writable user data: beside the executable on
+            // Windows/Linux, outside the signed application on macOS.
             string rotationPath = ValueAfter(args, "rotation")
                 ?? System.IO.Path.Combine(Platform.AppPaths.UserDataDirectory, "maprotation.txt");
             MapRotation rotation = MapRotation.LoadOrCreate(rotationPath);
