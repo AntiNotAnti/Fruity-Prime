@@ -10,6 +10,13 @@ case "$(uname -m)" in
     x86_64) rid=osx-x64; other=arm64 ;;
     *) exit 1 ;;
 esac
+project="$repo/src/MphRead/MphRead.csproj"
+[[ $(dotnet msbuild "$project" -getProperty:MphReadAudioRid) == "$rid" ]] \
+    || { echo 'error: local build selected the wrong audio RID' >&2; exit 1; }
+for target in osx-arm64 osx-x64; do
+    [[ $(dotnet msbuild "$project" -p:RuntimeIdentifier="$target" -getProperty:MphReadAudioRid) == "$target" ]] \
+        || { echo 'error: explicit audio RID was ignored' >&2; exit 1; }
+done
 root="$temp/publish with spaces"
 mkdir -p "$root/nested"
 printf 'int main(void) { return 0; }\n' > "$temp/main.c"
@@ -47,4 +54,13 @@ clang "$temp/main.c" -o "$root/NoJit"
 codesign --force --sign - "$root/NoJit"
 mv "$root/NoJit" "$root/FruityPrime"
 expect_failure "$repo/tools/check-macos-build.sh" "$root" "$rid"
+printf '<plist version="1.0"><dict><key>com.apple.security.cs.allow-jit</key><false/></dict></plist>' > "$temp/false.plist"
+codesign --force --sign - --entitlements "$temp/false.plist" "$root/FruityPrime"
+expect_failure "$repo/tools/check-macos-build.sh" "$root" "$rid"
+# A compatible universal library must pass, including both signed slices.
+clang -arch "$other" -dynamiclib "$temp/native.c" -o "$temp/other.dylib"
+lipo -create "$root/libopenal.1.dylib" "$temp/other.dylib" -output "$temp/universal.dylib"
+mv "$temp/universal.dylib" "$root/libopenal.1.dylib"
+"$repo/tools/sign-macos.sh" "$root"
+"$repo/tools/check-macos-build.sh" "$root" "$rid"
 echo 'macOS signing gate regressions passed.'
