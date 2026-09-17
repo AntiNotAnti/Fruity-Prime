@@ -1743,10 +1743,12 @@ namespace MphRead.Mods.Network
                     // was running when the last player left has nobody to show
                     // it to.
                     _matchEndedAt = -1;
+                    _phase = SessionPhase.InMatch;
+                    CloseBallot();
                     _matchId = NetLifecycleTracker.Next(_matchId);
-            _snapshotSeen = false;
-            Array.Clear(_slotLives);
-            foreach (Peer connected in _peers) connected.LastIntentFrame = 0;
+                    _snapshotSeen = false;
+                    _lastSnapshot = null;
+                    Array.Clear(_slotLives);
                 }
                 if (_phase == SessionPhase.InMatch && !AllowJoinInProgress)
                 { SendRefusal(packet.Sender, RefusedPacket.ReasonInMatch); return; }
@@ -2162,10 +2164,13 @@ namespace MphRead.Mods.Network
                 || !NetHealthSync.Validate(packet.Payload[healthOffset..])
                 || BinaryPrimitives.ReadUInt16LittleEndian(packet.Payload[healthOffset..]) != _matchId
                 || (_snapshotSeen && !NetLifecycleTracker.Newer(header.Frame, _snapshotFrame))) return;
+            int occupied = 0;
             for (int i = 0; i < header.PlayerCount; i++)
             {
                 PlayerState state = PlayerState.Read(packet.Payload[(SnapshotHeader.Size + i * PlayerState.Size)..]);
-                if (state.SlotIndex >= _slotLives.Length || state.SlotGeneration != _slotGenerations[state.SlotIndex]) return;
+                if (state.SlotIndex >= _slotLives.Length || (occupied & (1 << state.SlotIndex)) != 0
+                    || state.SlotGeneration != _slotGenerations[state.SlotIndex]) return;
+                occupied |= 1 << state.SlotIndex;
             }
             // Commit only after the entire packet has passed validation.
             for (int i = 0; i < header.PlayerCount; i++)

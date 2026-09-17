@@ -20,6 +20,7 @@ namespace MphRead.NetTest
             try
             {
                 Wire();
+                _checks += NetworkAuditTests.Run();
                 StateMachine();
                 LoopbackAdmission();
                 PacketOrdering();
