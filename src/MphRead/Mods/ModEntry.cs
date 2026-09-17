@@ -33,6 +33,31 @@ namespace MphRead.Mods
         /// </summary>
         public static bool TryHandleHeadless(string[] args)
         {
+            if (HasFlag(args, "replayformatcheck"))
+            {
+                Environment.ExitCode = Network.ReplayFormatCheck.Run();
+                return true;
+            }
+            if (ValueAfter(args, "replayvalidate") is string validatePath)
+            {
+                var result = Network.ReplayArchive.Validate(validatePath);
+                Console.WriteLine($"[replayvalidate] {result}");
+                Environment.ExitCode = result == Network.ReplayOpenResult.Success ? 0 : 1;
+                return true;
+            }
+            if (ValueAfter(args, "replayrecover") is string recoverPath)
+            {
+                bool recovered = Network.ReplayArchive.Recover(recoverPath, out string? output, out var result);
+                Console.WriteLine($"[replayrecover] {result}: {output}");
+                Environment.ExitCode = recovered ? 0 : 1;
+                return true;
+            }
+            if (HasFlag(args, "replaycontrolcheck"))
+            {
+                Environment.ExitCode = Network.ReplayControlCheck.Run();
+                return true;
+            }
+
             if (HasFlag(args, "netlobbytest"))
             {
                 Environment.ExitCode = NetLobbyTest.Run();
@@ -1491,6 +1516,11 @@ namespace MphRead.Mods
                 return true;
             }
 
+            if (ValueAfter(args, "replaydeterminism") is string replayPath)
+            {
+                Environment.ExitCode = Network.ReplayDeterminism.Run(replayPath);
+                return true;
+            }
             // What a recorded match actually contains. Reads the file and
             // nothing else -- no room, no window, no game files.
             string? demoInfo = ValueAfter(args, "demoinfo");

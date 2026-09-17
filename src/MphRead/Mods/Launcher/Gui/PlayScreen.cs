@@ -311,7 +311,7 @@ namespace MphRead.Mods.Launcher.Gui
 
             if (face != Face.Vote)
             {
-                _tabs = new UiTabs(new[] { "Online", "Offline", "Story", "Clips" },
+                _tabs = new UiTabs(new[] { "Online", "Offline", "Story", "Replays" },
                     (int)face);
                 _tabs.Changed += (_, _) => Rebuild();
             }
@@ -856,7 +856,7 @@ namespace MphRead.Mods.Launcher.Gui
             IReadOnlyList<DemoRecording> demos = DemoLibrary.List();
             foreach (DemoRecording demo in demos)
             {
-                _list.Add(new UiListRow(demo.Room.Length > 0 ? demo.Room : demo.FileName,
+                _list.Add(new UiListRow((demo.Favorite ? "* " : "") + demo.DisplayName,
                     DemoLibrary.Describe(demo))
                 { Choice = demo.Path });
             }
@@ -869,6 +869,87 @@ namespace MphRead.Mods.Launcher.Gui
                 _note.Text = "Nothing recorded yet. Clips are made from the pause menu "
                     + $"during an online match, and are written to:\n{DemoLibrary.Directory}";
             }
+            var replayName = new FieldRow("Display name", "", boxWidth: 210);
+            replayName.Box.MaxLength = 100;
+            _options.Children.Add(replayName);
+            void Action(string label, System.Action<string> action)
+            {
+                var button = new UiWord(label);
+                button.Click += (_, _) =>
+                {
+                    if ((_list.Selected as UiListRow)?.Choice is not string path) return;
+                    try { action(path); }
+                    catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException)
+                    { _note.Text = ex.Message; }
+                };
+                _options.Children.Add(button);
+            }
+            Action("Rename", path => { DemoLibrary.Rename(path, replayName.Value); Rebuild(); });
+            var validate = new UiWord("Check replay integrity");
+            validate.Click += async (_, _) =>
+            {
+                if ((_list.Selected as UiListRow)?.Choice is not string path) return;
+                _note.Text = "Checking replay integrity...";
+                var result = await Task.Run(() => ReplayArchive.Validate(path));
+                DemoLibrary.NoteValidation(path, result);
+                Rebuild();
+                _note.Text = $"Replay integrity: {result}";
+            };
+            _options.Children.Add(validate);
+            Action("Recover interrupted recording", path =>
+            {
+                if (!path.EndsWith(".part", StringComparison.OrdinalIgnoreCase)) { _note.Text = "Select an interrupted .part recording first."; return; }
+                ReplayArchive.Recover(path, out string? output, out ReplayOpenResult result);
+                Rebuild();
+                _note.Text = output == null ? $"Recovery failed: {result}" : "Recovered " + Path.GetFileName(output);
+            });
+            Action("Favorite / unfavorite", path => { DemoLibrary.ToggleFavorite(path); Rebuild(); });
+            string? confirmDelete = null;
+            Action("Delete (press twice to confirm)", path =>
+            {
+                if (confirmDelete != path) { confirmDelete = path; _note.Text = "Press Delete again to delete " + Path.GetFileName(path); return; }
+                DemoLibrary.Delete(path);
+                Rebuild();
+            });
+            var export = new UiWord("Export replay");
+            export.Click += async (_, _) =>
+            {
+                if ((_list.Selected as UiListRow)?.Choice is not string path) return;
+#if !ANDROID
+                try
+                {
+                    string directory = Path.Combine(DemoLibrary.Directory, "exports");
+                    Directory.CreateDirectory(directory);
+                    string destination = Path.Combine(directory, Path.GetFileNameWithoutExtension(path) + $"_{Guid.NewGuid():N}.fpdemo");
+                    File.Copy(path, destination, overwrite: false);
+                    _note.Text = "Exported to " + destination;
+                }
+                catch (Exception ex) { _note.Text = "Export failed: " + ex.Message; }
+                await Task.CompletedTask;
+#else
+                if (TopLevel.GetTopLevel(this) is not TopLevel top) return;
+                try
+                {
+                    var target = await top.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+                    { Title = "Export replay", SuggestedFileName = Path.GetFileName(path), DefaultExtension = "fpdemo" });
+                    if (target == null) return;
+                    if (target.TryGetLocalPath() is string local && Path.GetFullPath(local) == Path.GetFullPath(path)) return;
+                    using var input = File.OpenRead(path);
+                    await using var output = await target.OpenWriteAsync();
+                    await input.CopyToAsync(output);
+                    _note.Text = "Replay exported";
+                }
+                catch (Exception ex) { _note.Text = "Export failed: " + ex.Message; }
+#endif
+            };
+            _options.Children.Add(export);
+#if !ANDROID
+            Action("Reveal in folder", path =>
+            {
+                string folder = Path.GetDirectoryName(path)!;
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(folder) { UseShellExecute = true });
+            });
+#endif
             // The system picker last rather than first: on Android it cannot
             // reach the folder the recordings are in at all.
             _list.Add(new UiListRow("Open a file...",
@@ -904,6 +985,8 @@ namespace MphRead.Mods.Launcher.Gui
 
         private async Task Watch(string path)
         {
+            if (path.EndsWith(".part", StringComparison.OrdinalIgnoreCase))
+            { _note.Text = "Recover this interrupted recording before watching it."; return; }
             // Joined here, not inside MatchStart: a failure has to land back on
             // a screen that is still open to show it on. The Windows build has
             // no console for anything the launcher starts, so the alternative
@@ -937,7 +1020,7 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 return;
             }
-            var options = new FilePickerOpenOptions { Title = "Clips", AllowMultiple = false };
+            var options = new FilePickerOpenOptions { Title = "Replays", AllowMultiple = false };
             if (!OperatingSystem.IsAndroid())
             {
                 // Android filters by MIME type and a demo file has none; a
