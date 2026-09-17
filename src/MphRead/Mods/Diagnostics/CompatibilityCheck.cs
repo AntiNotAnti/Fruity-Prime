@@ -99,7 +99,7 @@ namespace MphRead.Mods.Diagnostics
 
         private static void LoadNative(string file, string symbol)
         {
-            string path = Path.Combine(AppContext.BaseDirectory, file);
+            string path = Path.Combine(Platform.AppPaths.ExecutableDirectory, file);
             Console.WriteLine($"Loading {path}");
             IntPtr handle = NativeLibrary.Load(path);
             try { _ = NativeLibrary.GetExport(handle, symbol); }

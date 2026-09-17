@@ -23,7 +23,7 @@ namespace MphRead.Mods.Launcher
         /// directory is read-only, so the head there points this at the app's
         /// data directory before anything reads.
         /// </summary>
-        public static string Directory { get; set; } = AppContext.BaseDirectory;
+        public static string Directory { get; set; } = Platform.AppPaths.UserDataDirectory;
 
         private static string Path => System.IO.Path.Combine(Directory, "launcher.txt");
 

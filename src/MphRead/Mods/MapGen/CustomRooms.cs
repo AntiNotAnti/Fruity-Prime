@@ -32,7 +32,7 @@ namespace MphRead.Mods.MapGen
         /// the list is loaded once and cached.
         /// </summary>
         public static string MapDirectory { get; set; }
-            = Path.Combine(AppContext.BaseDirectory, "maps");
+            = Platform.AppPaths.Maps;
 
         public static IReadOnlyList<MapDefinition> Definitions
         {

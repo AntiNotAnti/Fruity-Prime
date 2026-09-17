@@ -599,7 +599,7 @@ namespace MphRead.Mods
             // Rotation file lives beside the executable, the way a Quake 3
             // server keeps its config next to the binary.
             string rotationPath = ValueAfter(args, "rotation")
-                ?? System.IO.Path.Combine(AppContext.BaseDirectory, "maprotation.txt");
+                ?? System.IO.Path.Combine(Platform.AppPaths.UserDataDirectory, "maprotation.txt");
             MapRotation rotation = MapRotation.LoadOrCreate(rotationPath);
 
             var server = new Network.DedicatedServer(port, maxPlayers, rotation)
