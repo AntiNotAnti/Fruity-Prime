@@ -159,4 +159,3 @@ namespace MphRead.Mods.Replay
         }
     }
 }
-
