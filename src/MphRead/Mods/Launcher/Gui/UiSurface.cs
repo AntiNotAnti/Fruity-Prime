@@ -785,32 +785,6 @@ namespace MphRead.Mods.Launcher.Gui
         }
 
         /// <summary>
-        /// The headless toolkit has no desktop clipboard. The ROM path field
-        /// receives text from the GLFW window that owns the actual clipboard.
-        /// </summary>
-        public bool PasteRomPath(string? text)
-        {
-            if (_view == null)
-            {
-                return false;
-            }
-            if (_view is RomFileBrowser direct && direct.PastePath(text))
-            {
-                Invalidate();
-                return true;
-            }
-            foreach (Visual visual in _view.GetVisualDescendants())
-            {
-                if (visual is RomFileBrowser browser && browser.PastePath(text))
-                {
-                    Invalidate();
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        /// <summary>
         /// GLFW's keys to the toolkit's, for the ones a screen acts on.
         ///
         /// Not every key: the letters and digits reach the text boxes as text

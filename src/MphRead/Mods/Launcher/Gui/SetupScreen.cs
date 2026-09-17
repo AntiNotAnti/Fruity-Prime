@@ -32,7 +32,6 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly UiMark _choose;
         private readonly UiMark _back;
         private readonly UiWord _previews;
-        private readonly Control _setupPage;
 
         public SetupScreen()
         {
@@ -80,9 +79,8 @@ namespace MphRead.Mods.Launcher.Gui
                 Content = body,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
             };
-            _setupPage = UiLayout.Page(overGame: false, UiLayout.WellSettings,
+            Content = UiLayout.Page(overGame: false, UiLayout.WellSettings,
                 "game files", strip: null, body: holder, no: _back, yes: _choose);
-            Content = _setupPage;
             RefreshPreviewEntry();
         }
 
@@ -94,8 +92,7 @@ namespace MphRead.Mods.Launcher.Gui
 
         protected override void OnKeyDown(KeyEventArgs e)
         {
-            if (e.Key == Key.Escape && ReferenceEquals(Content, _setupPage)
-                && _back.IsVisible)
+            if (e.Key == Key.Escape && _back.IsVisible)
             {
                 Closed?.Invoke(this, EventArgs.Empty);
                 e.Handled = true;
@@ -106,43 +103,9 @@ namespace MphRead.Mods.Launcher.Gui
 
         private async Task ChooseRom()
         {
-            if (OperatingSystem.IsAndroid())
-            {
-                await ChooseRomAndroidAsync();
-                return;
-            }
-            ShowDesktopRomBrowser();
-        }
-
-        private void ShowDesktopRomBrowser()
-        {
-            var browser = new RomFileBrowser();
-            browser.Cancelled += () =>
-            {
-                Content = _setupPage;
-                _choose.Focus();
-            };
-            browser.Selected += async path =>
-            {
-                Content = _setupPage;
-                string? directory = Path.GetDirectoryName(path);
-                if (directory != null)
-                {
-                    LauncherPrefs.LastRomDirectory = directory;
-                    LauncherPrefs.Save();
-                }
-                await InstallRomAsync(path);
-            };
-            Content = browser;
-            browser.Focus();
-        }
-
-        private async Task ChooseRomAndroidAsync()
-        {
             TopLevel? top = TopLevel.GetTopLevel(this);
-            if (top?.StorageProvider == null)
+            if (top == null)
             {
-                _log.Text = "The device's file picker is unavailable.";
                 return;
             }
             var options = new FilePickerOpenOptions
@@ -150,25 +113,29 @@ namespace MphRead.Mods.Launcher.Gui
                 Title = "Your Metroid Prime Hunters cartridge dump",
                 AllowMultiple = false
             };
-            IReadOnlyList<IStorageFile> picked;
-            try
+            if (!OperatingSystem.IsAndroid())
             {
-                // Android filters by MIME type, and .nds has none. Keep its
-                // platform document provider without a fabricated filter.
-                picked = await top.StorageProvider.OpenFilePickerAsync(options);
+                // Patterns are what Windows, Linux and the browser filter on.
+                // Android filters by MIME type, and .nds has none -- inventing
+                // one there produces a picker in which every file is refused.
+                options.FileTypeFilter = new[]
+                {
+                    new FilePickerFileType("Nintendo DS ROM") { Patterns = new[] { "*.nds" } },
+                    new FilePickerFileType("Every file") { Patterns = new[] { "*" } }
+                };
             }
-            catch (Exception ex)
-            {
-                _log.Text = $"The file picker could not be opened: {ex.Message}";
-                _progress.IsVisible = false;
-                return;
-            }
+            IReadOnlyList<IStorageFile> picked =
+                await top.StorageProvider.OpenFilePickerAsync(options);
             if (picked.Count == 0)
             {
                 return;
             }
             _choose.IsEnabled = false;
             _choose.Label = "working...";
+            _log.Text = "";
+            var progress = new SetupProgress();
+            _progress.IsVisible = true;
+            _progress.Set(0, "Starting");
             string? path = picked[0].TryGetLocalPath();
             string? scratch = null;
             if (path == null)
@@ -191,59 +158,36 @@ namespace MphRead.Mods.Launcher.Gui
                 catch (Exception ex)
                 {
                     _log.Text = $"The file could not be read: {ex.Message}";
-                    _progress.IsVisible = false;
-                    TryDelete(scratch);
                     Ready();
                     return;
                 }
             }
-            await InstallRomAsync(path, scratch);
-        }
-
-        private async Task InstallRomAsync(string path, string? temporaryPath = null)
-        {
-            if (!File.Exists(path) || !String.Equals(Path.GetExtension(path), ".nds",
-                StringComparison.OrdinalIgnoreCase))
-            {
-                _log.Text = "Choose an existing .nds file.";
-                _progress.IsVisible = false;
-                TryDelete(temporaryPath);
-                Ready();
-                return;
-            }
-            _choose.IsEnabled = false;
-            _choose.Label = "working...";
-            _log.Text = "";
-            var progress = new SetupProgress();
-            _progress.IsVisible = true;
-            _progress.Set(0, "Starting");
             // Extraction takes minutes. Off the UI thread, or the screen stops
             // answering at the exact moment it is doing the one thing a fresh
             // install needs.
-            bool ok = false;
-            try
-            {
-                ok = await Task.Run(() => GameFiles.RunSetup(path, line =>
-                    Dispatcher.UIThread.Post(() =>
-                    {
-                        _log.Text = Tail(_log.Text, line);
-                        if (progress.Observe(line))
-                        {
-                            _progress.Set(progress.Fraction, progress.Stage);
-                        }
-                    })));
-                if (ok)
+            bool ok = await Task.Run(() => GameFiles.RunSetup(path, line =>
+                Dispatcher.UIThread.Post(() =>
                 {
-                    await RenderMissing(progress);
+                    _log.Text = Tail(_log.Text, line);
+                    if (progress.Observe(line))
+                    {
+                        _progress.Set(progress.Fraction, progress.Stage);
+                    }
+                })));
+            if (scratch != null)
+            {
+                try
+                {
+                    File.Delete(scratch);
+                }
+                catch (IOException)
+                {
+                    // A copy left behind is untidy, not a failure worth saying.
                 }
             }
-            catch (Exception ex)
+            if (ok)
             {
-                _log.Text = Tail(_log.Text, $"Setup failed: {ex.Message}");
-            }
-            finally
-            {
-                TryDelete(temporaryPath);
+                await RenderMissing(progress);
             }
             progress.Finish(ok);
             _progress.Set(progress.Fraction, progress.Stage);
@@ -255,26 +199,6 @@ namespace MphRead.Mods.Launcher.Gui
                 _progress.IsVisible = false;
                 _back.IsVisible = true;
                 Closed?.Invoke(this, EventArgs.Empty);
-            }
-        }
-
-        private static void TryDelete(string? path)
-        {
-            if (path == null)
-            {
-                return;
-            }
-            try
-            {
-                File.Delete(path);
-            }
-            catch (IOException)
-            {
-                // A copy left behind is untidy, not a setup failure.
-            }
-            catch (UnauthorizedAccessException)
-            {
-                // Same: do not hide the real extraction result.
             }
         }
 
