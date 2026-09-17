@@ -161,20 +161,19 @@ claiming coverage that isn't there.
   the reports from before this work, and it is the long-standing
   `damage-taken` mismatch in `NETWORK-DIAGNOSTICS.md` (17 against 7) seen from
   another angle.
-- **A continuous weapon does not resolve the same hits on two machines, and
-  nothing here makes it.** The Shock Coil's damage is divided by 32 and
-  dithered off `scene.FrameCount`, so the frame parity that produces a damaging
-  hit is a property of each machine's own counter: measured against Japan, the
-  authority landed 131 hits where the client that fired them resolved 28. The
-  totals are near enough that nobody notices the damage, and the *count* is
-  what `NetHitPrediction.Confirm` retires predictions by -- so one snapshot
-  retires everything outstanding and the hold collapses. The visible symptom,
-  a victim's health bar climbing back up when the trigger is released, is now
-  covered by the shown-health floor in `HealthFor`
-  (`.claude/multiplayer/NETWORK-PREDICTION.md`), but that is a floor on what is
-  *drawn*. The two machines still disagree about which frames landed a hit, and
-  making them agree -- dithering off a clock both sides share, or sending the
-  count rather than deriving it -- has not been attempted.
+- **Continuous-weapon hit agreement still needs a real network measurement.**
+  Shock Coil's old `scene.FrameCount` dither differed on each machine: the
+  authority landed 131 hits where the client that fired them resolved 28 in a
+  Japan run. Spawn now derives one phase from the owner's `NetFrame` or a
+  per-slot clock seeded from `IntentPacket.Frame + RemoteIntentAge` on a remote
+  machine. The remote clock advances through a held stream without re-anchoring
+  to packets that arrive late, and the phase is used for
+  ammo, damage and the homing ramp. The beam retains that phase for its enemy
+  hit gate. Invalid or stale intents and offline play use scene timing. This
+  removes the independent clock parity from fresh intents; it does not prove
+  that both simulations acquire the same target or process every hit. The
+  shown-health floor in `HealthFor` still covers the visible rebound while
+  network hit counts are measured again (`.claude/multiplayer/NETWORK-PREDICTION.md`).
 - **The scoreboard crash reported in bot matches is not reproduced here, and
   is therefore not fixed.** Reported from a phone, 2026-09-06: *"in bot matches
   the game still sometimes crashes when trying to view the scoreboard."* The

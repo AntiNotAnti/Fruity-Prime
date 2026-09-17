@@ -886,12 +886,12 @@ MPH_SERVER_HOST=net.livetek.fr MPH_SERVER_USER=livetek \
 
 The exe is often locked by a running game: write `MphRead.new.exe`, then `mv`.
 
-**`NetConfig.ProtocolVersion` is 7.** Any protocol change means server **and**
-every client must be the same build — a mismatched client is refused outright
-at Hello with a line in the server log, which is the intended outcome and not
-a layout issue: the wire format doesn't move, an old client would read every
-byte correctly and then simulate a different game (frozen in place, shooting
-from its ankles) with nothing in the protocol to notice. Deploy the server
+**`NetConfig.ProtocolVersion` is 8.** Version 8 changes continuous-weapon
+phase timing without changing packet layout, so mixed builds must be refused.
+Server **and** every client must use the same protocol — a mismatched client is
+refused at Hello even though version 8's wire format is unchanged. An older
+build would read the packets but simulate different continuous-weapon events.
+Deploy the server
 before handing out a client built against a new protocol. Publish commands and
 the deploy script's env vars: `.claude/build-deploy/DEPLOY-SERVERS.md`.
 

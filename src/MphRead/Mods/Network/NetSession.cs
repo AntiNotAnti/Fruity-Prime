@@ -102,6 +102,7 @@ namespace MphRead.Mods.Network
         /// <summary>Latest intent per slot, consumed by the host's input step.</summary>
         public static readonly IntentPacket[] RemoteIntents = new IntentPacket[PlayerEntity.SlotCapacity];
         public static readonly bool[] RemoteIntentValid = new bool[PlayerEntity.SlotCapacity];
+        internal static readonly ContinuousWeaponPhase ContinuousPhase = new ContinuousWeaponPhase(PlayerEntity.SlotCapacity);
 
         /// <summary>
         /// The local frame each slot's intent last arrived on, so a receiver
@@ -326,6 +327,7 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static void RewindPlayback()
         {
+            ContinuousPhase.Reset();
             NetUnlagged.Reset();
             NetHitPrediction.Reset();
             NetHitClaims.Reset();
@@ -411,6 +413,7 @@ namespace MphRead.Mods.Network
             Array.Clear(RemoteStateValid);
             Array.Clear(RemoteIntentValid);
             Array.Clear(RemoteIntentArrived);
+            ContinuousPhase.Reset();
             Array.Clear(SlotPing);
             Array.Clear(_lastSlotIntentFrame);
             _lastServerPacket = 0;
@@ -1119,6 +1122,7 @@ namespace MphRead.Mods.Network
             peer.LastSeenTime = time;
             RemoteIntents[peer.SlotIndex] = intent;
             RemoteIntentValid[peer.SlotIndex] = true;
+            RemoteIntentArrived[peer.SlotIndex] = Math.Max(NetFrame, 1);
         }
 
         /// <summary>
@@ -1220,9 +1224,11 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
+            ContinuousPhase.ResetSlot(slot);
             _lastSlotIntentFrame[slot] = 0;
             RemoteIntentValid[slot] = false;
             RemoteIntents[slot] = default;
+            RemoteIntentArrived[slot] = 0;
             RemoteStateValid[slot] = false;
             RemoteStates[slot] = default;
             for (int i = 0; i < _peers.Count; i++)
