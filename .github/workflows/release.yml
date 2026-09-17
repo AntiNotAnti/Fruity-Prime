@@ -511,12 +511,10 @@ jobs:
           chmod +x "publish/$RID/FruityPrime"
           tools/sign-macos.sh "publish/$RID"
           tools/check-macos-build.sh "publish/$RID" "$RID"
-          "publish/$RID/FruityPrime" -smoketest
+          tools/run-macos-smoke.sh "publish/$RID" "$RID"
           tools/check-no-game-assets.sh "publish/$RID"
           tools/check-maps-shipped.sh "publish/$RID"
-          cp LICENSE "publish/$RID/"
-          mkdir -p dist
-          tar -czf "dist/FruityPrime-$TAG-$RID.tar.gz" -C "publish/$RID" .
+          tools/package-macos.sh "publish/$RID" dist "$RID" "$VERSION"
       - uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.rid }}
@@ -562,7 +560,8 @@ jobs:
           and none is downloaded.
 
           - **Windows** -- the `win-x64` zip, run `FruityPrime.exe`
-          - **Linux / macOS** -- the `.tar.gz`, run `./FruityPrime -launcher`
+          - **Linux** -- the `.tar.gz`, run `./FruityPrime -launcher`
+          - **macOS** -- the matching `.tar.gz`, open `Fruity Prime.app`
           - **Android** -- the `.apk`
           - **Running a server** -- the `server-` packages, which need no game files
 

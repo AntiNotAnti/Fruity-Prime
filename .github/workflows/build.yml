@@ -147,13 +147,15 @@ jobs:
           chmod +x "publish/$RID/FruityPrime"
           tools/sign-macos.sh "publish/$RID"
           tools/check-macos-build.sh "publish/$RID" "$RID"
-          "publish/$RID/FruityPrime" -smoketest
+          tools/run-macos-smoke.sh "publish/$RID" "$RID"
           tools/check-no-game-assets.sh "publish/$RID"
           tools/check-maps-shipped.sh "publish/$RID"
+          VERSION=$(dotnet msbuild src/MphRead/MphRead.csproj -getProperty:Version)
+          tools/package-macos.sh "publish/$RID" dist "$RID" "$VERSION"
       - uses: actions/upload-artifact@v7
         with:
           name: FruityPrime-${{ matrix.rid }}
-          path: publish/${{ matrix.rid }}
+          path: dist/*.tar.gz
           if-no-files-found: error
 
   # The Android head, and the APK a phone can install.
