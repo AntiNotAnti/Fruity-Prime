@@ -33,6 +33,37 @@ namespace MphRead.Mods
         /// </summary>
         public static bool TryHandleHeadless(string[] args)
         {
+#if !ANDROID && !MPHREAD_SERVER
+            if (OperatingSystem.IsMacOS())
+            {
+                // OpenTK defaults to Apple's system framework on macOS,
+                // not the OpenAL Soft library shipped beside our executable.
+                OpenTK.Audio.OpenAL.OpenALLibraryNameContainer.OverridePath =
+                    System.IO.Path.Combine(Platform.AppPaths.ExecutableDirectory, "libopenal.1.dylib");
+            }
+#endif
+#if MPHREAD_SHELL
+            if (HasFlag(args, "glfwpathcheck"))
+            {
+                Environment.ExitCode = Diagnostics.GlfwPathCheck.Run();
+                return true;
+            }
+            if (HasFlag(args, "thumbnailwindowcheck"))
+            {
+                Environment.ExitCode = Diagnostics.ThumbnailWindowCheck.Run(HasFlag(args, "legacyglcheck"));
+                return true;
+            }
+            if (HasFlag(args, "windowcheck"))
+            {
+                Environment.ExitCode = Diagnostics.LauncherWindowCheck.Run();
+                return true;
+            }
+#endif
+            if (HasFlag(args, "smoketest"))
+            {
+                Environment.ExitCode = Diagnostics.CompatibilityCheck.Run();
+                return true;
+            }
             // Keys and mouse feel, before anything creates a player. Called
             // here because this runs for every invocation, launcher or not.
             InputSettings.Load();
@@ -49,6 +80,7 @@ namespace MphRead.Mods
                 DebugLog.Force();
             }
             DebugLog.Attach();
+            if (OperatingSystem.IsMacOS()) { Diagnostics.PlatformDiagnostics.Start(); }
             Update.Updater.Disabled = HasFlag(args, "noupdate");
             ApplyRenderOverrides(args);
 
@@ -601,10 +633,10 @@ namespace MphRead.Mods
                 maxPlayers = parsedPlayers;
             }
 
-            // Rotation file lives beside the executable, the way a Quake 3
-            // server keeps its config next to the binary.
+            // Rotation follows writable user data: beside the executable on
+            // Windows/Linux, outside the signed application on macOS.
             string rotationPath = ValueAfter(args, "rotation")
-                ?? System.IO.Path.Combine(AppContext.BaseDirectory, "maprotation.txt");
+                ?? System.IO.Path.Combine(Platform.AppPaths.UserDataDirectory, "maprotation.txt");
             MapRotation rotation = MapRotation.LoadOrCreate(rotationPath);
 
             var server = new Network.DedicatedServer(port, maxPlayers, rotation)

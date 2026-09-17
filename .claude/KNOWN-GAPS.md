@@ -240,7 +240,7 @@ claiming coverage that isn't there.
   under its GL), so "Escape opens the pause menu over a running match" is
   proven on the menu's side (flags, windows, the pump) and unproven on the
   game's.
-- **macOS is cross-compiled and unrun.** See `.claude/launcher/LAUNCHER-OVERVIEW.md`.
+- **macOS interactive gameplay and Finder/Gatekeeper launch need manual verification.** Native CI now checks signed startup on both architectures; see `.claude/build-deploy/MACOS.md`.
 - **The Android match runs on an emulator; how it *looks* there proves
   nothing.** With the game files copied onto the device, an emulator (API 30,
   x86_64, software CPU and SwiftShader) has been driven front screen → offline

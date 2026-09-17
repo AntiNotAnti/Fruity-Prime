@@ -170,7 +170,7 @@
     <MphReadAudioRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</MphReadAudioRid>
     <MphReadAudioRid Condition="'$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('Windows'))">win-x64</MphReadAudioRid>
     <MphReadAudioRid Condition="'$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('Linux'))">linux-x64</MphReadAudioRid>
-    <MphReadAudioRid Condition="'$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('OSX'))">osx-x64</MphReadAudioRid>
+    <MphReadAudioRid Condition="'$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('OSX'))">$(NETCoreSdkRuntimeIdentifier)</MphReadAudioRid>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(MphReadServer)' != 'true' and $(MphReadAudioRid.StartsWith('win'))">

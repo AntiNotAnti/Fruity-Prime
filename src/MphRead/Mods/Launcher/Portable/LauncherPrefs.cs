@@ -17,13 +17,11 @@ namespace MphRead.Mods.Launcher
     public static class LauncherPrefs
     {
         /// <summary>
-        /// Where launcher.txt lives. Beside the executable, which is where the
-        /// rest of a portable install keeps its files -- except where the
-        /// program does not own that folder. An Android package's own
-        /// directory is read-only, so the head there points this at the app's
-        /// data directory before anything reads.
+        /// Where launcher.txt lives: Application Support on macOS and beside
+        /// the executable in portable Windows/Linux installs. Android's head
+        /// points this at the app's writable data directory before any reads.
         /// </summary>
-        public static string Directory { get; set; } = AppContext.BaseDirectory;
+        public static string Directory { get; set; } = Platform.AppPaths.UserDataDirectory;
 
         private static string Path => System.IO.Path.Combine(Directory, "launcher.txt");
 

@@ -64,7 +64,7 @@ namespace MphRead.Mods.Network
             {
                 string safe = string.Concat(clientName.Select(c =>
                     char.IsLetterOrDigit(c) ? c : '_'));
-                string path = Path.Combine(AppContext.BaseDirectory, $"netlog-{safe}.txt");
+                string path = Path.Combine(Platform.AppPaths.UserDataDirectory, $"netlog-{safe}.txt");
                 _writer = new StreamWriter(path, append: false) { AutoFlush = true };
                 Enabled = true;
                 Line($"=== MphRead net log for \"{clientName}\" ===");
