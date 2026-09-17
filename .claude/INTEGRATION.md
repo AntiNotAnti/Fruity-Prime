@@ -50,7 +50,7 @@ Asset-free checks passed:
   including live connection timestamps while map downloads pause gameplay.
 - `-replayformatcheck`: 534 checks, including production capture/bootstrap with
   sparse slots, generations, teams and independent revisions.
-- `-altformcheck`: 512; `-pointercheck`: 83; `-gamepadcheck`: 126.
+- `-altformcheck`: 512; `-pointercheck`: 83; `-gamepadcheck`: 129.
 - `-frametimingcheck`, `-brightskinscheck`, `-replaycontrolcheck`.
 - `tools/formtest`: 699; `tools/continuous-phase-check`: eight cases;
   `tools/pathstest`: 33; `tools/rombrowsercheck`: 22.

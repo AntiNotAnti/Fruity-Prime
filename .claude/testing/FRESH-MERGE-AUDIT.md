@@ -88,15 +88,35 @@ Private audit branches have no independent changes left and do not need duplicat
   bundle cooking and dependency checks. Source map suite: 126 checks.
 - Combined map pipeline: 126; map transfer: 26; lifecycle: 3,687; lobby: 2,693.
 - Replay format: 534; replay timing/camera, frame timing and bright skins: passed.
-- Pointer: 83; alt-form: 512; controller: 126; form reconciliation: 699.
+- Pointer: 83; alt-form: 512; controller: 129; form reconciliation: 699.
 - Firing phase, paths, ROM browser, setup, updater and synthetic platform checks: passed.
 - Real OpenGL framebuffer teardown: three cycles passed. Spire simulation ownership
   and all eight release-version workflow checks passed.
 - Repository asset guard and shipped-map dependency check: passed.
 
-The source-code changes after the combined checks were equivalent ancestry merges
-and the already-present CRLF asset-guard fix. Final integration output is built
-from the integration worktree under `artifacts/local-build/`.
+Final integration output is built from the integration worktree under
+`artifacts/local-build/`.
+
+## Combined CI follow-up
+
+The first complete integration CI run caught two problems beyond the Windows
+checks. Both were repaired before the final CI rerun:
+
+- macOS bundle signing treats controller mapping files under `Contents/MacOS`
+  as unsigned code. Packaging now moves the database and license to Resources;
+  runtime lookup uses the resource root while preserving portable paths and
+  user/environment overrides. Native tests cover placement and signature tampering;
+  the production smoke test verifies both resource files. Controller checks now
+  total 129. Packaging fixes were also backported to the #46 source branch.
+- The UDP loss test could send Ready against the admission revision before the
+  Identify revision arrived. It now waits for the acknowledged roster identity
+  and matching revisions before introducing loss. The server's deliberate
+  stale-command rejection remains unchanged. The correction was also applied
+  to the lobby, team and replay source branches; replay additionally received
+  the lobby source's existing empty-server restart repair.
+
+The final CI status is linked from the integration PR. This document records the
+local evidence and repaired CI findings, rather than treating a queued run as passed.
 
 Native combined macOS execution/signing cannot be certified on this Windows host;
 the native-only test script correctly refuses to run here. Prior native macOS
