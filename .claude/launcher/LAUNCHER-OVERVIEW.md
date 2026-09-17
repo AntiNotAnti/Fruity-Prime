@@ -64,8 +64,8 @@ macOS and Android
 
 - **macOS** publishes and runs `-smoketest` on matching Apple Silicon and
   Intel runners. Releases are ad-hoc signed `.app` bundles in `.tar.gz` files.
-  Native dependencies and maps stay beside the executable inside Contents/MacOS;
-  writable state goes to Application Support. See `../build-deploy/MACOS.md`.
+  Native dependencies stay beside the executable inside Contents/MacOS, maps
+  live in Contents/Resources, and writable state goes to Application Support. See `../build-deploy/MACOS.md`.
   The smoke test checks headless startup; it does not prove a visible GLFW
   window, OpenGL gameplay, or Gatekeeper acceptance of an Internet download.
 - **Android** is `src/MphRead.Android/`, a head project compiling the same

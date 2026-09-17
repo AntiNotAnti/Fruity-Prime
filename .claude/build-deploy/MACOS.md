@@ -22,7 +22,9 @@ The final draft release waits for all packages to pass before uploading them.
   OpenAL, uses `lipo -verify_arch` on every Mach-O (universal files are allowed),
   prints `otool -L`, verifies signatures, and checks the JIT entitlement's value.
 - `tools/package-macos.sh DIRECTORY DIST RID VERSION` preserves the publish
-  layout inside `Fruity Prime.app/Contents/MacOS`. It versions Info.plist from
+  native layout inside `Fruity Prime.app/Contents/MacOS`; maps go in
+  `Contents/Resources/maps` because Apple's signer treats subdirectories of
+  MacOS as nested code. It versions Info.plist from
   the build version, generates an ICNS from the existing project mark, signs
   components and the app, then verifies the bundle. `--deep` is verification
   only. It runs the existing asset/map guards over the staged package.
@@ -49,7 +51,8 @@ handling of a quarantined Internet download. Those require manual Mac checks.
 ## Paths and writable state
 
 `Mods/Platform/AppPaths.cs` owns installation and desktop user-data roots.
-Maps and native libraries resolve from `AppContext.BaseDirectory`. macOS
+Native libraries resolve from `AppContext.BaseDirectory`; maps resolve from
+Contents/Resources in an app bundle and beside the executable otherwise. macOS
 preferences, controls, paths.txt, extracted files, generated maps, saves,
 thumbnails and logs use `~/Library/Application Support/Fruity Prime/`.
 ConsoleSetup retains the caller's directory for explicit relative CLI inputs,

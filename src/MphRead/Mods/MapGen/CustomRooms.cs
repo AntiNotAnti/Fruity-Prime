@@ -25,7 +25,8 @@ namespace MphRead.Mods.MapGen
         private static readonly object _lock = new object();
 
         /// <summary>
-        /// Where the map files are. Beside the executable on the desktop; the
+        /// Where the map files are. In Resources for a Mac app bundle and
+        /// beside the executable for portable desktop builds. The
         /// Android head moves it, because the package directory there is read
         /// only and the maps have to live where the extracted game files
         /// already do. Set it before anything reads <see cref="Definitions"/>:

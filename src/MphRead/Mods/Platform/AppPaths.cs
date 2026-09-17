@@ -7,7 +7,18 @@ namespace MphRead.Mods.Platform
     internal static class AppPaths
     {
         public static string ExecutableDirectory => AppContext.BaseDirectory;
-        public static string Maps => Path.Combine(ExecutableDirectory, "maps");
+        public static string ResourceDirectory
+        {
+            get
+            {
+                var executable = new DirectoryInfo(ExecutableDirectory);
+                bool bundled = OperatingSystem.IsMacOS() && executable.Name == "MacOS"
+                    && executable.Parent?.Name == "Contents"
+                    && executable.Parent.Parent?.Extension == ".app";
+                return bundled ? Path.Combine(executable.Parent!.FullName, "Resources") : ExecutableDirectory;
+            }
+        }
+        public static string Maps => Path.Combine(ResourceDirectory, "maps");
 
         // Other desktop platforms keep their existing portable layout. Android
         // sets GameFiles.Root and LauncherPrefs.Directory from its activity.

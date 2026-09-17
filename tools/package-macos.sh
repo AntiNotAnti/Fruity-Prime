@@ -16,8 +16,12 @@ app="$stage/package/Fruity Prime.app"
 contents="$app/Contents"
 mkdir -p "$contents/MacOS" "$contents/Resources"
 # Keep the publish layout intact: .NET and native dependencies probe beside
-# the apphost. Installation resources remain beside it too.
+# the apphost. Apple's signer treats subdirectories of MacOS as nested code,
+# so map data belongs in Resources, resolved by AppPaths.ResourceDirectory.
 ditto "$root" "$contents/MacOS"
+if [[ -d "$contents/MacOS/maps" ]]; then
+    mv "$contents/MacOS/maps" "$contents/Resources/maps"
+fi
 cp "$repo/src/MphRead/Platforms/macOS/Info.plist" "$contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $version" "$contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $version" "$contents/Info.plist"
@@ -38,7 +42,7 @@ codesign --force --sign - --entitlements "$repo/src/MphRead/Platforms/macOS/Frui
 codesign --verify --deep --strict --verbose=4 "$app"
 "$repo/tools/check-macos-build.sh" "$contents/MacOS" "$rid"
 "$repo/tools/check-no-game-assets.sh" "$stage/package"
-"$repo/tools/check-maps-shipped.sh" "$contents/MacOS"
+"$repo/tools/check-maps-shipped.sh" "$contents/Resources"
 "$repo/tools/run-macos-smoke.sh" "$contents/MacOS" "$rid"
 archive="$stage/FruityPrime-v$version-$rid.tar.gz"
 COPYFILE_DISABLE=1 tar -czf "$archive" -C "$stage/package" .
