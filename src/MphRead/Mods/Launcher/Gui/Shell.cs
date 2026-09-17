@@ -700,8 +700,30 @@ namespace MphRead.Mods.Launcher.Gui
 
         public static void KeyDown(KeyboardKeyEventArgs e)
         {
+            if (IsRomPasteShortcut(e.Key, e.Control, e.Command, e.Alt,
+                OperatingSystem.IsMacOS()) && _window != null)
+            {
+                try
+                {
+                    if (UiSurface.Current?.PasteRomPath(_window.ClipboardString) == true)
+                    {
+                        return;
+                    }
+                }
+                catch (Exception)
+                {
+                    if (UiSurface.Current?.PasteRomPath(null) == true)
+                    {
+                        return;
+                    }
+                }
+            }
             UiSurface.Current?.KeyDown(e.Key, Modifiers(e));
         }
+
+        internal static bool IsRomPasteShortcut(Keys key, bool control,
+            bool command, bool alt, bool macOS) => key == Keys.V && !alt
+                && (macOS ? command : control);
 
         public static void KeyUp(KeyboardKeyEventArgs e)
         {
