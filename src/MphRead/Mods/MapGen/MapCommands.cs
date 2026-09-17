@@ -14,9 +14,10 @@ namespace MphRead.Mods.MapGen
                 if (argument == null) throw new MapAuthoringException("FP-MAP-020", $"-{command} requires a map path or runtime name.");
                 string path = Path.GetFullPath(Path.Combine(ConsoleSetup.LaunchDirectory, argument));
                 MapDefinition definition = File.Exists(path) ? MapDefinition.Load(path)
-                    : new MapCatalog(CustomRooms.MapDirectory).Refresh(false).FirstOrDefault(e =>
+                    : CustomRooms.CreateCatalog().Refresh(false).FirstOrDefault(e =>
                         e.Definition?.Name.Equals(argument, StringComparison.OrdinalIgnoreCase) == true)?.Definition
                         ?? throw new MapAuthoringException("FP-MAP-020", "Map was not found.");
+                CustomRooms.PrepareImportForBuild(definition);
                 MapCompilation compilation = MapCompiler.Compile(definition);
                 if (command == "mapinspect" && compilation.Map != null)
                 {
@@ -33,6 +34,8 @@ namespace MphRead.Mods.MapGen
                     if (output != null)
                     {
                         output = Path.GetFullPath(Path.Combine(ConsoleSetup.LaunchDirectory, output));
+                        if (CustomRooms.IsReadOnlyMapPath(output))
+                            throw new IOException("Choose an output directory outside the application bundle.");
                         MapPacker.Generate(compilation.Map!, Path.Combine(output, "archive"), Path.Combine(output, "entities"), Path.Combine(output, "nodes"));
                     }
                     else MapPacker.Generate(compilation.Map!, CustomRooms.ArchiveDirectory(definition), CustomRooms.EntityDirectory(), CustomRooms.NodeDirectory());

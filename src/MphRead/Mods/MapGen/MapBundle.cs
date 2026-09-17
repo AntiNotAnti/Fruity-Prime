@@ -10,8 +10,12 @@ namespace MphRead.Mods.MapGen
         public static bool Is(string path) => Path.GetExtension(path).Equals(Extension, StringComparison.OrdinalIgnoreCase);
         public static string Cook(MapDefinition definition, string recipePath, string? outputPath, bool verbose = true)
         {
-            string path = MapPackageBuilder.Build(definition, outputPath ?? Path.Combine(CustomRooms.MapDirectory,
-                Path.GetFileNameWithoutExtension(recipePath) + Extension));
+            string destination = outputPath ?? Path.Combine(CustomRooms.WritableMapDirectory,
+                Path.GetFileNameWithoutExtension(recipePath) + Extension);
+            if (CustomRooms.IsReadOnlyMapPath(destination))
+                throw new IOException("Choose a package path outside the application bundle.");
+            CustomRooms.PrepareImportForBuild(definition);
+            string path = MapPackageBuilder.Build(definition, destination);
             if (verbose) Console.WriteLine($"[mappackage] {definition.Name} -> {path}");
             return path;
         }

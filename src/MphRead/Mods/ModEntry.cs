@@ -455,7 +455,7 @@ namespace MphRead.Mods
                 string? outPath = ValueAfter(args, "out");
                 int cooked = 0;
                 int failed = 0;
-                foreach (MapGen.MapDefinition def in new MapGen.MapCatalog(MapGen.CustomRooms.MapDirectory).Refresh(false)
+                foreach (MapGen.MapDefinition def in MapGen.CustomRooms.CreateCatalog().Refresh(false)
                     .Where(entry=>entry.Definition!=null).Select(entry=>entry.Definition!))
                 {
                     if (which != null && !which.Equals(def.Name, StringComparison.OrdinalIgnoreCase)
