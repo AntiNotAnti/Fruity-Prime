@@ -39,8 +39,12 @@ jobs:
       - name: persistent lobby regression without game assets
         run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -netlobbytest
   controller-checks:
-    name: controller regressions
-    runs-on: windows-latest
+    name: controller regressions (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, macos-15-intel]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
@@ -51,11 +55,11 @@ jobs:
       - name: deterministic input and headless UI checks
         run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -gamepadcheck
       - name: launcher layout and focus matrix
-        run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -uimatrix "$env:GITHUB_WORKSPACE/artifacts/ui-matrix"
+        run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -uimatrix "${{ github.workspace }}/artifacts/ui-matrix"
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: launcher-ui-matrix
+          name: launcher-ui-matrix-${{ matrix.os }}
           path: artifacts/ui-matrix
           if-no-files-found: warn
 

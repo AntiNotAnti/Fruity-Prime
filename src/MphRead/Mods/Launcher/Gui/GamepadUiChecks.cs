@@ -94,6 +94,7 @@ namespace MphRead.Mods.Launcher.Gui
                 using var calibration = window.GetLastRenderedFrame();
                 calibration?.Save(Path.Combine(shots, "controller-settings.png"));
             }
+            CheckControllerSettings(window, settings, shots);
             var pause = new PauseMenuView(false);
             window.Content = pause; window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
             GamepadChecks.Check(FocusNavigator.Ensure(pause) != null, "pause menu is controller focusable");
@@ -146,6 +147,80 @@ namespace MphRead.Mods.Launcher.Gui
             GamepadManager.RemoveDevice("ui-test"); binding.Check();
             GamepadChecks.Check(!GamepadContexts.Capturing, "disconnect exits binding capture");
             window.Close();
+        }
+
+        private static void CheckControllerSettings(Window window, SettingsView settings, string? shots)
+        {
+            var panel = settings.GetVisualDescendants().OfType<GamepadSettingsPanel>().First();
+            PadBindings.ApplyPreset("Default"); panel.Reload(); window.UpdateLayout();
+            var preset = panel.Children.OfType<ChoiceRow>().First(r => r.Value == "Default");
+            FocusNavigator.Focus(preset); preset.Index = 1;
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            preset = panel.Children.OfType<ChoiceRow>().First(r => r.Value == "Bumper Jumper");
+            GamepadChecks.Check(preset.IsFocused && PadBindings.Get(PadAction.Jump) == GamepadButtons.LeftBumper,
+                "changing controller preset applies bindings and retains focus");
+            FocusNavigator.Key(preset, Avalonia.Input.Key.Right);
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            GamepadChecks.Check(GamepadOptions.Southpaw && PadBindings.Preset == "Southpaw",
+                "consecutive controller preset changes remain usable");
+            PadBindings.ApplyPreset("Default"); panel.Reload(); window.UpdateLayout();
+
+            var navigation = new GamepadNavigation();
+            void Pad(GamepadButtons buttons = 0, float rt = 0)
+                => GamepadManager.UpdateDevice("settings-xbox", new GamepadState
+                    { Name = "Xbox Series controller", Buttons = buttons, RightTrigger = rt }, true,
+                    GamepadFamily.Xbox, mapping: "Xbox Bluetooth compatibility");
+            Pad(); navigation.Update(settings);
+            settings.ShowSection(OperatingSystem.IsAndroid() ? "Touch and mouse" : "Mouse and stylus"); window.UpdateLayout();
+            var jumpKey = settings.GetVisualDescendants().OfType<KeyRow>().First(r => r.BindingName == "Jump");
+            var jumpProperty = InputSettings.Bindings.First(p => p.Name == "Jump");
+            string keyboardBefore = InputSettings.Describe(InputSettings.Bind(jumpProperty));
+            FocusNavigator.Focus(jumpKey);
+            FocusNavigator.Key(jumpKey, Avalonia.Input.Key.Enter);
+            Pad(rt: 1); navigation.Update(settings); window.UpdateLayout();
+            var jumpPad = settings.GetVisualDescendants().OfType<PadRow>().First(r => r.Action == PadAction.Jump);
+            GamepadChecks.Check(jumpPad.IsFocused && GamepadContexts.Capturing && !jumpKey.Listening,
+                "controller trigger in keyboard capture opens the matching controller action");
+            Pad(); jumpPad.Check(); Pad(GamepadButtons.A); jumpPad.Check();
+            GamepadChecks.Check(PadBindings.Get(PadAction.Jump) == GamepadButtons.RightTrigger
+                && PadBindings.Get(PadAction.Shoot) == GamepadButtons.A && !GamepadContexts.Capturing,
+                "Accept confirms the default Swap instead of silently cancelling a rebind");
+            GamepadChecks.Check(InputSettings.Describe(InputSettings.Bind(jumpProperty)) == keyboardBefore,
+                "controller rebinding preserves the actual keyboard key");
+
+            panel.RefreshLabels();
+            GamepadChecks.Check(panel.Children.OfType<ChoiceRow>().Any(r => r.Value == "Custom"),
+                "binding changes update the displayed controller preset");
+            settings.ShowSection(OperatingSystem.IsAndroid() ? "Touch and mouse" : "Mouse and stylus"); window.UpdateLayout(); FocusNavigator.Focus(jumpKey);
+            Pad(); navigation.Update(settings); Pad(GamepadButtons.A); navigation.Update(settings);
+            GamepadChecks.Check(jumpPad.IsFocused && GamepadContexts.Capturing && !jumpKey.Listening,
+                "controller Accept on a keyboard action enters controller capture");
+            Pad(); jumpPad.Check(); Pad(GamepadButtons.B); jumpPad.Check();
+            GamepadChecks.Check(!GamepadContexts.Capturing, "Back cancels redirected capture");
+            settings.ShowSection(OperatingSystem.IsAndroid() ? "Touch and mouse" : "Mouse and stylus"); window.UpdateLayout();
+            var moveKey = settings.GetVisualDescendants().OfType<KeyRow>().First(r => r.BindingName == "MoveUp");
+            var moveProperty = InputSettings.Bindings.First(p => p.Name == "MoveUp");
+            string movementBefore = InputSettings.Describe(InputSettings.Bind(moveProperty));
+            FocusNavigator.Focus(moveKey); Pad(); navigation.Update(settings);
+            Pad(GamepadButtons.A); navigation.Update(settings);
+            GamepadChecks.Check(!moveKey.Listening && InputSettings.Describe(InputSettings.Bind(moveProperty)) == movementBefore,
+                "keyboard-only rows never bind synthetic controller Enter");
+            settings.ShowSection("Controller"); window.UpdateLayout();
+            var monitor = panel.Children.OfType<GamepadMonitor>().Single();
+            Pad(rt: 1); monitor.Refresh();
+            GamepadChecks.Check(monitor.Status.Contains("Xbox Bluetooth compatibility"), "live controller test identifies hardware mapping");
+            if (shots != null)
+            {
+                Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+                FocusNavigator.Focus(panel.Children.OfType<ChoiceRow>().First());
+                window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+                // Flush the headless compositor after scrolling and deferred row updates.
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick(3);
+                Dispatcher.UIThread.RunJobs();
+                using var bitmap = window.CaptureRenderedFrame();
+                bitmap?.Save(Path.Combine(shots, "controller-live-test.png"));
+            }
+            GamepadManager.RemoveDevice("settings-xbox"); PadBindings.Reset(); GamepadOptions.Reset();
         }
     }
 }

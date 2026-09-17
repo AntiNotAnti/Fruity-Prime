@@ -7,10 +7,10 @@ Wrapped tabs remain above the page; Cancel and Save remain below its scroller.
 | Section | Controls |
 |---|---|
 | Display | Window mode, field of view, graphics preset, render scale, FPS limit, lighting, fog, filtering, FXAA, sub-native upscaling, enhanced color, FPS counter, cel shading |
-| HUD and accessibility | HUD/UI/text scale, safe zone, opacity, crosshair color and outline, high contrast, reduced flashes/shake, team palette, Pro HUD, radar and bright skins |
+| HUD and accessibility | HUD/UI/text scale, safe zone, opacity, crosshair color and outline, high contrast, reduced flashes/shake, team palette, Pro HUD, radar, player skin styles and outlines |
 | Audio | Sound effects, music, language |
 | Mouse and stylus | Mouse sensitivity/inversion, wheel behavior, stylus zone, keyboard bindings; Android shows Touch and mouse |
-| Controller | Connected controller/profile, sensitivity, dead zones, curves, inversion, vibration, bindings and presets |
+| Controller | Connected controller/profile, live input test, sensitivity, dead zones, curves, inversion, vibration, bindings and presets |
 | Replay | Save replay clip binding, clip length, post-roll duration |
 | Profile | Player name, hunter, suit color, default server and server directory |
 | Advanced / Support | Game files, updates, debug logging, platform log sharing and credits |
@@ -23,6 +23,12 @@ selector to Custom. Debug-key changes are detected when Settings is reopened.
 Graphics and accessibility preferences live in `visuals.json` beside
 `launcher.txt`; existing `settings.json` options and bindings retain their keys.
 See [graphics quality](../render/GRAPHICS-QUALITY.md) for defaults and ranges.
+
+Controller presets retain focus and refresh binding labels while preserving aim
+calibration. Manual binding edits select Custom. Controller input on a supported
+keyboard action opens its controller binding without changing the keyboard key.
+Conflicts initially select Swap; swapping preserves Primary/Secondary positions.
+See `.claude/GAMEPAD.md` for capture controls and mapping diagnostics.
 
 Saving and applying
 
@@ -41,7 +47,7 @@ Saving and applying
 
 Notable toggles
 
-- **Player skins** under Display / Visibility offers Off, Textured (brightened
+- **Player skins** under HUD and accessibility / Visibility offers Off, Textured (brightened
   original textures), and Solid (flat identifying color). **Player outline**
   independently offers Off, Team color, and Bright red, with 1–8 px thickness.
   Team outlines use red in FFA. Both features default off and Save/Apply takes

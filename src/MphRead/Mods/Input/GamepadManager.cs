@@ -14,6 +14,7 @@ namespace MphRead.Mods.Input
         public GamepadFamily Family { get; internal set; }
         public GamepadCapabilities Capabilities { get; internal set; }
         public bool IsMapped { get; internal set; }
+        public string Mapping { get; internal set; } = "";
         public GamepadState State { get; internal set; }
         internal bool LeftTriggerHeld, RightTriggerHeld;
     }
@@ -57,7 +58,7 @@ namespace MphRead.Mods.Input
 
         public static void UpdateDevice(string id, GamepadState state, bool mapped,
             GamepadFamily family = GamepadFamily.Unknown,
-            GamepadCapabilities capabilities = GamepadCapabilities.None)
+            GamepadCapabilities capabilities = GamepadCapabilities.None, string? mapping = null)
         {
             lock (Gate)
             {
@@ -86,6 +87,7 @@ namespace MphRead.Mods.Input
                     device.Family = family == GamepadFamily.Unknown ? GamepadGlyphs.Detect(name) : family;
                 device.Name = name;
                 device.IsMapped = mapped;
+                device.Mapping = mapping ?? (mapped ? "Platform mapping" : "Unmapped fallback");
                 device.Capabilities = capabilities;
                 bool activity = (state.Buttons & ~previous.Buttons) != 0
                     || StickActivity(state.LeftX, state.LeftY, previous.LeftX, previous.LeftY)

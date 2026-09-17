@@ -1,6 +1,6 @@
 # Bright player skins
 
-Display settings has a Visibility section with three **Player skins** choices:
+HUD and accessibility settings has a Visibility section with three **Player skins** choices:
 Off, Textured, and Solid. Textured lifts dark lighting while keeping the real
 suit textures; Solid uses the original flat identification color. **Player
 outline** is independent: Off, Team color, or Bright red, with a thickness of
