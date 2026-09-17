@@ -59,18 +59,6 @@ jobs:
             rid: linux-arm64
             summary: the dedicated server and the directory, for a Raspberry Pi
             extra: "-p:MphReadServer=true"
-          # macOS, both processors. Cross-compiled here like the rest: the
-          # launcher is Avalonia on every platform now, so there is nothing in
-          # a mac build that has to be produced on a mac. Nobody has started
-          # one -- see the known gaps in CLAUDE.md.
-          - id: osx-x64
-            rid: osx-x64
-            summary: the game and the launcher, for an Intel Mac
-            extra: ""
-          - id: osx-arm64
-            rid: osx-arm64
-            summary: the game and the launcher, for an Apple Silicon Mac
-            extra: ""
     steps:
       - uses: actions/checkout@v7
 
@@ -88,8 +76,10 @@ jobs:
       - name: cook the map bundles
         run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -mapdir maps -mapbundle
 
-      # Every target is net9.0 and every launcher is Avalonia, so all six of
-      # these come off one Ubuntu runner.
+      # These targets can be cross-published safely on Linux. macOS is kept out
+      # of this matrix deliberately: a Linux runner can emit Mach-O files, but
+      # it cannot codesign them, verify them with Apple's tools, or prove that
+      # the process survives macOS executable policy.
       - name: publish ${{ matrix.summary }}
         run: >
           dotnet publish src/MphRead/MphRead.csproj
@@ -131,15 +121,84 @@ jobs:
           path: publish/${{ matrix.id }}
           if-no-files-found: error
 
+  # macOS has its own native jobs. This is not about compilation -- dotnet can
+  # cross-publish the files on Linux -- it is about what happens after that.
+  # Apple Silicon requires executable code to carry a valid signature, the
+  # regular .NET runtime needs allow-jit under hardened runtime, and dyld will
+  # terminate a process whose native pieces are for the wrong architecture.
+  # None of those can be proven by an Ubuntu artifact that nobody starts.
+  macos:
+    name: ${{ matrix.id }}
+    needs: assets
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: osx-arm64
+            rid: osx-arm64
+            arch: arm64
+            runner: macos-15
+            summary: the game and launcher, for Apple Silicon
+          - id: osx-x64
+            rid: osx-x64
+            arch: x86_64
+            runner: macos-15-intel
+            summary: the game and launcher, for Intel Mac
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: cook the map bundles
+        run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -mapdir maps -mapbundle
+
+      - name: publish ${{ matrix.summary }}
+        run: >
+          dotnet publish src/MphRead/MphRead.csproj
+          -c Release -r ${{ matrix.rid }}
+          --self-contained true -p:PublishSingleFile=true
+          -o publish/${{ matrix.id }}
+
+      - name: nothing from the game is in the output
+        run: tools/check-no-game-assets.sh publish/${{ matrix.id }}
+
+      - name: the custom maps reached the package
+        run: tools/check-maps-shipped.sh publish/${{ matrix.id }}
+
+      # CI uses an ad-hoc signature. The release workflow swaps this for a
+      # Developer ID identity when the repository has one configured, but both
+      # paths use the same entitlements and architecture verification.
+      - name: sign and verify the native files
+        run: bash tools/macos-sign.sh "publish/${{ matrix.id }}" "${{ matrix.arch }}"
+
+      # The screenshot-worthy failure is a SIGKILL before managed Main prints
+      # anything. -credits is intentionally before the game-file check and exits
+      # on its own, so it proves the apphost, CLR and native loader can actually
+      # start on the processor the package claims to support without needing a
+      # cartridge dump or leaving a GUI process hanging on the CI machine.
+      - name: the packaged executable starts on macOS
+        working-directory: publish/${{ matrix.id }}
+        run: ./FruityPrime -credits >/tmp/fruityprime-macos-smoke.txt
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: FruityPrime-${{ matrix.id }}
+          path: publish/${{ matrix.id }}
+          if-no-files-found: error
+
   # The Android head, and the APK a phone can install.
   #
   # Its own job rather than a row in the matrix above, because nothing about it
   # matches: a different target framework (net9.0-android35.0, not net9.0), a
-  # JDK and an Android SDK the other six targets do not need, and an APK rather
-  # than a folder of binaries. It is also the only job whose failure is usually
-  # about *shared* code -- the head compiles the same sources with ANDROID
-  # defined, so it stops building the moment they grow something desktop-only,
-  # which is the whole reason it was in the tree before it could play anything.
+  # JDK and an Android SDK the other desktop/server targets do not need, and an
+  # APK rather than a folder of binaries. It is also the only job whose failure
+  # is usually about *shared* code -- the head compiles the same sources with
+  # ANDROID defined, so it stops building the moment they grow something
+  # desktop-only, which is the whole reason it was in the tree before it could
+  # play anything.
   #
   # No asset guard on the output: an APK is a zip this script cannot see into,
   # and pointing it at a directory holding one would prove nothing. What
