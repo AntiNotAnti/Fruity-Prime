@@ -558,17 +558,6 @@ namespace MphRead.Mods.Network
             }
             _shooter = null;
             _rewind = 0;
-            // Stamp every shot with the world it was aimed in, on every
-            // machine, whether or not this one rewinds anything.
-            //
-            // It is what lets a hit claim and the authority's own resolution
-            // of the *same* shot be paired later without guessing at a time
-            // window -- and a window cannot do it, because the gap between the
-            // two is a round trip *plus* however far the two copies of a
-            // projectile drift apart over a long flight. Both machines name
-            // the same instant here: the authority the frame it rewound to,
-            // the shooter the point its own playout clock was reading.
-            StampLaunch(shooter);
             if (!Enabled || !Simulating || shooter.IsBot)
             {
                 return;
@@ -584,6 +573,10 @@ namespace MphRead.Mods.Network
                 WorstRequested = requested;
             }
             int served = (int)Math.Round(rewind);
+            int weapon = NetShotDiagnostics.Bucket(shooter.CurrentWeapon);
+            NetShotDiagnostics.RewindSamples[weapon]++;
+            NetShotDiagnostics.RewindFrames[weapon] += served;
+            if (requested > served) NetShotDiagnostics.RewindClamps[weapon]++;
             if (requested > served)
             {
                 // The shooter asked to be taken back further than the ceiling
@@ -627,35 +620,6 @@ namespace MphRead.Mods.Network
         }
 
         /// <summary>
-        /// Which of the shooter's beam pool entries were alive before the shot,
-        /// so the ones it is about to spawn can be told apart. Separate from
-        /// <see cref="_beamsBefore"/>, which only exists while a rewind is in
-        /// progress; this one runs on every machine and every shot.
-        /// </summary>
-        private static bool[] _stampBefore = new bool[16];
-        private static PlayerEntity? _stampShooter;
-        private static uint _stampFrame;
-
-        /// <summary>
-        /// Note the pool and the world-frame this shot is aimed in.
-        /// <see cref="FinishLaunch"/> puts the number on whatever appeared.
-        /// </summary>
-        private static void StampLaunch(PlayerEntity shooter)
-        {
-            _stampShooter = shooter;
-            _stampFrame = LaunchFrameFor(shooter);
-            BeamProjectileEntity[] beams = shooter.EquipInfo.Beams;
-            if (_stampBefore.Length < beams.Length)
-            {
-                _stampBefore = new bool[beams.Length];
-            }
-            for (int i = 0; i < beams.Length; i++)
-            {
-                _stampBefore[i] = beams[i].Lifespan > 0;
-            }
-        }
-
-        /// <summary>
         /// The world-frame this shot is aimed in.
         ///
         /// On the machine running the match, for somebody else's shot, that is
@@ -664,7 +628,7 @@ namespace MphRead.Mods.Network
         /// playout clock is reading, which is the same quantity its intent
         /// acks. A bot, or a shot with neither, gets the present.
         /// </summary>
-        private static uint LaunchFrameFor(PlayerEntity shooter)
+        internal static uint LaunchFrameFor(PlayerEntity shooter)
         {
             int slot = shooter.SlotIndex;
             if (Simulating && slot != NetSession.LocalSlot && !shooter.IsBot
@@ -683,29 +647,6 @@ namespace MphRead.Mods.Network
             return NetSession.AppliedSnapshotFrame != 0
                 ? NetSession.AppliedSnapshotFrame
                 : NetSession.NetFrame;
-        }
-
-        /// <summary>
-        /// Put the launch frame on every beam that appeared since
-        /// <see cref="StampLaunch"/>. Called from the same place
-        /// <see cref="EndShot"/> is, on every machine.
-        /// </summary>
-        public static void FinishLaunch(PlayerEntity shooter)
-        {
-            if (_stampShooter != shooter)
-            {
-                _stampShooter = null;
-                return;
-            }
-            _stampShooter = null;
-            BeamProjectileEntity[] beams = shooter.EquipInfo.Beams;
-            for (int i = 0; i < beams.Length && i < _stampBefore.Length; i++)
-            {
-                if (!_stampBefore[i] && beams[i].Lifespan > 0)
-                {
-                    beams[i].ModLaunchFrame = _stampFrame;
-                }
-            }
         }
 
         /// <summary>
@@ -883,10 +824,6 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static void EndShot(PlayerEntity shooter)
         {
-            // Before anything else, and whether or not this machine rewound:
-            // the stamp is what pairs this shot with the other machine's copy
-            // of it later.
-            FinishLaunch(shooter);
             if (_shooter != shooter || _rewind <= 0)
             {
                 Restore();

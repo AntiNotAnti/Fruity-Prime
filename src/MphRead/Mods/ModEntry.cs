@@ -1340,6 +1340,12 @@ namespace MphRead.Mods
                 return true;
             }
 
+            string? combatCheck = ValueAfter(args, "netcombatcheck");
+            if (combatCheck != null)
+            {
+                Environment.ExitCode = Network.NetCombatCheck.Run(combatCheck);
+                return true;
+            }
             string? spirePoseCheck = ValueAfter(args, "spireposecheck");
             if (spirePoseCheck != null)
             {

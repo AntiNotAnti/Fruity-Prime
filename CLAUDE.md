@@ -1,3 +1,5 @@
+Current netcode work uses protocol **12**; see [health and shot consistency](.claude/multiplayer/NETWORK-HEALTH-SHOTS.md) for behavior, checks and remaining acceptance gates. Historical protocol notes below describe earlier integrations.
+
 # Fruity Prime — tools, design, and the mechanics catalogue
 
 Network protocol **8**: authoritative life/occupant identity, match/authority

@@ -105,6 +105,9 @@ jobs:
       - name: lifecycle regression under seeded network faults
         if: matrix.id == 'linux-x64'
         run: dotnet run --project tools/nettest/nettest.csproj -c Release -- --lifecycle
+      - name: authoritative health and shot input fault matrix
+        if: matrix.id == 'linux-x64'
+        run: dotnet run --project tools/nettest/nettest.csproj -c Release -- --health-shots
 
       # Cook every custom map into the one file it ships as. The recipe, the
       # level it converts and the textures baked from it go into a .fpmap,

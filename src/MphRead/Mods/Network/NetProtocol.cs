@@ -1858,6 +1858,10 @@ namespace MphRead.Mods.Network
         /// <summary>The claim named a frame the history no longer holds.</summary>
         public const byte ResultTooOld = 5;
         public const byte ResultWrongLife = 6;
+        public const byte ResultGeometry = 7;
+        public const byte ResultDamageLimit = 8;
+        public const byte ResultInvalidLaunch = 9;
+        public const byte ResultNoDamage = 10;
 
         public ushort ClaimId;
         public byte Result;
@@ -1883,6 +1887,10 @@ namespace MphRead.Mods.Network
             return result switch
             {
                 ResultWrongLife => "wrong lifecycle",
+                ResultGeometry => "hit point outside reconciliation radius",
+                ResultDamageLimit => "damage exceeds weapon limit",
+                ResultInvalidLaunch => "launch frame follows hit frame",
+                ResultNoDamage => "authority damage rules prevented the hit",
                 ResultApplied => "applied",
                 ResultDuplicate => "already resolved",
                 ResultDeadShooter => "shooter was already dead when it fired",
@@ -1980,8 +1988,11 @@ namespace MphRead.Mods.Network
         /// Snapshots retain lifecycle identities, team clocks and health spawners.
         /// Version 11 also requires custom-map identity/hash negotiation before
         /// loading a room. Its map-transfer packet IDs remain 32-35.
+        /// Version 12 adds the synchronized hidden-opponent-health rule (bit 6),
+        /// explicit claim refusal reasons and launch-preserving projectile behavior.
+        /// The packet sizes are unchanged; older SessionState readers reject bit 6.
         /// </summary>
-        public const int ProtocolVersion = 11;
+        public const int ProtocolVersion = 12;
         /// <summary>
         /// Frames between intent packets. One, so every frame.
         ///

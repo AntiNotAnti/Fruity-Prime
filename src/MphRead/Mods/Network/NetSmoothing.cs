@@ -312,6 +312,7 @@ namespace MphRead.Mods.Network
                 // to look at than one jump.
                 _readFrame = target;
                 Snaps++;
+                NetTimingDiagnostics.Correction();
             }
             else
             {

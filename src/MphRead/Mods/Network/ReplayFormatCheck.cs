@@ -55,7 +55,7 @@ namespace MphRead.Mods.Network
                 Phase = SessionPhase.Starting, Revision = 1, MatchId = match.MatchId,
                 AuthorityEpoch = match.AuthorityEpoch, MaxPlayers = 8,
                 WorldProfile = Multiplayer.MatchWorldProfile.Resolve(8),
-                OwnerSlot = byte.MaxValue, Match = new MatchDefinition { RoomKey = match.RoomKey, Mode = GameMode.Battle } };
+                OwnerSlot = byte.MaxValue, Match = new MatchDefinition { RoomKey = match.RoomKey, Mode = GameMode.Battle, HideOpponentHealth = true } };
             byte[] lobby = new byte[1 + SessionStatePacket.Size];
             lobby[0] = (byte)PacketType.SessionState; session.Write(lobby.AsSpan(1));
             session.Phase = SessionPhase.InMatch; session.Revision++;
@@ -71,6 +71,7 @@ namespace MphRead.Mods.Network
             try
             {
                 require(DemoPlayback.Join(path) && NetSession.FreezeGameplay, "lobby replay begins frozen");
+                require(NetHudHealth.HideOpponents && !NetHudHealth.Visible(0), "replay restores hidden-health rule without a caster override");
                 // The frozen branch touches no loaded scene data; exercise the real
                 // host step without a window, assets, or an alternative replay loop.
                 var scene = (Scene)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(Scene));

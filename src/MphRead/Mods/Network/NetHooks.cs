@@ -210,6 +210,7 @@ namespace MphRead.Mods.Network
             {
                 if (NetSession.RemoteStateValid[slot])
                 {
+                    NetTimingDiagnostics.Position(slot, snapshot: true);
                     NetPlayerBridge.RestoreSnapshotPosition(player, NetSession.RemoteStates[slot]);
                 }
                 return;
@@ -222,6 +223,7 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
+            if (!NetSession.IsHost && !NetSession.IsAuthority) NetTimingDiagnostics.Position(slot, snapshot: false);
             NetPlayerBridge.RestoreReportedPosition(player, NetSession.RemoteIntents[slot]);
         }
 
@@ -385,6 +387,7 @@ namespace MphRead.Mods.Network
             // Before the rotation is acted on: a match that has just been won
             // has to be reported before the server can be expected to have
             // rotated because of it.
+            NetTimingDiagnostics.Simulation();
             NetMatchEnd.Sync();
             // Before anything else this frame: if the server has rotated, the
             // slots and the room this code is about to reason over are the

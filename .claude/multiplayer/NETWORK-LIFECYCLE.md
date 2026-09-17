@@ -1,3 +1,5 @@
+Protocol-12 updates: [authoritative HUD health, hidden HP, shot identity, lifecycle and claim validation](NETWORK-HEALTH-SHOTS.md). This section supersedes conflicting historical behavior below.
+
 # Network lifecycle (protocol 8)
 
 Integration note: this is the original branch design. The combined build uses

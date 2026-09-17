@@ -49,7 +49,7 @@ namespace MphRead.Mods.Network
 
         private static void ProtocolChecks()
         {
-            Check(NetConfig.ProtocolVersion == 11 && (byte)PacketType.SessionState == 36
+            Check(NetConfig.ProtocolVersion == 12 && (byte)PacketType.SessionState == 36
                 && (byte)PacketType.MapOffer == 32 && (byte)PacketType.MapDone == 35,
                 "combined protocol and non-overlapping map/lobby IDs");
             var state = new SessionStatePacket { Phase = SessionPhase.Starting, Policy = ServerSessionPolicy.Lobby,
@@ -59,7 +59,7 @@ namespace MphRead.Mods.Network
                 ExpectedParticipants = 255, LoadedParticipants = 3,
                 Match = new MatchDefinition { RoomKey = new string('X', 40), Mode = GameMode.BattleTeams,
                     Format = MatchFormat.FourVsFour, TimeLimitSeconds = 600, PointGoal = 20,
-                    FriendlyFire = true, AffinityWeapons = true, ShadowFreeze = true } };
+                    FriendlyFire = true, AffinityWeapons = true, ShadowFreeze = true, HideOpponentHealth = true } };
             byte[] data = new byte[SessionStatePacket.Size]; state.Write(data);
             Check(SessionStatePacket.TryRead(data, out var read) && read.Match == state.Match
                 && read.Revision == state.Revision && read.LoadedParticipants == 3, "session round trip/max room/revision");
@@ -332,9 +332,16 @@ namespace MphRead.Mods.Network
             rig.Expect(a, a.Command(LobbyCommandType.StartMatch), LobbyResultCode.PlayersNotReady);
             rig.Expect(a, a.Command(LobbyCommandType.SetReady, true, revision: 0), LobbyResultCode.StaleRevision);
             rig.ReadyAll();
-            var config = a.State.Value; config.Match = config.Match with { RoomKey = Rooms()[1], TimeLimitSeconds = 600 };
+            var config = a.State.Value; config.Match = config.Match with { RoomKey = Rooms()[1], TimeLimitSeconds = 600, HideOpponentHealth = true };
             rig.Expect(a, a.Command(LobbyCommandType.UpdateMatch, config: config), LobbyResultCode.Ok);
             Check(a.Roster.LobbyReady.Take(a.Roster.Count).All(r => !r), "configuration clears ready");
+            Check(a.State.Value.Match.HideOpponentHealth && b.State!.Value.Match.HideOpponentHealth,
+                "owner hidden-health rule synchronizes to both UDP clients");
+            var forbidden = b.State.Value;
+            forbidden.Match = forbidden.Match with { HideOpponentHealth = false };
+            forbidden.RuleFlags &= ~SessionRules.HideOpponentHealth;
+            rig.Expect(b, b.Command(LobbyCommandType.UpdateMatch, config: forbidden), LobbyResultCode.NotOwner);
+            Check(a.State.Value.Match.HideOpponentHealth, "non-owner cannot expose hidden health");
             var lobbyStatus = NetStatus.Query("127.0.0.1", rig.Server.BoundPort, allowJoinProbe: false);
             Check(lobbyStatus.Online && lobbyStatus.Phase == SessionPhase.Lobby && lobbyStatus.TimeRemaining == 600,
                 "browser status clock stays at the full time limit in the lobby");

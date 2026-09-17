@@ -366,7 +366,7 @@ namespace MphRead.NetTest
             Check(NetPlayerLifecycle.CurrentProjectile(projectile), "projectile remembers firing life");
             localState.LifeId++;
             NetPlayerLifecycle.AcceptState(localState, 3);
-            Check(!NetPlayerLifecycle.CurrentProjectile(projectile), "projectile cannot claim under shooter's respawned life");
+            Check(NetPlayerLifecycle.CurrentProjectile(projectile), "registered projectile retains its launch life after shooter respawn");
             GameState.Points[0] = 4;
             using (new NetDamage.PredictionScoreScope(true)) GameState.Points[0]++;
             Check(GameState.Points[0] == 4, "predicted death cannot award score");

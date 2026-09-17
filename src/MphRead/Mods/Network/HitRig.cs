@@ -137,6 +137,14 @@ namespace MphRead.Mods.Network
                     Mode = RigMode.Volley;
                     VolleyWeapon = BeamType.Battlehammer;
                     return true;
+                case "shockcoil":
+                    Mode = RigMode.Volley;
+                    VolleyWeapon = BeamType.ShockCoil;
+                    return true;
+                case "voltdriver":
+                    Mode = RigMode.Volley;
+                    VolleyWeapon = BeamType.VoltDriver;
+                    return true;
                 case "powerbeam":
                     Mode = RigMode.Volley;
                     VolleyWeapon = BeamType.PowerBeam;

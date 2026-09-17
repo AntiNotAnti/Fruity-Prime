@@ -1,3 +1,5 @@
+Protocol-12 updates: [authoritative HUD health, hidden HP, shot identity, lifecycle and claim validation](NETWORK-HEALTH-SHOTS.md). This section supersedes conflicting historical behavior below.
+
 # Replay system
 
 New recordings and instant clips use `.fpdemo` v3. Version 2 remains readable;

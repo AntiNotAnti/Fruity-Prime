@@ -24,7 +24,7 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly Note _status = new(""), _chat = new("");
         private readonly Note _readiness = new(""), _startReason = new("");
         private readonly ChoiceRow _hunter, _suit, _team, _map, _mode, _format;
-        private readonly ChoiceRow _fire, _affinity, _freeze, _requireReady, _join;
+        private readonly ChoiceRow _fire, _affinity, _freeze, _opponentHealth, _requireReady, _join;
         private readonly ChoiceRow _target, _moveTeam, _teamCount, _lockTeams;
         private readonly ChoiceRow[] _capacities = new ChoiceRow[4];
         private readonly StackPanel _custom = new();
@@ -64,6 +64,7 @@ namespace MphRead.Mods.Launcher.Gui
             _goal = new FieldRow("Score limit", "7", 85);
             _time.Box.TextChanged += (_, _) => RefreshDraft(); _goal.Box.TextChanged += (_, _) => RefreshDraft();
             _fire = Toggle("Friendly fire"); _affinity = Toggle("Affinity weapons"); _freeze = Toggle("Shadow freeze");
+            _opponentHealth = new ChoiceRow("Opponent health", new[] { "Visible", "Hidden" });
             _requireReady = Toggle("Require players to be ready"); _join = Toggle("Allow joining in progress");
             _lockTeams = new ChoiceRow("Team changes", new[] { "Open", "Locked" });
             _teamCount = new ChoiceRow("Teams", new[] { "2", "3", "4" });
@@ -77,7 +78,7 @@ namespace MphRead.Mods.Launcher.Gui
             _teamCount.Changed += (_, _) => RefreshDraft();
             _format.Changed += (_, _) => RefreshDraft(); _mode.Changed += (_, _) => RefreshDraft();
             _apply = ActionButton("Apply match settings", ApplyMatch);
-            foreach (Control control in new Control[] { _map, _mode, _format, _custom, _layoutSummary, _time, _goal, _fire, _affinity, _freeze, _requireReady, _join, _apply })
+            foreach (Control control in new Control[] { _map, _mode, _format, _custom, _layoutSummary, _time, _goal, _fire, _affinity, _freeze, _opponentHealth, _requireReady, _join, _apply })
                 _ownerControls.Children.Add(control);
 
             var left = new StackPanel { Spacing = 4, Margin = new Thickness(0, 0, 18, 0) };
@@ -198,6 +199,7 @@ namespace MphRead.Mods.Launcher.Gui
                 _time.Value = session.Match.TimeLimitSeconds.ToString(); _goal.Value = session.Match.PointGoal.ToString();
                 _fire.Index = session.Match.FriendlyFire ? 1 : 0; _affinity.Index = session.Match.AffinityWeapons ? 1 : 0;
                 _freeze.Index = session.Match.ShadowFreeze ? 1 : 0;
+                _opponentHealth.Index = session.Match.HideOpponentHealth ? 1 : 0;
                 _requireReady.Index = session.RequireReady ? 1 : 0; _join.Index = session.AllowJoinInProgress ? 1 : 0;
                 _lockTeams.Index = session.LockTeams ? 1 : 0;
                 TeamLayout layout = LobbyRules.ResolveTeamLayout(session.Match);
@@ -297,7 +299,8 @@ namespace MphRead.Mods.Launcher.Gui
             { _status.Text = "Time and goal must be whole numbers from 0 to 65535."; return; }
             config.Match = DraftMatch() with {
                 TimeLimitSeconds = seconds, PointGoal = goal, FriendlyFire = _fire.Index == 1,
-                AffinityWeapons = _affinity.Index == 1, ShadowFreeze = _freeze.Index == 1 };
+                AffinityWeapons = _affinity.Index == 1, ShadowFreeze = _freeze.Index == 1,
+                HideOpponentHealth = _opponentHealth.Index == 1 };
             config.RuleFlags = config.Match.Rules | (_requireReady.Index == 1 ? SessionRules.RequireReady : 0)
                 | (_join.Index == 1 ? SessionRules.AllowJoinInProgress : 0)
                 | (_lockTeams.Index == 1 ? SessionRules.LockTeams : 0);
