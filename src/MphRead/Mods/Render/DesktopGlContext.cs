@@ -1,4 +1,3 @@
-#if !ANDROID
 using System;
 using OpenTK.Mathematics;
 using OpenTK.Windowing.Common;
@@ -30,4 +29,3 @@ namespace MphRead.Mods.Render
         }
     }
 }
-#endif

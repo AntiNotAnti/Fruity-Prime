@@ -70,8 +70,15 @@ actual launcher window, compiling world/composite/cel/disruption shaders,
 checking non-black UI readback and GL errors before and after a resize, and
 closing normally. This runs on the flat publish and both staged/extracted app
 bundles, so loading GLFW without creating a context can no longer pass alone.
-Both Mac jobs also run `tools/render-resource-check` against the legacy context
-for framebuffer allocation, filtering, FXAA, HUD transforms and teardown.
+On a graphics-capable host both Mac jobs also run `tools/render-resource-check`
+against the legacy context for framebuffer allocation, filtering, FXAA, HUD
+transforms and teardown. `check-macos-graphics.sh` queries CGL's actual renderer
+list first. Exit 77 means no accelerated renderer (GLFW requires one); the
+workflow explicitly reports rendered checks as **NOT RUN**, keeps native
+startup/signature checks mandatory, and leaves hardware acceptance pending.
+Query errors or application failures on a graphics-capable host still fail.
+This is necessary for virtual hosted runners without GPU passthrough; a green
+build there is not proof of rendered Mac startup.
 
 This does not test a rendered game, an audio device, or Finder/Gatekeeper's
 handling of a quarantined Internet download. Those require manual Mac checks.

@@ -542,7 +542,13 @@ jobs:
           tools/check-macos-build.sh "publish/$RID" "$RID"
           tools/run-macos-smoke.sh "publish/$RID" "$RID"
           python3 tools/test-compatibility-smoke.py "publish/$RID/FruityPrime"
-          dotnet run --project tools/render-resource-check/render-resource-check.csproj -c Release
+          if tools/check-macos-graphics.sh; then
+            dotnet run --project tools/render-resource-check/render-resource-check.csproj -c Release
+          else
+            status=$?
+            [ "$status" = 77 ] || exit "$status"
+            echo '::warning::Mac GPU resource checks NOT RUN: no accelerated renderer.'
+          fi
           tools/check-no-game-assets.sh "publish/$RID"
           tools/check-maps-shipped.sh "publish/$RID"
           tools/package-macos.sh "publish/$RID" dist "$RID" "$VERSION"
