@@ -101,6 +101,8 @@ namespace MphRead.Entities
             }
             else
             {
+                // A gesture made on foot must not survive the next morph.
+                ModClearAltFlick();
                 ProcessBiped();
             }
         }
@@ -1333,6 +1335,7 @@ namespace MphRead.Entities
             int animId = -1;
             AnimFlags animFlags = AnimFlags.None;
             Flags1 |= PlayerFlags1.UsedJump;
+            bool altFlick = ModConsumeAltFlick(out float altFlickX, out float altFlickY);
             if (_frozenTimer == 0 && _health > 0)
             {
                 // todo?: if touch movement for alt form was a thing, this would need extra conditions
@@ -1700,17 +1703,8 @@ namespace MphRead.Entities
                     }
                     if (_abilities.TestFlag(AbilityFlags.Boost) && AttachedEnemy == null)
                     {
-                        // A whip of the mouse is the same gesture from the
-                        // desktop's end -- nothing else reads a mouse delta
-                        // in the ball -- and it asks for the boost through
-                        // the same one-shot. See Mods.Input.MouseFlick.
-                        ModCheckMouseFlick();
-                        // A touch platform's swipe gesture is a flick, not a
-                        // hold-and-release: it forces a full charge straight
-                        // into the release branch below instead of building
-                        // one up over several frames.
-                        bool swipeBoost = SwipeBoostRequested;
-                        SwipeBoostRequested = false;
+                        // A flick forces a full charge into the normal release path.
+                        bool flickBoost = altFlick && _abilities.TestFlag(AbilityFlags.Boost);
                         // Where the flick pointed, turned into a world
                         // direction against the basis the ball already rolls
                         // with: up the screen is forward and left is left,
@@ -1722,10 +1716,10 @@ namespace MphRead.Entities
                         float boostDirX = _field70;
                         float boostDirZ = _field74;
                         bool boostAimed = false;
-                        if (swipeBoost && (SwipeBoostX != 0 || SwipeBoostY != 0))
+                        if (flickBoost && (altFlickX != 0 || altFlickY != 0))
                         {
-                            float forward = -SwipeBoostY;
-                            float left = -SwipeBoostX;
+                            float forward = -altFlickY;
+                            float left = -altFlickX;
                             // Taken as an aim, not snapped. It *was* snapped
                             // to the four directions the roll binds offer, on
                             // the reading that the gesture is a choice between
@@ -1766,15 +1760,13 @@ namespace MphRead.Entities
                                     // is three questions and this is the only
                                     // line that separates them.
                                     Mods.DebugLog.Line("input", "boost flick screen "
-                                        + $"({SwipeBoostX:0.00}, {SwipeBoostY:0.00}) -> "
+                                        + $"({altFlickX:0.00}, {altFlickY:0.00}) -> "
                                         + $"({forward:0.00} fwd, {left:0.00} left)"
                                         + $" -> world ({boostDirX:0.00}, {boostDirZ:0.00})");
                                 }
                             }
                         }
-                        SwipeBoostX = 0;
-                        SwipeBoostY = 0;
-                        if (Controls.Boost.IsDown && !swipeBoost)
+                        if (Controls.Boost.IsDown && !flickBoost)
                         {
                             // the game plays the boost charge SFX here, but that SFX is empty
                             if (_boostCharge < Values.BoostChargeMax * 2) // todo: FPS stuff
@@ -1784,7 +1776,7 @@ namespace MphRead.Entities
                         }
                         else
                         {
-                            if (swipeBoost)
+                            if (flickBoost)
                             {
                                 _boostCharge = (ushort)(Values.BoostChargeMax * 2);
                             }

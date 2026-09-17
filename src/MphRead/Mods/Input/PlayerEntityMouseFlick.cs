@@ -4,9 +4,39 @@ namespace MphRead.Entities
 {
     public partial class PlayerEntity
     {
+        private void ModClearAltFlick()
+        {
+            AltFlickRequested = false;
+            AltFlickX = 0;
+            AltFlickY = 0;
+        }
+
+        private bool ModConsumeAltFlick(out float x, out float y)
+        {
+            bool acceptsFlick = IsAltForm && !IsMorphing && !IsUnmorphing
+                && _health > 0 && _frozenTimer == 0
+                && (_abilities.TestFlag(AbilityFlags.Boost)
+                    || _abilities.TestFlag(AbilityFlags.SpireAltAttack));
+            if (acceptsFlick)
+            {
+                ModCheckMouseFlick();
+            }
+            bool flick = acceptsFlick && AltFlickRequested;
+            x = AltFlickX;
+            y = AltFlickY;
+            ModClearAltFlick();
+            if (flick && _abilities.TestFlag(AbilityFlags.SpireAltAttack))
+            {
+                // AfterInput records this same edge for network relay.
+                Controls.AltAttack.IsPressed = true;
+                Input.HasInput = true;
+            }
+            return flick;
+        }
+
         /// <summary>
-        /// Read this frame's mouse movement as a possible boost, and if it is
-        /// one, ask for the boost the touch head's swipe asks for.
+        /// Read this frame's mouse movement as an alt-form flick, using the
+        /// same gesture state as the touch head.
         ///
         /// A partial rather than a dozen lines inside <c>ProcessAlt</c>: the
         /// gesture wants the player's own <c>Input</c> deltas and its flags,
@@ -19,7 +49,7 @@ namespace MphRead.Entities
         /// would cut it short at a charge they did not choose, and a camera
         /// sequence or a frame-advance step is not a frame anybody moved a
         /// mouse in. There is no gate for the form, the hunter or the
-        /// ability, because the one call site is already inside all three.
+        /// ability, because the shared consumer checks all three.
         ///
         /// Every player runs <c>ProcessAlt</c> -- bots, and the puppets
         /// standing in for other people -- and exactly one of them has a
@@ -32,7 +62,8 @@ namespace MphRead.Entities
             {
                 return;
             }
-            if (!Controls.MouseAim || Controls.Boost.IsDown
+            bool chargingBoost = _abilities.TestFlag(AbilityFlags.Boost) && Controls.Boost.IsDown;
+            if (!Controls.MouseAim || chargingBoost
                 || Flags1.TestFlag(PlayerFlags1.NoAimInput)
                 || Flags1.TestFlag(PlayerFlags1.WeaponMenuOpen)
                 || Mods.SpectatorMode.IsSpectating
@@ -45,9 +76,9 @@ namespace MphRead.Entities
             if (Mods.Input.MouseFlick.Check(Input.MouseDeltaX, Input.MouseDeltaY,
                 _scene.FrameCount, out float dirX, out float dirY))
             {
-                SwipeBoostRequested = true;
-                SwipeBoostX = dirX;
-                SwipeBoostY = dirY;
+                AltFlickRequested = true;
+                AltFlickX = dirX;
+                AltFlickY = dirY;
             }
         }
     }
