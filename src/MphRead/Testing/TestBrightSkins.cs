@@ -73,11 +73,22 @@ namespace MphRead.Testing
             {
                 Vector4 expected = new Vector4(BrightSkins.NormalizeBright(Metadata.TeamColors[team] / 31f), 1);
                 Check(BrightSkins.GetTeamColor(team) == expected, $"central team definition {team}");
+                Check(BrightSkins.ResolveOutlineColor(PlayerOutlineStyle.Team, teams: true, team) == expected,
+                    $"outline uses central team definition {team}");
             }
             Check(BrightSkins.GetTeamColor(-1) == BrightSkins.GetTeamColor(Int32.MaxValue), "invalid team fallback");
+            Vector4 redOutline = BrightSkins.ResolveOutlineColor(PlayerOutlineStyle.Red, teams: true, teamIndex: 0);
+            Check(redOutline.X == 1 && redOutline.Y < 0.1f && redOutline.Z < 0.1f && redOutline.W == 1,
+                "red outline remains saturated and opaque");
+            Check(BrightSkins.ResolveOutlineColor(PlayerOutlineStyle.Team, teams: false, teamIndex: 7) == redOutline
+                && BrightSkins.ResolveOutlineColor(PlayerOutlineStyle.Red, teams: true, teamIndex: 1) == redOutline,
+                "FFA fallback and forced red outline ignore team identity");
 
             string originalDirectory = LauncherPrefs.Directory;
             bool originalEnabled = RenderOptions.BrightSkins;
+            PlayerSkinStyle originalStyle = RenderOptions.BrightSkinStyle;
+            PlayerOutlineStyle originalOutline = RenderOptions.PlayerOutline;
+            int originalWidth = RenderOptions.PlayerOutlineWidth;
             string directory = Path.Combine(Path.GetTempPath(), "fruity-brightskins-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(directory);
             string path = Path.Combine(directory, "launcher.txt");
@@ -85,11 +96,20 @@ namespace MphRead.Testing
             {
                 LauncherPrefs.Directory = directory;
                 RenderOptions.BrightSkins = false;
+                RenderOptions.BrightSkinStyle = PlayerSkinStyle.Solid;
+                RenderOptions.PlayerOutline = PlayerOutlineStyle.Off;
+                RenderOptions.PlayerOutlineWidth = 4;
                 LauncherPrefs.Load();
                 Check(!RenderOptions.BrightSkins, "missing preferences stay off");
                 File.WriteAllText(path, "# existing preferences without the new key\n");
                 LauncherPrefs.Load();
                 Check(!RenderOptions.BrightSkins, "legacy preferences stay off");
+                File.WriteAllText(path, "bright_skins=true\n");
+                LauncherPrefs.Load();
+                Check(RenderOptions.BrightSkins && RenderOptions.BrightSkinStyle == PlayerSkinStyle.Solid
+                    && RenderOptions.PlayerOutline == PlayerOutlineStyle.Off,
+                    "legacy enabled preference retains solid skins without enabling outlines");
+                RenderOptions.BrightSkins = false;
                 File.WriteAllText(path, "bright_skins=invalid\n");
                 LauncherPrefs.Load();
                 Check(!RenderOptions.BrightSkins, "invalid preference stays off");
@@ -103,11 +123,43 @@ namespace MphRead.Testing
                 RenderOptions.BrightSkins = true;
                 LauncherPrefs.Load();
                 Check(!RenderOptions.BrightSkins, "disabled preference round trip");
+
+                RenderOptions.BrightSkins = true;
+                RenderOptions.BrightSkinStyle = PlayerSkinStyle.Textured;
+                RenderOptions.PlayerOutline = PlayerOutlineStyle.Team;
+                RenderOptions.PlayerOutlineWidth = 7;
+                LauncherPrefs.Save();
+                RenderOptions.BrightSkinStyle = PlayerSkinStyle.Solid;
+                RenderOptions.PlayerOutline = PlayerOutlineStyle.Off;
+                RenderOptions.PlayerOutlineWidth = 1;
+                LauncherPrefs.Load();
+                Check(RenderOptions.BrightSkinStyle == PlayerSkinStyle.Textured
+                    && RenderOptions.PlayerOutline == PlayerOutlineStyle.Team && RenderOptions.PlayerOutlineWidth == 7,
+                    "textured skins, team outline and thickness round trip");
+                RenderOptions.BrightSkins = false;
+                RenderOptions.PlayerOutline = PlayerOutlineStyle.Red;
+                LauncherPrefs.Save();
+                RenderOptions.PlayerOutline = PlayerOutlineStyle.Off;
+                LauncherPrefs.Load();
+                Check(!RenderOptions.BrightSkins && RenderOptions.PlayerOutline == PlayerOutlineStyle.Red,
+                    "red outline works independently of skin highlighting");
+
+                File.WriteAllText(path, "bright_skin_style=999\nplayer_outline=invalid\nplayer_outline_width=999\n");
+                LauncherPrefs.Load();
+                Check(RenderOptions.BrightSkinStyle == PlayerSkinStyle.Textured
+                    && RenderOptions.PlayerOutline == PlayerOutlineStyle.Red && RenderOptions.PlayerOutlineWidth == 8,
+                    "invalid styles ignored and oversized outline clamped");
+                File.WriteAllText(path, "player_outline_width=-10\n");
+                LauncherPrefs.Load();
+                Check(RenderOptions.PlayerOutlineWidth == 1, "negative outline thickness clamped");
             }
             finally
             {
                 LauncherPrefs.Directory = originalDirectory;
                 RenderOptions.BrightSkins = originalEnabled;
+                RenderOptions.BrightSkinStyle = originalStyle;
+                RenderOptions.PlayerOutline = originalOutline;
+                RenderOptions.PlayerOutlineWidth = originalWidth;
                 File.Delete(path);
                 Directory.Delete(directory);
             }

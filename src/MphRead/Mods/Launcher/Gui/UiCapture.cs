@@ -73,6 +73,13 @@ namespace MphRead.Mods.Launcher.Gui
                         Console.WriteLine($"[uishot] {path}");
                     }
                 }
+                var visibility = new SettingsView(settings);
+                string visibilityPath = Path.Combine(directory, "settings-visibility.png");
+                if (Capture(visibility, visibilityPath, _windowSize, visibility.ShowVisibilitySettings))
+                {
+                    written++;
+                    Console.WriteLine($"[uishot] {visibilityPath}");
+                }
             });
             Console.WriteLine($"[uishot] {written} screen(s) written to {directory}");
             return written > 0 ? 0 : 1;
@@ -246,7 +253,7 @@ namespace MphRead.Mods.Launcher.Gui
         /// and without taking focus, so a capture run does not steal the
         /// pointer or flash a window per screen.
         /// </summary>
-        internal static bool Capture(Control view, string path, Size size)
+        internal static bool Capture(Control view, string path, Size size, Action? afterLayout = null)
         {
             Window? window = null;
             try
@@ -276,6 +283,9 @@ namespace MphRead.Mods.Launcher.Gui
                 }
                 window.Measure(size);
                 window.Arrange(new Rect(size));
+                Dispatcher.UIThread.RunJobs();
+                afterLayout?.Invoke();
+                window.UpdateLayout();
                 Dispatcher.UIThread.RunJobs();
                 var bitmap = new RenderTargetBitmap(
                     new PixelSize((int)size.Width, (int)size.Height),

@@ -336,6 +336,10 @@ namespace MphRead.Entities
             return inst.IsPlaceholder ? GetOverrideColor(inst, index) : null;
         }
 
+        protected virtual Vector4? GetPlayerOutlineColor(ModelInstance inst) => null;
+
+        protected virtual bool UseTexturedPlayerSkin(ModelInstance inst) => false;
+
         protected virtual LightInfo GetLightInfo()
         {
             return new LightInfo(_scene.Light1Vector, _scene.Light1Color, _scene.Light2Vector, _scene.Light2Color);
@@ -410,7 +414,8 @@ namespace MphRead.Entities
                         int? bindingOverride = GetBindingOverride(inst, material, mesh.MaterialId);
                         _scene.AddRenderItem(material, polygonId, Alpha, emission, lightInfo ?? GetLightInfo(), texcoordMatrix,
                             node.Animation, mesh.ListId, model.NodeMatrixIds.Count, model.MatrixStackValues, color,
-                            PaletteOverride, selectionType, node.BillboardMode, _drawScale, bindingOverride);
+                            PaletteOverride, selectionType, node.BillboardMode, _drawScale, bindingOverride,
+                            UseTexturedPlayerSkin(inst), GetPlayerOutlineColor(inst));
                     }
                     if (node.ChildIndex != -1)
                     {

@@ -64,7 +64,9 @@ namespace MphRead.Mods.Launcher.Gui
         private ToggleRow _fogRow = null!;
         private ToggleRow _filteringRow = null!;
         private ToggleRow _celRow = null!;
-        private ToggleRow _brightSkinsRow = null!;
+        private ChoiceRow _brightSkinsRow = null!;
+        private ChoiceRow _playerOutlineRow = null!;
+        private SliderRow _playerOutlineWidthRow = null!;
         private ToggleRow _fpsRow = null!;
 
         /// <summary>
@@ -286,6 +288,16 @@ namespace MphRead.Mods.Launcher.Gui
             }
         }
 
+        /// <summary>Scroll the visibility controls into a layout capture after measurement.</summary>
+        internal void ShowVisibilitySettings()
+        {
+            ShowSection("Display");
+            if (_sections[0].Page is ScrollViewer scroll)
+            {
+                scroll.Offset = new Avalonia.Vector(0, Math.Max(0, _brightSkinsRow.Bounds.Y - 40));
+            }
+        }
+
         private void ShowPage(int index)
         {
             for (int i = 0; i < _sections.Count; i++)
@@ -421,8 +433,16 @@ namespace MphRead.Mods.Launcher.Gui
             _celRow = Add(page, new ToggleRow("Cel shading", RenderOptions.CelShading));
 
             Heading(page, "Visibility");
-            _brightSkinsRow = Add(page, new ToggleRow("Bright player skins", RenderOptions.BrightSkins));
-            Explain(page, "Use high-contrast player colors to improve visibility and team identification.");
+            _brightSkinsRow = Add(page, new ChoiceRow("Player skins", new[] { "Off", "Textured", "Solid" },
+                !RenderOptions.BrightSkins ? 0 : RenderOptions.BrightSkinStyle == PlayerSkinStyle.Textured ? 1 : 2));
+            Explain(page, "Textured boosts player colors while keeping surface detail. Solid uses a flat identifying color.");
+            _playerOutlineRow = Add(page, new ChoiceRow("Player outline", new[] { "Off", "Team color", "Bright red" },
+                (int)RenderOptions.PlayerOutline));
+            Explain(page, "Outline visible players, with or without bright skins. Team color uses red in free-for-all.");
+            _playerOutlineWidthRow = Add(page, new SliderRow("Outline thickness", RenderOptions.PlayerOutlineWidth,
+                value => $"{value} px", labelWidth: 160, min: 1, max: 8, keyStep: 1));
+            _playerOutlineWidthRow.IsVisible = _playerOutlineRow.Index != 0;
+            _playerOutlineRow.Changed += (_, _) => _playerOutlineWidthRow.IsVisible = _playerOutlineRow.Index != 0;
 
             // One switch, and none of what it drives.
             //
@@ -1072,7 +1092,13 @@ namespace MphRead.Mods.Launcher.Gui
             FrameTiming.FrameRateCap = cap;
             _settings.FrameRateCap = FrameTiming.CapString(cap);
             _settings.CelShading = RenderOptions.OnOff(_celRow.On);
-            RenderOptions.BrightSkins = _brightSkinsRow.On;
+            RenderOptions.BrightSkins = _brightSkinsRow.Index != 0;
+            if (RenderOptions.BrightSkins)
+            {
+                RenderOptions.BrightSkinStyle = _brightSkinsRow.Index == 1 ? PlayerSkinStyle.Textured : PlayerSkinStyle.Solid;
+            }
+            RenderOptions.PlayerOutline = (PlayerOutlineStyle)_playerOutlineRow.Index;
+            RenderOptions.PlayerOutlineWidth = _playerOutlineWidthRow.Value;
             _settings.CelBands = "8";
             _settings.CelEdge = "50";
             Features.ProHud = _proHud.On;

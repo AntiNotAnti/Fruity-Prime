@@ -3,6 +3,19 @@ using System.Globalization;
 
 namespace MphRead.Mods
 {
+    public enum PlayerSkinStyle
+    {
+        Solid,
+        Textured
+    }
+
+    public enum PlayerOutlineStyle
+    {
+        Off,
+        Team,
+        Red
+    }
+
     /// <summary>
     /// The knobs that trade picture for frame rate.
     ///
@@ -84,6 +97,21 @@ namespace MphRead.Mods
 
         /// <summary>High-contrast multiplayer body colors, local to this client.</summary>
         public static bool BrightSkins { get; set; }
+
+        /// <summary>Solid retains the original bright-skins preference behavior.</summary>
+        public static PlayerSkinStyle BrightSkinStyle { get; set; } = PlayerSkinStyle.Solid;
+
+        /// <summary>Independent of skin highlighting; off by default.</summary>
+        public static PlayerOutlineStyle PlayerOutline { get; set; } = PlayerOutlineStyle.Off;
+
+        /// <summary>Player outline thickness in screen pixels.</summary>
+        public static int PlayerOutlineWidth
+        {
+            get => _playerOutlineWidth;
+            set => _playerOutlineWidth = Math.Clamp(value, 1, 8);
+        }
+
+        private static int _playerOutlineWidth = 4;
 
         /// <summary>
         /// Cel shading: every surface goes to flat colour and the shapes in

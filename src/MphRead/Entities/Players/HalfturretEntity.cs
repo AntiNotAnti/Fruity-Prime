@@ -38,6 +38,7 @@ namespace MphRead.Entities
         private Node _baseNodeParent = null!;
         private ModelInstance _altIceModel = null!;
         private Vector4? _brightSkin;
+        private Vector4? _outlineColor;
 
         public HalfturretEntity(PlayerEntity owner, Scene scene) : base(EntityType.Halfturret, scene)
         {
@@ -406,8 +407,10 @@ namespace MphRead.Entities
             model.UpdateMatrixStack();
             UpdateMaterials(inst, Recolor);
             _brightSkin = _health > 0 && PaletteOverride == null ? BrightSkins.GetColor(Owner) : null;
+            _outlineColor = _health > 0 && _freezeTimer == 0 && PaletteOverride == null ? BrightSkins.GetOutlineColor(Owner) : null;
             GetDrawItems(inst, 0);
             _brightSkin = null;
+            _outlineColor = null;
             PaletteOverride = null;
             if (_freezeTimer > 0)
             {
@@ -430,6 +433,13 @@ namespace MphRead.Entities
             }
             return base.GetRenderColor(inst, index, material);
         }
+
+        protected override Vector4? GetPlayerOutlineColor(ModelInstance inst)
+            => inst == _models[0] && PaletteOverride == null ? _outlineColor : null;
+
+        protected override bool UseTexturedPlayerSkin(ModelInstance inst)
+            => inst == _models[0] && _brightSkin.HasValue
+                && Mods.RenderOptions.BrightSkinStyle == Mods.PlayerSkinStyle.Textured;
 
         protected override int? GetBindingOverride(ModelInstance inst, Material material, int index)
         {

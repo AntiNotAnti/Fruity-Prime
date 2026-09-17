@@ -48,11 +48,14 @@ Saving and applying
 
 Notable toggles
 
-- **Bright player skins** is under Display / Visibility, off by default. Save
-  or Apply updates remote multiplayer bodies immediately and persists
-  `bright_skins` in `launcher.txt`. Suit identity supplies FFA colors; centralized
-  team definitions supply team colors. Cloak, damage and Double Damage take
-  priority, and ice/effects/first-person equipment retain normal rendering.
+- **Player skins** under Display / Visibility offers Off, Textured (brightened
+  original textures), and Solid (flat identifying color). **Player outline**
+  independently offers Off, Team color, and Bright red, with 1–8 px thickness.
+  Team outlines use red in FFA. Both features default off and Save/Apply takes
+  effect immediately. The options persist in `launcher.txt`; old enabled
+  brightskins preferences keep Solid mode without enabling outlines.
+  Cloak, damage and Double Damage take priority, and ice/effects/first-person
+  equipment retain normal rendering.
   See `.claude/render/BRIGHT-SKINS.md` for eligibility and validation.
 
 - **FPS limit is the picture's rate only**, and sits directly under Render
