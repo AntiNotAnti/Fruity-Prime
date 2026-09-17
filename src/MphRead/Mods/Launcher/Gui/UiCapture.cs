@@ -94,6 +94,28 @@ namespace MphRead.Mods.Launcher.Gui
             return written == 18 ? 0 : 1;
         }
 
+        public static int RunReplay(string directory, string replay)
+        {
+            if (!GuiLauncher.EnsureSetup()) return 1;
+            Directory.CreateDirectory(directory);
+            if (!DemoPlayback.Join(replay)) { Console.WriteLine(DemoPlayback.LastError); return 1; }
+            int written = 0;
+            try
+            {
+                Dispatcher.UIThread.Invoke(() =>
+                {
+                    foreach (var (name, size) in new[] { ("desktop", new Size(1280, 720)), ("phone", new Size(960, 540)), ("short", new Size(800, 400)) })
+                    {
+                        if (Capture(new PauseMenuView(offerWindowMode: true), Path.Combine(directory, "replay-controls-" + name + ".png"), size)) written++;
+                        if (Capture(new PlayScreen(new MenuSettings(), RoomList(), PlayScreen.Face.Clips), Path.Combine(directory, "replay-library-" + name + ".png"), size)) written++;
+                    }
+                });
+            }
+            finally { DemoPlayback.Stop(); NetSession.Stop(); }
+            Console.WriteLine($"[replayshot] {written} layouts written to {directory}");
+            return written == 6 ? 0 : 1;
+        }
+
         public static int Run(string directory, bool browserOnly = false)
         {
             if (!GuiLauncher.EnsureSetup())
