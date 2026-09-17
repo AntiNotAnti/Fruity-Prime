@@ -21,6 +21,15 @@ the incoming read/draw framebuffer bindings. Nonpositive window dimensions
 skip drawing/resizing; scaled allocation dimensions are at least one pixel.
 The cel copy path remains for P0; the later P1 rewrite is outside this PR.
 
+Scene teardown also deletes the cel framebuffer and clears its attachment
+cache before deleting scene textures. The shell retains its GL context between
+matches: leaving an unbound cel framebuffer alive leaks the object and its
+reference to the scene color storage. This omission predates the stability PR.
+`dotnet run --project tools/render-resource-check/render-resource-check.csproj -c Release`
+checks real cel allocation/reuse and repeated scene teardown over three cycles
+in one hidden desktop GL context, using a synthetic 32x32 attachment and no
+game assets. It does not exercise Android GL or gameplay/respawn rendering.
+
 Main-player Spawn clears temporary disruption, whiteout, damage indicators,
 weapon-wheel visuals and cached HUD layers via `PlayerRespawnVisuals.cs`.
 Existing spawn resets still handle ice, damage flash and model alpha. Scene
