@@ -91,7 +91,8 @@ namespace MphRead.Mods.Network
                         ||offer.ContentHash?.Length!=64||offer.ArchiveHash?.Length!=64
                         ||!offer.ContentHash.All(Uri.IsHexDigit)||!offer.ArchiveHash.All(Uri.IsHexDigit)))
                     {_error="Server advertised an invalid map package.";return;}
-                    _offer??=offer;
+                    _offer??=offer with { ContentHash=offer.ContentHash?.ToLowerInvariant()??"",
+                        ArchiveHash=offer.ArchiveHash?.ToLowerInvariant()??"" };
                 }
                 catch(JsonException){_error="Malformed map offer.";}
             }
@@ -109,11 +110,26 @@ namespace MphRead.Mods.Network
             }
         }
 
+        private static bool MatchesOffer(MapPackageManifest? manifest,MapOffer offer)
+            => manifest!=null&&manifest.MapId==offer.MapId&&manifest.Name==offer.Name
+                &&manifest.MapVersion==offer.Version
+                &&string.Equals(manifest.ContentHash,offer.ContentHash,StringComparison.OrdinalIgnoreCase);
+
+        private static bool HasMatchingLocalPackage(string path,MapOffer offer)
+        {
+            // A damaged/deleted local cache is a miss, not a reason to refuse a
+            // replacement that will go through the full download validation.
+            try { using var package=new MapPackageReader(path);return MatchesOffer(package.Manifest,offer); }
+            catch(Exception ex)when(ex is IOException or InvalidDataException or ProgramException
+                or UnauthorizedAccessException or JsonException or ArgumentException) { return false; }
+        }
+
         public static bool Ensure(string room,bool force=false)
         {
             LastError=null;
             if(!NetSession.IsClient||DemoPlayback.IsActive)return true;
             if(!force&&_verified.ContainsKey(room))return true;
+            ushort? matchId=NetSession.ServerMatch?.MatchId;
             _wanted=room;_offer=null;_error=null;_received=0;_written=0;
             string directory=Path.Combine(CustomRooms.MapDirectory,".downloads"),temporary="";
             var clock=Stopwatch.StartNew();long lastRequest=-1000,lastReceived=0,progressAt=0;
@@ -123,7 +139,8 @@ namespace MphRead.Mods.Network
                 {
                     NetSession.PumpMapTransfer();
                     if(_error!=null)throw new InvalidDataException(_error);
-                    if(NetSession.ServerMatch?.RoomKey!=room)throw new IOException("Server changed maps during download; join again.");
+                    if(!NetSession.IsClient||NetSession.ServerMatch?.RoomKey!=room||NetSession.ServerMatch?.MatchId!=matchId)
+                        throw new IOException("Server changed matches during download; join again.");
                     if(_offer is {} offer)
                     {
                         if(offer.Size==0)
@@ -136,11 +153,9 @@ namespace MphRead.Mods.Network
                         {
                             if(Metadata.IsBuiltInRoom(room))throw new InvalidDataException("A downloaded map cannot replace a built-in room.");
                             var local=CustomRooms.Definitions.FirstOrDefault(d=>d.Name.Equals(room,StringComparison.OrdinalIgnoreCase));
-                            if(local?.BundlePath is {} bundle)
+                            if(local?.BundlePath is {} bundle&&HasMatchingLocalPackage(bundle,offer))
                             {
-                                using var package=new MapPackageReader(bundle);
-                                if(package.Manifest?.MapId==offer.MapId&&package.Manifest.ContentHash==offer.ContentHash)
-                                {_verified[room]=offer.ContentHash;return true;}
+                                _verified[room]=offer.ContentHash;return true;
                             }
                             Directory.CreateDirectory(directory);temporary=Path.Combine(directory,Guid.NewGuid().ToString("N")+".fpmap");
                             _download=new FileStream(temporary,FileMode.CreateNew,FileAccess.Write,FileShare.None);
@@ -151,6 +166,12 @@ namespace MphRead.Mods.Network
                         if(_received==offer.Size)
                         {
                             _download.Dispose();_download=null;
+                            // Hash/ID agreement alone does not bind the package to
+                            // the room being loaded. Reject a renamed offer before
+                            // installing any package or publishing runtime outputs.
+                            using(var package=new MapPackageReader(temporary))
+                                if(!MatchesOffer(package.Manifest,offer))
+                                    throw new InvalidDataException("Downloaded map identity does not match the server offer.");
                             Launcher.GameFiles.ApplyPaths();
                             var installed=MapPackageInstaller.Install(temporary,offer.MapId,offer.ContentHash,offer.ArchiveHash,LibraryDirectory);
                             Metadata.RegisterDownloadedMap(installed);
@@ -178,7 +199,8 @@ namespace MphRead.Mods.Network
                 }
                 throw new IOException("Map download timed out.");
             }
-            catch(Exception ex)when(ex is IOException or InvalidDataException or ProgramException or UnauthorizedAccessException)
+            catch(Exception ex)when(ex is IOException or InvalidDataException or ProgramException or UnauthorizedAccessException
+                or JsonException or ArgumentException)
             {LastError=ex.Message;Console.WriteLine("[mappackage] "+ex.Message);return false;}
             finally{_wanted="";_download?.Dispose();_download=null;if(temporary.Length>0&&File.Exists(temporary))File.Delete(temporary);}
         }
