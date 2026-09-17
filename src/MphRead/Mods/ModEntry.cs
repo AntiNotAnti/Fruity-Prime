@@ -1516,6 +1516,13 @@ namespace MphRead.Mods
                 return true;
             }
 
+#if MPHREAD_AVALONIA
+            if (ValueAfter(args, "replayshot") is string replayShots && ValueAfter(args, "demo") is string replayFile)
+            {
+                Environment.ExitCode = Launcher.Gui.UiCapture.RunReplay(replayShots, replayFile);
+                return true;
+            }
+#endif
             if (ValueAfter(args, "replaydeterminism") is string replayPath)
             {
                 Environment.ExitCode = Network.ReplayDeterminism.Run(replayPath);

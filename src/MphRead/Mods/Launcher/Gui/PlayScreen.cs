@@ -99,6 +99,7 @@ namespace MphRead.Mods.Launcher.Gui
 
         private readonly UiTabs? _tabs;
         private readonly UiList _list = new();
+        private EventHandler<Control>? _replaySelection;
         private readonly StackPanel _options = new() { Spacing = 2, Width = 300 };
         private readonly Image _preview = new() { Stretch = Stretch.UniformToFill };
         private readonly Border _previewBox;
@@ -219,7 +220,8 @@ namespace MphRead.Mods.Launcher.Gui
         {
             if (!Double.IsInfinity(availableSize.Height) && availableSize.Height > 0)
             {
-                SetCompact(availableSize.Height < UiLayout.ShortBox);
+                SetCompact(Current == Face.Clips || availableSize.Height < UiLayout.ShortBox);
+                _side.MaxHeight = Current == Face.Clips ? Math.Max(100, availableSize.Height - 190) : _compact ? Double.PositiveInfinity : 190;
             }
             return base.MeasureOverride(availableSize);
         }
@@ -410,6 +412,7 @@ namespace MphRead.Mods.Launcher.Gui
         private void Rebuild()
         {
             StopPolling();
+            if (_replaySelection != null) { _list.SelectionChanged -= _replaySelection; _replaySelection = null; }
             _list.Clear();
             _list.SetHeader(null);
             // What the tick does, in the word for this face. It is the only
@@ -869,6 +872,19 @@ namespace MphRead.Mods.Launcher.Gui
                 _note.Text = "Nothing recorded yet. Clips are made from the pause menu "
                     + $"during an online match, and are written to:\n{DemoLibrary.Directory}";
             }
+            var replayDetails = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = GuiTheme.TextDimBrush, FontSize = 12, Margin = new Thickness(0, 0, 0, 10) };
+            void RefreshReplayDetails()
+            {
+                if ((_list.Selected as UiListRow)?.Choice is string path)
+                {
+                    var selected = demos.FirstOrDefault(d => d.Path == path);
+                    if (selected.Path != null) replayDetails.Text = DemoLibrary.Details(selected);
+                }
+            }
+            _replaySelection = (_, _) => { if (Current == Face.Clips) RefreshReplayDetails(); };
+            _list.SelectionChanged += _replaySelection;
+            RefreshReplayDetails();
+            _options.Children.Add(replayDetails);
             var replayName = new FieldRow("Display name", "", boxWidth: 210);
             replayName.Box.MaxLength = 100;
             _options.Children.Add(replayName);

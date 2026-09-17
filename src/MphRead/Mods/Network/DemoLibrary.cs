@@ -158,7 +158,17 @@ namespace MphRead.Mods.Network
         /// <summary>"4 Sep 2026, 18:22 — 1.4 MB".</summary>
         public static string Describe(DemoRecording demo)
         {
-            return $"{demo.Recorded:d MMM yyyy, HH:mm} — {Size(demo.Bytes)}";
+            string duration = demo.DurationFrames > 0 ? Replay.ReplayHud.Time(demo.DurationFrames) : "duration unknown";
+            return $"{duration} / {demo.Integrity} / {demo.Compatibility}";
+        }
+        public static string Details(DemoRecording demo)
+        {
+            string details = $"{demo.Recorded:d MMM yyyy, HH:mm} / {Size(demo.Bytes)}";
+            if (demo.Metadata is ReplayMetadata metadata)
+                details = $"{metadata.Mode} / {metadata.Players.Count} players / {metadata.Type}\n"
+                    + string.Join(", ", System.Linq.Enumerable.Select(metadata.Players, p => p.Name)) + "\n"
+                    + (metadata.BuildMatches ? "Same build" : "Different build") + " / " + details;
+            return details;
         }
 
         public static string DisplayName(string path, string fallback)

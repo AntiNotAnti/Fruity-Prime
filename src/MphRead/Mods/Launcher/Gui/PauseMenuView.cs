@@ -110,6 +110,13 @@ namespace MphRead.Mods.Launcher.Gui
                 Add(menu, "Next frame", () => { ReplayController.StepForward(); Resumed?.Invoke(this, EventArgs.Empty); });
                 Add(menu, "Previous player", () => { SpectatorMode.CyclePrevious(); Resumed?.Invoke(this, EventArgs.Empty); });
                 Add(menu, "Next player", () => { SpectatorMode.CycleNext(); Resumed?.Invoke(this, EventArgs.Empty); });
+                var timeline = new Slider { Minimum = 0, Maximum = Math.Max(1, ReplayController.DurationFrames),
+                    Value = ReplayController.CurrentFrame, Width = 320 };
+                var selectedTime = new TextBlock { Text = Replay.ReplayHud.Time((uint)timeline.Value), Foreground = GuiTheme.TextDimBrush };
+                timeline.PropertyChanged += (_, e) => { if (e.Property == RangeBase.ValueProperty) selectedTime.Text = Replay.ReplayHud.Time((uint)timeline.Value); };
+                timeline.PointerReleased += (_, _) => { ReplayController.Seek((uint)timeline.Value); Resumed?.Invoke(this, EventArgs.Empty); };
+                menu.Children.Add(selectedTime);
+                menu.Children.Add(timeline);
                 var cameraModes = new ComboBox { ItemsSource = Enum.GetNames<Replay.ReplayCameraMode>(), SelectedIndex = (int)Replay.ReplayCamera.Mode, Width = 240 };
                 cameraModes.SelectionChanged += (_, _) => { if (cameraModes.SelectedIndex >= 0) Replay.ReplayCamera.SetMode((Replay.ReplayCameraMode)cameraModes.SelectedIndex); };
                 menu.Children.Add(cameraModes);
@@ -133,13 +140,6 @@ namespace MphRead.Mods.Launcher.Gui
                 Add(menu, "Watch last victim", () => { Replay.ReplayCamera.WatchEvent(true); Resumed?.Invoke(this, EventArgs.Empty); });
                 Add(menu, "Save camera bookmark", () => { Replay.ReplayCamera.Bookmark(); Resumed?.Invoke(this, EventArgs.Empty); });
                 Add(menu, "Next camera bookmark", () => { Replay.ReplayCamera.RestoreBookmark(); Resumed?.Invoke(this, EventArgs.Empty); });
-                var timeline = new Slider { Minimum = 0, Maximum = Math.Max(1, ReplayController.DurationFrames),
-                    Value = ReplayController.CurrentFrame, Width = 320 };
-                var selectedTime = new TextBlock { Text = Replay.ReplayHud.Time((uint)timeline.Value), Foreground = GuiTheme.TextDimBrush };
-                timeline.PropertyChanged += (_, e) => { if (e.Property == RangeBase.ValueProperty) selectedTime.Text = Replay.ReplayHud.Time((uint)timeline.Value); };
-                timeline.PointerReleased += (_, _) => { ReplayController.Seek((uint)timeline.Value); Resumed?.Invoke(this, EventArgs.Empty); };
-                menu.Children.Add(selectedTime);
-                menu.Children.Add(timeline);
                 if (DemoPlayback.Events.Count > 0)
                 {
                     var filters = new ComboBox { ItemsSource = new[] { "All events", "Kills", "Deaths", "Objectives", "Score" }, SelectedIndex = 0, Width = 240 };
@@ -192,7 +192,7 @@ namespace MphRead.Mods.Launcher.Gui
             // words in a column, just smaller.
             _scaler = new LayoutTransformControl
             {
-                Child = menu,
+                Child = DemoPlayback.IsActive ? null : menu,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             };
@@ -210,10 +210,18 @@ namespace MphRead.Mods.Launcher.Gui
             // is no yes and no to answer it with -- and Resume as a tick in
             // the corner while it is also the first word of the menu is one
             // action drawn twice.
-            if (DemoPlayback.IsActive) _scaler.Child = null;
+
             _neededHeight = menu.Children.Count * 40 + UiLayout.WellTop + UiLayout.WellBottom + 70;
-            Content = UiLayout.Page(overGame: true, UiLayout.WellShort, "",
-                strip: null, body: DemoPlayback.IsActive ? new ScrollViewer { Content = menu, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 600 } : _scaler, centreBody: true);
+            if (DemoPlayback.IsActive)
+            {
+                var replayPage = UiLayout.Backdrop(overGame: true);
+                replayPage.Children.Add(new ScrollViewer { Content = menu, Margin = new Thickness(20),
+                    MaxWidth = 480, HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Stretch, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+                Content = replayPage;
+            }
+            else Content = UiLayout.Page(overGame: true, UiLayout.WellShort, "",
+                strip: null, body: _scaler, centreBody: true);
             SizeChanged += (_, e) => FitToHost(e.NewSize.Height);
         }
 
@@ -232,7 +240,7 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         private void FitToHost(double height)
         {
-            if (height <= 0)
+            if (DemoPlayback.IsActive || height <= 0)
             {
                 return;
             }
