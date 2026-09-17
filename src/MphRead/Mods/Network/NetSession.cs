@@ -607,7 +607,6 @@ namespace MphRead.Mods.Network
         {
             DemoClip.Tick();
             if (Role == NetRole.Client && !DemoPlayback.IsActive) time = Clock;
-            _updateTime = time;
             if (Role == NetRole.Server)
             {
                 // No socket here: DedicatedServer owns it, drains it on its
@@ -697,13 +696,12 @@ namespace MphRead.Mods.Network
         private const double SilenceBeforeRejoin = 5.0;
 
         private static double _lastServerPacket;
-        private static double _updateTime;
-        // Loading pauses the scene clock. Drain replies without advancing the
-        // simulation frame or replacing its clock with a download stopwatch.
+        // Loading pauses gameplay, not the connection's monotonic clock.
+        // Refresh packet liveness without advancing any simulation frame.
         internal static void PumpMapTransfer()
         {
             if(_transport==null)return;
-            foreach(var packet in _transport.Drain())Handle(packet,_updateTime);
+            foreach(var packet in _transport.Drain())Handle(packet,Clock);
         }
 
         /// <summary>

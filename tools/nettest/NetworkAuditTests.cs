@@ -26,6 +26,7 @@ namespace MphRead.NetTest
                 ContinuousRestart();
                 RelaySnapshots();
                 FullSnapshot();
+                DownloadHeartbeat();
                 SessionOrdering();
                 TeamConvergence();
                 SpireDiagnosticIdentity();
@@ -48,6 +49,26 @@ namespace MphRead.NetTest
                 new object[] { 2u, IntentButtons.AltAttack, new uint[IntentPacket.PressHistory], Vector3.Zero });
             Check(NetSession.RemoteIntentValid[0] && NetSession.RemoteIntents[0].LifeId == 1,
                 "Spire diagnostic sends an accepted current-life intent");
+            NetSession.Stop();
+        }
+
+        private static void DownloadHeartbeat()
+        {
+            NetSession.StartClient("127.0.0.1", 31003);
+            double stale = NetSession.Clock - NetConfig.TimeoutSeconds - 5;
+            typeof(NetSession).GetField("_lastServerPacket", Private)!.SetValue(null, stale);
+            // Before the fix this was the paused scene's frozen receive time.
+            typeof(NetSession).GetField("_updateTime", Private)?.SetValue(null, stale);
+            var transport = (NetTransport)typeof(NetSession).GetField("_transport", Private)!.GetValue(null)!;
+            var inbox = Field<System.Collections.Concurrent.ConcurrentQueue<ReceivedPacket>>(transport, "_inbox");
+            byte[] data = { (byte)PacketType.MapOffer, (byte)'{', (byte)'}' };
+            inbox.Enqueue(new ReceivedPacket(new IPEndPoint(IPAddress.Loopback, 31003), data, data.Length));
+            typeof(NetTransport).GetField("_inboxCount", Private)!.SetValue(transport, 1);
+            uint frame = NetSession.NetFrame;
+            Check(NetSession.SessionTimedOut, "download heartbeat fixture starts with an expired receive time");
+            typeof(NetSession).GetMethod("PumpMapTransfer", Private)!.Invoke(null, null);
+            Check(!NetSession.SessionTimedOut, "download replies refresh the monotonic session timeout");
+            Check(NetSession.NetFrame == frame, "download pumping does not advance gameplay frames");
             NetSession.Stop();
         }
 
