@@ -2541,6 +2541,7 @@ namespace MphRead.Entities
                     // button is the left mouse button held down, which is the
                     // fire bind. See Mods.Input.StylusZone.
                     ApplyStylusZone(player);
+                    player.ModPrepareSpireFlick();
                 }
                 player._ignoreClick = false;
                 if (mouseSnap.IsButtonDown(MouseButton.Left) && prevMouseSnap?.IsButtonDown(MouseButton.Left) != true)

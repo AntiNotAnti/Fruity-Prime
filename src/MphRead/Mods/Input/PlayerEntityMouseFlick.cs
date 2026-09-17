@@ -17,7 +17,7 @@ namespace MphRead.Entities
                 && _health > 0 && _frozenTimer == 0
                 && (_abilities.TestFlag(AbilityFlags.Boost)
                     || _abilities.TestFlag(AbilityFlags.SpireAltAttack));
-            if (acceptsFlick)
+            if (acceptsFlick && !_abilities.TestFlag(AbilityFlags.SpireAltAttack))
             {
                 ModCheckMouseFlick();
             }
@@ -25,13 +25,24 @@ namespace MphRead.Entities
             x = AltFlickX;
             y = AltFlickY;
             ModClearAltFlick();
-            if (flick && _abilities.TestFlag(AbilityFlags.SpireAltAttack))
-            {
-                // AfterInput records this same edge for network relay.
-                Controls.AltAttack.IsPressed = true;
-                Input.HasInput = true;
-            }
             return flick;
+        }
+
+        private void ModPrepareSpireFlick()
+        {
+            if (!_abilities.TestFlag(AbilityFlags.SpireAltAttack)) return;
+            if (IsAltForm && !IsMorphing && !IsUnmorphing && _health > 0 && _frozenTimer == 0)
+            {
+                ModCheckMouseFlick();
+                if (AltFlickRequested)
+                {
+                    // Network press history is captured after this input pass, before
+                    // ProcessAlt. An edge created in ProcessAlt never reaches the wire.
+                    Controls.AltAttack.IsPressed = true;
+                    Input.HasInput = true;
+                }
+            }
+            ModClearAltFlick();
         }
 
         /// <summary>

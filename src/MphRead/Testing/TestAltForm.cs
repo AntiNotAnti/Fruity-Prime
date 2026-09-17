@@ -27,6 +27,7 @@ namespace MphRead.Testing
             CheckCamera(Check);
             CheckReconciliation(Check);
             PlayerEntity.ModCheckAltFlickRouting(Check);
+            PlayerEntity.ModCheckAltFlickInputOrder(Check);
             Reset();
             Console.WriteLine($"ALTFORMCHECK: {checks} checks, {failures} failures");
             return failures == 0 ? 0 : 1;
@@ -163,6 +164,39 @@ namespace MphRead.Entities
 {
     public partial class PlayerEntity
     {
+        internal static void ModCheckAltFlickInputOrder(Action<bool, string> check)
+        {
+            var scene = (Scene)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(Scene));
+            typeof(Scene).GetField("_movieFrameIndex", System.Reflection.BindingFlags.Instance
+                | System.Reflection.BindingFlags.NonPublic)!.SetValue(scene, -1);
+            Reset();
+            Construct(scene);
+            var player = Main;
+            player.LoadFlags = LoadFlags.Active;
+            player._health = 99;
+            player.Flags1 = PlayerFlags1.AltForm;
+            player._abilities = AbilityFlags.SpireAltAttack;
+            var keyboard = SyntheticInput.CreateKeyboard();
+            var mouse = SyntheticInput.CreateMouse();
+            try
+            {
+                NetPlayerBridge.Reset();
+                player.AltFlickRequested = true; // Android delivers the swipe before the input pass.
+                ProcessInput(keyboard, mouse, false);
+                NetPlayerBridge.RecordPresses(player); // NetHooks.AfterInput runs BEFORE ProcessAlt.
+                var intent = NetPlayerBridge.CaptureIntent(player);
+                check(((IntentButtons)intent.Presses![0] & IntentButtons.AltAttack) != 0,
+                    "production input order records Spire flick before simulation");
+                check(player.Controls.AltAttack.IsPressed, "Spire local attack is ready before simulation");
+                ProcessInput(keyboard, mouse, false);
+                NetPlayerBridge.RecordPresses(player);
+                intent = NetPlayerBridge.CaptureIntent(player);
+                check(((IntentButtons)intent.Presses![0] & IntentButtons.AltAttack) == 0,
+                    "next input pass does not repeat Spire flick");
+            }
+            finally { Reset(); NetPlayerBridge.Reset(); MouseFlick.Reset(); }
+        }
+
         // Unloaded players exercise the shared gesture and real wire/press paths.
         // No game assets are needed until an attack animation is actually played.
         internal static void ModCheckAltFlickRouting(Action<bool, string> check)
@@ -175,8 +209,7 @@ namespace MphRead.Entities
             player.AltFlickRequested = true;
             player.AltFlickX = 0.6f;
             player.AltFlickY = -0.8f;
-            check(player.ModConsumeAltFlick(out float x, out float y)
-                && x == 0.6f && y == -0.8f, "shared touch/mouse direction consumed unchanged");
+            player.ModPrepareSpireFlick();
             check(player.Controls.AltAttack.IsPressed && !player.Controls.AltAttack.IsDown
                 && player.Input.HasInput, "Spire emits canonical one-shot despite Boost bind");
             check(!player.AltFlickRequested && player.AltFlickX == 0 && player.AltFlickY == 0,
@@ -216,7 +249,7 @@ namespace MphRead.Entities
             player._abilities = AbilityFlags.Boost;
             player.AltFlickRequested = true;
             player.AltFlickX = -1;
-            check(player.ModConsumeAltFlick(out x, out y) && x == -1 && y == 0
+            check(player.ModConsumeAltFlick(out float x, out float y) && x == -1 && y == 0
                 && !player.Controls.AltAttack.IsPressed, "Samus flick retains aimed boost event");
             foreach (AbilityFlags ability in new[] { AbilityFlags.Bombs, AbilityFlags.NoxusAltAttack,
                 AbilityFlags.TraceAltAttack, AbilityFlags.WeavelAltAttack })

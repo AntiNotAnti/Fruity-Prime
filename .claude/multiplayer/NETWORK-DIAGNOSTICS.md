@@ -871,7 +871,10 @@ full-charge boost; Spire generates `Controls.AltAttack.IsPressed` and marks
 input active. Other hunters, bipeds, frozen/dead players and morph transitions
 discard the event. Holding Boost suppresses mouse flicks only for a hunter with
 the Boost ability. Spire uses its existing attack block and existing AltAttack
-press history, with no new packet fields or protocol version.
+press history, with no new packet fields or protocol version. Spire's edge is
+prepared in the hardware input pass, before `NetHooks.AfterInput` records press
+history. Creating it in `ProcessAlt` is too late: the next input pass clears it
+before the network can see it. Samus still consumes its aimed boost in simulation.
 
 `NetPlayerBridge.ApplyForm` observes active morph/unmorph animations without
 correcting them. A completed ordinary transition gets 30 simulation frames of
