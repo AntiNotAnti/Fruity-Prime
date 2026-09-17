@@ -37,6 +37,7 @@ internal static class MapNetworkTests
             Paths.UpdatePaths();
             ReceiveBoundaries(root);
             ServerBudget();
+            LobbyDownloadOffer();
             DownloadBoundaries(root);
             Console.WriteLine($"{(_failures == 0 ? "PASS" : "FAIL")}: {_checks} map network checks; {_failures} failures.");
             return _failures == 0 ? 0 : 1;
@@ -124,12 +125,41 @@ internal static class MapNetworkTests
         Check(Tokens() >= 0 && Tokens() < 2, "request budget replenishes at configured rate");
     }
 
-    private static (bool Ok, string? Error, int Chunks) Exchange(MapOffer offer, byte[] archive, bool rotate = false)
+    private static void LobbyDownloadOffer()
+    {
+        using var client = new NetTransport(0);
+        using var transport = new NetTransport(0);
+        var server = new DedicatedServer(0) { RunsTheMatch = false, SessionPolicy = ServerSessionPolicy.Lobby };
+        typeof(DedicatedServer).GetField("_phase", Private)!.SetValue(server, SessionPhase.Starting);
+        typeof(DedicatedServer).GetField("_frozenMatch", Private)!.SetValue(server,
+            new MatchDefinition { RoomKey = "MP1 SANCTORUS", Mode = GameMode.Battle });
+        void Send(PacketType type, byte[] body)
+        {
+            byte[] data = new byte[body.Length + 1]; data[0] = (byte)type; body.CopyTo(data, 1);
+            typeof(DedicatedServer).GetMethod("Handle", Private)!.Invoke(server,
+                new object[] { new ReceivedPacket(new IPEndPoint(IPAddress.Loopback, client.LocalPort), data, data.Length), 1.0 });
+        }
+        byte[] hello = new byte[6]; hello[0] = NetConfig.ProtocolVersion; hello[1] = 255;
+        BinaryPrimitives.WriteUInt32LittleEndian(hello.AsSpan(2), 1); Send(PacketType.Hello, hello);
+        typeof(DedicatedServer).GetField("_transport", Private)!.SetValue(server, transport);
+        Send(PacketType.MapWant, new byte[1]);
+        MapOffer? offer = null;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        while (offer == null && clock.ElapsedMilliseconds < 2000)
+        {
+            foreach (var packet in client.Drain())
+                if (packet.Type == PacketType.MapOffer) offer = JsonSerializer.Deserialize<MapOffer>(packet.Payload);
+            if (offer == null) Thread.Sleep(1);
+        }
+        Check(offer?.Name == "MP1 SANCTORUS", "map offers follow frozen lobby selection rather than continuous rotation");
+    }
+
+    private static (bool Ok, string? Error, int Chunks) Exchange(MapOffer offer, byte[] archive, bool rotate = false, bool handover = false)
     {
         using var server = new NetTransport(0);
         using var cancel = new CancellationTokenSource();
         NetSession.StartClient("127.0.0.1", server.LocalPort);
-        NetSession.ApplyMatchState(new MatchStatePacket { RoomKey = offer.Name, MatchId = 1, Mode = (byte)GameMode.Battle }, false);
+        NetSession.ApplyMatchState(new MatchStatePacket { RoomKey = offer.Name, MatchId = 1, AuthorityEpoch = 1, Mode = (byte)GameMode.Battle }, false);
         int chunks = 0;
         var responder = Task.Run(() =>
         {
@@ -140,10 +170,11 @@ internal static class MapNetworkTests
                     if (request.Type != PacketType.MapWant) continue;
                     if (request.Payload.Length == 1)
                     {
-                        if (rotate)
+                        if (rotate || handover)
                         {
                             byte[] state = new byte[MatchStatePacket.Size];
-                            new MatchStatePacket { RoomKey = offer.Name, MatchId = 2, Mode = (byte)GameMode.Battle }.Write(state);
+                            new MatchStatePacket { RoomKey = offer.Name, MatchId = (ushort)(rotate ? 2 : 1),
+                                AuthorityEpoch = (ulong)(handover ? 2 : 1), Mode = (byte)GameMode.Battle }.Write(state);
                             server.Send(request.Sender, PacketType.MatchState, state);
                         }
                         server.Send(request.Sender, PacketType.MapOffer, JsonSerializer.SerializeToUtf8Bytes(offer));
@@ -218,6 +249,9 @@ internal static class MapNetworkTests
         var rotated = Exchange(new MapOffer("MP3 PROVING GROUND", Guid.Empty, null, "", "", 0), Array.Empty<byte>(), rotate: true);
         Check(!rotated.Ok && rotated.Error?.Contains("changed", StringComparison.OrdinalIgnoreCase) == true,
             "same-room match rotation cancels stale download/bootstrap");
+        var handedOver = Exchange(new MapOffer("MP3 PROVING GROUND", Guid.Empty, null, "", "", 0), Array.Empty<byte>(), handover: true);
+        Check(!handedOver.Ok && handedOver.Error?.Contains("changed", StringComparison.OrdinalIgnoreCase) == true,
+            "same-match authority change cancels stale download/bootstrap");
         Check(!Directory.Exists(Path.Combine(CustomRooms.MapDirectory, ".downloads"))
             || !Directory.EnumerateFiles(Path.Combine(CustomRooms.MapDirectory, ".downloads")).Any(), "temporary downloads cleaned up");
     }

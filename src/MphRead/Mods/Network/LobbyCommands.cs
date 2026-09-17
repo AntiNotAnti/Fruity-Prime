@@ -198,7 +198,8 @@ namespace MphRead.Mods.Network
                     _lastSnapshot = null;
                     _expectedLoadedSlots = 0; _loadedSlots = 0;
                     foreach (Peer participant in _peers)
-                    { _expectedLoadedSlots |= (byte)(1 << participant.SlotIndex); participant.PostMatchReady = false; }
+                    { _expectedLoadedSlots |= (byte)(1 << participant.SlotIndex); participant.PostMatchReady = false;
+                        participant.MapDownloadGraceUntil = 0; }
                     _startDeadline = _now + (NetSession.Clock - buildStarted) + 15;
                     SetPhase(SessionPhase.Starting);
                     SyncSimulationState(_now);
@@ -235,7 +236,17 @@ namespace MphRead.Mods.Network
         private void CheckLoadBarrier(double now)
         {
             if (_phase != SessionPhase.Starting) return;
-            if ((_loadedSlots & _expectedLoadedSlots) != _expectedLoadedSlots && now < _startDeadline) return;
+            if ((_loadedSlots & _expectedLoadedSlots) != _expectedLoadedSlots)
+            {
+                if (now < _startDeadline) return;
+                // Downloads have a three-minute client deadline. Let active
+                // participants finish, without allowing repeated requests to
+                // hold the whole lobby indefinitely. Silent loaders retain 15s.
+                if (now < _startDeadline + 180 && _peers.Exists(peer =>
+                    (_expectedLoadedSlots & (1 << peer.SlotIndex)) != 0
+                    && (_loadedSlots & (1 << peer.SlotIndex)) == 0
+                    && peer.MapDownloadGraceUntil > now)) return;
+            }
             Log(now >= _startDeadline ? "[lobby] load timeout; late clients may join in progress" : "[lobby] all clients loaded");
             _matchStarted = now;
             SetPhase(SessionPhase.InMatch);

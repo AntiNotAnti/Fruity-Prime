@@ -130,6 +130,7 @@ namespace MphRead.Mods.Network
             if(!NetSession.IsClient||DemoPlayback.IsActive)return true;
             if(!force&&_verified.ContainsKey(room))return true;
             ushort? matchId=NetSession.ServerMatch?.MatchId;
+            ulong? epoch=NetSession.ServerMatch?.AuthorityEpoch;
             _wanted=room;_offer=null;_error=null;_received=0;_written=0;
             string directory=Path.Combine(CustomRooms.MapDirectory,".downloads"),temporary="";
             var clock=Stopwatch.StartNew();long lastRequest=-1000,lastReceived=0,progressAt=0;
@@ -139,7 +140,8 @@ namespace MphRead.Mods.Network
                 {
                     NetSession.PumpMapTransfer();
                     if(_error!=null)throw new InvalidDataException(_error);
-                    if(!NetSession.IsClient||NetSession.ServerMatch?.RoomKey!=room||NetSession.ServerMatch?.MatchId!=matchId)
+                    if(!NetSession.IsClient||NetSession.ServerMatch?.RoomKey!=room||NetSession.ServerMatch?.MatchId!=matchId
+                        ||NetSession.ServerMatch?.AuthorityEpoch!=epoch)
                         throw new IOException("Server changed matches during download; join again.");
                     if(_offer is {} offer)
                     {

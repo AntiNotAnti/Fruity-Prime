@@ -27,6 +27,7 @@ namespace MphRead.NetTest
                 RelaySnapshots();
                 FullSnapshot();
                 DownloadHeartbeat();
+                DownloadLoadBarrier();
                 SessionOrdering();
                 TeamConvergence();
                 SpireDiagnosticIdentity();
@@ -70,6 +71,28 @@ namespace MphRead.NetTest
             Check(!NetSession.SessionTimedOut, "download replies refresh the monotonic session timeout");
             Check(NetSession.NetFrame == frame, "download pumping does not advance gameplay frames");
             NetSession.Stop();
+        }
+
+        private static void DownloadLoadBarrier()
+        {
+            var server = Server(); Hello(server, Owner, 1);
+            object peer = Field<System.Collections.IList>(server, "_peers")[0]!;
+            void Prepare(double grace)
+            {
+                typeof(DedicatedServer).GetField("_phase", Private)!.SetValue(server, SessionPhase.Starting);
+                typeof(DedicatedServer).GetField("_expectedLoadedSlots", Private)!.SetValue(server, (byte)1);
+                typeof(DedicatedServer).GetField("_loadedSlots", Private)!.SetValue(server, (byte)0);
+                typeof(DedicatedServer).GetField("_startDeadline", Private)!.SetValue(server, 15.0);
+                peer.GetType().GetField("MapDownloadGraceUntil")!.SetValue(peer, grace);
+            }
+            Prepare(40);
+            Call<object>(server, "CheckLoadBarrier", 20.0);
+            Check(Session(server).Phase == SessionPhase.Starting, "active download extends the initial load barrier");
+            Call<object>(server, "CheckLoadBarrier", 41.0);
+            Check(Session(server).Phase == SessionPhase.InMatch, "stalled download cannot hold the load barrier");
+            Prepare(1000);
+            Call<object>(server, "CheckLoadBarrier", 196.0);
+            Check(Session(server).Phase == SessionPhase.InMatch, "continuous download requests have a hard barrier deadline");
         }
 
         private static void Check(bool ok, string name)

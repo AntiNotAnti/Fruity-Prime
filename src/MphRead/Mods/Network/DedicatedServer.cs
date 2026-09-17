@@ -41,6 +41,7 @@ namespace MphRead.Mods.Network
             public int SlotIndex = -1;
             public double LastSeen;
             public double LastMapRequest;
+            public double MapDownloadGraceUntil;
             public double MapRequestTokens=32;
             public uint LastIntentFrame;
             public string Name = "";
@@ -860,7 +861,12 @@ namespace MphRead.Mods.Network
                         downloading.LastMapRequest=now;
                         if(downloading.MapRequestTokens<1)break;
                         downloading.MapRequestTokens--;downloading.LastSeen=now;
-                        _mapTransfer.Handle(packet.Payload,_rotation.Current.RoomKey,(type,payload)=>_transport?.Send(packet.Sender,type,payload));
+                        _mapTransfer.Handle(packet.Payload,CurrentDefinition.RoomKey,(type,payload)=>
+                        {
+                            // Only a valid requested chunk extends the loading grace.
+                            if (type == PacketType.MapChunk) downloading.MapDownloadGraceUntil = now + 15;
+                            _transport?.Send(packet.Sender,type,payload);
+                        });
                     }
                     break;
                 case PacketType.Hello:
