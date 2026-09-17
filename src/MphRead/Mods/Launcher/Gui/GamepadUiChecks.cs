@@ -75,6 +75,22 @@ namespace MphRead.Mods.Launcher.Gui
             var pause = new PauseMenuView(false);
             window.Content = pause; window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
             GamepadChecks.Check(FocusNavigator.Ensure(pause) != null, "pause menu is controller focusable");
+            // Android hosts PauseMenuView in StartScreen rather than InGameMenu,
+            // so Back must reach the view's resume callback without a desktop host.
+            int resumed = 0;
+            pause.Resumed += (_, _) => resumed++;
+            var navigation = new GamepadNavigation();
+            GamepadManager.UpdateDevice("pause-test", new GamepadState { Name = "Pause test" }, true);
+            navigation.Update(pause);
+            foreach (var button in new[] { GamepadButtons.B, GamepadButtons.Start })
+            {
+                GamepadManager.UpdateDevice("pause-test", new GamepadState { Name = "Pause test", Buttons = button }, true);
+                navigation.Update(pause);
+                GamepadManager.UpdateDevice("pause-test", new GamepadState { Name = "Pause test" }, true);
+                navigation.Update(pause);
+            }
+            GamepadChecks.Check(resumed == 2, "B and Start resume the Android-hosted pause menu");
+            GamepadManager.RemoveDevice("pause-test");
             Network.MapVote.Apply(new Network.VoteStatePacket
             {
                 State = Network.VoteStatePacket.StateRunning, RoomKey = "test", Proposer = "Player", Seconds = 30

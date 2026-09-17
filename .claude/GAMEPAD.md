@@ -23,7 +23,12 @@ not current nonzero axis values, choose the right stick and trigger axes.
 Removal clears the active snapshot immediately. Device changes reset button edges;
 held buttons must be released before producing a new gameplay action. The same
 barrier protects menu/capture transitions, including menus opened and closed
-between simulation steps. Focus loss clears input and stops vibration.
+between simulation steps. Focus loss clears input and stops vibration. Both focus
+edges advance the context revision, so background polling cannot consume the
+held-button barrier before focus returns. UI routers also track that revision:
+Android keeps its launcher alive while hidden, and the Start press that reopens
+the pause menu must not immediately act as Back. A fresh Back press resumes via
+the pause view's host callback on both platforms.
 
 Controller selection is for this session; disconnected device IDs are never
 silently applied to a newly connected device. There is still one local player.
@@ -131,6 +136,8 @@ family, mapping/active status, capabilities, axes, triggers, buttons and process
 stick values. The deterministic check includes real headless Avalonia controls,
 focus/scrolling, text entry, binding capture, persistence, device lifecycle, input
 merging, trigger hysteresis, repeat timing, wheel sectors and haptics dispatch.
+Lifecycle regressions include background polling followed by focus regain,
+focus/menu transitions between ticks, and B/Start on the Android-hosted pause view.
 
 ## Validation limits
 
