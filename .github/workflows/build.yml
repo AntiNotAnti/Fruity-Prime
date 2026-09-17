@@ -27,6 +27,17 @@ jobs:
       - name: every custom map has the level it converts
         run: tools/check-maps-shipped.sh
 
+  controller-checks:
+    name: controller regressions
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '9.0.x'
+      - name: deterministic input and headless UI checks
+        run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -gamepadcheck
+
   build:
     name: ${{ matrix.id }}
     needs: assets

@@ -198,15 +198,12 @@ claiming coverage that isn't there.
   close this is a debug log from the phone it happens on: the render thread
   already catches and prints the whole exception (`GameView.Run`), so the
   stack is one switch away.
-- **The raw gamepad fallback has never been held against a real unmapped
-  pad.** `GamepadLayout`'s two shapes are written from the layouts SDL's own
-  database uses for them, and the mapping-file path
-  (`gamecontrollerdb.txt`, `SDL_GAMECONTROLLERCONFIG`) is exercised only by
-  code inspection: this box has no `/dev/uinput` to fake a third pad with, and
-  the virtual-pad recipe in `GAMEPAD.md` needs root. What is proven is that a
-  mapped pad still takes the mapped path, since that code is unchanged. When a
-  player reports buttons in the wrong places, `-gamepad` prints the mapping
-  line to correct rather than a shrug.
+- **Physical controller validation is still pending.** The shared controller
+  regression harness covers device switching, analog processing, binding capture,
+  settings migration and menu navigation. The mapped and raw platform readers,
+  USB/Bluetooth reconnects, Android motion profiles and actual rumble still need
+  the hardware matrix in `GAMEPAD.md`. Use `-gamepad -verbose` to inspect the
+  connected device and its current game bindings before changing a mapping.
 - **Disruption over the wire is implemented and unmeasured.** `FlagBurning`
   was measured crossing (255 frames on the victim's own machine against the
   authority's 299, Kanden vs Spire, 70 s); `FlagDisrupted` is the same
