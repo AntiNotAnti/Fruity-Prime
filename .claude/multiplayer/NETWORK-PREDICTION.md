@@ -642,12 +642,52 @@ each machine's `scene.FrameCount`, so their damaging frames could differ. It now
 uses a per-slot firing clock seeded from the owner's fresh intent and advanced
 once per simulation frame, shared by ammo, base damage, ramp and the beam's
 enemy hit gate. Later intents do not re-anchor a held stream. Offline and
-stale/invalid intents keep scene timing. A new network run is needed to measure hit agreement after
-this change; an unpredicted hit still appears when the authority reports it.
+stale/invalid intents keep scene timing.
 Protocol 8 refuses mixed builds with the previous timing; packet layout is unchanged.
 `dotnet run --project tools/continuous-phase-check/continuous-phase-check.csproj`
 checks the shared phase sequence, stale/invalid fallback, full dither cycle and
 counter rollover without game assets. It does not measure network hit agreement.
+
+The network measurement it does not do has since been run, and it does not
+support the 131-against-28 above. `-hitrig shockcoil` is one client emptying a
+held Shock Coil into one target, which makes the authority's health drop for
+that victim this client's damage and nobody else's, so the two totals subtract.
+13 arms of 180 s, interleaved, against the Japan box at a measured 275 ms with
+a simulating server on TEST ARENA. Every arm is self-validating: a protocol 7
+client cannot connect to a protocol 8 server at all, so a run that produced
+numbers was necessarily against the matching build -- and five arms later in
+the campaign proved it by being refused outright when a redeploy silently
+failed.
+
+| | before (p7) | after (p8) | rel |
+|---|---|---|---|
+| hit-count agreement | 70.7% +/- 5.7 | 74.2% +/- 2.9 | +4.9% |
+| damage ledger | 69.5% +/- 8.6 | 72.9% +/- 3.3 | +4.9% |
+| damage *per hit* agreement | 97.8% +/- 5.2 | 98.2% +/- 2.7 | +0.4% |
+| unpredicted hits | 31.5% +/- 6.7 | 27.1% +/- 2.5 | -13.7% |
+
+Read the third row first, because it changes what the other three mean.
+**Damage per hit already agreed to within 2% before any of this**, so the
+disagreement was never about what a landed hit was worth -- it is entirely
+about which frames landed one, which is what a shared phase is for. It also
+retires the obvious next suspect before anybody spends a week on it: the homing
+ramp adds 0 to 4 on a base of 10 out of `ShockCoilTimer`, which is local state
+on no packet and reset by each machine's own target test, and if that were
+diverging it would show up in this row. It does not.
+
+**The means are not significant** at this sample size -- every |t| < 2 -- and
+the honest summary is that all four move the right way and none is proven.
+**The spread is the robust result**, and it is the signature the mechanism
+predicts rather than a second way of saying the same thing: the old dither ran
+off each machine's own frame counter, so every session drew its own offset and
+landed anywhere in a wide band. Hit-count agreement spans 18.0 points before
+and 8.1 after (F = 3.8); unpredicted hits span 22.4 and 6.5 (F = 6.9). A weapon
+that behaves the same way twice is worth more than five points of mean.
+
+What none of it explains is the residual: the client still resolves about a
+quarter fewer hits than the authority, on both builds. That is target
+acquisition or the beam's own collision test, not the clock, and it is
+untouched here.
 
 The one `RESULT: FAIL` on these runs is `their form stayed wrong for 69 frames
 in a row`, which is the open question in `.claude/KNOWN-GAPS.md` about form

@@ -167,19 +167,31 @@ claiming coverage that isn't there.
   the reports from before this work, and it is the long-standing
   `damage-taken` mismatch in `NETWORK-DIAGNOSTICS.md` (17 against 7) seen from
   another angle.
-- **Continuous-weapon hit agreement still needs a real network measurement.**
-  Shock Coil's old `scene.FrameCount` dither differed on each machine: the
-  authority landed 131 hits where the client that fired them resolved 28 in a
-  Japan run. Spawn now derives one phase from the owner's `NetFrame` or a
-  per-slot clock seeded from `IntentPacket.Frame + RemoteIntentAge` on a remote
-  machine. The remote clock advances through a held stream without re-anchoring
-  to packets that arrive late, and the phase is used for
-  ammo, damage and the homing ramp. The beam retains that phase for its enemy
-  hit gate. Invalid or stale intents and offline play use scene timing. This
-  removes the independent clock parity from fresh intents; it does not prove
-  that both simulations acquire the same target or process every hit. The
-  shown-health floor in `HealthFor` still covers the visible rebound while
-  network hit counts are measured again (`.claude/multiplayer/NETWORK-PREDICTION.md`).
+- **Continuous-weapon hit agreement is measured now, and the 131/28 figure it
+  was justified by does not reproduce.** Shock Coil's old `scene.FrameCount`
+  dither differed on each machine. Spawn now derives one phase from the owner's
+  `NetFrame` or a per-slot clock seeded from `IntentPacket.Frame +
+  RemoteIntentAge` on a remote machine. The remote clock advances through a held
+  stream without re-anchoring to packets that arrive late, and the phase is used
+  for ammo, damage and the homing ramp. The beam retains that phase for its
+  enemy hit gate. Invalid or stale intents and offline play use scene timing.
+  Measured against the Japan box at 275 ms -- 13 arms of 180 s, TEST ARENA, a
+  simulating server, `-hitrig shockcoil` -- hit-count agreement went 70.7% to
+  74.2% and unpredicted hits 31.5% to 27.1%. Three things came out of that
+  campaign. **The 131-against-28 is wrong**: the shortfall on the same weapon
+  against the same box is 70%, not 21%. **The dither was never the larger
+  half** -- damage *per hit* already agreed to 97.8% before the change and moved
+  0.4 points, so the disagreement is entirely a hit *count*, and the ramp's
+  unreplicated `ShockCoilTimer` is therefore not contributing a measurable
+  error either. And **the means are not significant** at n=13: all four metrics
+  move the right way, none reaches |t| = 2. What is robust is the spread, which
+  is the signature the mechanism predicts -- the old dither drew an arbitrary
+  clock offset per session, so the base arm ranges 60.6-78.6% where this one
+  ranges 70.3-78.4% (F = 3.8; unpredicted hits, 20.8-43.2% against 23.7-30.3%,
+  F = 6.9). The residual quarter is untouched and unexplained by either arm:
+  both simulations still have to acquire the same target and process every hit,
+  and that is not shown here. The shown-health floor in `HealthFor` still covers
+  the visible rebound (`.claude/multiplayer/NETWORK-PREDICTION.md`).
 - **The scoreboard crash reported in bot matches is not reproduced here, and
   is therefore not fixed.** Reported from a phone, 2026-09-06: *"in bot matches
   the game still sometimes crashes when trying to view the scoreboard."* The
