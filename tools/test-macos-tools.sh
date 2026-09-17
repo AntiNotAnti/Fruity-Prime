@@ -70,6 +70,9 @@ echo 'macOS signing gate regressions passed.'
 fixture="$temp/package-input"
 mkdir -p "$fixture/maps"
 cp "$root/FruityPrime" "$root/libopenal.1.dylib" "$fixture/"
+# Synthetic data keeps the packaging gate independent of controller feature branches.
+printf '# Controller mapping packaging fixture\n' > "$fixture/gamecontrollerdb.txt"
+printf 'Controller mapping license fixture\n' > "$fixture/gamecontrollerdb.LICENSE"
 printf '{"Name":"PACKAGING TEST"}\n' > "$fixture/maps/fixture.json"
 "$repo/tools/package-macos.sh" "$fixture" "$temp/dist" "$rid" 1.2.3
 mkdir "$temp/unpacked"
@@ -77,6 +80,14 @@ tar -xzf "$temp/dist/FruityPrime-v1.2.3-$rid.tar.gz" -C "$temp/unpacked"
 app="$temp/unpacked/Fruity Prime.app"
 [[ -f "$app/Contents/Resources/maps/fixture.json" ]] || exit 1
 [[ ! -e "$app/Contents/MacOS/maps" ]] || exit 1
+for resource in gamecontrollerdb.txt gamecontrollerdb.LICENSE; do
+    cmp "$fixture/$resource" "$app/Contents/Resources/$resource"
+    [[ ! -e "$app/Contents/MacOS/$resource" ]] || exit 1
+done
+codesign --verify --deep --strict "$app"
+printf '\n' >> "$app/Contents/Resources/gamecontrollerdb.txt"
+expect_failure codesign --verify --deep --strict "$app"
+cp "$fixture/gamecontrollerdb.txt" "$app/Contents/Resources/gamecontrollerdb.txt"
 codesign --verify --deep --strict "$app"
 printf '\n' >> "$app/Contents/Resources/maps/fixture.json"
 expect_failure codesign --verify --deep --strict "$app"
