@@ -32,6 +32,21 @@ namespace MphRead.Mods.MapGen
                 }
                 import.BundlePath=null;import.BaseDirectory=Path.GetDirectoryName(Path.GetFullPath(path));
             }
+            if (definition.Collision is { } collision)
+            {
+                if (definition.BundlePath != null)
+                {
+                    string target = Path.Combine(destination, Path.GetFileNameWithoutExtension(path) + "-assets", "collision.obj");
+                    AtomicFile.Write(target, collision.ReadBytes() ?? throw new InvalidDataException("Packaged collision mesh is missing."));
+                    collision.Source = target;
+                }
+                else
+                {
+                    collision.Source = collision.Resolve() is { } source ? Path.GetFullPath(source) : collision.Source;
+                }
+                collision.BundlePath = null;
+                collision.BaseDirectory = destination;
+            }
             definition.BundlePath=null;definition.SourcePath=Path.GetFullPath(path);definition.BaseDirectory=Path.GetDirectoryName(definition.SourcePath);
             definition.Save(path);
         }

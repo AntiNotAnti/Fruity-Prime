@@ -21,6 +21,9 @@ def dependencies(project):
             yield imported["textures"]
         elif not project.get("materials"):
             raise ValueError("import has neither baked nor borrowed materials")
+    collision = project.get("collision")
+    if collision and collision.get("source"):
+        yield collision["source"]
     for asset in project.get("assets", []):
         yield asset["path"]
 

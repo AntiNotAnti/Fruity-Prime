@@ -50,7 +50,7 @@ namespace MphRead.Mods.MapGen
                     if (entry.Length < 0 || entry.Length > MaxEntryBytes || (total += entry.Length) > MaxExpandedBytes)
                         throw new InvalidDataException("Package expanded size exceeds the limit.");
                     string ext = Path.GetExtension(name).ToLowerInvariant();
-                    if (ext is not (".json" or ".bsp" or ".tex" or ".png" or ".jpg" or ".jpeg" or ".ogg" or ".wav" or ".mp3"))
+                    if (ext is not (".json" or ".bsp" or ".obj" or ".tex" or ".png" or ".jpg" or ".jpeg" or ".ogg" or ".wav" or ".mp3"))
                         throw new InvalidDataException("Unsupported package asset: " + name);
                 }
                 if (_entries.ContainsKey("manifest.json"))
@@ -95,6 +95,13 @@ namespace MphRead.Mods.MapGen
             if(definition.Assets==null)throw new InvalidDataException("Missing asset list.");
             foreach(var asset in definition.Assets)
                 if(asset==null||!_entries.ContainsKey(CanonicalName(asset.Path)))throw new InvalidDataException("Packaged asset is missing.");
+            if (definition.Collision is { } collision)
+            {
+                if (string.IsNullOrEmpty(collision.Source)
+                    || !collision.Source.EndsWith(".obj", StringComparison.OrdinalIgnoreCase)
+                    || !_entries.ContainsKey(CanonicalName(collision.Source)))
+                    throw new InvalidDataException("Packaged collision mesh is missing or invalid.");
+            }
             if (definition.Import is { } import)
             {
                 if (!_entries.ContainsKey(CanonicalName(import.Source))) throw new InvalidDataException("Packaged BSP is missing.");

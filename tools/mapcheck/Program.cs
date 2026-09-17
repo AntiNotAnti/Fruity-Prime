@@ -47,6 +47,7 @@ void Zip(string path, params (string Name, byte[] Bytes)[] files)
 }
 try
 {
+    checks += CollisionIntegrationChecks.Run(temporary);
     var arena = Arena();
     Check(MapCompiler.Compile(arena).Validation.IsValid, "Valid native map rejected.");
     string recipe = Path.Combine(temporary, "arena.json");

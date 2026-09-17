@@ -44,6 +44,11 @@ namespace MphRead.Mods.MapGen
                 copy.Import.BaseDirectory = copy.BaseDirectory;
                 copy.Import.BundlePath = copy.BundlePath;
             }
+            if (copy.Collision != null)
+            {
+                copy.Collision.BaseDirectory = copy.BaseDirectory;
+                copy.Collision.BundlePath = copy.BundlePath;
+            }
             return copy;
         }
         public static void Save(MapProject project, string path)
