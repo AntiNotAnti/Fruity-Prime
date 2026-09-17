@@ -94,6 +94,12 @@ namespace MphRead.Mods
                 return false;
             }
 
+            if (HasFlag(args, "brightskinscheck"))
+            {
+                Environment.ExitCode = Testing.TestBrightSkins.Run();
+                return true;
+            }
+
             // The copying half of a desktop update, which is this build
             // started by the *previous* one. First, and before anything reads
             // a file or draws a window: it is not the game, it waits for the
@@ -1194,6 +1200,12 @@ namespace MphRead.Mods
             if (spirePoseCheck != null)
             {
                 Environment.ExitCode = Network.SpireAltPoseCheck.Run(spirePoseCheck);
+                return true;
+            }
+
+            if (HasFlag(args, "brightskinscheckassets"))
+            {
+                Environment.ExitCode = Testing.TestBrightSkins.Run(assets: true);
                 return true;
             }
 

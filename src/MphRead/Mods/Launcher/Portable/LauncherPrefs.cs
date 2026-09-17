@@ -191,6 +191,12 @@ namespace MphRead.Mods.Launcher
                     string value = line[(split + 1)..].Trim();
                     switch (key)
                     {
+                        case "bright_skins":
+                            if (Boolean.TryParse(value, out bool brightSkins))
+                            {
+                                RenderOptions.BrightSkins = brightSkins;
+                            }
+                            break;
                         case "server_address":
                             ServerAddress = value;
                             break;
@@ -374,6 +380,7 @@ namespace MphRead.Mods.Launcher
                     $"rom_directory={LastRomDirectory}",
                     $"auto_update={AutoUpdate.ToString().ToLowerInvariant()}",
                     $"debug_logs={DebugLogs.ToString().ToLowerInvariant()}",
+                    $"bright_skins={RenderOptions.BrightSkins.ToString().ToLowerInvariant()}",
                     $"window_mode={(WindowMode == WindowStartMode.BorderlessFullscreen ? "borderless" : "windowed")}",
                     $"window_size={WindowWidth.ToString(CultureInfo.InvariantCulture)}x"
                         + WindowHeight.ToString(CultureInfo.InvariantCulture),

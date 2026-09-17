@@ -4,6 +4,7 @@ using System.Diagnostics;
 using MphRead.Effects;
 using MphRead.Formats;
 using MphRead.Formats.Culling;
+using MphRead.Mods.Render;
 using OpenTK.Mathematics;
 
 namespace MphRead.Entities
@@ -37,6 +38,7 @@ namespace MphRead.Entities
         private Node _baseNode = null!;
         private Node _baseNodeParent = null!;
         private ModelInstance _altIceModel = null!;
+        private Vector4? _brightSkin;
 
         public HalfturretEntity(PlayerEntity owner, Scene scene) : base(EntityType.Halfturret, scene)
         {
@@ -404,7 +406,9 @@ namespace MphRead.Entities
             }
             model.UpdateMatrixStack();
             UpdateMaterials(inst, Recolor);
+            _brightSkin = _health > 0 && PaletteOverride == null ? BrightSkins.GetColor(Owner) : null;
             GetDrawItems(inst, 0);
+            _brightSkin = null;
             PaletteOverride = null;
             if (_freezeTimer > 0)
             {
@@ -416,6 +420,15 @@ namespace MphRead.Entities
                 GetDrawItems(_altIceModel, 1);
                 _useRoomLights = false;
             }
+        }
+
+        protected override Vector4? GetRenderColor(ModelInstance inst, int index, Material material)
+        {
+            if (inst == _models[0] && _brightSkin.HasValue && PaletteOverride == null)
+            {
+                return BrightSkins.ForMaterial(_brightSkin, material.TextureId != -1, material.CurrentAlpha * Alpha);
+            }
+            return base.GetRenderColor(inst, index, material);
         }
 
         protected override int? GetBindingOverride(ModelInstance inst, Material material, int index)
