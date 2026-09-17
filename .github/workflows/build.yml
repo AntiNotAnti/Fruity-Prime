@@ -150,6 +150,7 @@ jobs:
           tools/sign-macos.sh "publish/$RID"
           tools/check-macos-build.sh "publish/$RID" "$RID"
           tools/run-macos-smoke.sh "publish/$RID" "$RID"
+          python3 tools/test-compatibility-smoke.py "publish/$RID/FruityPrime"
           tools/check-no-game-assets.sh "publish/$RID"
           tools/check-maps-shipped.sh "publish/$RID"
           VERSION=$(dotnet msbuild src/MphRead/MphRead.csproj -getProperty:Version)

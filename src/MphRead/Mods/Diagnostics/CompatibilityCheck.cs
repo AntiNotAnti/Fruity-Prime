@@ -53,7 +53,7 @@ namespace MphRead.Mods.Diagnostics
 #if MPHREAD_SHELL
             Check("Avalonia", () =>
             {
-                if (!Launcher.Gui.GuiLauncher.EnsureSetup())
+                if (!Launcher.Gui.GuiLauncher.EnsureSetup(requireDisplay: false))
                 {
                     throw new InvalidOperationException("Avalonia initialization failed.");
                 }
@@ -93,7 +93,30 @@ namespace MphRead.Mods.Diagnostics
                 {
                     Check(file, () => LoadNative(file, symbol));
                 }
-                Check("OpenAL bindings", () => { _ = OpenTK.Audio.OpenAL.ALC.GetCurrentContext(); });
+#if !MPHREAD_SERVER
+                Check("OpenAL bindings", () =>
+                {
+                    string path = Path.Combine(Platform.AppPaths.ExecutableDirectory, "libopenal.1.dylib");
+                    if (new OpenTK.Audio.OpenAL.OpenALLibraryNameContainer().GetLibraryName() != path)
+                    {
+                        throw new InvalidOperationException("OpenTK is not configured to use bundled OpenAL Soft.");
+                    }
+                    IntPtr handle = NativeLibrary.Load(path);
+                    try
+                    {
+                        _ = OpenTK.Audio.OpenAL.ALC.GetCurrentContext();
+                        // Resolve through the game's binding as well as dlopen.
+                        // A null device needs neither audio hardware nor a context.
+                        IntPtr bound = OpenTK.Audio.OpenAL.ALC.GetProcAddress(
+                            OpenTK.Audio.OpenAL.ALDevice.Null, "alcOpenDevice");
+                        if (bound != NativeLibrary.GetExport(handle, "alcOpenDevice"))
+                        {
+                            throw new InvalidOperationException("OpenTK resolved a different OpenAL library.");
+                        }
+                    }
+                    finally { NativeLibrary.Free(handle); }
+                });
+#endif
                 Check("GLFW bindings", () =>
                 {
                     OpenTK.Windowing.GraphicsLibraryFramework.GLFW.GetVersion(out int major, out _, out _);
