@@ -135,3 +135,13 @@ flags only on GL 3.0+ and profile masks only on 3.2+ to avoid legacy GL errors.
 The hidden-thumbnail test executes these diagnostics before drawing. Linux CI
 also runs it on Mesa forced to GL 2.1 with KHR_debug disabled, verifying both
 safe diagnostic skipping and successful rendering even without a Mac GPU runner.
+
+Mac thumbnail batches use one background worker for the whole room list, even
+when a higher job count is requested. They disable GLFW's Cocoa menu creation,
+drain both redirected output streams with capped logging, and terminate workers
+after five minutes or when the parent app exits. Nonzero exits/timeouts stop the batch and suppress further
+worker launches for that app session; they are never retried automatically.
+Concurrent callers serialize and recheck the preview cache before spawning.
+`tools/thumbnail-batch-check` uses synthetic child processes to verify output
+flooding, crash suppression, timeouts, process cleanup, and overlapping requests;
+Mac CI also verifies the single-worker cap without requiring a GPU or game data.

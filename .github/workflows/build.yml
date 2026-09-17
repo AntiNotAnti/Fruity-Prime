@@ -84,6 +84,10 @@ jobs:
           --self-contained true -p:PublishSingleFile=true
           -o publish/${{ matrix.id }}
 
+      - name: bounded thumbnail worker regression
+        if: matrix.id == 'linux-x64'
+        run: dotnet run --project tools/thumbnail-batch-check/thumbnail-batch-check.csproj -c Release
+
       - name: legacy thumbnail diagnostics without KHR_debug
         if: matrix.id == 'linux-x64'
         run: |
@@ -145,6 +149,9 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '9.0.x'
+      - name: bounded thumbnail worker regression
+        run: dotnet run --project tools/thumbnail-batch-check/thumbnail-batch-check.csproj -c Release
+
       - name: signing gate regressions
         run: tools/test-macos-tools.sh
       - name: cook the map bundles

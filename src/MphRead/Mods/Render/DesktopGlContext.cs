@@ -16,7 +16,7 @@ namespace MphRead.Mods.Render
                 GLFW.InitHint(InitHintBool.CocoaChdirResources, false);
         }
 
-        public static NativeWindowSettings Settings()
+        public static NativeWindowSettings Settings(bool background = false)
         {
             // Install before NativeWindowSettings initializes GLFW/monitors.
             // OpenTK's default handler throws across native frames and aborts
@@ -25,6 +25,8 @@ namespace MphRead.Mods.Render
             GLFWProvider.SetErrorCallback((code, description) =>
                 Console.Error.WriteLine($"[window] GLFW {code}: {description}"));
             PreserveWorkingDirectory();
+            if (background && OperatingSystem.IsMacOS())
+                GLFW.InitHint(InitHintBool.CocoaMenubar, false);
             return new NativeWindowSettings
             {
                 ClientSize = new Vector2i(1280, 768),
