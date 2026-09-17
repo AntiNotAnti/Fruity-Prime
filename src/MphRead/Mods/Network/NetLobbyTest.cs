@@ -49,8 +49,9 @@ namespace MphRead.Mods.Network
 
         private static void ProtocolChecks()
         {
-            Check(NetConfig.ProtocolVersion == 10 && (byte)PacketType.SessionState == 36
-                && (byte)PacketType.MapDone == 35, "protocol and reserved IDs");
+            Check(NetConfig.ProtocolVersion == 11 && (byte)PacketType.SessionState == 36
+                && (byte)PacketType.MapOffer == 32 && (byte)PacketType.MapDone == 35,
+                "combined protocol and non-overlapping map/lobby IDs");
             var state = new SessionStatePacket { Phase = SessionPhase.Starting, Policy = ServerSessionPolicy.Lobby,
                 OwnerSlot = 7, MaxPlayers = 8, Revision = ushort.MaxValue, MatchId = 19,
                 RuleFlags = SessionRules.RequireReady | SessionRules.AllowJoinInProgress | SessionRules.LockTeams,
@@ -493,6 +494,9 @@ namespace MphRead.Mods.Network
             Check(NetSession.SendLobbyCommand(LobbyCommandType.StartMatch), "real client starts");
             PumpUntil(() => NetSession.IsStarting && !NetSession.LobbyCommandPending, "real client load barrier");
             Check(NetSession.FreezeGameplay, "gameplay frozen before loaded");
+            Check(NetLaunch.VerifyServerMap(), "map negotiation runs at the lobby load barrier");
+            Check(NetSession.IsStarting && NetSession.ConnectionPort == port,
+                "map negotiation preserves the lobby connection and load barrier");
             NetSession.MarkMatchLoaded();
             PumpUntil(() => NetSession.IsPlaying, "real load ack starts match");
             Check(!NetSession.FreezeGameplay, "gameplay released after barrier");
@@ -512,6 +516,7 @@ namespace MphRead.Mods.Network
             PumpUntil(() => !NetSession.LobbyCommandPending && NetSession.SlotLobbyReady[slot], "second ready received");
             Check(NetSession.SendLobbyCommand(LobbyCommandType.StartMatch), "second real-client start");
             PumpUntil(() => NetSession.IsStarting, "second real-client load barrier");
+            Check(NetLaunch.VerifyServerMap(), "same-room next match revalidates the server map");
             NetSession.MarkMatchLoaded(); PumpUntil(() => NetSession.IsPlaying, "second real-client round");
             Check(NetSession.ConnectionPort == port && NetSession.LocalSlot == slot, "same client UDP session in second match");
             NetSession.Stop();
