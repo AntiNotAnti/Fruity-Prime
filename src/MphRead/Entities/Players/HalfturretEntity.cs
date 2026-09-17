@@ -426,7 +426,8 @@ namespace MphRead.Entities
         {
             if (inst == _models[0] && _brightSkin.HasValue && PaletteOverride == null)
             {
-                return BrightSkins.ForMaterial(_brightSkin, material.TextureId != -1, material.CurrentAlpha * Alpha);
+                return BrightSkins.ForMaterial(_brightSkin, material.TextureId != -1,
+                    material.CurrentAlpha * Alpha, _scene.ShowTextures);
             }
             return base.GetRenderColor(inst, index, material);
         }

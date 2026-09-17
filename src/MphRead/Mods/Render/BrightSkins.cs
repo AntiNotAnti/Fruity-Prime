@@ -64,11 +64,12 @@ namespace MphRead.Mods.Render
             return Vector3.Clamp(rgb, Vector3.Zero, Vector3.One);
         }
 
-        internal static Vector4? ForMaterial(Vector4? color, bool textured, float alpha)
+        internal static Vector4? ForMaterial(Vector4? color, bool textured, float alpha, bool showTextures = true)
         {
             // Textured overrides multiply existing alpha; untextured overrides replace it.
             // Both vertex shaders output color.a=1, so reproduce mat_alpha only for that path.
-            if (color.HasValue && !textured)
+            // The viewer's texture toggle also selects the untextured shader branch.
+            if (color.HasValue && (!textured || !showTextures))
             {
                 Vector4 value = color.Value;
                 value.W = alpha;

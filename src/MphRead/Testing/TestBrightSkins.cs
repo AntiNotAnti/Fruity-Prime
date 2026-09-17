@@ -40,6 +40,22 @@ namespace MphRead.Testing
                 "untextured override carries material alpha");
             Check(BrightSkins.ForMaterial(null, textured: false, alpha: 0.2f) == null, "no override stays absent");
 
+            // Mirror the fragment shader's two alpha rules, using a synthetic
+            // translucent material so this needs no hunter assets or GL context.
+            bool alphaPreserved = true;
+            foreach (bool textured in new[] { false, true })
+            foreach (bool showTextures in new[] { false, true })
+            foreach (float materialAlpha in new[] { 0f, 0.2f, 1f })
+            {
+                Vector4 tint = BrightSkins.ForMaterial(surface, textured, materialAlpha, showTextures)!.Value;
+                const float texelAlpha = 0.5f;
+                bool samplesTexture = textured && showTextures;
+                float resultAlpha = samplesTexture ? materialAlpha * texelAlpha * tint.W : tint.W;
+                float expectedAlpha = samplesTexture ? materialAlpha * texelAlpha : materialAlpha;
+                alphaPreserved &= MathF.Abs(resultAlpha - expectedAlpha) < 0.00001f;
+            }
+            Check(alphaPreserved, "material alpha and cutouts survive the viewer texture toggle");
+
             bool colorsValid = true;
             for (int red = 0; red <= 255; red += 17)
             for (int green = 0; green <= 255; green += 17)
