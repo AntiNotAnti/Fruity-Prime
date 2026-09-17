@@ -87,10 +87,13 @@ namespace MphRead.Mods
                     relaunch);
                 return true;
             }
-            // Whatever the last update left behind. Here rather than in the
-            // copying process, which cannot delete the directory it is running
-            // from, and cheap when there is nothing there.
-            Update.DesktopUpdate.Clean();
+            // Whatever the last update left behind. The Spire pose diagnostic
+            // must leave staged update files alone; ordinary startup still
+            // cleans them after the apply-update path above has returned.
+            if (!HasFlag(args, "spireposecheck"))
+            {
+                Update.DesktopUpdate.Clean();
+            }
             // And the desktop's own installer, unless a platform head has
             // already put its own in place.
             Update.UpdateInstall.UseDesktopIfPossible();
@@ -1133,6 +1136,15 @@ namespace MphRead.Mods
             if (shellShot != null)
             {
                 Environment.ExitCode = RunShellCapture(shellShot);
+                return true;
+            }
+
+            // Spire's slam, driven through the headless simulation. Needs
+            // extracted game files, like -simcheck below.
+            string? spirePoseCheck = ValueAfter(args, "spireposecheck");
+            if (spirePoseCheck != null)
+            {
+                Environment.ExitCode = Network.SpireAltPoseCheck.Run(spirePoseCheck);
                 return true;
             }
 

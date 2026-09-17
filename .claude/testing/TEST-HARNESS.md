@@ -35,6 +35,16 @@ What the harness records
 
 Map sweeps and probes
 
+- `-spireposecheck "MP1 SANCTORUS"` uses the headless server simulation and
+  real extracted game files to drive Spire through morph and alt attack via
+  relayed intents. It checks that both rock collision positions advance across
+  attack frames with no draw pass. It requires `paths.txt` beside the binary.
+  This probes the collision pose, not whether a target takes damage on a
+  specific frame.
+- `powershell -File tools/check-spire-alt-pose.ps1` is an asset-free source probe for
+  Spire's alt attack collision pose: it checks the simulation update order,
+  both animated rock positions, draw ownership, and attack startup positions.
+  It cannot establish actual rock motion or hit timing.
 - `-maptest "ROOM" -players 8 -seconds 22` loads a room with eight players (a
   different hunter per slot), drives them through the tour, and prints an
   inventory: spawns, jump pads, teleporters, doors, afflictions, deaths.
