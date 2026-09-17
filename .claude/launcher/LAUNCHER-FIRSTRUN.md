@@ -3,6 +3,11 @@
 This file documents the first-run flow and the extraction child process used to unpack a .nds.
 
 - The extraction uses upstream's `Extract.Setup` in a child process: it prints questions and expects stdin answers. The child is run so the GUI does not block on `Console.ReadKey`.
+- When the launcher runs through `dotnet FruityPrime.dll`, the child also
+  receives the DLL before the ROM argument. A nonzero child exit fails setup
+  even if an older extraction still has valid paths. `tools/setupcheck` checks
+  both launch forms and stale-file failure using a synthetic child, without
+  calling the extractor; run its DLL with `dotnet` and its apphost directly.
 - Consequences:
   - `-launcher` is dispatched before upstream's `CheckSetup` to avoid a "press any key" console stop.
   - `GameFiles.Problem()` signals the rest of the screen whether paths are missing or invalid.
