@@ -1,4 +1,5 @@
 using System;
+using MphRead.Mods.Multiplayer;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
@@ -255,17 +256,10 @@ namespace MphRead.Mods.Network
             return (state.Value.RoomKey, mode);
         }
 
-        /// <summary>
-        /// Entity layer to load a networked room with.
-        ///
-        /// Fixed rather than derived from how many players happen to be
-        /// connected: SceneSetup picks the room's entity layout from the
-        /// player count, so a client that joined alone and one that joined
-        /// into a full match would lay out different spawn points, doors and
-        /// items for the same map. Everyone loads the two-player layout, so
-        /// everyone gets the same world.
-        /// </summary>
-        public const int RoomPlayerCount = 2;
+        // Frozen server configuration, including for reconnect and join-in-progress.
+        public static MatchWorldProfile WorldProfile => NetSession.ServerSession is { } state && state.WorldProfile.IsValid
+            ? state.WorldProfile : MatchWorldProfile.Resolve(2);
+        public static int RoomPlayerCount => WorldProfile.EntityLayerPlayers;
 
         /// <summary>
         /// Create one player entity per slot, before the room loads.
@@ -293,6 +287,7 @@ namespace MphRead.Mods.Network
         public static void BuildPlayers(Scene scene, Hunter localHunter, int localRecolor,
             bool teams = false, int? localSlot = null)
         {
+            GameState.TeamCount = teams && NetSession.ActiveMatchDefinition is { } match ? LobbyRules.TeamCount(match) : teams ? 2 : 0;
             int resolvedSlot = localSlot ?? Math.Max(NetSession.LocalSlot, 0);
             for (int slot = 0; slot < PlayerEntity.MaxPlayers; slot++)
             {

@@ -11,6 +11,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using MphRead.Mods.Chat;
 using MphRead.Mods.Network;
+using MphRead.Mods.Multiplayer;
 
 namespace MphRead.Mods.Launcher.Gui
 {
@@ -23,18 +24,21 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly Note _status = new(""), _chat = new("");
         private readonly ChoiceRow _hunter, _suit, _team, _map, _mode, _format;
         private readonly ChoiceRow _fire, _affinity, _freeze, _requireReady, _join;
-        private readonly ChoiceRow _target, _moveTeam;
+        private readonly ChoiceRow _target, _moveTeam, _teamCount, _lockTeams;
+        private readonly ChoiceRow[] _capacities = new ChoiceRow[4];
+        private readonly StackPanel _custom = new();
+        private readonly Note _layoutSummary = new("");
         private readonly FieldRow _name, _time, _goal;
         private readonly TextBox _chatEntry = new() { Watermark = "Message", MaxLength = ChatPacket.MaxTextBytes };
         private readonly UiMark _ready, _start, _apply;
         private readonly Image _preview = new() { Height = 110, Stretch = Stretch.UniformToFill };
         private readonly string[] _rooms;
         private readonly GameMode[] _modes = Enum.GetValues<GameMode>().Where(m => m >= GameMode.Battle && m <= GameMode.PrimeHunter).ToArray();
-        private readonly MatchFormat[] _formats = { MatchFormat.Auto, MatchFormat.FreeForAll, MatchFormat.TwoVsTwo, MatchFormat.FourVsFour };
+        private readonly MatchFormat[] _formats = Enum.GetValues<MatchFormat>();
         private readonly List<byte> _targetSlots = new();
         private MatchDefinition? _shownMatch;
         private ushort? _shownRevision;
-        private int _chatRevision = -1;
+        private int _chatRevision = -1, _rosterCount;
         private ushort? _shownRosterRevision;
         private double _nextPingRefresh;
         private SessionRules _shownRules;
@@ -47,27 +51,39 @@ namespace MphRead.Mods.Launcher.Gui
             Focusable = true;
             _hunter = new ChoiceRow("Hunter", Enumerable.Range(0, Hunters.Playable).Select(i => ((Hunter)i).ToString()).ToArray(), (int)NetSession.LocalHunter);
             _suit = new ChoiceRow("Suit", new[] { "1", "2", "3", "4" }, NetSession.LocalColor);
-            _team = new ChoiceRow("Team", new[] { "Orange", "Green" });
+            _team = new ChoiceRow("Team", new[] { "Auto", "Team A", "Team B" });
             _name = new FieldRow("Name", NetSession.PlayerName); _name.Box.MaxLength = RosterPacket.MaxNameBytes;
             _hunter.Changed += (_, _) => Identify(); _suit.Changed += (_, _) => Identify();
-            _team.Changed += (_, _) => { if (!_syncing) NetSession.SendLobbyCommand(LobbyCommandType.SetTeam, (byte)NetSession.LocalSlot, (sbyte)_team.Index); };
+            _team.Changed += (_, _) => { if (!_syncing) NetSession.SendLobbyCommand(LobbyCommandType.SetTeam, (byte)NetSession.LocalSlot, (sbyte)(_team.Index - 1)); };
 
             _map = new ChoiceRow("Map", _rooms.Select(r => Metadata.GetRoomByName(r).Item1?.InGameName ?? r).ToArray());
             _mode = new ChoiceRow("Mode", _modes.Select(m => m.ToString()).ToArray());
-            _format = new ChoiceRow("Format", new[] { "Auto", "FFA", "2v2", "4v4" });
+            _format = new ChoiceRow("Format", new[] { "Auto", "FFA", "1v1", "2v2", "3v3", "4v4", "2v2v2v2", "Custom" });
             _time = new FieldRow("Time limit (seconds)", "420", 85);
             _goal = new FieldRow("Point goal", "7", 85);
+            _time.Box.TextChanged += (_, _) => RefreshDraft(); _goal.Box.TextChanged += (_, _) => RefreshDraft();
             _fire = Toggle("Friendly fire"); _affinity = Toggle("Affinity weapons"); _freeze = Toggle("Shadow freeze");
             _requireReady = Toggle("Require ready"); _join = Toggle("Join in progress");
+            _lockTeams = new ChoiceRow("Team changes", new[] { "Open", "Locked" });
+            _teamCount = new ChoiceRow("Teams", new[] { "2", "3", "4" });
+            _custom.Children.Add(_teamCount);
+            for (int team = 0; team < 4; team++)
+            {
+                _capacities[team] = new ChoiceRow($"Team {(char)('A' + team)} size", Enumerable.Range(1, 8).Select(n => n.ToString()).ToArray(), 1);
+                _capacities[team].Changed += (_, _) => RefreshDraft();
+                _custom.Children.Add(_capacities[team]);
+            }
+            _teamCount.Changed += (_, _) => RefreshDraft();
+            _format.Changed += (_, _) => RefreshDraft(); _mode.Changed += (_, _) => RefreshDraft();
             _apply = ActionButton("Apply match settings", ApplyMatch);
-            foreach (Control control in new Control[] { _map, _mode, _format, _time, _goal, _fire, _affinity, _freeze, _requireReady, _join, _apply })
+            foreach (Control control in new Control[] { _map, _mode, _format, _custom, _layoutSummary, _time, _goal, _fire, _affinity, _freeze, _requireReady, _join, _lockTeams, _apply })
                 _ownerControls.Children.Add(control);
 
             var left = new StackPanel { Spacing = 4, Margin = new Thickness(0, 0, 18, 0) };
             left.Children.Add(new Note("PLAYERS")); left.Children.Add(_players);
             foreach (Control control in new Control[] { _name, ActionButton("Update name", Identify), _hunter, _suit, _team }) left.Children.Add(control);
             _target = new ChoiceRow("Manage player", Array.Empty<string>());
-            _moveTeam = new ChoiceRow("Move to team", new[] { "Orange", "Green" });
+            _moveTeam = new ChoiceRow("Move to team", new[] { "Auto", "Team A", "Team B" });
             var administration = new StackPanel();
             administration.Children.Add(new Note("OWNER ACTIONS")); administration.Children.Add(_target); administration.Children.Add(_moveTeam);
             administration.Children.Add(ActionButton("Move player", () => Admin(LobbyCommandType.SetTeam)));
@@ -147,6 +163,7 @@ namespace MphRead.Mods.Launcher.Gui
             _syncing = true;
             _hunter.Index = (int)NetSession.LocalHunter; _suit.Index = NetSession.LocalColor;
             var roster = NetSession.LobbyRoster();
+            _rosterCount = roster.Count;
             // Roster pings update without a configuration revision.
             if (_shownRevision != session.Revision || _shownRosterRevision != roster.Revision || NetSession.Clock >= _nextPingRefresh)
             {
@@ -170,6 +187,12 @@ namespace MphRead.Mods.Launcher.Gui
                 _fire.Index = session.Match.FriendlyFire ? 1 : 0; _affinity.Index = session.Match.AffinityWeapons ? 1 : 0;
                 _freeze.Index = session.Match.ShadowFreeze ? 1 : 0;
                 _requireReady.Index = session.RequireReady ? 1 : 0; _join.Index = session.AllowJoinInProgress ? 1 : 0;
+                _lockTeams.Index = session.LockTeams ? 1 : 0;
+                TeamLayout layout = LobbyRules.ResolveTeamLayout(session.Match);
+                _teamCount.Index = Math.Clamp(layout.TeamCount - 2, 0, 2);
+                for (int team = 0; team < 4; team++) _capacities[team].Index = Math.Max(1, (int)layout.Capacity(team)) - 1;
+                string[] teams = Enumerable.Range(0, layout.TeamCount).Select(team => $"Team {(char)('A' + team)}").Prepend("Auto").ToArray();
+                _team.SetItems(teams, 0); _moveTeam.SetItems(teams, 0);
                 _bitmap?.Dispose(); _bitmap = null; _preview.Source = null;
                 string path = ThumbnailGenerator.PathFor(session.Match.RoomKey);
                 try { if (File.Exists(path)) { _bitmap = new Bitmap(path); _preview.Source = _bitmap; } }
@@ -178,8 +201,10 @@ namespace MphRead.Mods.Launcher.Gui
             }
             _ownerControls.IsEnabled = NetSession.CanEditLobby && !NetSession.LobbyCommandPending;
             _team.IsVisible = LobbyRules.TeamCount(session.Match) > 0;
-            if (NetSession.LocalSlot >= 0) _team.Index = NetSession.SlotTeamIndex[NetSession.LocalSlot];
-            _hunter.IsEnabled = _suit.IsEnabled = _team.IsEnabled = NetSession.IsInLobby && !NetSession.LobbyCommandPending;
+            if (NetSession.LocalSlot >= 0) _team.Index = NetSession.SlotTeamIndex[NetSession.LocalSlot] + 1;
+            _hunter.IsEnabled = _suit.IsEnabled = NetSession.IsInLobby && !NetSession.LobbyCommandPending;
+            _team.IsEnabled = _hunter.IsEnabled && (!session.LockTeams || NetSession.LocalIsLobbyOwner);
+            _moveTeam.IsVisible = _team.IsVisible;
             _ready.IsEnabled = NetSession.IsInLobby && !NetSession.LobbyCommandPending;
             _ready.Label = NetSession.LocalSlot >= 0 && NetSession.SlotLobbyReady[NetSession.LocalSlot] ? "Unready" : "Ready";
             var valid = LobbyRules.Validate(session.Match, roster, session.RequireReady, out string reason);
@@ -190,6 +215,7 @@ namespace MphRead.Mods.Launcher.Gui
             if (_chatRevision != NetChat.Revision)
             { _chatRevision = NetChat.Revision; _chat.Text = String.Join("\n", NetChat.History.TakeLast(8)); }
             _syncing = false;
+            RefreshDraft();
         }
         private void Identify()
         {
@@ -203,18 +229,46 @@ namespace MphRead.Mods.Launcher.Gui
         private void Admin(LobbyCommandType type)
         {
             if (_target.Index < _targetSlots.Count)
-                NetSession.SendLobbyCommand(type, _targetSlots[_target.Index], (sbyte)_moveTeam.Index);
+                NetSession.SendLobbyCommand(type, _targetSlots[_target.Index], (sbyte)(_moveTeam.Index - 1));
+        }
+        private MatchDefinition DraftMatch()
+        {
+            int count = _teamCount.Index + 2;
+            return new MatchDefinition { RoomKey = _rooms.Length > 0 ? _rooms[Math.Clamp(_map.Index, 0, _rooms.Length - 1)] : "",
+                Mode = _modes[Math.Clamp(_mode.Index, 0, _modes.Length - 1)], Format = _formats[Math.Clamp(_format.Index, 0, _formats.Length - 1)],
+                CustomTeams = new TeamLayout((byte)count, (byte)(_capacities[0].Index + 1), (byte)(_capacities[1].Index + 1),
+                    count > 2 ? (byte)(_capacities[2].Index + 1) : (byte)0, count > 3 ? (byte)(_capacities[3].Index + 1) : (byte)0) };
+        }
+        private void RefreshDraft()
+        {
+            if (_syncing || _apply == null) return;
+            MatchDefinition draft = DraftMatch();
+            _custom.IsVisible = draft.Format == MatchFormat.Custom;
+            for (int team = 0; team < 4; team++) _capacities[team].IsVisible = team < _teamCount.Index + 2;
+            TeamLayout layout = LobbyRules.ResolveTeamLayout(draft);
+            bool valid = LobbyRules.ValidateDefinition(draft, out string reason) == LobbyResultCode.Ok;
+            if (valid && layout.TeamCount > 0 && (layout.TotalPlayers < _rosterCount
+                || (LobbyRules.ExactTeams(draft) && layout.TotalPlayers > (NetSession.ServerSession?.MaxPlayers ?? 8))))
+            { valid = false; reason = "The layout must fit the connected roster and server player limit."; }
+            if (valid && (!ushort.TryParse(_time.Value, out _) || !ushort.TryParse(_goal.Value, out _)))
+            { valid = false; reason = "Time and goal must be whole numbers from 0 to 65535."; }
+            _layoutSummary.Text = !valid ? reason : layout.TeamCount == 0 ? "Free for all"
+                : $"Layout: {layout} · Players required: {(LobbyRules.ExactTeams(draft) ? layout.TotalPlayers.ToString() : "flexible")}";
+            _apply.IsEnabled = valid && NetSession.CanEditLobby && !NetSession.LobbyCommandPending;
+            if (!valid) _start.IsEnabled = false;
         }
         private void ApplyMatch()
         {
             if (_rooms.Length == 0 || NetSession.ServerSession is not { } config) return;
             if (!ushort.TryParse(_time.Value, out ushort seconds) || !ushort.TryParse(_goal.Value, out ushort goal))
             { _status.Text = "Time and goal must be whole numbers from 0 to 65535."; return; }
-            config.Match = new MatchDefinition { RoomKey = _rooms[_map.Index], Mode = _modes[_mode.Index], Format = _formats[_format.Index],
+            config.Match = DraftMatch() with {
                 TimeLimitSeconds = seconds, PointGoal = goal, FriendlyFire = _fire.Index == 1,
                 AffinityWeapons = _affinity.Index == 1, ShadowFreeze = _freeze.Index == 1 };
             config.RuleFlags = config.Match.Rules | (_requireReady.Index == 1 ? SessionRules.RequireReady : 0)
-                | (_join.Index == 1 ? SessionRules.AllowJoinInProgress : 0);
+                | (_join.Index == 1 ? SessionRules.AllowJoinInProgress : 0)
+                | (_lockTeams.Index == 1 ? SessionRules.LockTeams : 0);
+            if (LobbyRules.ValidateDefinition(config.Match, out string reason) != LobbyResultCode.Ok) { _status.Text = reason; return; }
             NetSession.SendLobbyCommand(LobbyCommandType.UpdateMatch, configuration: config);
         }
     }

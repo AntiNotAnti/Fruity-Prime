@@ -230,7 +230,7 @@ namespace MphRead.Mods.Network
             if (src.Length < Size + 5 || src[Size] > MaxRotation) return default;
             int tail = Size + 1 + src[Size] * RotationEntrySize;
             if (src.Length != tail + 4 || src[tail] > 1 || src[tail + 1] > 1
-                || src[tail + 2] > 1 || src[tail + 3] > 4) return default;
+                || src[tail + 2] > 1 || src[tail + 3] > (byte)MatchFormat.TwoVsTwoVsTwoVsTwo) return default;
             return new HostRequestPacket
             {
                 Protocol = src[0],
@@ -1865,7 +1865,7 @@ namespace MphRead.Mods.Network
         /// rather than a second bump a month later. See
         /// <see cref="PacketType.MapOffer"/>.
         /// </summary>
-        public const int ProtocolVersion = 8;
+        public const int ProtocolVersion = 9;
         /// <summary>
         /// Frames between intent packets. One, so every frame.
         ///

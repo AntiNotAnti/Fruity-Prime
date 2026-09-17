@@ -135,7 +135,8 @@ namespace MphRead.Mods.Network
             if (player.TeamIndex != wanted)
             {
                 player.TeamIndex = wanted;
-                player.Team = wanted == 0 ? Team.Orange : Team.Green;
+                if (GameState.Teams) MphRead.Mods.Multiplayer.TeamVisuals.Apply(player);
+                else player.Team = Team.None;
             }
             // The hunter comes from the server's roster, not from this
             // machine's menu: a client that used its own choice for every

@@ -1,16 +1,17 @@
 using System;
+using MphRead.Mods.Multiplayer;
 
 namespace MphRead.Mods.Network
 {
     public enum SessionPhase : byte { Lobby, Starting, InMatch, PostMatch }
     public enum ServerSessionPolicy : byte { Continuous, Lobby }
-    public enum MatchFormat : byte { Auto, FreeForAll, TwoVsTwo, FourVsFour, TwoVsTwoVsTwoVsTwo }
+    public enum MatchFormat : byte { Auto, FreeForAll, OneVsOne, TwoVsTwo, ThreeVsThree, FourVsFour, TwoVsTwoVsTwoVsTwo, Custom }
 
     [Flags]
     public enum SessionRules : ushort
     {
         None = 0, FriendlyFire = 1, AffinityWeapons = 2, ShadowFreeze = 4,
-        RequireReady = 8, AllowJoinInProgress = 16
+        RequireReady = 8, AllowJoinInProgress = 16, LockTeams = 32
     }
 
     public readonly record struct MatchDefinition
@@ -18,6 +19,7 @@ namespace MphRead.Mods.Network
         public string RoomKey { get; init; }
         public GameMode Mode { get; init; }
         public MatchFormat Format { get; init; }
+        public TeamLayout CustomTeams { get; init; }
         public ushort TimeLimitSeconds { get; init; }
         public ushort PointGoal { get; init; }
         public bool FriendlyFire { get; init; }

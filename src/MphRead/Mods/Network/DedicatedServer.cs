@@ -771,7 +771,7 @@ namespace MphRead.Mods.Network
             var sim = new ServerSim();
             MatchDefinition entry = CurrentDefinition;
             if (!sim.Start(entry.RoomKey, entry.Mode, _maxPlayers, SendSnapshot,
-                () => EndMatch(_now, "score"), BuildRoster()))
+                () => EndMatch(_now, "score"), BuildRoster(), BuildSessionState()))
             {
                 Log($"cannot run the match: the room \"{entry.RoomKey}\" would not load");
                 throw new ProgramException($"the server could not load \"{entry.RoomKey}\"");
@@ -1538,14 +1538,12 @@ namespace MphRead.Mods.Network
             peer.ChatDropped = 0;
             chat.Slot = (byte)peer.SlotIndex;
             chat.Name = peer.Name.Length > 0 ? peer.Name : $"Player{peer.SlotIndex}";
-            // Team chat has no teams behind it yet: relaying it as a team line
-            // would deliver it to everybody while telling the reader it went
-            // to one side, which is worse than not having the channel.
-            chat.Kind = ChatPacket.KindSay;
+            bool teamOnly = chat.Kind == ChatPacket.KindTeam && GameState.IsTeamMode(CurrentDefinition.Mode) && peer.TeamIndex >= 0;
+            chat.Kind = teamOnly ? ChatPacket.KindTeam : ChatPacket.KindSay;
             chat.Write(_scratch);
             for (int i = 0; i < _peers.Count; i++)
             {
-                if (_peers[i] != peer)
+                if (_peers[i] != peer && (!teamOnly || _peers[i].TeamIndex == peer.TeamIndex))
                 {
                     _transport?.Send(_peers[i].EndPoint, PacketType.Chat,
                         _scratch.AsSpan(0, ChatPacket.Size));
@@ -1733,8 +1731,7 @@ namespace MphRead.Mods.Network
                 if (_phase == SessionPhase.InMatch && !AllowJoinInProgress)
                 { SendRefusal(packet.Sender, RefusedPacket.ReasonInMatch); return; }
                 sbyte team = ChooseTeam(CurrentDefinition);
-                if (_phase is SessionPhase.Starting or SessionPhase.InMatch
-                    && LobbyRules.TeamCount(CurrentDefinition) > 0 && team < 0)
+                if (LobbyRules.TeamCount(CurrentDefinition) > 0 && team < 0)
                 { SendRefusal(packet.Sender, RefusedPacket.ReasonFull); return; }
                 peer = new Peer { EndPoint = packet.Sender, SlotIndex = slot, ClientId = clientId, TeamIndex = team };
                 _peers.Add(peer);

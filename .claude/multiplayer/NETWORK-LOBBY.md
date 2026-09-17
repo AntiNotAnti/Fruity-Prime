@@ -1,4 +1,4 @@
-# Persistent multiplayer lobbies (protocol 8)
+# Persistent multiplayer lobbies (protocol 9)
 
 `DedicatedServer` owns the session outside the game scene. `SessionPhase` is
 Lobby → Starting → InMatch → PostMatch → Lobby; it is independent of the
@@ -16,7 +16,7 @@ match and go through results before returning to the lobby.
 
 Packets 36–40 are SessionState, LobbyCommand, LobbyCommandResult, MatchLoaded
 and MatchLoadFailed. Custom-map reservations 32–35 are unchanged. This wire
-format is intentionally incompatible with protocol 7. Roster entries now
+format is intentionally incompatible with protocols 7 and 8. Roster entries now
 include a signed team (-1 means FFA), lobby readiness, and a roster revision.
 The client rejects older revisions using wrapping ushort ordering and checks
 the server endpoint before accepting control or gameplay data.
@@ -41,7 +41,7 @@ ServerSim as before.
 
 ## Match boundaries
 
-Start freezes the definition and expected participants. A simulating server
+Start freezes the definition, resolved team layout, world/resource profile and expected participants. A simulating server
 builds the map before advertising Starting and does not call ServerSim.Advance
 until the barrier opens. The deadline gives clients 15 seconds **after the
 server finishes building**. Each client acknowledges only once its scene has
@@ -72,17 +72,36 @@ reused after results; the console becomes its lobby UI between rounds.
 
 ## Formats
 
-FFA uses an independent scoring identity per slot. 2v2 requires exactly four
-players with two per team; 4v4 requires eight with four per team. Auto preserves
-the existing mode's FFA/two-team topology without an exact-count requirement.
-The server assigns the least-populated available team and publishes it; clients
-and ServerSim consume that roster instead of deriving teams from slot parity.
+FFA uses an independent scoring identity per slot and explicit FFA needs at least
+two players. Exact presets are 1v1, 2v2, 3v3, 4v4 and 2v2v2v2. Custom uses a
+value-type TeamLayout with 2–4 active teams, positive capacities, zero inactive
+capacities and at most eight players. All exact formats require every team full
+at Start. Auto retains flexible FFA/two-team behavior.
 
-The wire model supports team indices 0–3 and the four-team format value, but
-**2v2v2v2 remains rejected and is not offered in the UI**. GameState rendering,
-survival, objectives, HUD and other gameplay paths still contain two-team
-assumptions. Assigning four numbers does not make those paths correct. Spectator
-slots and auto-start are not implemented by this change.
+Assignment compares occupancy/capacity, then raw occupancy, then team index.
+The same rule handles admission, topology normalization, Auto team requests and
+join-in-progress. Full layouts refuse new peers even in the lobby; shrinking a
+layout below the roster is rejected. SetTeam(-1) requests Auto. Team changes
+clear the affected readiness. The owner can lock self-selection while retaining
+authority to move any player. Layout/rule changes clear all readiness.
+
+Battle, Survival, Bounty, Nodes and Defender support 2–4 teams. Capture is
+restricted to two bases/teams and Prime Hunter to FFA. Gameplay, objective
+ownership, standings, ties and chat use logical TeamIndex. Team A–D have distinct
+HUD/radar/objective colors; C/D preserve normal hunter suits. Team chat uses
+`/team message`, relays only to equal authoritative team indices, and becomes
+normal chat in FFA.
+
+The session packet carries the five custom-layout bytes and the frozen world
+profile. Exact layouts use their total capacity to resolve it; flexible FFA/Auto
+use the configured server player limit. EntityLayerPlayers is 2, 3 or 4 (5–8
+configured players use 4). Resource tiers are Low for 2, Standard for 3–4 and
+High for 5–8. Reconnects and late joins consume the same profile. The dedicated
+simulation receives that state before room construction.
+
+The existing LobbyScreen exposes presets/custom capacities, dynamic Auto and
+Team A–D selectors, team lock, and live validation. It stays inside the existing
+shared launcher and scrollable settings/roster layout.
 
 ## Validation
 
@@ -90,14 +109,15 @@ slots and auto-start are not implemented by this change.
 loopback UDP. It covers packet round trips, maximum room lengths, truncation,
 enum validation, wrapping revisions, two/eight-peer rosters, token claim races,
 permissions, stale commands, duplicate/replayed results, ready invalidation,
-exact teams, full teams, cancellation after a loading disconnect, load timeout,
+exact/custom teams, normalized 4v2 assignment, locks, non-parity four-team
+rosters and team chat, full teams, cancellation after a loading disconnect, load timeout,
 late joins, owner migration/rebind, results and continuous rotation. It also
 runs the actual NetSession client through two matches with the same socket,
 slot and ClientId under added latency/jitter and deliberate 100% command loss
 followed by recovery. Match completion is signalled by a simulated authority;
 the harness does **not** load or play a rendered scene.
 
-`dotnet FruityPrime.dll -lobbyshot DIR` renders sample eight-player lobbies at
+`dotnet FruityPrime.dll -lobbyshot DIR` renders 3v3, 4v4, 2v2v2v2, Custom 4v2, Custom 1v1v2v4 and locked lobbies at
 1280×720, 960×540 and 800×400 using the shared Avalonia UI. Scrollable roster
 and settings columns keep chat and leave/ready/start controls reachable.
 

@@ -974,16 +974,18 @@ namespace MphRead.Mods.Network
                 {
                     chat.Name = GameState.Nicknames[peer.SlotIndex];
                 }
-                chat.Kind = ChatPacket.KindSay;
+                bool teamOnly = chat.Kind == ChatPacket.KindTeam && GameState.Teams && SlotTeamIndex[peer.SlotIndex] >= 0;
+                chat.Kind = teamOnly ? ChatPacket.KindTeam : ChatPacket.KindSay;
                 chat.Write(_scratch);
                 for (int i = 0; i < _peers.Count; i++)
                 {
-                    if (_peers[i] != peer)
+                    if (_peers[i] != peer && (!teamOnly || SlotTeamIndex[_peers[i].SlotIndex] == SlotTeamIndex[peer.SlotIndex]))
                     {
                         _transport?.Send(_peers[i].EndPoint, PacketType.Chat,
                             _scratch.AsSpan(0, ChatPacket.Size));
                     }
                 }
+                if (teamOnly && (LocalSlot < 0 || SlotTeamIndex[LocalSlot] != SlotTeamIndex[peer.SlotIndex])) return;
             }
             Chat.NetChat.Receive(chat);
         }
@@ -999,10 +1001,14 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
+            bool teamOnly = text.StartsWith("/team ", StringComparison.OrdinalIgnoreCase);
+            if (teamOnly) text = text[6..].Trim();
+            if (text.Length == 0) return;
+            teamOnly &= ActiveMatchDefinition is { } match && GameState.IsTeamMode(match.Mode);
             var chat = new ChatPacket
             {
                 Slot = (byte)Math.Max(LocalSlot, 0),
-                Kind = ChatPacket.KindSay,
+                Kind = teamOnly ? ChatPacket.KindTeam : ChatPacket.KindSay,
                 Name = PlayerName,
                 Text = text
             };
@@ -1014,6 +1020,7 @@ namespace MphRead.Mods.Network
                 // out to the peers, exactly as the relay above would.
                 for (int i = 0; i < _peers.Count; i++)
                 {
+                    if (teamOnly && SlotTeamIndex[_peers[i].SlotIndex] != SlotTeamIndex[Math.Max(LocalSlot, 0)]) continue;
                     _transport.Send(_peers[i].EndPoint, PacketType.Chat,
                         _scratch.AsSpan(0, ChatPacket.Size));
                 }
@@ -1422,6 +1429,12 @@ namespace MphRead.Mods.Network
                 return;
             }
             SnapshotHeader header = SnapshotHeader.Read(payload);
+            int timeOffset = SnapshotHeader.Size + header.PlayerCount * PlayerState.Size;
+            int healthOffset = timeOffset + NetMatchTimeSync.Size;
+            if (header.PlayerCount > PlayerEntity.SlotCapacity || healthOffset > payload.Length
+                || !NetMatchTimeSync.Validate(payload.Slice(timeOffset, NetMatchTimeSync.Size))
+                || !NetHealthSync.Validate(payload[healthOffset..])
+                || !NetHealthSync.IsCurrentMatch(payload[healthOffset..])) return;
             // Both the intent streams already refuse an older frame; this one
             // did not, and it is the stream that carries health, score and the
             // damage counter. A datagram overtaken in flight therefore put a
@@ -1495,6 +1508,8 @@ namespace MphRead.Mods.Network
             // the whole of why an interpolated position can still be shot at.
             // NetSmoothing.
             NetSmoothing.Record(header.Frame, _snapshotScratch.AsSpan(0, count));
+            NetMatchTimeSync.Receive(payload.Slice(timeOffset, NetMatchTimeSync.Size));
+            NetHealthSync.Receive(payload[healthOffset..]);
         }
 
         /// <summary>
@@ -1695,6 +1710,9 @@ namespace MphRead.Mods.Network
                 offset += PlayerState.Size;
                 count++;
             }
+            NetMatchTimeSync.Write(_scratch.AsSpan(offset));
+            offset += NetMatchTimeSync.Size;
+            offset += NetHealthSync.Write(_scratch.AsSpan(offset, NetConfig.MaxPacketSize - 1 - offset));
             var header = new SnapshotHeader
             {
                 Frame = NetFrame,

@@ -1,3 +1,4 @@
+using MphRead.Mods.Multiplayer;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -610,7 +611,8 @@ namespace MphRead.Entities
                             if (Flags.TestFlag(BeamFlags.LifeDrain) && Owner.Type == EntityType.Player)
                             {
                                 var ownerPlayer = (PlayerEntity)Owner;
-                                if (!ownerPlayer.IsPrimeHunter && ownerPlayer.TeamIndex != player.TeamIndex)
+                                if (ownerPlayer != player && !ownerPlayer.IsPrimeHunter
+                                    && !TeamRules.AreAllies(ownerPlayer.TeamIndex, player.TeamIndex))
                                 {
                                     int before = ownerPlayer.Health;
                                     // GainHealth checks if the player is alive
@@ -1845,7 +1847,7 @@ namespace MphRead.Entities
                         else
                         {
                             var ownerPlayer = (PlayerEntity)beam.Owner;
-                            tryTarget = player.TeamIndex != ownerPlayer.TeamIndex;
+                            tryTarget = !TeamRules.AreAllies(player.TeamIndex, ownerPlayer.TeamIndex);
                         }
                     }
                     else if (type == EntityType.Halfturret)
@@ -1858,7 +1860,8 @@ namespace MphRead.Entities
                         else
                         {
                             var ownerPlayer = (PlayerEntity)beam.Owner;
-                            tryTarget = halfturret.Owner.TeamIndex != ownerPlayer.TeamIndex;
+                            tryTarget = halfturret.Owner != ownerPlayer
+                                && !TeamRules.AreAllies(halfturret.Owner.TeamIndex, ownerPlayer.TeamIndex);
                         }
                     }
                     else if (type == EntityType.EnemyInstance)

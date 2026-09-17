@@ -1,4 +1,5 @@
 using System;
+using MphRead.Mods.Multiplayer;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -15,6 +16,8 @@ namespace MphRead.Mods.Network
         { RequireReady = requireReady; AllowJoinInProgress = allowJoinInProgress; }
         private SessionPhase _phase = SessionPhase.InMatch;
         private MatchDefinition _lobbyMatch, _frozenMatch;
+        private MatchWorldProfile _frozenWorldProfile;
+        public bool LockTeams { get; private set; }
         private ushort _sessionRevision = 1;
         private uint _lobbyOwnerClientId;
         private byte _expectedLoadedSlots, _loadedSlots;
@@ -57,8 +60,11 @@ namespace MphRead.Mods.Network
             Phase = _phase, Policy = SessionPolicy, Revision = _sessionRevision, MatchId = _matchId,
             OwnerSlot = _lobbyOwnerClientId == 0 ? (byte)255 : (byte)(_peers.Find(p => p.ClientId == _lobbyOwnerClientId)?.SlotIndex ?? 255),
             MaxPlayers = (byte)_maxPlayers, Match = CurrentDefinition,
+            WorldProfile = SessionPolicy == ServerSessionPolicy.Lobby && _phase != SessionPhase.Lobby
+                ? _frozenWorldProfile : LobbyRules.ResolveWorldProfile(CurrentDefinition, _maxPlayers),
             RuleFlags = CurrentDefinition.Rules | (RequireReady ? SessionRules.RequireReady : 0)
-                | (AllowJoinInProgress ? SessionRules.AllowJoinInProgress : 0),
+                | (AllowJoinInProgress ? SessionRules.AllowJoinInProgress : 0)
+                | (LockTeams ? SessionRules.LockTeams : 0),
             ExpectedParticipants = _expectedLoadedSlots, LoadedParticipants = _loadedSlots
         };
 
@@ -73,16 +79,11 @@ namespace MphRead.Mods.Network
 
         private sbyte ChooseTeam(MatchDefinition match, Peer? exclude = null)
         {
-            int teams = LobbyRules.TeamCount(match);
-            if (teams == 0) return -1;
-            int least = int.MaxValue;
-            sbyte best = -1;
-            for (sbyte team = 0; team < teams; team++)
-            {
-                int count = _peers.Count(p => p != exclude && p.TeamIndex == team);
-                if (count < least && count < LobbyRules.TeamCapacity(match)) { least = count; best = team; }
-            }
-            return best;
+            TeamLayout layout = LobbyRules.ResolveTeamLayout(match);
+            Span<int> counts = stackalloc int[4];
+            foreach (Peer peer in _peers)
+                if (peer != exclude && peer.TeamIndex >= 0 && peer.TeamIndex < layout.TeamCount) counts[peer.TeamIndex]++;
+            return TeamRules.ChooseTeam(layout, counts);
         }
 
         private void NormalizeTeams()
@@ -144,11 +145,13 @@ namespace MphRead.Mods.Network
                     Peer? target = _peers.Find(p => p.SlotIndex == command.TargetSlot);
                     if (target == null) { reason = "That player has left."; return LobbyResultCode.TargetNotFound; }
                     if (target != peer && !owner) { reason = "Only the owner can move another player."; return LobbyResultCode.NotOwner; }
-                    if (command.TeamIndex < 0 || command.TeamIndex >= LobbyRules.TeamCount(_lobbyMatch))
+                    if (LockTeams && !owner) { reason = "Team changes are locked by the owner."; return LobbyResultCode.NotOwner; }
+                    sbyte requestedTeam = command.TeamIndex == -1 ? ChooseTeam(_lobbyMatch, target) : command.TeamIndex;
+                    if (command.TeamIndex < -1 || requestedTeam < 0 || requestedTeam >= LobbyRules.TeamCount(_lobbyMatch))
                     { reason = "Choose a team for the current format."; return LobbyResultCode.InvalidTeam; }
-                    if (_peers.Count(p => p != target && p.TeamIndex == command.TeamIndex) >= LobbyRules.TeamCapacity(_lobbyMatch))
+                    if (_peers.Count(p => p != target && p.TeamIndex == requestedTeam) >= LobbyRules.TeamCapacity(_lobbyMatch, requestedTeam))
                     { reason = "That team is full."; return LobbyResultCode.TeamFull; }
-                    target.TeamIndex = command.TeamIndex;
+                    target.TeamIndex = requestedTeam;
                     target.LobbyReady = false;
                     break;
                 case LobbyCommandType.UpdateMatch:
@@ -157,11 +160,15 @@ namespace MphRead.Mods.Network
                     if (valid != LobbyResultCode.Ok) return valid;
                     string? room = ResolveRoomKey(proposed.RoomKey);
                     if (room == null) { reason = "The server does not have that map."; return LobbyResultCode.MapUnavailable; }
-                    bool topologyChanged = proposed.Format != _lobbyMatch.Format
-                        || GameState.IsTeamMode(proposed.Mode) != GameState.IsTeamMode(_lobbyMatch.Mode);
+                    TeamLayout proposedLayout = LobbyRules.ResolveTeamLayout(proposed);
+                    if (proposedLayout.TeamCount > 0 && (proposedLayout.TotalPlayers < _peers.Count
+                        || (LobbyRules.ExactTeams(proposed) && proposedLayout.TotalPlayers > _maxPlayers)))
+                    { reason = "The layout must fit the connected roster and server player limit."; return LobbyResultCode.InvalidConfiguration; }
+                    bool topologyChanged = proposedLayout != LobbyRules.ResolveTeamLayout(_lobbyMatch);
                     _lobbyMatch = proposed with { RoomKey = room };
                     RequireReady = command.Configuration.RequireReady;
                     AllowJoinInProgress = command.Configuration.AllowJoinInProgress;
+                    LockTeams = command.Configuration.LockTeams;
                     if (topologyChanged) NormalizeTeams();
                     InvalidateLobbyReady();
                     break;
@@ -169,6 +176,7 @@ namespace MphRead.Mods.Network
                     var start = LobbyRules.Validate(_lobbyMatch, BuildRoster(), RequireReady, out reason);
                     if (start != LobbyResultCode.Ok) return start;
                     _frozenMatch = _lobbyMatch;
+                    _frozenWorldProfile = LobbyRules.ResolveWorldProfile(_frozenMatch, _maxPlayers);
                     // Build before publishing Starting. A failure must not strand clients in loading.
                     double buildStarted = NetSession.Clock;
                     try { StartSimulation(); }
@@ -212,7 +220,7 @@ namespace MphRead.Mods.Network
             if (peer == null || !MatchLoadedPacket.TryRead(packet.Payload, out var loaded) || loaded.MatchId != _matchId) return;
             peer.LastSeen = now;
             byte mask = (byte)(1 << peer.SlotIndex);
-            if (_phase != SessionPhase.Starting || (_loadedSlots & mask) != 0) return;
+            if (_phase != SessionPhase.Starting || (_expectedLoadedSlots & mask) == 0 || (_loadedSlots & mask) != 0) return;
             _loadedSlots |= mask;
             TouchLobbyRevision($"slot {peer.SlotIndex} loaded match {_matchId}");
             CheckLoadBarrier(now);
@@ -240,7 +248,7 @@ namespace MphRead.Mods.Network
             _sim?.Stop(); _sim = null; _lastSnapshot = null;
             _lobbyMatch = DefinitionFor(_rotation.Advance()) with
             {
-                Format = _frozenMatch.Format, FriendlyFire = _frozenMatch.FriendlyFire,
+                Format = _frozenMatch.Format, CustomTeams = _frozenMatch.CustomTeams, FriendlyFire = _frozenMatch.FriendlyFire,
                 AffinityWeapons = _frozenMatch.AffinityWeapons, ShadowFreeze = _frozenMatch.ShadowFreeze
             };
             // Rotation may change between team and FFA modes; keep the pending format legal.

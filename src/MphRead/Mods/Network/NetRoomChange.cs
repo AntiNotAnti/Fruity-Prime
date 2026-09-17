@@ -145,6 +145,10 @@ namespace MphRead.Mods.Network
         public static PlayerEntity RebuildPlayers(Scene scene, Hunter hunter, int recolor)
         {
             int localSlot = Math.Max(NetSession.LocalSlot, 0);
+            bool teams = GameState.IsTeamMode(NetSession.ActiveMatchDefinition?.Mode
+                ?? (GameMode)(NetSession.ServerMatch?.Mode ?? (byte)GameState.Mode));
+            GameState.TeamCount = teams && NetSession.ActiveMatchDefinition is { } match
+                ? LobbyRules.TeamCount(match) : teams ? 2 : 0;
             for (int slot = 0; slot < PlayerEntity.MaxPlayers; slot++)
             {
                 Hunter slotHunter = slot == localSlot ? hunter : NetSession.SlotHunter[slot];
@@ -153,6 +157,7 @@ namespace MphRead.Mods.Network
                 {
                     continue;
                 }
+                created.TeamIndex = teams ? Math.Max(0, (int)NetSession.SlotTeamIndex[slot]) : slot;
                 created.LoadFlags |= LoadFlags.SlotActive;
                 created.LoadFlags |= LoadFlags.Active;
                 created.LoadFlags |= LoadFlags.Initial;

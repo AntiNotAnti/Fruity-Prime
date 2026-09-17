@@ -8,6 +8,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using MphRead.Mods.Network;
+using MphRead.Mods.Multiplayer;
 
 namespace MphRead.Mods.Launcher.Gui
 {
@@ -53,26 +54,39 @@ namespace MphRead.Mods.Launcher.Gui
                     MaxPlayers = 8, OwnerSlot = 0, Revision = 7, RuleFlags = SessionRules.RequireReady | SessionRules.AllowJoinInProgress,
                     Match = new MatchDefinition { RoomKey = rooms[0], Mode = GameMode.BattleTeams, Format = MatchFormat.FourVsFour,
                         TimeLimitSeconds = 600, PointGoal = 20, ShadowFreeze = true } };
-                NetSession.ApplySessionState(state);
-                var roster = RosterPacket.Create(); roster.Count = 8; roster.Revision = 7;
-                for (int i = 0; i < 8; i++)
+                foreach (var (sample, format, layout, locked) in new[] {
+                    ("3v3", MatchFormat.ThreeVsThree, new TeamLayout(2, 3, 3), false),
+                    ("4v4", MatchFormat.FourVsFour, new TeamLayout(2, 4, 4), false),
+                    ("2v2v2v2", MatchFormat.TwoVsTwoVsTwoVsTwo, new TeamLayout(4, 2, 2, 2, 2), false),
+                    ("custom-4v2", MatchFormat.Custom, new TeamLayout(2, 4, 2), false),
+                    ("custom-1v1v2v4", MatchFormat.Custom, new TeamLayout(4, 1, 1, 2, 4), false),
+                    ("locked", MatchFormat.TwoVsTwoVsTwoVsTwo, new TeamLayout(4, 2, 2, 2, 2), true) })
                 {
-                    roster.Slots[i] = (byte)i; roster.Names[i] = i == 0 ? "Jarrett" : $"Player {i + 1}";
-                    roster.Hunters[i] = (byte)(i % 7); roster.Colors[i] = (byte)(i % 4);
-                    roster.Teams[i] = (sbyte)(i % 2); roster.LobbyReady[i] = i < 5; roster.Pings[i] = (ushort)(23 + 11 * i);
-                }
-                NetSession.ApplyRoster(roster);
-                Chat.NetChat.Remember(new ChatPacket { Name = "Player 2", Text = "Ready for the next round.", Kind = ChatPacket.KindSay });
-                foreach (var (name, size) in new[] { ("lobby-desktop", new Size(1280, 720)),
-                    ("lobby-phone", new Size(960, 540)), ("lobby-short", new Size(800, 400)) })
-                {
-                    var lobby = new LobbyScreen(rooms); lobby.Suspend();
-                    if (Capture(lobby, Path.Combine(directory, name + ".png"), size)) written++;
+                    state.Revision++;
+                    state.Match = state.Match with { Format = format, CustomTeams = layout };
+                    state.RuleFlags = SessionRules.RequireReady | SessionRules.AllowJoinInProgress | (locked ? SessionRules.LockTeams : 0);
+                    NetSession.ApplySessionState(state);
+                    var roster = RosterPacket.Create(); roster.Count = (byte)layout.TotalPlayers; roster.Revision = state.Revision;
+                    int[] counts = new int[4];
+                    for (int i = 0; i < roster.Count; i++)
+                    {
+                        roster.Slots[i] = (byte)i; roster.Names[i] = i == 0 ? "Jarrett" : $"Player {i + 1}";
+                        roster.Hunters[i] = (byte)(i % 7); roster.Colors[i] = (byte)(i % 4);
+                        roster.Teams[i] = TeamRules.ChooseTeam(layout, counts); counts[roster.Teams[i]]++;
+                        roster.LobbyReady[i] = i < 5; roster.Pings[i] = (ushort)(23 + 11 * i);
+                    }
+                    NetSession.ApplyRoster(roster);
+                    foreach (var (name, size) in new[] { ("desktop", new Size(1280, 720)),
+                        ("phone", new Size(960, 540)), ("short", new Size(800, 400)) })
+                    {
+                        var lobby = new LobbyScreen(rooms); lobby.Suspend();
+                        if (Capture(lobby, Path.Combine(directory, $"lobby-{sample}-{name}.png"), size)) written++;
+                    }
                 }
                 NetSession.Stop();
             });
             Console.WriteLine($"[lobbyshot] wrote {written} layouts to {directory}");
-            return written == 3 ? 0 : 1;
+            return written == 18 ? 0 : 1;
         }
 
         public static int Run(string directory)
