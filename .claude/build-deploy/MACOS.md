@@ -36,6 +36,12 @@ The final draft release waits for all packages to pass before uploading them.
 - The resulting tar.gz preserves executable permissions. The script extracts
   it again, verifies the resource seal and executes the extracted apphost.
 
+When present in a publish, `gamecontrollerdb.txt` and `gamecontrollerdb.LICENSE`
+are also moved into `Contents/Resources` before signing. They are data, not
+nested code; controller feature branches must load the database from
+`AppPaths.ResourceDirectory`. The packaging fixture checks both files and
+proves that changing the database invalidates the app's resource seal.
+
 These are ad-hoc signatures, not Developer ID signatures or notarization.
 Gatekeeper can still require the user's approval for a downloaded archive.
 See `tools/macos-README.txt`; quarantine removal is scoped to the app only.
