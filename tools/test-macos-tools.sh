@@ -21,7 +21,7 @@ root="$temp/publish with spaces"
 mkdir -p "$root/nested"
 # This synthetic packaging fixture acknowledges the wrapper's success marker;
 # the publish jobs separately run the real launcher's rendered window check.
-printf '#include <stdio.h>\nint main(void) { puts("Launcher window check passed."); puts("GLFW extraction path check passed."); return 0; }\n' > "$temp/main.c"
+printf '#include <stdio.h>\nint main(void) { puts("Launcher window check passed."); puts("GLFW extraction path check passed."); puts("Thumbnail window check passed."); return 0; }\n' > "$temp/main.c"
 printf 'int native_probe(void) { return 42; }\n' > "$temp/native.c"
 clang "$temp/main.c" -o "$root/FruityPrime"
 clang -dynamiclib "$temp/native.c" -o "$root/libopenal.1.dylib"
