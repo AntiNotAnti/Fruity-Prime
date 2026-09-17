@@ -34,7 +34,7 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly TextBox _search = new() { Watermark="Search objects" };
         private readonly Border _modal = new() { Background=GuiTheme.ScrimBrush, IsVisible=false };
         private readonly DispatcherTimer _idle = new() { Interval=TimeSpan.FromSeconds(2) };
-        private readonly MapCatalog _catalog = new(CustomRooms.MapDirectory);
+        private readonly MapCatalog _catalog = CustomRooms.CreateCatalog();
         private MapDocument? _document;
         private MapViewport? _viewport;
         private CancellationTokenSource? _work;
@@ -122,7 +122,7 @@ namespace MphRead.Mods.Launcher.Gui
                     catch(Exception ex){Failure(ex);}finally{_checking=false;}
                 }
                 if(_document==null||!_document.IsDirty||_document.LastEditUtc<=_autosaved||DateTime.UtcNow-_document.LastEditUtc<TimeSpan.FromSeconds(3))return;
-                try{_document.Autosave(CustomRooms.MapDirectory);_autosaved=DateTime.UtcNow;}
+                try{_document.Autosave(CustomRooms.WritableMapDirectory);_autosaved=DateTime.UtcNow;}
                 catch(Exception ex) when(ex is IOException or UnauthorizedAccessException){_status.Text="Autosave failed: "+ex.Message;}
             };
             AttachedToVisualTree+=(_,_)=>_idle.Start();
@@ -138,29 +138,42 @@ namespace MphRead.Mods.Launcher.Gui
         private void Confirm(string message,Action yes)
         {var view=new ConfirmScreen(message);view.Answered+=(_,answer)=>{Dismiss();if(answer)yes();};Modal(view);}
         private void WithUnsaved(Action action)
-        {if(_document?.IsDirty==true)Confirm("Discard unsaved changes? A recovery copy will remain available.",()=>{_document.Autosave(CustomRooms.MapDirectory);action();});else action();}
+        {if(_document?.IsDirty==true)Confirm("Discard unsaved changes? A recovery copy will remain available.",()=>{_document.Autosave(CustomRooms.WritableMapDirectory);action();});else action();}
         private void Close()=>WithUnsaved(()=>Closed?.Invoke(this,EventArgs.Empty));
         private void Load(MapProject project,string? path=null)
         {
+            CustomRooms.PrepareImportForBuild(project.Definition);
             if(_document!=null)_document.Changed-=Changed;
             _document=new(project,path);_document.Changed+=Changed;_viewport=new(_document);_viewport.SelectionChanged+=()=>{RefreshHierarchy();Inspect();};
-            _viewportHost.Children.Clear();_viewportHost.Children.Add(_viewport);_path.Text=path??Path.Combine(CustomRooms.MapDirectory,project.Definition.Name.ToLowerInvariant()+".json");
+            _viewportHost.Children.Clear();_viewportHost.Children.Add(_viewport);
+            _path.Text=path==null
+                ? Path.Combine(CustomRooms.WritableMapDirectory,project.Definition.Name.ToLowerInvariant()+".json")
+                : !CustomRooms.IsReadOnlyMapPath(path)&&!MapBundle.Is(path) ? path : CustomRooms.NewProjectPath(project.Definition.Name);
             Dismiss();Changed();_viewport.FrameAll();
-            if(_document.HasRecovery(CustomRooms.MapDirectory))Recovery();
+            if(_document.HasRecovery(CustomRooms.WritableMapDirectory))Recovery();
             if(project.Definition.Import!=null)_=Validate();
         }
         private void Recovery()
         {
             if(_document==null)return;var view=new StackPanel {Spacing=10};view.Children.Add(Text("A newer recovery file exists."));
-            AddButton(view,"Restore",()=>{_document.Restore(CustomRooms.MapDirectory);Dismiss();});
-            AddButton(view,"Discard",()=>{_document.DiscardRecovery(CustomRooms.MapDirectory);Dismiss();});
-            AddButton(view,"Inspect",()=>{_status.Text=File.ReadAllText(_document.RecoveryPath(CustomRooms.MapDirectory));Dismiss();});Modal(view);
+            AddButton(view,"Restore",()=>{_document.Restore(CustomRooms.WritableMapDirectory);Dismiss();});
+            AddButton(view,"Discard",()=>{_document.DiscardRecovery(CustomRooms.WritableMapDirectory);Dismiss();});
+            AddButton(view,"Inspect",()=>{_status.Text=File.ReadAllText(_document.RecoveryPath(CustomRooms.WritableMapDirectory));Dismiss();});Modal(view);
         }
         private void Open(string path)
         {try{WithUnsaved(()=>{try{Load(MapProjectSerializer.Load(path),path);}catch(Exception ex){Failure(ex);}});}catch(Exception ex){Failure(ex);}}
         private void Save(){if(_document!=null)SaveTo(_path.Text??"");}
         private void SaveTo(string path)
-        {try{_document?.Save(path);_document?.DiscardRecovery(CustomRooms.MapDirectory);_path.Text=path;_status.Text="Saved "+path;}catch(Exception ex){Failure(ex);}}
+        {
+            try
+            {
+                if(_document==null)return;
+                if(CustomRooms.IsReadOnlyMapPath(path))path=CustomRooms.NewProjectPath(_document.Project.Definition.Name);
+                _document.Save(path);_document.DiscardRecovery(CustomRooms.WritableMapDirectory);
+                _path.Text=path;_status.Text="Saved "+path;
+            }
+            catch(Exception ex){Failure(ex);}
+        }
         private void Changed(){RefreshHierarchy();Inspect();_status.Text=(_document?.IsDirty==true?"Unsaved changes · ":"")+"RMB orbit · MMB pan · WASD fly · F focus · drag selection or axis handles";}
         private void RefreshHierarchy()
         {
@@ -203,15 +216,15 @@ namespace MphRead.Mods.Launcher.Gui
             var buttons=new WrapPanel();Grid.SetRow(buttons,2);view.Children.Add(buttons);
             AddButton(buttons,"Open",()=>{if(list.SelectedItem is LibraryRow row)Open(row.Entry.Path);});
             AddButton(buttons,"Duplicate",()=>{if(list.SelectedItem is LibraryRow {Entry.Definition:not null} row){var p=MapProjectMigrator.Upgrade(new(row.Entry.Definition));p.Definition.MapId=Guid.NewGuid();p.Definition.Name+=" COPY";WithUnsaved(()=>Load(p));}});
-            AddButton(buttons,"Delete",()=>{if(list.SelectedItem is LibraryRow row)Confirm("Delete "+Path.GetFileName(row.Entry.Path)+"?",()=>{try{File.Delete(row.Entry.Path);ShowLibrary();}catch(Exception ex){Failure(ex);}});});
-            AddButton(buttons,"Reveal folder",()=>{try{System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(CustomRooms.MapDirectory){UseShellExecute=true});}catch(Exception ex){Failure(ex);}});
+            AddButton(buttons,"Delete",()=>{if(list.SelectedItem is LibraryRow row){if(CustomRooms.IsReadOnlyMapPath(row.Entry.Path)){_status.Text="Bundled maps are read-only. Save a copy to edit this map.";return;}Confirm("Delete "+Path.GetFileName(row.Entry.Path)+"?",()=>{try{File.Delete(row.Entry.Path);ShowLibrary();}catch(Exception ex){Failure(ex);}});}});
+            AddButton(buttons,"Reveal folder",()=>{try{Directory.CreateDirectory(CustomRooms.WritableMapDirectory);System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(CustomRooms.WritableMapDirectory){UseShellExecute=true});}catch(Exception ex){Failure(ex);}});
             AddButton(buttons,"Refresh",ShowLibrary);AddButton(buttons,"New",NewMap);AddButton(buttons,"Close",Dismiss);Modal(view);
             AddButton(buttons,"Recover unsaved",RecoverUnsaved);
         }
         private void RecoverUnsaved()
         {
             var panel=new StackPanel {Spacing=8};panel.Children.Add(Text("RECOVERY FILES"));
-            var list=new ListBox {MaxHeight=350};string directory=Path.Combine(CustomRooms.MapDirectory,".autosave");
+            var list=new ListBox {MaxHeight=350};string directory=Path.Combine(CustomRooms.WritableMapDirectory,".autosave");
             list.ItemsSource=Directory.Exists(directory)?Directory.EnumerateFiles(directory,"*.json").Where(p=>!p.EndsWith(".context.json",StringComparison.OrdinalIgnoreCase)).Select(p=>new RecoveryRow(p)).ToArray():Array.Empty<RecoveryRow>();panel.Children.Add(list);
             AddButton(panel,"Restore",()=>{if(list.SelectedItem is RecoveryRow row)WithUnsaved(()=>{try{Load(MapDocument.ReadRecovery(row.Path));}catch(Exception ex){Failure(ex);}});});
             AddButton(panel,"Discard",()=>{if(list.SelectedItem is RecoveryRow row)Confirm("Delete this recovery copy?",()=>{try{File.Delete(row.Path);if(File.Exists(row.Path+".context.json"))File.Delete(row.Path+".context.json");RecoverUnsaved();}catch(Exception ex){Failure(ex);}});});
@@ -232,7 +245,8 @@ namespace MphRead.Mods.Launcher.Gui
         private void Browse(string title,bool save,Action<string> selected,params string[] extensions)
         {
             var view=new Grid {RowDefinitions=new("Auto,Auto,*,Auto,Auto"),MinWidth=650,Height=480};view.Children.Add(Text(title));
-            var location=new TextBox {Text=Directory.Exists(CustomRooms.MapDirectory)?CustomRooms.MapDirectory:AppContext.BaseDirectory};Grid.SetRow(location,1);view.Children.Add(location);
+            try{Directory.CreateDirectory(CustomRooms.WritableMapDirectory);}catch(Exception ex){Failure(ex);return;}
+            var location=new TextBox {Text=CustomRooms.WritableMapDirectory};Grid.SetRow(location,1);view.Children.Add(location);
             var files=new ListBox();Grid.SetRow(files,2);view.Children.Add(files);var filename=new TextBox {Text=save?"map.json":""};Grid.SetRow(filename,3);view.Children.Add(filename);
             void Refresh()
             {try{files.ItemsSource=Directory.EnumerateFileSystemEntries(location.Text??"").Where(p=>Directory.Exists(p)||extensions.Contains(Path.GetExtension(p).ToLowerInvariant())).OrderBy(p=>!Directory.Exists(p)).ThenBy(p=>p).Select(p=>new BrowserRow(p)).ToArray();}catch(Exception ex){_status.Text=ex.Message;}}
@@ -370,11 +384,25 @@ namespace MphRead.Mods.Launcher.Gui
             AddButton(_inspector,"Add material",()=>_document.Edit("Add material",d=>d.Materials.Add(new(){Id=Guid.NewGuid(),Name="Material "+d.Materials.Count})));
         }
         private sealed record ProblemRow(MapDiagnostic Diagnostic){public override string ToString()=>$"{Diagnostic.Severity} · {Diagnostic.Code} · {Diagnostic.Message}";}
+        private void EnsureWritableProject()
+        {
+            if(_document==null)return;
+            var definition=_document.Project.Definition;
+            if(definition.BundlePath==null&&(definition.BaseDirectory==null||!CustomRooms.IsReadOnlyMapPath(definition.BaseDirectory)))return;
+            // Materialize referenced assets before adding a preview/texture/music.
+            // Keeping the bundled BaseDirectory would write into the signed app.
+            string path=_path.Text??CustomRooms.NewProjectPath(definition.Name);
+            if(CustomRooms.IsReadOnlyMapPath(path)||MapBundle.Is(path))path=CustomRooms.NewProjectPath(definition.Name);
+            if(File.Exists(path)&&!string.Equals(Path.GetFullPath(path),_document.FilePath,StringComparison.Ordinal))
+                throw new IOException("Save a project copy before adding assets; the selected filename already exists.");
+            _document.Save(path);_path.Text=path;
+        }
         private string StoreAsset(string kind,string extension,byte[] bytes)
         {
             if(_document==null)throw new InvalidOperationException("Open a project first.");
             if(bytes.Length>32*1024*1024)throw new IOException("Assets must be no larger than 32 MiB.");
-            string root=_document.Project.Definition.BaseDirectory??CustomRooms.MapDirectory;
+            EnsureWritableProject();
+            string root=_document.Project.Definition.BaseDirectory??CustomRooms.WritableMapDirectory;
             string relative=kind+"/"+Guid.NewGuid().ToString("N")+extension;
             AtomicFile.Write(Path.Combine(root,relative),bytes);
             _document.Edit("Add "+kind,d=>{d.BaseDirectory=root;d.Assets.Add(new(){Path=relative,Kind=kind=="audio"?"audio":kind=="preview"?"preview":"texture"});});
@@ -419,6 +447,7 @@ namespace MphRead.Mods.Launcher.Gui
             if(_viewport==null||_document==null||_viewport.Bounds.Width<1||_viewport.Bounds.Height<1)return;
             try
             {
+                EnsureWritableProject();
                 using var bitmap=new Avalonia.Media.Imaging.RenderTargetBitmap(new PixelSize((int)_viewport.Bounds.Width,(int)_viewport.Bounds.Height),new Avalonia.Vector(96,96));
                 bitmap.Render(_viewport);using var stream=new MemoryStream();bitmap.Save(stream);
                 _document.Edit("Replace preview",d=>d.Assets.RemoveAll(a=>a.Kind=="preview"));
@@ -430,7 +459,8 @@ namespace MphRead.Mods.Launcher.Gui
         {_problems.ItemsSource=result.Diagnostics.Select(d=>new ProblemRow(d)).ToArray();_status.Text=(result.IsValid?"Validation passed. ":"Build blocked. ")+string.Join(" · ",result.Budgets.Select(b=>$"{b.Name}: {b.Used:N0}"+(b.Limit!=null?$" / {b.Limit:N0}":"")));}
         private async Task Work(string label,Func<MapProject,CancellationToken,Task> action)
         {
-            if(_document==null||_work!=null)return;var snapshot=_document.Snapshot();await Job(label,token=>action(snapshot,token));
+            if(_document==null||_work!=null)return;var snapshot=_document.Snapshot();
+            await Job(label,token=>{CustomRooms.PrepareImportForBuild(snapshot.Definition);return action(snapshot,token);});
         }
         private async Task Job(string label,Func<CancellationToken,Task> action)
         {
@@ -467,7 +497,8 @@ namespace MphRead.Mods.Launcher.Gui
         {
             if(package)
             {
-                string output=Path.ChangeExtension(_path.Text??Path.Combine(CustomRooms.MapDirectory,p.Definition.Name),".fpmap");
+                string output=Path.ChangeExtension(_path.Text??CustomRooms.NewProjectPath(p.Definition.Name),".fpmap");
+                if(CustomRooms.IsReadOnlyMapPath(output))output=Path.ChangeExtension(CustomRooms.NewProjectPath(p.Definition.Name),".fpmap");
                 string path=await Task.Run(()=>{token.ThrowIfCancellationRequested();return MapPackageBuilder.Build(p.Definition,output);},token);_status.Text="Package built: "+path;
             }
             else
@@ -508,7 +539,7 @@ namespace MphRead.Mods.Launcher.Gui
                 {
                     try
                     {
-                        MapValidator.RequireRuntimeName(room);string directory=Path.Combine(CustomRooms.MapDirectory,room.ToLowerInvariant());
+                        MapValidator.RequireRuntimeName(room);string directory=Path.Combine(CustomRooms.WritableMapDirectory,room.ToLowerInvariant());
                         if(Directory.Exists(directory))throw new IOException("A map folder already has this name. Choose a new name.");
                         Dismiss();_status.Text="Importing Quake 3 map…";
                         int status=await Task.Run(()=>Q3Convert.Run(source,map,room,directory,!keep,string.IsNullOrWhiteSpace(size)?null:Number(size),64));

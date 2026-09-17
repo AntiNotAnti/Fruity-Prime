@@ -33,8 +33,46 @@ namespace MphRead.Mods.MapGen
         /// already do. Set it before anything reads <see cref="Definitions"/>:
         /// the list is loaded once and cached.
         /// </summary>
-        public static string MapDirectory { get; set; }
-            = Platform.AppPaths.Maps;
+        private static string? _mapDirectory;
+        public static string MapDirectory
+        {
+            get => _mapDirectory ?? Platform.AppPaths.Maps;
+            set => _mapDirectory = value;
+        }
+
+        // An explicit portable/Android override remains the read/write library.
+        // macOS installation maps are always read-only, including with -mapdir.
+        public static string WritableMapDirectory => _mapDirectory != null && !IsReadOnlyMapPath(_mapDirectory)
+            ? _mapDirectory : Platform.AppPaths.WritableMaps;
+        public static string[] MapDirectories => new[] { WritableMapDirectory, MapDirectory };
+        public static MapCatalog CreateCatalog() => new MapCatalog(MapDirectories);
+        public static bool IsReadOnlyMapPath(string path) => Platform.AppPaths.IsReadOnlyMapPath(
+            path, Platform.AppPaths.Maps, OperatingSystem.IsMacOS());
+
+        public static string NewProjectPath(string name)
+        {
+            MapValidator.RequireRuntimeName(name);
+            string stem = name.ToLowerInvariant();
+            string folder = Path.Combine(WritableMapDirectory, stem);
+            for (int suffix = 2; Directory.Exists(folder) || File.Exists(folder); suffix++)
+                folder = Path.Combine(WritableMapDirectory, stem + "-" + suffix);
+            return Path.Combine(folder, stem + ".json");
+        }
+
+        internal static void PrepareImportForBuild(MapDefinition definition)
+            => PrepareImportForBuild(definition, Platform.AppPaths.Maps, WritableMapDirectory, OperatingSystem.IsMacOS());
+
+        internal static void PrepareImportForBuild(MapDefinition definition, string resourceMaps, string writableMaps, bool macOS)
+        {
+            if (definition.Import is not { Textures: { Length: > 0 } } import) return;
+            string target = Path.GetFullPath(Path.Combine(import.BaseDirectory ?? MapDirectory, import.Textures));
+            if (!Platform.AppPaths.IsReadOnlyMapPath(target, resourceMaps, macOS) || import.ResolveTextures() != null
+                || import.ReadBundledTextures() != null) return;
+            // Q3 compilation can bake missing textures even during editor validation.
+            // Keep the input context, but put that derived output outside the app.
+            import.Textures = Path.Combine(writableMaps, ".cache", "textures",
+                MapBuildFingerprint.HashText(target) + ".tex");
+        }
 
         public static IReadOnlyList<MapDefinition> Definitions
         {
@@ -61,7 +99,7 @@ namespace MphRead.Mods.MapGen
         /// </summary>
         private static IReadOnlyList<MapDefinition> LoadDefinitions()
         {
-            var catalog = new MapCatalog(MapDirectory);
+            var catalog = CreateCatalog();
             var entries = catalog.Refresh();
             foreach (var entry in entries)
                 foreach (var diagnostic in entry.Validation.Diagnostics)
@@ -76,7 +114,7 @@ namespace MphRead.Mods.MapGen
         {
             lock (_lock)
             {
-                var entries = new MapCatalog(MapDirectory).Refresh();
+                var entries = CreateCatalog().Refresh();
                 if (_firstId < 0) _definitions = null;
                 return entries;
             }

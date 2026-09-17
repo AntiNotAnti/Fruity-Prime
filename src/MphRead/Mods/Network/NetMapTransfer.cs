@@ -27,7 +27,7 @@ namespace MphRead.Mods.Network
             {
                 try
                 {
-                    string directory=Path.Combine(CustomRooms.MapDirectory,".transfer");Directory.CreateDirectory(directory);
+                    string directory=Path.Combine(CustomRooms.WritableMapDirectory,".transfer");Directory.CreateDirectory(directory);
                     string path=MapPackageBuilder.Build(definition,Path.Combine(directory,MapBuildFingerprint.HashText(definition.Name)+".fpmap"));
                     var bytes=File.ReadAllBytes(path);
                     if(total+bytes.Length>MapPackageReader.MaxExpandedBytes)throw new InvalidDataException("Server map transfer cache is full.");
@@ -73,7 +73,7 @@ namespace MphRead.Mods.Network
         private const int WindowSize=16;
         private static readonly Dictionary<string,string> _verified=new(StringComparer.OrdinalIgnoreCase);
         public static string? LastError { get; private set; }
-        public static string LibraryDirectory=>Path.Combine(CustomRooms.MapDirectory,".installed");
+        public static string LibraryDirectory=>Path.Combine(CustomRooms.WritableMapDirectory,".installed");
 
         // Called only by NetSession after checking the selected server endpoint.
         internal static void Receive(PacketType type,ReadOnlySpan<byte> payload)
@@ -115,7 +115,7 @@ namespace MphRead.Mods.Network
             if(!NetSession.IsClient||DemoPlayback.IsActive)return true;
             if(!force&&_verified.ContainsKey(room))return true;
             _wanted=room;_offer=null;_error=null;_received=0;_written=0;
-            string directory=Path.Combine(CustomRooms.MapDirectory,".downloads"),temporary="";
+            string directory=Path.Combine(CustomRooms.WritableMapDirectory,".downloads"),temporary="";
             var clock=Stopwatch.StartNew();long lastRequest=-1000,lastReceived=0,progressAt=0;
             try
             {
