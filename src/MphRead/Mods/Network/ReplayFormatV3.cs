@@ -306,6 +306,7 @@ namespace MphRead.Mods.Network
         private uint _remaining, _first, _last, _previous;
         private int _chunkNumber;
         private readonly long _dataStart;
+        private readonly bool _metadataOnly;
         private long _dataEnd;
         private bool _hasFooter, _ended;
         public ReplayMetadata Metadata { get; }
@@ -313,9 +314,10 @@ namespace MphRead.Mods.Network
         public uint DurationFrames => Metadata.DurationFrames;
 
         // stream is positioned immediately after the six-byte dispatch header.
-        public ReplayReaderV3(FileStream stream, byte protocol)
+        public ReplayReaderV3(FileStream stream, byte protocol, bool metadataOnly = false)
         {
             _stream = stream;
+            _metadataOnly = metadataOnly;
             _reader = new BinaryReader(stream, Encoding.UTF8, true);
             int size = _reader.ReadInt32();
             uint crc = _reader.ReadUInt32();
@@ -326,6 +328,7 @@ namespace MphRead.Mods.Network
             _dataStart = stream.Position;
             _dataEnd = stream.Length;
             ReadFooter();
+            if (!_hasFooter) Metadata.Integrity = ReplayIntegrity.Truncated;
             stream.Position = _dataStart;
         }
 
@@ -360,14 +363,14 @@ namespace MphRead.Mods.Network
                 nextOffset = entry.Offset + ReplayFormatV3.ChunkHeaderSize + entry.CompressedLength;
                 if (nextOffset > offset) throw new InvalidDataException("Chunk overlaps footer.");
                 previous = entry.LastFrame;
-                _index.Add(entry);
+                if (!_metadataOnly) _index.Add(entry);
             }
             if (nextOffset != offset || (count != 0 && previous != duration) || (count == 0 && duration != 0))
                 throw new InvalidDataException("Invalid replay duration or data extent.");
             int events = footer.ReadInt32();
             if (events < 0 || events > ReplayFormatV3.MaxEvents || (long)events * 11 > bytes.Length - footer.BaseStream.Position - 4)
                 throw new InvalidDataException("Invalid event count.");
-            var annotations = new List<ReplayEvent>(events);
+            var annotations = new List<ReplayEvent>(_metadataOnly ? 0 : events);
             uint lastEvent = 0;
             for (int i = 0; i < events; i++)
             {
@@ -377,7 +380,8 @@ namespace MphRead.Mods.Network
                     || (e.ActorSlot != byte.MaxValue && e.ActorSlot >= RosterPacket.MaxSlots)
                     || (e.TargetSlot != byte.MaxValue && e.TargetSlot >= RosterPacket.MaxSlots))
                     throw new InvalidDataException("Invalid replay event.");
-                annotations.Add(e); lastEvent = e.Frame;
+                if (!_metadataOnly) annotations.Add(e);
+                lastEvent = e.Frame;
             }
             if (footer.ReadInt32() != 0 || footer.BaseStream.Position != bytes.Length)
                 throw new InvalidDataException("Unsupported checkpoint index.");
@@ -391,6 +395,7 @@ namespace MphRead.Mods.Network
 
         public DemoRecord? ReadNext()
         {
+            if (_metadataOnly) throw new InvalidOperationException("Metadata-only readers cannot read packets.");
             if (_ended) return null;
             try
             {

@@ -195,7 +195,7 @@ namespace MphRead.Mods.Network
         /// <summary>Null if the file doesn't look like a demo at all (bad magic, wrong version, truncated header).</summary>
         public static DemoReader? Open(string path) => Open(path, out _);
 
-        public static DemoReader? Open(string path, out ReplayOpenResult result)
+        public static DemoReader? Open(string path, out ReplayOpenResult result, bool metadataOnly = false)
         {
             result = ReplayOpenResult.Success;
             FileStream? stream = null;
@@ -222,7 +222,7 @@ namespace MphRead.Mods.Network
                     result = ReplayOpenResult.UnsupportedFormat;
                     return null;
                 }
-                return new DemoReader(stream, header[5], header[4]);
+                return new DemoReader(stream, header[5], header[4], metadataOnly);
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException
                 || ex is ArgumentException || ex is InvalidDataException || ex is OverflowException)
@@ -233,11 +233,11 @@ namespace MphRead.Mods.Network
             }
         }
 
-        private DemoReader(FileStream stream, byte protocolVersion, byte version)
+        private DemoReader(FileStream stream, byte protocolVersion, byte version, bool metadataOnly)
         {
             _stream = stream;
             ProtocolVersion = protocolVersion;
-            if (version == 3) _v3 = new ReplayReaderV3(stream, protocolVersion);
+            if (version == 3) _v3 = new ReplayReaderV3(stream, protocolVersion, metadataOnly);
             else _deflate = new DeflateStream(stream, CompressionMode.Decompress, leaveOpen: true);
         }
 

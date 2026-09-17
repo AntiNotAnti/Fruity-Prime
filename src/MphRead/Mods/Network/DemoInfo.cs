@@ -87,6 +87,11 @@ namespace MphRead.Mods.Network
                     + "so it will play back as an empty room.");
                 return 1;
             }
+            if (reader.LastResult != ReplayOpenResult.Success)
+            {
+                Console.WriteLine($"  Integrity failure: {reader.LastResult}");
+                return 1;
+            }
             return replay ? Replay(path) : 0;
         }
 

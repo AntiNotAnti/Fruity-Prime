@@ -305,7 +305,7 @@ namespace MphRead.Mods.Network
         public static void StartPlayback()
         {
             Stop();
-            _transport = new NetTransport(0);
+            _transport = new NetTransport(0, playbackOnly: true);
             Role = NetRole.Client;
             LocalSlot = -1;
             NetFrame = 0;
@@ -719,6 +719,11 @@ namespace MphRead.Mods.Network
 
         private static void Handle(ReceivedPacket packet, double time)
         {
+            // Reconnects/authority handovers belong to the recording client's connection,
+            // never to the spectator watching it. In particular Welcome must not assign a
+            // local player, and Bye must not destroy the final replay scene.
+            if (DemoPlayback.IsActive && packet.Type is PacketType.Welcome or PacketType.Authority
+                or PacketType.Bye or PacketType.Refused) return;
             if (Role == NetRole.Client && !DemoPlayback.IsActive
                 && (_hostEndPoint == null || !packet.Sender.Equals(_hostEndPoint))) return;
             if (Role == NetRole.Client)

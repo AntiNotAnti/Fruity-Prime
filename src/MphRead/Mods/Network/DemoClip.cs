@@ -39,6 +39,8 @@ namespace MphRead.Mods.Network
         public static bool IsSaving => _pendingPath != null;
         public static string? LastError { get; private set; }
         public static string? LastSavedPath { get; private set; }
+        internal static long BufferedBytes => _bytes;
+        internal static int BufferedPages => Pages.Count;
         public static bool Active => Seconds > 0 && NetSession.Active && !DemoPlayback.IsActive;
         public static double Held => Pages.Count == 0 || NetSession.NetFrame < Pages.Peek().First
             ? 0 : (NetSession.NetFrame - Pages.Peek().First) / 60.0;

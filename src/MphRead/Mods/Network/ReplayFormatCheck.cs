@@ -50,6 +50,24 @@ namespace MphRead.Mods.Network
                     Require(reader.Metadata.Integrity == ReplayIntegrity.Healthy, "validated integrity");
                 }
                 Require(ReplayArchive.Validate(clean) == ReplayOpenResult.Success, "validator");
+                using (var transport = new NetTransport(0, playbackOnly: true))
+                {
+                    long sent = NetTransport.TotalPacketsSent;
+                    Require(transport.LocalPort == 0, "playback opens no socket");
+                    transport.Send(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 9), PacketType.Ping, packet);
+                    Require(NetTransport.TotalPacketsSent == sent, "playback sends no traffic");
+                    for (int i = 0; i < 4096; i++) transport.EnqueueForPlayback(packet, packet.Length);
+                    int delivered = 0; foreach (var unused in transport.Drain()) delivered++;
+                    Require(delivered == 4096 && transport.PacketsDropped == 0, "recorded packet burst is not dropped");
+                }
+                Require(DemoPlayback.Join(clean), "matching protocol bootstrap joins");
+                foreach (byte[] control in new[] { new byte[] { (byte)PacketType.Welcome, 0 },
+                    new byte[] { (byte)PacketType.Authority }, new byte[] { (byte)PacketType.Bye } })
+                    NetSession.InjectPlaybackPacket(control, control.Length);
+                NetSession.Update(0);
+                Require(NetSession.Active && NetSession.LocalSlot == -1 && !NetSession.IsAuthority,
+                    "reconnect/control packets cannot create a local player or end playback");
+                DemoPlayback.Stop(); NetSession.Stop();
                 string extracted = Path.Combine(directory, "extracted.fpdemo");
                 Require(ReplayArchive.Extract(clean, 60, 180, extracted) == ReplayOpenResult.Success, "extract clip");
                 using (var reader = DemoReader.Open(extracted))
@@ -121,6 +139,20 @@ namespace MphRead.Mods.Network
                     _ = ReplayArchive.Validate(corrupt);
                     checks++;
                 }
+                NetSession.StartPlayback();
+                NetSession.ApplyMatchState(new MatchStatePacket { RoomKey = "", NextRoomKey = "", Mode = (byte)GameMode.Battle }, false);
+                int priorSeconds = DemoClip.Seconds;
+                try
+                {
+                    DemoClip.Seconds = 120;
+                    // No simulation frames advance: a packet flood during a stalled client
+                    // must remain bounded by memory as well as by the time window.
+                    for (int i = 0; i < 1000000; i++) DemoClip.Add(packet.AsSpan(0, 1));
+                    Require(DemoClip.BufferedBytes <= 24 * 1024 * 1024 && DemoClip.BufferedPages > 1, "stalled packet flood is bounded");
+                    DemoClip.Purge();
+                    Require(DemoClip.BufferedBytes == 0 && DemoClip.BufferedPages == 0, "pooled clip pages released");
+                }
+                finally { DemoClip.Seconds = priorSeconds; NetSession.Stop(); }
                 Console.WriteLine($"[replayformat] PASS {checks} checks (v2/v3, order, metadata, CRC, recovery, extraction, malformed files)");
                 return 0;
             }
