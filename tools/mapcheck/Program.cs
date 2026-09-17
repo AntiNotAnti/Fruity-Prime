@@ -235,6 +235,7 @@ try
         oldModel.Meshes[0].ListId=0;MphRead.Read.ClearCache();authored.Definition.Geometry.RemoveAt(authored.Definition.Geometry.Count-1);
     }
     finally{Directory.SetCurrentDirectory(originalDirectory);}
+    checks += PackagingGeometryChecks.Run(temporary, authored.Definition);
     if(args.Length==2&&args[0]=="--fixtures")MapProjectExport.Save(authored.Definition,Path.Combine(Path.GetFullPath(args[1]),"studio-regression.json"));
     Console.WriteLine($"PASS: {checks} map pipeline checks.");
 }

@@ -212,15 +212,18 @@ namespace MphRead.Mods.MapGen
 
         private IEnumerable<string> Candidates(string name)
         {
-            yield return name;
             if (Path.IsPathRooted(name))
             {
+                yield return name;
                 yield break;
             }
             if (BaseDirectory != null)
             {
                 yield return Path.Combine(BaseDirectory, name);
             }
+            // A project owns its relative dependencies. Keep the historical
+            // working-directory fallback only when that project has no match.
+            yield return name;
             yield return Path.Combine(CustomRooms.MapDirectory, name);
             yield return Path.Combine(Mods.Launcher.GameFiles.Root, name);
         }

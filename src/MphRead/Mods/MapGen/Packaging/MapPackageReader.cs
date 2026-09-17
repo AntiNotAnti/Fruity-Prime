@@ -111,7 +111,10 @@ namespace MphRead.Mods.MapGen
                 || name.Any(c => c < 32 || ":<>\"|?*".Contains(c))) throw new InvalidDataException("Unsafe package path.");
             foreach (string part in name.Split('/'))
             {
+                // Windows recognizes device names before the first dot, even
+                // when the path has multiple extensions (CON.backup.tex).
                 if (part is "" or "." or ".." || part.EndsWith('.') || part.EndsWith(' ')
+                    || !MapValidator.ValidRuntimeName(part.Split('.')[0])
                     || !MapValidator.ValidRuntimeName(Path.GetFileNameWithoutExtension(part).Replace('.', '_')))
                     throw new InvalidDataException("Unsafe package path: " + name);
             }
