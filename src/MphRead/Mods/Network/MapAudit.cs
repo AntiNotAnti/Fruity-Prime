@@ -26,7 +26,7 @@ namespace MphRead.Mods.Network
     ///
     /// Usage: -maptest "MP3 PROVING GROUND" [-players 8] [-seconds 10]
     /// </summary>
-    public sealed class MapAudit : GameWindow
+    public sealed partial class MapAudit : GameWindow
     {
         private readonly string _room;
         private readonly int _players;
@@ -320,7 +320,9 @@ namespace MphRead.Mods.Network
                 Hunter hunter = i == 0 && MainHunter.HasValue
                     ? MainHunter.Value
                     : (Hunter)(i % 7);
-                Scene.AddPlayer(hunter, recolor: 0, team: -1);
+                int team = GameState.IsTeamMode(mode)
+                    ? Math.Min(i, players - 1 - i) % (TeamProbe ? 4 : 2) : -1;
+                Scene.AddPlayer(hunter, recolor: 0, team: team);
             }
             for (int i = 0; i < PlayerEntity.Players.Count; i++)
             {
@@ -334,7 +336,8 @@ namespace MphRead.Mods.Network
             }
             PlayerEntity.PlayerCount = players;
             PlayerEntity.MainPlayerIndex = 0;
-            Scene.AddRoom(room, mode, playerCount: NetLaunch.RoomPlayerCount);
+            GameState.TeamCount = GameState.IsTeamMode(mode) ? TeamProbe ? 4 : 2 : 0;
+            Scene.AddRoom(room, mode, playerCount: Math.Clamp(players, 2, 4));
         }
 
         protected override void OnLoad()
@@ -1288,6 +1291,11 @@ namespace MphRead.Mods.Network
 
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
+            if (TeamProbe)
+            {
+                _teamProbeProblems.AddRange(RunTeamProbe());
+                CaptureTeamResults();
+            }
             Scene.DoCleanup();
             base.OnClosing(e);
         }
@@ -1520,6 +1528,7 @@ namespace MphRead.Mods.Network
             {
                 Console.WriteLine($"MAPFAIL {_room} | {problem}");
             }
+            if (TeamProbe) problems.AddRange(_teamProbeProblems);
             return problems.Count + lockjawFailures;
         }
 
@@ -1541,6 +1550,11 @@ namespace MphRead.Mods.Network
             bool bots = false, string? shotDirectory = null, bool renderProbe = false,
             bool allNodes = false, bool itemProbe = false)
         {
+            if (TeamProbe && (players != 8 || !GameState.IsTeamMode(mode) || mode == GameMode.Capture))
+            {
+                Console.WriteLine("MAPFAIL teamprobe requires eight players and a supported team mode");
+                return 1;
+            }
             MapAudit? window = null;
             BombEntity.ModLockjawDrawRngChanges = 0;
             BombEntity.ModAuditLockjawDrawRng = DrawRate > 1;

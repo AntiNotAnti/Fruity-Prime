@@ -1,6 +1,6 @@
 # Testing — test harness
 
-For protocol 8 persistent lobby regression, run `-netlobbytest`. It uses real
+For protocol 9 persistent lobby regression, run `-netlobbytest`. It uses real
 local UDP without cartridge assets and includes the actual NetSession client,
 control-command loss/retry and two-round connection persistence. `-lobbyshot DIR`
 renders desktop/phone lobby layouts. Scope and remaining rendered acceptance

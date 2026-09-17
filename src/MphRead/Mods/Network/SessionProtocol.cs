@@ -1,4 +1,5 @@
 using System;
+using MphRead.Mods.Multiplayer;
 using System.Buffers.Binary;
 
 namespace MphRead.Mods.Network
@@ -6,13 +7,15 @@ namespace MphRead.Mods.Network
     // Fixed, bounded control packets. TryRead is the only wire entry point.
     public struct SessionStatePacket
     {
-        public const int Size = 20 + HostRequestPacket.MaxRoomBytes;
+        public const int Size = 27 + HostRequestPacket.MaxRoomBytes;
         public SessionPhase Phase;
         public ServerSessionPolicy Policy;
         public ushort Revision, MatchId;
         public byte OwnerSlot, MaxPlayers, ExpectedParticipants, LoadedParticipants;
         public SessionRules RuleFlags;
         public MatchDefinition Match;
+        public MatchWorldProfile WorldProfile;
+        public bool LockTeams => RuleFlags.HasFlag(SessionRules.LockTeams);
         public bool RequireReady => RuleFlags.HasFlag(SessionRules.RequireReady);
         public bool AllowJoinInProgress => RuleFlags.HasFlag(SessionRules.AllowJoinInProgress);
 
@@ -28,7 +31,10 @@ namespace MphRead.Mods.Network
             BinaryPrimitives.WriteUInt16LittleEndian(dest[12..], Match.PointGoal);
             BinaryPrimitives.WriteUInt16LittleEndian(dest[14..], (ushort)(RuleFlags | Match.Rules));
             dest[16] = ExpectedParticipants; dest[17] = LoadedParticipants;
-            NetText.Write(dest.Slice(20, HostRequestPacket.MaxRoomBytes), Match.RoomKey);
+            dest[20] = Match.CustomTeams.TeamCount; dest[21] = Match.CustomTeams.TeamA;
+            dest[22] = Match.CustomTeams.TeamB; dest[23] = Match.CustomTeams.TeamC; dest[24] = Match.CustomTeams.TeamD;
+            dest[25] = WorldProfile.EntityLayerPlayers; dest[26] = (byte)WorldProfile.Resources;
+            NetText.Write(dest.Slice(27, HostRequestPacket.MaxRoomBytes), Match.RoomKey);
         }
 
         public static bool TryRead(ReadOnlySpan<byte> src, out SessionStatePacket state)
@@ -37,10 +43,11 @@ namespace MphRead.Mods.Network
             if (src.Length != Size || src[0] > (byte)SessionPhase.PostMatch
                 || src[1] > (byte)ServerSessionPolicy.Lobby || src[7] is < 1 or > 8
                 || (src[6] != byte.MaxValue && src[6] >= src[7])
-                || src[8] > (byte)MatchFormat.TwoVsTwoVsTwoVsTwo
+                || (src[16] & ~((1 << src[7]) - 1)) != 0 || (src[17] & ~src[16]) != 0
+                || src[8] > (byte)MatchFormat.Custom
                 || !Enum.IsDefined(typeof(GameMode), src[9])) return false;
             var flags = (SessionRules)BinaryPrimitives.ReadUInt16LittleEndian(src[14..]);
-            if (((ushort)flags & ~31) != 0) return false;
+            if (((ushort)flags & ~63) != 0) return false;
             state = new SessionStatePacket
             {
                 Phase = (SessionPhase)src[0], Policy = (ServerSessionPolicy)src[1],
@@ -48,18 +55,22 @@ namespace MphRead.Mods.Network
                 MatchId = BinaryPrimitives.ReadUInt16LittleEndian(src[4..]),
                 OwnerSlot = src[6], MaxPlayers = src[7], RuleFlags = flags,
                 ExpectedParticipants = src[16], LoadedParticipants = src[17],
+                WorldProfile = new MatchWorldProfile(src[25], (ResourceSpawnProfile)src[26]),
                 Match = new MatchDefinition
                 {
                     Format = (MatchFormat)src[8], Mode = (GameMode)src[9],
+                    CustomTeams = new TeamLayout(src[20], src[21], src[22], src[23], src[24]),
                     TimeLimitSeconds = BinaryPrimitives.ReadUInt16LittleEndian(src[10..]),
                     PointGoal = BinaryPrimitives.ReadUInt16LittleEndian(src[12..]),
-                    RoomKey = NetText.Read(src.Slice(20, HostRequestPacket.MaxRoomBytes)),
+                    RoomKey = NetText.Read(src.Slice(27, HostRequestPacket.MaxRoomBytes)),
                     FriendlyFire = flags.HasFlag(SessionRules.FriendlyFire),
                     AffinityWeapons = flags.HasFlag(SessionRules.AffinityWeapons),
                     ShadowFreeze = flags.HasFlag(SessionRules.ShadowFreeze)
                 }
             };
-            return true;
+            return LobbyRules.ValidateDefinition(state.Match, out _) == LobbyResultCode.Ok
+                && (state.Match.Format != MatchFormat.Custom || state.Match.CustomTeams.IsValid)
+                && (state.WorldProfile.IsValid || (state.Phase == SessionPhase.Lobby && state.WorldProfile == default));
         }
 
         public static bool IsNewer(ushort value, ushort previous) => (short)(value - previous) > 0;

@@ -17,7 +17,7 @@ namespace MphRead.Mods.Chat
         public static void Remember(ChatPacket packet)
         {
             if (_history.Count == 64) _history.RemoveAt(0);
-            _history.Add(packet.Kind == ChatPacket.KindSystem ? packet.Text : $"{packet.Name}: {packet.Text}");
+            _history.Add(packet.Kind == ChatPacket.KindSystem ? packet.Text : $"{(packet.Kind == ChatPacket.KindTeam ? "[Team] " : "")}{packet.Name}: {packet.Text}");
             Revision++;
         }
         public static void Send(string text)

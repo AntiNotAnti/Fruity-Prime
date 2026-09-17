@@ -218,7 +218,7 @@ namespace MphRead.Mods.Network
         /// keyboard, so no slot is exempt from being a puppet.
         /// </summary>
         public bool Start(string roomKey, GameMode mode, int maxPlayers,
-            SnapshotSink sink, Action matchEnded, RosterPacket? roster = null)
+            SnapshotSink sink, Action matchEnded, RosterPacket? roster = null, SessionStatePacket? session = null)
         {
             Stop();
             Mods.Headless.Enter();
@@ -233,6 +233,7 @@ namespace MphRead.Mods.Network
                 PlayerEntity.MaxPlayers = Math.Clamp(maxPlayers, 2, PlayerEntity.SlotCapacity);
                 NetSession.StartServerAuthority(sink, matchEnded);
                 if (roster is { } players) NetSession.ApplyRoster(players);
+                if (session is { } state) NetSession.ApplySessionState(state);
                 // A size, because the scene divides by it when it builds a
                 // projection. Nothing here ever builds one; this is the DS's
                 // own, so a stray aspect ratio is at least the right one.

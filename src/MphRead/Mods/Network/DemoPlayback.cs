@@ -89,8 +89,11 @@ namespace MphRead.Mods.Network
             }
             if (_reader.ProtocolVersion != NetConfig.ProtocolVersion)
             {
-                Console.WriteLine($"[demo] recorded with protocol {_reader.ProtocolVersion}, "
-                    + $"this build is {NetConfig.ProtocolVersion} -- it may not play back correctly");
+                LastError = $"This demo uses protocol {_reader.ProtocolVersion}; this build requires protocol {NetConfig.ProtocolVersion}. "
+                    + "Open it with the matching game version.";
+                Console.WriteLine($"[demo] {LastError}");
+                Stop();
+                return false;
             }
             NetSession.StartPlayback();
             IsActive = true;

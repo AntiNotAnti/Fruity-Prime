@@ -135,6 +135,7 @@ namespace MphRead.Mods.Network
         // The socket, local slot, identity, authoritative roster and lobby state survive this reset.
         public static void ResetMatchState()
         {
+            NetHealthSync.BeginRoom();
             NetPlayerSetup.Reset(); SpectatorMode.Reset(); NetMatchSync.Reset();
             NetSlotManager.Reset(); NetDamage.Reset(); NetRoomChange.Reset(); NetMatchEnd.Reset();
             NetPlayerBridge.Reset(); NetUnlagged.Reset(); NetHitPrediction.Reset();

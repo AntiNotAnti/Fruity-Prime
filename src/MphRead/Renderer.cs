@@ -456,7 +456,7 @@ namespace MphRead
                     player.LoadFlags |= LoadFlags.Initial;
                     if (team != -1)
                     {
-                        Debug.Assert(team == 0 || team == 1);
+                        Debug.Assert((uint)team < 4);
                         player.TeamIndex = team;
                     }
                     player.IsBot = PlayerEntity.PlayerCount >= 1;

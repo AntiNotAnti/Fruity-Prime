@@ -989,6 +989,16 @@ namespace MphRead.Mods
 
             // The multiplayer room list, one per line, so a shell loop can
             // walk every map without hard-coding the names.
+            if (HasFlag(args, "resourceaudit"))
+            {
+                Environment.ExitCode = Multiplayer.ResourceAudit.Run();
+                return true;
+            }
+            if (ValueAfter(args, "healthsimtest") is string healthRoom)
+            {
+                Environment.ExitCode = HealthSimulationTest.Run(healthRoom);
+                return true;
+            }
             if (HasFlag(args, "rooms"))
             {
                 foreach (string room in ThumbnailGenerator.MultiplayerRooms())
@@ -1234,6 +1244,7 @@ namespace MphRead.Mods
                 // target every other capture reads, so seeing it needs a real
                 // window and a read from its buffer.
                 Network.MapAudit.ShowWindow = HasFlag(args, "hudshots");
+                Network.MapAudit.TeamProbe = HasFlag(args, "teamprobe");
                 // -hunter H puts that hunter in slot 0, whose HUD every
                 // capture is taken through. Each of the eight lays its
                 // readouts out differently, so a HUD picture with no hunter

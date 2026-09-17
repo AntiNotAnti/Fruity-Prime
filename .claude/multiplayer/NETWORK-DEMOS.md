@@ -15,6 +15,10 @@ packet is handed over, never what it means.
 
 That decision has consequences worth knowing before touching any of it.
 
+Protocol 9 recordings include the frozen session team/world profile and the
+authoritative health/time snapshot tail. Playback refuses other protocol versions
+before constructing a scene; use a matching game build for older recordings.
+
 ## Two things a demo has to synthesize
 
 A client does not receive everything it knows. Two holes, both filled by
