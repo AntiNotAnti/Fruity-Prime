@@ -35,13 +35,19 @@ namespace MphRead.Mods.Diagnostics
                 Launcher.LauncherPrefs.Load();
                 InputSettings.Load();
                 if (OperatingSystem.IsMacOS() &&
-                    (Launcher.LauncherPrefs.Directory == Platform.AppPaths.ExecutableDirectory ||
-                     Environment.CurrentDirectory != Platform.AppPaths.UserDataDirectory))
+                    Launcher.LauncherPrefs.Directory == Platform.AppPaths.ExecutableDirectory)
                 {
                     throw new InvalidOperationException("macOS writes must use the user-data directory.");
                 }
                 string probe = Path.Combine(Launcher.LauncherPrefs.Directory, $".smoke-{Guid.NewGuid():N}");
-                try { File.WriteAllText(probe, "configuration write probe"); }
+                try
+                {
+                    File.WriteAllText(probe, "configuration write probe");
+                    if (OperatingSystem.IsMacOS() && !File.Exists(Path.GetFileName(probe)))
+                    {
+                        throw new InvalidOperationException("Relative writes must also use user data.");
+                    }
+                }
                 finally { File.Delete(probe); }
             });
 #if MPHREAD_SHELL

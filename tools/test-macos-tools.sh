@@ -21,6 +21,7 @@ clang -dynamiclib "$temp/native.c" -o "$root/nested/extensionless-native"
 "$repo/tools/check-macos-build.sh" "$root" "$rid"
 expect_failure() {
     if "$@" > "$temp/failure.log" 2>&1; then
+        cat "$temp/failure.log"
         echo "error: unexpectedly accepted: $*" >&2
         exit 1
     fi
@@ -40,7 +41,10 @@ rm "$root/nested/wrong.dylib"
 codesign --remove-signature "$root/nested/extensionless-native"
 expect_failure "$repo/tools/check-macos-build.sh" "$root" "$rid"
 "$repo/tools/sign-macos.sh" "$root"
-codesign --remove-signature "$root/FruityPrime"
-codesign --sign - "$root/FruityPrime"
+# Build a fresh inode: re-signing a previously entitled executable can retain
+# its entitlements on current Apple tooling.
+clang "$temp/main.c" -o "$root/NoJit"
+codesign --force --sign - "$root/NoJit"
+mv "$root/NoJit" "$root/FruityPrime"
 expect_failure "$repo/tools/check-macos-build.sh" "$root" "$rid"
 echo 'macOS signing gate regressions passed.'
