@@ -32,6 +32,10 @@ look-at targets follow a player while that player is spawned. Keys survive
 seek/restart. The shared desktop/Android menu can save, preview or remove a
 key at the current frame, and explicitly enable track playback.
 
+Replay refreshes the controller context before sampling edges, including while
+paused. This restores look/Start after leaving a previous match's menu and keeps
+menu or text-entry input out of replay shortcuts, with the existing release barrier.
+
 Faithful is the default camera profile; Presentation optionally smooths the
 chase camera and enables camera tracks. Neither profile changes packets,
 entity state, simulation timing or network smoothing. The optional director

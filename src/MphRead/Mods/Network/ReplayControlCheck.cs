@@ -1,4 +1,5 @@
 using System;
+using MphRead.Mods.Input;
 
 namespace MphRead.Mods.Network
 {
@@ -8,6 +9,7 @@ namespace MphRead.Mods.Network
         {
             try
             {
+                CheckGamepadContext();
                 foreach (float rate in ReplayController.Rates)
                 {
                     ReplayController.Begin();
@@ -47,6 +49,45 @@ namespace MphRead.Mods.Network
             catch (Exception ex) { Console.WriteLine($"[replaycheck] FAIL: {ex.Message}"); return 1; }
             finally { ReplayController.Stop(); }
         }
+        private static void CheckGamepadContext()
+        {
+            var previousContext = GamepadContexts.Current;
+            bool previousMenu = GamepadContexts.MenuVisible;
+            try
+            {
+                // A prior paused game leaves Current at Menu, even after its UI closes.
+                GamepadContexts.Current = GamepadContext.Menu;
+                GamepadContexts.MenuVisible = false;
+                GamepadManager.UpdateDevice("replay-context-check", new GamepadState { Connected = true }, mapped: true);
+                Replay.ReplayInput.BeginFrame();
+                Require(GamepadContexts.Current == GamepadContext.Gameplay, "replay retained previous menu context");
+                GamepadManager.UpdateDevice("replay-context-check", new GamepadState
+                    { Connected = true, Buttons = GamepadButtons.Start, RightX = 1 }, mapped: true);
+                Replay.ReplayInput.BeginFrame();
+                Require(GamepadInput.AimDeltaX != 0 && GamepadInput.TakeMenuPress(), "replay lost controller look/menu");
+                GamepadContexts.MenuVisible = true;
+                Replay.ReplayInput.BeginFrame();
+                Require(GamepadContexts.Current == GamepadContext.Menu && GamepadInput.AimDeltaX == 0,
+                    "replay menu did not suppress controller look");
+                GamepadContexts.MenuVisible = false;
+                Replay.ReplayInput.BeginFrame();
+                Require(!GamepadInput.TakeMenuPress(), "held Start reopened menu on replay resume");
+                GamepadManager.UpdateDevice("replay-context-check", new GamepadState { Connected = true }, mapped: true);
+                Replay.ReplayInput.BeginFrame();
+                GamepadManager.UpdateDevice("replay-context-check", new GamepadState
+                    { Connected = true, Buttons = GamepadButtons.Start }, mapped: true);
+                Replay.ReplayInput.BeginFrame();
+                Require(GamepadInput.TakeMenuPress(), "fresh Start after release lost on replay resume");
+            }
+            finally
+            {
+                GamepadManager.RemoveDevice("replay-context-check");
+                GamepadContexts.MenuVisible = previousMenu;
+                GamepadContexts.Current = previousContext;
+                GamepadInput.BeginFrame();
+            }
+        }
+
         private static void Require(bool condition, string message)
         { if (!condition) throw new InvalidOperationException(message); }
     }

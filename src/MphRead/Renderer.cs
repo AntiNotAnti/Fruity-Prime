@@ -1507,7 +1507,7 @@ namespace MphRead
             // Input and free camera remain on the presentation clock while paused.
             _frameTime = 1 / 60f;
             if (!Mods.Headless.Active) Mods.Input.GamepadDesktop.Poll();
-            Mods.Input.GamepadInput.BeginFrame();
+            Mods.Replay.ReplayInput.BeginFrame();
             Mods.Replay.ReplayInput.PollGamepad();
             Mods.SpectatorMode.NoteScoreboard(_keyboardState.IsKeyDown(Keys.Tab)
                 || Mods.Input.GamepadInput.State.Down(Mods.Input.GamepadButtons.Back));
