@@ -149,7 +149,7 @@ uniform float fog_min;
 uniform float fog_max;
 uniform sampler2D tex;
 uniform bool use_override;
-uniform bool textured_player_skin;
+uniform int textured_player_skin;
 uniform bool player_outline_mask;
 uniform vec3 player_outline_color;
 uniform vec4 override_color;
@@ -222,7 +222,7 @@ void main()
         // rubble only ever produces banded rubble; what makes a picture read
         // as drawn is that the surface is one colour and the line around it
         // carries the shape.
-        if (use_flat && !use_pal_override && !textured_player_skin) {
+        if (use_flat && !use_pal_override && textured_player_skin == 0) {
             texcolor.rgb = flat_color;
         }
         if (mat_mode == 1) {
@@ -241,9 +241,17 @@ void main()
             col = color * vec4(texcolor.rgb, mat_alpha * texcolor.a);
         }
         if (use_override) {
-            if (textured_player_skin) {
+            if (textured_player_skin > 0) {
                 // Keep the real suit texture and cutouts; lift dark lighting without flattening detail.
-                col.rgb = clamp(mix(col.rgb, texcolor.rgb, 0.8) * 1.25, 0.0, 1.0);
+                if (textured_player_skin == 2) {
+                    // Strong suit/team identity, with contrast driven by the original texture.
+                    float detail = smoothstep(0.05, 0.85, dot(texcolor.rgb, vec3(0.2126, 0.7152, 0.0722)));
+                    vec3 tinted = override_color.rgb * (0.25 + 0.75 * detail);
+                    col.rgb = mix(tinted, pow(texcolor.rgb, vec3(0.7)), 0.25);
+                }
+                else {
+                    col.rgb = clamp(mix(col.rgb, texcolor.rgb, 0.8) * 1.25, 0.0, 1.0);
+                }
             }
             else {
                 col.rgb = override_color.rgb;
@@ -720,7 +728,7 @@ void main()
             Check("VertexShader", Shaders.VertexShader,
                 "4cf1422bddaa3ece44c9cfbf6dab1ede192ee8c3f4fbed362e7da5eebfdfc428");
             Check("FragmentShader", Shaders.FragmentShader,
-                "f942296c78ca116725d522d186b01f3359320ee36dc56e0c09a526c8bbdbd3aa");
+                "074c6dec8b9616fda9dff92c2b5f4fa1b6176f20264c1715c75bc36ee2745cf5");
             Check("RttVertexShader", Shaders.RttVertexShader,
                 "e4ff440d47641350a2b7f59874f66c9330dcbc2c49c70951884b82d3963d6f63");
             Check("RttFragmentShader", Shaders.RttFragmentShader,

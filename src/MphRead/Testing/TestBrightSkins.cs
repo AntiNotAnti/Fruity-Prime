@@ -144,9 +144,18 @@ namespace MphRead.Testing
                 Check(!RenderOptions.BrightSkins && RenderOptions.PlayerOutline == PlayerOutlineStyle.Red,
                     "red outline works independently of skin highlighting");
 
+                RenderOptions.BrightSkins = true;
+                RenderOptions.BrightSkinStyle = PlayerSkinStyle.HighContrastTextured;
+                LauncherPrefs.Save();
+                RenderOptions.BrightSkinStyle = PlayerSkinStyle.Solid;
+                LauncherPrefs.Load();
+                Check(RenderOptions.BrightSkins && RenderOptions.BrightSkinStyle == PlayerSkinStyle.HighContrastTextured
+                    && RenderOptions.PlayerOutline == PlayerOutlineStyle.Red,
+                    "high contrast textured skin preference round trip");
+
                 File.WriteAllText(path, "bright_skin_style=999\nplayer_outline=invalid\nplayer_outline_width=999\n");
                 LauncherPrefs.Load();
-                Check(RenderOptions.BrightSkinStyle == PlayerSkinStyle.Textured
+                Check(RenderOptions.BrightSkinStyle == PlayerSkinStyle.HighContrastTextured
                     && RenderOptions.PlayerOutline == PlayerOutlineStyle.Red && RenderOptions.PlayerOutlineWidth == 8,
                     "invalid styles ignored and oversized outline clamped");
                 File.WriteAllText(path, "player_outline_width=-10\n");

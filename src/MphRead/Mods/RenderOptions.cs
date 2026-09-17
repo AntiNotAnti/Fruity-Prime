@@ -6,7 +6,8 @@ namespace MphRead.Mods
     public enum PlayerSkinStyle
     {
         Solid,
-        Textured
+        Textured,
+        HighContrastTextured
     }
 
     public enum PlayerOutlineStyle

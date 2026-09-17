@@ -440,7 +440,7 @@ namespace MphRead.Entities
 
         protected override bool UseTexturedPlayerSkin(ModelInstance inst)
             => inst == _models[0] && _brightSkin.HasValue
-                && Mods.RenderOptions.BrightSkinStyle == Mods.PlayerSkinStyle.Textured;
+                && Mods.RenderOptions.BrightSkinStyle != Mods.PlayerSkinStyle.Solid;
 
         protected override int? GetBindingOverride(ModelInstance inst, Material material, int index)
         {

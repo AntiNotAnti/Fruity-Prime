@@ -483,9 +483,14 @@ namespace MphRead.Mods.Launcher.Gui
             _crosshairOutline = Add(page, new ToggleRow("Crosshair outline", visual.CrosshairOutline));
             _teamPalette = Add(page, new ChoiceRow("Team colors", new[] { "Classic", "Blue / orange", "Purple / gold" }, visual.TeamPalette));
             Heading(page, "Visibility");
-            _brightSkinsRow = Add(page, new ChoiceRow("Player skins", new[] { "Off", "Textured", "Solid" },
-                !RenderOptions.BrightSkins ? 0 : RenderOptions.BrightSkinStyle == PlayerSkinStyle.Textured ? 1 : 2));
-            Explain(page, "Textured boosts player colors while keeping surface detail. Solid uses a flat identifying color.");
+            _brightSkinsRow = Add(page, new ChoiceRow("Player skins", new[] { "Off", "Textured", "High contrast textured", "Solid" },
+                !RenderOptions.BrightSkins ? 0 : RenderOptions.BrightSkinStyle switch
+                {
+                    PlayerSkinStyle.Textured => 1,
+                    PlayerSkinStyle.HighContrastTextured => 2,
+                    _ => 3
+                }));
+            Explain(page, "Textured brightens the original skin. High contrast adds a stronger suit/team tint and texture contrast.");
             _playerOutlineRow = Add(page, new ChoiceRow("Player outline", new[] { "Off", "Team color", "Bright red" },
                 (int)RenderOptions.PlayerOutline));
             Explain(page, "Outline visible players, with or without bright skins. Team color uses red in free-for-all.");
@@ -1148,7 +1153,12 @@ namespace MphRead.Mods.Launcher.Gui
             RenderOptions.BrightSkins = _brightSkinsRow.Index != 0;
             if (RenderOptions.BrightSkins)
             {
-                RenderOptions.BrightSkinStyle = _brightSkinsRow.Index == 1 ? PlayerSkinStyle.Textured : PlayerSkinStyle.Solid;
+                RenderOptions.BrightSkinStyle = _brightSkinsRow.Index switch
+                {
+                    1 => PlayerSkinStyle.Textured,
+                    2 => PlayerSkinStyle.HighContrastTextured,
+                    _ => PlayerSkinStyle.Solid
+                };
             }
             RenderOptions.PlayerOutline = (PlayerOutlineStyle)_playerOutlineRow.Index;
             RenderOptions.PlayerOutlineWidth = _playerOutlineWidthRow.Value;

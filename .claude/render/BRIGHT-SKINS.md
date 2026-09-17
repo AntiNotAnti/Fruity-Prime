@@ -1,8 +1,10 @@
 # Bright player skins
 
-HUD and accessibility settings has a Visibility section with three **Player skins** choices:
-Off, Textured, and Solid. Textured lifts dark lighting while keeping the real
-suit textures; Solid uses the original flat identification color. **Player
+HUD and accessibility settings has a Visibility section with four **Player skins** choices:
+Off, Textured, High contrast textured, and Solid. Textured lifts dark lighting
+while keeping the real suit textures. High contrast textured uses a stronger
+suit/team tint while retaining the texture's light and dark details;
+Solid uses the original flat identification color. **Player
 outline** is independent: Off, Team color, or Bright red, with a thickness of
 1–8 window pixels (default 4). Team outlines use red in FFA.
 
@@ -50,6 +52,14 @@ cel shading's flat texture replacement for the body, retaining detail while
 still passing through cel bands and fog. Its texels come from the player's
 resolved suit/team palette. Desktop and ES fragment shaders stay synchronized.
 
+High contrast textured derives detail from texture luminance with
+`smoothstep(0.05, 0.85, luminance)`, scales the bright identification color by
+`0.25 + 0.75 * detail`, then mixes in 25% of the original texture RGB lifted
+with gamma 0.7. This preserves surface patterns without clipping the result
+into a flat color. It uses the same alpha, eligibility, cel, and fog paths.
+The preference value is `bright_skin_style=highcontrasttextured`; existing
+`solid` and `textured` values retain their behavior.
+
 ## Outlines
 
 `Mods/Render/PlayerOutlines.cs` adds an optional mask draw and edge composite.
@@ -60,15 +70,21 @@ mask pixels near an edge. It does not inflate geometry or expand an outline
 onto pixels occupied by an occluding wall. Small or distant bodies can become
 mostly outline at high thickness; reducing thickness keeps more interior detail.
 
-Outline colors pass through fog. Compositing happens before the preview, HUD
-models, and cel outline so those layers retain their normal priority. Outlines
+Outline colors pass through fog. Cel ink is drawn first, then colored player
+outlines, then the preview and HUD models. Drawing cel ink after player outlines
+erased the colored rim at reduced render scales. Outlines
 share skin eligibility but are independent of the skin toggle; frozen bodies
 and turrets additionally suppress outlines so ice overlays stay visible.
 
 The mask texture, framebuffer, and shader are allocated lazily and reused;
 off skips the pass entirely. Resizes and depth-attachment changes update the
 target, pooled render items clear their tags, and scene disposal releases the
-resources. The composite shader uses one shared algorithm for desktop and ES.
+resources. Texture names use a monotonically increasing allocation counter;
+deleting a depth texture must not let a later material upload reuse the live
+outline texture's name. The composite has its own fullscreen vertex shader:
+the integration branch's HUD vertex shader has a `hud_scale` uniform whose
+unset value collapsed the outline quad. It must not be reused here.
+The composite fragment shader uses one shared algorithm for desktop and ES.
 This optional outline has extra rendering cost; skin modes alone still add no
 rendering pass.
 
@@ -80,6 +96,10 @@ colors against the luminance floor, centralized team colors, fallback, and
 preference round trips in a temporary directory, including legacy preference
 compatibility, independent outline styles, and bounded thickness. `-uishot`
 includes `settings-visibility.png` to inspect the controls after scrolling.
+
+`-playeroutlinecheck` uses a real desktop GL context and synthetic geometry,
+without game assets. It checks outline pixels, live enable, cel shading,
+depth-attachment cycling, reduced resolution, and fully occluded geometry.
 
 `-brightskinscheckassets` additionally requires the user's extracted files and
 checks all seven multiplayer hunters: four resolved suits stay distinct after
@@ -134,3 +154,24 @@ hunter/status combination. Keep issue #32 open until that acceptance is done.
 - Android gameplay, the full visual matrix, live outline/cel/resize cycling,
   and a measured GPU cost comparison remain pending. Optional outlines add a
   body-mask pass and a fullscreen composite; they are not claimed to be free.
+
+### Outline fixes and high contrast textured mode (2026-09-17)
+
+- Reproduced the integration branch's invisible outline with cel off: its HUD
+  vertex shader's unset scale yielded zero colored pixels. With a dedicated
+  fullscreen vertex shader, the same integration check produces 960 rim pixels.
+- Reproduced cel ink erasing the rim at 50% render scale (zero pixels), and a
+  material texture upload overwriting the mask after cel was disabled (also zero).
+  Both checks now pass. Minimum thickness is at least one render-target texel.
+- The real-GL check passes on both the feature branch and a copy of integration
+  commit `17a36ef`, including live toggles, depth changes, new texture uploads,
+  50%/25% render scales, and zero outline pixels on fully occluded geometry.
+  It needs no extracted game assets. It requests GL 2.1; the Windows NVIDIA
+  driver supplies GL 4.6, so this is not native macOS runtime verification.
+- High contrast textured preferences round-trip, and Windows captures retain
+  armor patterns with strong suit/team tint. The new settings label fits.
+- Desktop, Windows server, macOS ARM64 cross-build, and Android Release builds
+  pass; Android retains 14 existing documentation warnings. An integration
+  four-player bot match with cel off completes with exit 0 and visible outlines.
+- Native macOS and Android gameplay, the complete status matrix, and measured
+  GPU cost still require acceptance on those targets.
