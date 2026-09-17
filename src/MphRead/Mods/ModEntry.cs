@@ -52,6 +52,15 @@ namespace MphRead.Mods
             Update.Updater.Disabled = HasFlag(args, "noupdate");
             ApplyRenderOverrides(args);
 
+            // Screen captures use synthetic rows and need no extracted game
+            // files. Keep the UI regression harness ahead of CheckSetup.
+            string? uiShot = ValueAfter(args, "uishot");
+            if (uiShot != null)
+            {
+                Environment.ExitCode = RunUiCapture(uiShot, HasFlag(args, "browseronly"));
+                return true;
+            }
+
             // The copying half of a desktop update, which is this build
             // started by the *previous* one. First, and before anything reads
             // a file or draws a window: it is not the game, it waits for the
@@ -1096,16 +1105,6 @@ namespace MphRead.Mods
                 return true;
             }
 
-            // Pictures of the launcher's own screens, rendered without a
-            // window. The one part of this program that could not be looked at
-            // from a headless box.
-            string? uiShot = ValueAfter(args, "uishot");
-            if (uiShot != null)
-            {
-                Environment.ExitCode = RunUiCapture(uiShot);
-                return true;
-            }
-
             // The same three screens laid out five different ways, for
             // choosing between them by looking. Nothing it draws ships; see
             // UiDesigns.
@@ -1755,12 +1754,12 @@ namespace MphRead.Mods
         /// </summary>
         [System.Runtime.CompilerServices.MethodImpl(
             System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-        private static int RunUiCapture(string directory)
+        private static int RunUiCapture(string directory, bool browserOnly)
         {
 #if MPHREAD_AVALONIA
             try
             {
-                return Launcher.Gui.UiCapture.Run(directory);
+                return Launcher.Gui.UiCapture.Run(directory, browserOnly);
             }
             catch (Exception ex)
             {

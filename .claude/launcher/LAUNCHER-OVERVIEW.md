@@ -27,6 +27,12 @@ Key implementation notes
 - **One launcher, in Avalonia, on every platform.** Windows, Linux and macOS run
   the same screens; there is no second toolkit and no per-platform launcher any
   more. `Mods/Launcher/Gui/` is the whole of it.
+- ROM selection follows the platform boundary: desktop uses the Fruity Prime
+  filesystem browser rendered inside the existing launcher surface, while
+  Android uses its real platform `StorageProvider` for local paths and
+  `content://` documents. Desktop Avalonia runs headless, so its `TopLevel`
+  is never presented to the window manager and must not be used to request a
+  platform dialog.
 - Every control is painted by this code (`GuiTheme`, `MenuEntry`, `ChoiceRow`,
   `SliderRow`, `KeyRow`, `SplashView`); only the text boxes and scroll bars are
   stock, under Fluent dark.

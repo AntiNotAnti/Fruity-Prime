@@ -72,6 +72,9 @@ namespace MphRead.Mods.Launcher
         public static int BotLevel { get; set; } = 1;
         public static int HostPort { get; set; } = Network.NetConfig.DefaultPort;
 
+        /// <summary>The folder containing the last desktop ROM the player selected.</summary>
+        public static string LastRomDirectory { get; set; } = "";
+
         /// <summary>
         /// Whether a hosted game announces itself to the directory.
         ///
@@ -309,6 +312,9 @@ namespace MphRead.Mods.Launcher
                                 LastKind = kind;
                             }
                             break;
+                        case "rom_directory":
+                            LastRomDirectory = value;
+                            break;
                     }
                 }
             }
@@ -365,6 +371,7 @@ namespace MphRead.Mods.Launcher
                     $"list_hosted={ListHostedGame.ToString().ToLowerInvariant()}",
                     $"host_on_master={HostOnMaster.ToString().ToLowerInvariant()}",
                     $"last_kind={LastKind.ToString(CultureInfo.InvariantCulture)}",
+                    $"rom_directory={LastRomDirectory}",
                     $"auto_update={AutoUpdate.ToString().ToLowerInvariant()}",
                     $"debug_logs={DebugLogs.ToString().ToLowerInvariant()}",
                     $"window_mode={(WindowMode == WindowStartMode.BorderlessFullscreen ? "borderless" : "windowed")}",
