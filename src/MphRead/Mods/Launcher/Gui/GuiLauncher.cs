@@ -73,7 +73,7 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 Console.WriteLine($"[launcher] the window could not be opened: {ex.Message}");
                 Console.WriteLine("[launcher] falling back to the text launcher");
-                Mods.DebugLog.Exception("launcher", ex);
+                Mods.Diagnostics.PlatformDiagnostics.Report("libglfw.3.dylib", ex);
                 return false;
             }
         }
@@ -139,7 +139,7 @@ namespace MphRead.Mods.Launcher.Gui
                 // The whole stack, into the debug log, because the message
                 // alone is usually a type name from inside Skia or the X11
                 // backend and says nothing about which library is missing.
-                Mods.DebugLog.Exception("launcher", ex);
+                Mods.Diagnostics.PlatformDiagnostics.Report("libSkiaSharp.dylib", ex);
                 SayWhyOnLinux();
                 return false;
             }

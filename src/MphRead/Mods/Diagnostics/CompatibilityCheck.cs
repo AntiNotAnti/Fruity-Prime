@@ -15,6 +15,7 @@ namespace MphRead.Mods.Diagnostics
             Console.WriteLine($"OS: {RuntimeInformation.OSDescription}");
             Console.WriteLine($"Architecture: {RuntimeInformation.ProcessArchitecture}");
             Console.WriteLine($"RID: {RuntimeInformation.RuntimeIdentifier}");
+            PlatformDiagnostics.Start();
             int failures = 0;
             void Check(string name, Action action)
             {
@@ -33,6 +34,15 @@ namespace MphRead.Mods.Diagnostics
             {
                 Launcher.LauncherPrefs.Load();
                 InputSettings.Load();
+                if (OperatingSystem.IsMacOS() &&
+                    (Launcher.LauncherPrefs.Directory == Platform.AppPaths.ExecutableDirectory ||
+                     Environment.CurrentDirectory != Platform.AppPaths.UserDataDirectory))
+                {
+                    throw new InvalidOperationException("macOS writes must use the user-data directory.");
+                }
+                string probe = Path.Combine(Launcher.LauncherPrefs.Directory, $".smoke-{Guid.NewGuid():N}");
+                try { File.WriteAllText(probe, "configuration write probe"); }
+                finally { File.Delete(probe); }
             });
 #if MPHREAD_SHELL
             Check("Avalonia", () =>
@@ -77,6 +87,7 @@ namespace MphRead.Mods.Diagnostics
                 {
                     Check(file, () => LoadNative(file, symbol));
                 }
+                Check("OpenAL bindings", () => { _ = OpenTK.Audio.OpenAL.ALC.GetCurrentContext(); });
                 Check("GLFW bindings", () =>
                 {
                     OpenTK.Windowing.GraphicsLibraryFramework.GLFW.GetVersion(out int major, out _, out _);

@@ -135,6 +135,8 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '9.0.x'
+      - name: signing gate regressions
+        run: tools/test-macos-tools.sh
       - name: cook the map bundles
         run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -mapdir maps -mapbundle
       - name: publish, sign and validate

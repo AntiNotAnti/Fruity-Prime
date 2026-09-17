@@ -62,13 +62,12 @@ First-run behaviour and progress
 
 macOS and Android
 
-- **macOS** publishes like any other desktop target (`osx-x64`/`osx-arm64`,
-  cross-compiled on the Linux runner), and OpenAL ships with it
-  (`libopenal.1.dylib`, keyed on RID rather than a Windows/Linux special
-  case). **Nobody has started one.** Both packages are cross-compiled and
-  unrun; the thing to watch is GLFW and AppKit sharing a process and a main
-  thread, which the one-thread launcher arrangement is designed for and no
-  Mac has confirmed.
+- **macOS** publishes and runs `-smoketest` on matching Apple Silicon and
+  Intel runners. Releases are ad-hoc signed `.app` bundles in `.tar.gz` files.
+  Native dependencies and maps stay beside the executable inside Contents/MacOS;
+  writable state goes to Application Support. See `../build-deploy/MACOS.md`.
+  The smoke test checks headless startup; it does not prove a visible GLFW
+  window, OpenGL gameplay, or Gatekeeper acceptance of an Internet download.
 - **Android** is `src/MphRead.Android/`, a head project compiling the same
   sources with `ANDROID` defined. It now builds a front screen **and a
   match**: the engine's desktop GL is redirected to OpenGL ES 3.0 by a single

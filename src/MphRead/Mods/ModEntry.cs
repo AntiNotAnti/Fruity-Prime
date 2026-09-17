@@ -54,6 +54,7 @@ namespace MphRead.Mods
                 DebugLog.Force();
             }
             DebugLog.Attach();
+            if (OperatingSystem.IsMacOS()) { Diagnostics.PlatformDiagnostics.Start(); }
             Update.Updater.Disabled = HasFlag(args, "noupdate");
             ApplyRenderOverrides(args);
 

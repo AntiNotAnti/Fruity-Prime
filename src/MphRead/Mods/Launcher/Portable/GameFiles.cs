@@ -24,8 +24,8 @@ namespace MphRead.Mods.Launcher
     public static class GameFiles
     {
         /// <summary>
-        /// Where paths.txt sits. Application Support on macOS; otherwise the directory
-        /// everywhere but Android, where the package's own directory is
+        /// Where paths.txt sits: Application Support on macOS, beside the
+        /// executable on Windows/Linux. Android's package directory is
         /// read-only and the files a player copies onto the device land
         /// somewhere else entirely -- the head sets this before the first
         /// screen is built, the same way it does LauncherPrefs.Directory.
