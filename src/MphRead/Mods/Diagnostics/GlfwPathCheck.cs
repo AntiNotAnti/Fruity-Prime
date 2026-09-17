@@ -26,7 +26,16 @@ namespace MphRead.Mods.Diagnostics
 
                 // NativeWindowSettings initializes GLFW/monitors, but does not
                 // create a GL context. In a .app this used to switch to Resources.
-                _ = Render.DesktopGlContext.Settings();
+                var settings = ThumbnailCapture.WindowSettings(64, 64);
+                var version = OperatingSystem.IsMacOS() ? new Version(2, 1) : new Version(3, 2);
+                var profile = OperatingSystem.IsMacOS()
+                    ? OpenTK.Windowing.Common.ContextProfile.Any
+                    : OpenTK.Windowing.Common.ContextProfile.Compatability;
+                if (settings.APIVersion != version || settings.Profile != profile
+                    || settings.Flags != OpenTK.Windowing.Common.ContextFlags.Default
+                    || settings.StartVisible)
+                    throw new InvalidOperationException("Thumbnail worker requested an incompatible GL context.");
+                Console.WriteLine($"Thumbnail context policy passed: {version}, {profile}.");
                 if (Directory.GetCurrentDirectory() != fixture)
                     throw new InvalidOperationException("GLFW changed the extraction working directory.");
                 if (GameFiles.Problem() is string after)

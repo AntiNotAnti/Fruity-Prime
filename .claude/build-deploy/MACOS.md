@@ -123,3 +123,17 @@ Every Mac startup records platform, process/runtime architecture, paths and
 native library locations in `logs/platform-startup.log` under user data.
 Native loader failures record their full exception and `file` architecture
 description when available; audio retains its existing silent fallback.
+
+## Background thumbnail workers
+
+The launcher's automatic preview generation starts separate processes. Their
+hidden windows use `DesktopGlContext` too: fixing only `RenderWindow` leaves
+the worker requesting unsupported 3.2 compatibility on macOS, producing a crash
+popup while the main app stays open. Shared settings preserve early error
+logging, GL 2.1, default context flags and the writable working directory.
+
+`-glfwpathcheck` checks the actual thumbnail settings without requiring a GPU.
+On accelerated hosts, `-thumbnailwindowcheck` creates a separate hidden context
+with those settings, draws a legacy primitive into an offscreen framebuffer,
+and checks pixel readback and GL errors without using cartridge data. The Mac
+packaging wrapper runs it against flat, staged and re-extracted packages.

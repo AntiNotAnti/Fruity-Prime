@@ -48,6 +48,11 @@ namespace MphRead.Mods
                 Environment.ExitCode = Diagnostics.GlfwPathCheck.Run();
                 return true;
             }
+            if (HasFlag(args, "thumbnailwindowcheck"))
+            {
+                Environment.ExitCode = Diagnostics.ThumbnailWindowCheck.Run();
+                return true;
+            }
             if (HasFlag(args, "windowcheck"))
             {
                 Environment.ExitCode = Diagnostics.LauncherWindowCheck.Run();

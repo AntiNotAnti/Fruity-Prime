@@ -16,7 +16,7 @@ else
     status=$?
     [[ $status == 77 ]] || exit "$status"
     graphics=false
-    echo '::warning::No accelerated macOS OpenGL renderer: rendered launcher check NOT RUN. Native library/startup checks still required; hardware acceptance remains pending.'
+    echo '::warning::No accelerated macOS OpenGL renderer: rendered launcher/thumbnail checks NOT RUN. Native library/startup checks still required; hardware acceptance remains pending.'
 fi
 python3 - "$root/FruityPrime" "$graphics" <<'PY'
 import os
@@ -36,10 +36,12 @@ with tempfile.TemporaryDirectory(prefix="fruity-smoke-") as temp:
         sys.exit(result.returncode or 1)
     if sys.argv[2] != "true":
         sys.exit(0)
-    result = subprocess.run([sys.argv[1], "-windowcheck"], cwd=temp, env=env,
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, timeout=120)
-    print(result.stdout, end="")
-    if result.returncode or "Launcher window check passed." not in result.stdout:
-        sys.exit(result.returncode or 1)
+    for flag, marker in [("-windowcheck", "Launcher window check passed."),
+                         ("-thumbnailwindowcheck", "Thumbnail window check passed.")]:
+        result = subprocess.run([sys.argv[1], flag], cwd=temp, env=env,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, timeout=120)
+        print(result.stdout, end="")
+        if result.returncode or marker not in result.stdout:
+            sys.exit(result.returncode or 1)
 PY
