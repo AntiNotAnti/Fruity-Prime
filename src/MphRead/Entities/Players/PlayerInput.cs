@@ -2545,6 +2545,7 @@ namespace MphRead.Entities
                 {
                     // Stylus actions are additive; raw tip capture happens before bindings.
                     ApplyStylusZone(player);
+                    player.ModPrepareSpireFlick();
                 }
                 player._ignoreClick = false;
                 if (mouseSnap.IsButtonDown(MouseButton.Left) && prevMouseSnap?.IsButtonDown(MouseButton.Left) != true)
