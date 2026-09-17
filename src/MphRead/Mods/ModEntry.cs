@@ -33,6 +33,15 @@ namespace MphRead.Mods
         /// </summary>
         public static bool TryHandleHeadless(string[] args)
         {
+#if !ANDROID && !MPHREAD_SERVER
+            if (OperatingSystem.IsMacOS())
+            {
+                // OpenTK defaults to Apple's system framework on macOS,
+                // not the OpenAL Soft library shipped beside our executable.
+                OpenTK.Audio.OpenAL.OpenALLibraryNameContainer.OverridePath =
+                    System.IO.Path.Combine(Platform.AppPaths.ExecutableDirectory, "libopenal.1.dylib");
+            }
+#endif
             if (HasFlag(args, "smoketest"))
             {
                 Environment.ExitCode = Diagnostics.CompatibilityCheck.Run();
