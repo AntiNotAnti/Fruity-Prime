@@ -929,7 +929,16 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 return;
             }
-            string demoDir = DemoLibrary.Directory;
+            string? demoDir = null;
+            try
+            {
+                demoDir = DemoLibrary.Directory;
+            }
+            catch (IOException)
+            {
+                // No default folder is a worse first run than one with a clean
+                // slate, not a reason to refuse the picker outright.
+            }
             IStorageFile? file = null;
             string? path = null;
             // Headless has no chooser and answers with an empty list rather

@@ -5,7 +5,9 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
+#if MPHREAD_SHELL
 using OpenTK.Windowing.GraphicsLibraryFramework;
+#endif
 
 namespace MphRead.Mods.Launcher.Gui
 {
@@ -174,9 +176,13 @@ namespace MphRead.Mods.Launcher.Gui
         /// <summary>
         /// The game window, so the dialog is drawn over it rather than behind
         /// it -- which for a fullscreen window is the same complaint again.
+        ///
+        /// Only the desktop has one to name: the Android head leaves Shell.cs
+        /// out of the build entirely, so this cannot so much as mention it.
         /// </summary>
         private static IntPtr OwnerWindow()
         {
+#if MPHREAD_SHELL
             try
             {
                 RenderWindow? window = Shell.Window;
@@ -192,8 +198,9 @@ namespace MphRead.Mods.Launcher.Gui
             catch (Exception)
             {
                 // An unowned dialog is worse than an owned one, not a failure.
-                return IntPtr.Zero;
             }
+#endif
+            return IntPtr.Zero;
         }
 
         // -------------------------------------------------------------- Unix
