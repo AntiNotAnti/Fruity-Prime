@@ -543,7 +543,12 @@ namespace MphRead.Mods.Network
             {
                 rig.Wait(() => { NetSession.Pump(); return condition(); }, message, timeout);
             }
-            PumpUntil(() => NetSession.LocalIsLobbyOwner && NetSession.LobbyRoster().Revision == NetSession.SessionRevision,
+            // Admission and Identify are separate exchanges. Matching revisions
+            // can describe the initial unnamed roster; wait for the acknowledged
+            // identity before freezing the revision and dropping retry traffic.
+            PumpUntil(() => NetSession.LocalIsLobbyOwner
+                && GameState.Nicknames[slot] == "RealClient"
+                && NetSession.LobbyRoster().Revision == NetSession.SessionRevision,
                 "real client owns a consistent lobby");
             Check(NetSession.ServerMatch == null, "connection does not require a running match");
             // Lose the first command and its first retry entirely. The same command ID must recover.
