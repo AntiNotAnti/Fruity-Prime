@@ -48,3 +48,21 @@ codesign --force --sign - "$root/NoJit"
 mv "$root/NoJit" "$root/FruityPrime"
 expect_failure "$repo/tools/check-macos-build.sh" "$root" "$rid"
 echo 'macOS signing gate regressions passed.'
+
+# Reproduce the full app layout, including non-code map data. A flat publish
+# can sign and launch successfully while its enclosing app cannot be signed.
+fixture="$temp/package-input"
+mkdir -p "$fixture/maps"
+cp "$root/FruityPrime" "$root/libopenal.1.dylib" "$fixture/"
+printf '{"Name":"PACKAGING TEST"}\n' > "$fixture/maps/fixture.json"
+"$repo/tools/package-macos.sh" "$fixture" "$temp/dist" "$rid" 1.2.3
+mkdir "$temp/unpacked"
+tar -xzf "$temp/dist/FruityPrime-v1.2.3-$rid.tar.gz" -C "$temp/unpacked"
+app="$temp/unpacked/Fruity Prime.app"
+[[ -f "$app/Contents/Resources/maps/fixture.json" ]] || exit 1
+[[ ! -e "$app/Contents/MacOS/maps" ]] || exit 1
+codesign --verify --deep --strict "$app"
+printf '\n' >> "$app/Contents/Resources/maps/fixture.json"
+expect_failure codesign --verify --deep --strict "$app"
+dotnet run --project "$repo/tools/platformtest/platformtest.csproj" -c Release
+echo 'macOS bundle resource regressions passed.'
