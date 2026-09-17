@@ -82,8 +82,9 @@ chooses a button (or unbound), then Accept assigns it. Conflicts offer Swap,
 Replace, Keep Both or Cancel; existing bindings are not changed until a choice.
 Swap is initially selected, so Accept confirms the reassignment; Cancel remains available. Swapping preserves
 the other action's Primary/Secondary slot positions. Capture takes its baseline
-after polling the device and reports disconnect/focus changes instead of silently
-stopping. Disconnect cancels capture. Presets are Default, Bumper Jumper,
+from the host's normalized snapshot and reports disconnect/focus changes instead of silently
+stopping. Binding rows never initialize GLFW or poll its event loop: the host
+owns hardware polling, including while menus are open. Disconnect cancels capture. Presets are Default, Bumper Jumper,
 Southpaw and Classic; manual edits set Custom. Preset changes retain focus and refresh all button rows;
 calibration is retained. The live test at the top shows the active controller,
 mapping source, sticks, trigger bars, pressed buttons and the actions they reach.

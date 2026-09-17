@@ -51,35 +51,6 @@ namespace MphRead.Mods.Input
         private const int AxisLeftTrigger = 4;
         private const int AxisRightTrigger = 5;
 
-        private static bool _initialised;
-
-        public static void PollForMenu()
-        {
-            if (OperatingSystem.IsAndroid())
-            {
-                // Evented there: the activity puts pad presses into the state
-                // whether or not a match is running. See GamepadBridge.
-                return;
-            }
-            try
-            {
-                if (!_initialised)
-                {
-                    Render.DesktopGlContext.PreserveWorkingDirectory();
-                    GLFW.Init();
-                    _initialised = true;
-                }
-                GLFW.PollEvents();
-            }
-            catch (Exception ex) when (ex is DllNotFoundException
-                || ex is EntryPointNotFoundException || ex is BadImageFormatException)
-            {
-                _unavailable = true;
-                return;
-            }
-            Poll();
-        }
-
         // OpenTK forwards lifecycle events without replacing GLFW's window-owned callback.
         public static void DeviceChanged(int index)
         {

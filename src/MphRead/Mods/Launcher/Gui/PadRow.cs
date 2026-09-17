@@ -20,11 +20,8 @@ namespace MphRead.Mods.Launcher.Gui
     /// at all -- it watches the state, which is the same state the game reads
     /// and therefore cannot disagree with it about what was pressed.
     ///
-    /// Watching starts only while a row is listening. The pad is polled on the
-    /// desktop and evented on Android (see <c>MainActivity.DispatchKeyEvent</c>,
-    /// which is what puts a pad press into that state while a match is not
-    /// running), and neither should be happening for the sake of a settings
-    /// screen nobody is currently rebinding on.
+    /// The UI host polls desktop controllers and Android receives device events.
+    /// Rows only observe normalized snapshots while listening.
     /// </summary>
     internal sealed class PadRow : Control
     {
@@ -141,9 +138,8 @@ namespace MphRead.Mods.Launcher.Gui
             _message = null;
             Height = 72;
             GamepadContexts.Capturing = true;
-            // Polling can discover a controller or switch the active device. The
-            // baseline must describe that device, not the stale pre-poll revision.
-            GamepadDesktop.PollForMenu();
+            // The host publishes input before routing UI events. Never poll GLFW
+            // here: capture can start inside a native key/mouse event callback.
             var snapshot = GamepadManager.Snapshot;
             _deviceRevision = snapshot.Revision;
             _baseline = snapshot.State.Buttons;
@@ -162,10 +158,8 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 return;
             }
-            // Android fills the state from events and needs nothing here; the
-            // desktop's pad is polled, and with no game window running there
-            // is nothing else pumping GLFW. Both cases are inside this call.
-            GamepadDesktop.PollForMenu();
+            // Observe the host's snapshot. Desktop polling and Android events keep
+            // it current; controls must not re-enter a platform event loop.
             var snapshot = GamepadManager.Snapshot;
             if (!GamepadContexts.Focused || !snapshot.State.Connected || snapshot.Revision != _deviceRevision)
             {
