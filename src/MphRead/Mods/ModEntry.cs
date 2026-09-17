@@ -96,10 +96,10 @@ namespace MphRead.Mods
                     relaunch);
                 return true;
             }
-            // Whatever the last update left behind. The Spire pose diagnostic
-            // must leave staged update files alone; ordinary startup still
+            // Diagnostics must leave staged updates alone; ordinary startup
             // cleans them after the apply-update path above has returned.
-            if (!HasFlag(args, "spireposecheck"))
+            if (!HasFlag(args, "spireposecheck")
+                && !(ValueAfter(args, "simcheck") != null && HasFlag(args, "formcheck")))
             {
                 Update.DesktopUpdate.Clean();
             }
@@ -1173,7 +1173,7 @@ namespace MphRead.Mods
                     simMode = parsedSimMode;
                 }
                 Environment.ExitCode = Network.ServerSimCheck.Run(simCheck, simPlayers,
-                    simSeconds, simMode);
+                    simSeconds, simMode, formCheck: HasFlag(args, "formcheck"));
                 return true;
             }
 
