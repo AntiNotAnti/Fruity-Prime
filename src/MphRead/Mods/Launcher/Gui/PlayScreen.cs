@@ -872,6 +872,7 @@ namespace MphRead.Mods.Launcher.Gui
                 _note.Text = "Nothing recorded yet. Clips are made from the pause menu "
                     + $"during an online match, and are written to:\n{DemoLibrary.Directory}";
             }
+            UiWord? recover = null;
             var replayDetails = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = GuiTheme.TextDimBrush, FontSize = 12, Margin = new Thickness(0, 0, 0, 10) };
             void RefreshReplayDetails()
             {
@@ -879,6 +880,7 @@ namespace MphRead.Mods.Launcher.Gui
                 {
                     var selected = demos.FirstOrDefault(d => d.Path == path);
                     if (selected.Path != null) replayDetails.Text = DemoLibrary.Details(selected);
+                    if (recover != null) recover.IsVisible = path.EndsWith(".part", StringComparison.OrdinalIgnoreCase);
                 }
             }
             _replaySelection = (_, _) => { if (Current == Face.Clips) RefreshReplayDetails(); };
@@ -888,7 +890,7 @@ namespace MphRead.Mods.Launcher.Gui
             var replayName = new FieldRow("Display name", "", boxWidth: 210);
             replayName.Box.MaxLength = 100;
             _options.Children.Add(replayName);
-            void Action(string label, System.Action<string> action)
+            UiWord Action(string label, System.Action<string> action)
             {
                 var button = new UiWord(label);
                 button.Click += (_, _) =>
@@ -899,6 +901,7 @@ namespace MphRead.Mods.Launcher.Gui
                     { _note.Text = ex.Message; }
                 };
                 _options.Children.Add(button);
+                return button;
             }
             Action("Rename", path => { DemoLibrary.Rename(path, replayName.Value); Rebuild(); });
             var validate = new UiWord("Check replay integrity");
@@ -912,13 +915,14 @@ namespace MphRead.Mods.Launcher.Gui
                 _note.Text = $"Replay integrity: {result}";
             };
             _options.Children.Add(validate);
-            Action("Recover interrupted recording", path =>
+            recover = Action("Recover interrupted recording", path =>
             {
                 if (!path.EndsWith(".part", StringComparison.OrdinalIgnoreCase)) { _note.Text = "Select an interrupted .part recording first."; return; }
                 ReplayArchive.Recover(path, out string? output, out ReplayOpenResult result);
                 Rebuild();
                 _note.Text = output == null ? $"Recovery failed: {result}" : "Recovered " + Path.GetFileName(output);
             });
+            recover.IsVisible = ((_list.Selected as UiListRow)?.Choice as string)?.EndsWith(".part", StringComparison.OrdinalIgnoreCase) == true;
             Action("Favorite / unfavorite", path => { DemoLibrary.ToggleFavorite(path); Rebuild(); });
             string? confirmDelete = null;
             Action("Delete (press twice to confirm)", path =>

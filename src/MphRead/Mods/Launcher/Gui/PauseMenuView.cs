@@ -106,18 +106,23 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 Add(menu, ReplayController.IsPaused ? "Play replay" : "Pause replay", () =>
                 { ReplayController.TogglePause(); Resumed?.Invoke(this, EventArgs.Empty); });
+                var rate = new ComboBox { ItemsSource = new[] { "0.25x speed", "0.5x speed", "1x speed", "2x speed", "4x speed" },
+                    SelectedIndex = Array.IndexOf(ReplayController.Rates, ReplayController.PlaybackRate), Width = 240 };
+                rate.SelectionChanged += (_, _) => { if (rate.SelectedIndex >= 0) ReplayController.SetPlaybackRate(ReplayController.Rates[rate.SelectedIndex]); };
+                menu.Children.Add(rate);
+                Add(menu, "Previous frame", () => { ReplayController.Seek(ReplayController.CurrentFrame > 0 ? ReplayController.CurrentFrame - 1 : 0, false); Resumed?.Invoke(this, EventArgs.Empty); });
                 Add(menu, "Restart replay", () => { ReplayController.Restart(); Resumed?.Invoke(this, EventArgs.Empty); });
                 Add(menu, "Next frame", () => { ReplayController.StepForward(); Resumed?.Invoke(this, EventArgs.Empty); });
                 Add(menu, "Previous player", () => { SpectatorMode.CyclePrevious(); Resumed?.Invoke(this, EventArgs.Empty); });
                 Add(menu, "Next player", () => { SpectatorMode.CycleNext(); Resumed?.Invoke(this, EventArgs.Empty); });
                 var timeline = new Slider { Minimum = 0, Maximum = Math.Max(1, ReplayController.DurationFrames),
                     Value = ReplayController.CurrentFrame, Width = 320 };
-                var selectedTime = new TextBlock { Text = Replay.ReplayHud.Time((uint)timeline.Value), Foreground = GuiTheme.TextDimBrush };
-                timeline.PropertyChanged += (_, e) => { if (e.Property == RangeBase.ValueProperty) selectedTime.Text = Replay.ReplayHud.Time((uint)timeline.Value); };
+                var selectedTime = new TextBlock { Text = Replay.ReplayHud.Time((uint)timeline.Value) + " / " + Replay.ReplayHud.Time(ReplayController.DurationFrames), Foreground = GuiTheme.TextDimBrush };
+                timeline.PropertyChanged += (_, e) => { if (e.Property == RangeBase.ValueProperty) selectedTime.Text = Replay.ReplayHud.Time((uint)timeline.Value) + " / " + Replay.ReplayHud.Time(ReplayController.DurationFrames); };
                 timeline.PointerReleased += (_, _) => { ReplayController.Seek((uint)timeline.Value); Resumed?.Invoke(this, EventArgs.Empty); };
                 menu.Children.Add(selectedTime);
                 menu.Children.Add(timeline);
-                var cameraModes = new ComboBox { ItemsSource = Enum.GetNames<Replay.ReplayCameraMode>(), SelectedIndex = (int)Replay.ReplayCamera.Mode, Width = 240 };
+                var cameraModes = new ComboBox { ItemsSource = new[] { "First person", "Third-person chase", "Free camera", "Orbit camera" }, SelectedIndex = (int)Replay.ReplayCamera.Mode, Width = 240 };
                 cameraModes.SelectionChanged += (_, _) => { if (cameraModes.SelectedIndex >= 0) Replay.ReplayCamera.SetMode((Replay.ReplayCameraMode)cameraModes.SelectedIndex); };
                 menu.Children.Add(cameraModes);
                 void CameraSlider(string label, float value, double min, double max, Action<float> set)

@@ -159,13 +159,15 @@ namespace MphRead.Mods.Network
         public static string Describe(DemoRecording demo)
         {
             string duration = demo.DurationFrames > 0 ? Replay.ReplayHud.Time(demo.DurationFrames) : "duration unknown";
-            return $"{duration} / {demo.Integrity} / {demo.Compatibility}";
+            string integrity = demo.Integrity switch { ReplayIntegrity.Unknown => "Not checked", ReplayIntegrity.Healthy => "Healthy", ReplayIntegrity.Recovered => "Recovered", ReplayIntegrity.Truncated => "Incomplete", _ => "Damaged" };
+            string compatibility = demo.Compatibility switch { ReplayOpenResult.Success => "Compatible", ReplayOpenResult.ProtocolMismatch => "Incompatible protocol", ReplayOpenResult.UnsupportedFormat => "Unsupported format", _ => "Cannot read" };
+            return $"{duration} / {integrity} / {compatibility}";
         }
         public static string Details(DemoRecording demo)
         {
             string details = $"{demo.Recorded:d MMM yyyy, HH:mm} / {Size(demo.Bytes)}";
             if (demo.Metadata is ReplayMetadata metadata)
-                details = $"{metadata.Mode} / {metadata.Players.Count} players / {metadata.Type}\n"
+                details = $"{metadata.Mode} / {metadata.Players.Count} players / {(metadata.Type == ReplayType.FullMatch ? "Full match" : "Clip")}\n"
                     + string.Join(", ", System.Linq.Enumerable.Select(metadata.Players, p => p.Name)) + "\n"
                     + (metadata.BuildMatches ? "Same build" : "Different build") + " / " + details;
             return details;
