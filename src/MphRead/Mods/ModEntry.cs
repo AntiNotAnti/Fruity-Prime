@@ -99,6 +99,12 @@ namespace MphRead.Mods
                 Environment.ExitCode = Testing.TestBrightSkins.Run();
                 return true;
             }
+            if (HasFlag(args, "pointercheck"))
+            {
+                Environment.ExitCode = Input.PointerCheck.Run();
+                return true;
+            }
+
 
             // The copying half of a desktop update, which is this build
             // started by the *previous* one. First, and before anything reads

@@ -7171,6 +7171,7 @@ namespace MphRead
 
         protected override void OnLoad()
         {
+            Mods.Input.WindowsPenInput.Attach(this);
             // Not in the shell, which opens with no match in it: the scene is
             // loaded by LoadScene when one is started. The guard also covers
             // the ordinary path twice over, since a caller that has already
@@ -7240,6 +7241,7 @@ namespace MphRead
                 // The launcher, with no match behind it. The pointer is the
                 // system's -- there is nobody to aim.
                 CursorState = CursorState.Normal;
+                Mods.Input.PointerDevice.Reset();
                 Mods.Render.UiOverlay.DrawAlone(FramebufferSize.X, FramebufferSize.Y);
                 // Before the swap: the back buffer holds this frame and
                 // nothing else does. Only -shellshot asks.
@@ -7268,7 +7270,7 @@ namespace MphRead
             // the same reason the results screen is.
             CursorState = (Scene.CameraMode == CameraMode.Player || Scene.IsFreeCam) && !Scene.FrameAdvance
                 && !Mods.PauseMenu.Open && !Mods.EndScreen.Available
-                && !Mods.Input.StylusZone.Enabled && !Mods.Input.StylusZone.Placing
+                && !Mods.Input.PointerInput.StylusMode && !Mods.Input.StylusZone.Placing
                 && !Scene.ShowCursor && !GameState.DialogPause && !GameState.MenuPause
                 ? CursorState.Grabbed
                 : CursorState.Normal;
@@ -7283,10 +7285,11 @@ namespace MphRead
             // The DS bottom screen, if the player has marked one out. The
             // window's shape goes with it: the zone is given as a fraction of
             // the width and has to come out the DS's shape on screen.
-            Mods.Input.StylusZone.AspectCorrection = ClientSize.Y > 0
-                ? ClientSize.X / (float)ClientSize.Y : 16f / 9f;
-            Mods.Input.StylusZone.Update(pointerX, pointerY,
-                MouseState.IsButtonDown(MouseButton.Left));
+            var pointer = Mods.Input.WindowsPenInput.Read(MouseState, ClientSize.X, ClientSize.Y,
+                out bool independentPrimary);
+            Mods.Input.PointerDevice.Update(pointer, ClientSize.X, ClientSize.Y, independentPrimary,
+                acceptsInput: IsFocused && !Mods.PauseMenu.Open && !Mods.Chat.ChatBox.Composing
+                    && !GameState.MenuPause && !GameState.DialogPause && !Mods.EndScreen.Available);
             if (Mods.Input.StylusZone.Placing)
             {
                 Mods.Input.StylusZone.PlacementDrag(pointerX, pointerY);
@@ -7579,8 +7582,9 @@ namespace MphRead
 #endif
             // Filtered for the same reason the player's aim is: the free
             // camera is reached from a match, with the same pointer.
-            Scene.OnMouseMove(Mods.Input.PointerInput.Filter(e.DeltaX),
-                Mods.Input.PointerInput.Filter(e.DeltaY));
+            (float deltaX, float deltaY) = Scene.IsFreeCam
+                ? Mods.Input.PointerInput.Filter(e.DeltaX, e.DeltaY) : (e.DeltaX, e.DeltaY);
+            Scene.OnMouseMove(deltaX, deltaY);
             base.OnMouseMove(e);
         }
 

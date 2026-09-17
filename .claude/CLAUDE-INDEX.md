@@ -13,6 +13,7 @@ loading everything.
 - launcher/LAUNCHER-SETTINGS.md — settings window layout and toggles
 - launcher/LAUNCHER-FIRSTRUN.md — extraction flow and progress bar
 - DEBUG-LOGS.md — the launcher's corner switch: what it writes, where, and why it exists
+- STYLUS-INPUT.md � desktop pen ownership, Windows pointer backend, settings migration and regression checks
 - GAMEPAD.md — controllers on the desktop and Android: the layout, the feel, and how to test one without owning one
 - multiplayer/NETWORK-BROWSER.md — server discovery, directory, hosting
 - multiplayer/NETWORK-LOBBY.md — persistent sessions, lobby authority, protocol 9, load barrier, shared UI and regression commands
