@@ -14,6 +14,10 @@ scaled. Paused and ended replays run camera/input presentation only. Particle
 and fade timers are stepped for every replay simulation frame, including seek
 batches. The final frame remains visible and restart/exit stay available.
 
+The replay packet clock also advances while the session is waiting for a match
+to start, so a recorded `InMatch` packet can release the load barrier. Gameplay
+remains frozen during these steps; this needs no live socket or load acknowledgement.
+
 Space plays/pauses; period steps forward; comma steps backward; brackets change
 speed; arrows seek five seconds; Home restarts; Tab displays the scoreboard.
 F toggles free camera, C selects chase, O selects orbit, 1-8 selects a player,

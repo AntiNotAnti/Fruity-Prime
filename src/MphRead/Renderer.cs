@@ -1543,6 +1543,9 @@ namespace MphRead
         {
             if (Mods.Network.NetSession.FreezeGameplay)
             {
+                // The recorded session packet that releases the load barrier must
+                // still arrive while gameplay is frozen. Playback has no socket.
+                Mods.Network.DemoPlayback.PumpFrame();
                 if (Mods.Network.NetSession.IsStarting) Mods.Network.NetSession.MarkMatchLoaded();
                 Mods.Network.NetSession.Pump();
                 return;
