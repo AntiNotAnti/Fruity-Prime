@@ -194,6 +194,9 @@ namespace MphRead.Mods.Network
             // Never truncate an existing recording, including an orphan from a previous crash.
             if (File.Exists(_path)) throw new IOException("A replay already exists at that path.");
             byte[] header = ReplayFormatV3.EncodeMetadata(metadata);
+            // The writer can also receive bootstrap packets extracted from an external v2
+            // replay. Validate those before creating a file we would subsequently refuse.
+            _ = ReplayFormatV3.DecodeMetadata(metadata.ProtocolVersion, header);
             _stream = new FileStream(PartialPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
             _writer = new BinaryWriter(_stream, Encoding.UTF8, true);
             _records = new BinaryWriter(_chunk, Encoding.UTF8, true);

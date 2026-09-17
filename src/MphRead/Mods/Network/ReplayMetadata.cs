@@ -63,6 +63,9 @@ namespace MphRead.Mods.Network
         {
             var (room, _) = Metadata.GetRoomByName(roomKey);
             if (room == null) return 0;
+            string root;
+            try { root = room.FirstHunt ? Paths.FhFileSystem : Paths.FileSystem; }
+            catch (KeyNotFoundException) { return 0; } // Asset-free lobby/tools have no extraction configured.
             using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             byte[] buffer = new byte[64 * 1024];
             Span<byte> size = stackalloc byte[8];
@@ -70,7 +73,7 @@ namespace MphRead.Mods.Network
                 room.EntityPath, room.NodePath, room.AnimationPath, room.TexturePath })
             {
                 if (string.IsNullOrEmpty(relative)) continue;
-                string path = Paths.Combine(room.FirstHunt ? Paths.FhFileSystem : Paths.FileSystem, relative);
+                string path = Paths.Combine(root, relative);
                 using var stream = File.OpenRead(path);
                 BinaryPrimitives.WriteInt64LittleEndian(size, stream.Length);
                 hash.AppendData(size);

@@ -181,3 +181,11 @@ and the swap). Only valid on a visible window -- a hidden one has no usable
 back buffer under Mesa, which is the whole reason the offscreen target exists.
 The window is bigger because the HUD is authored for 256x192 and scaled to it:
 at 320x180 a weapon icon is a few pixels and a capture of it says nothing.
+
+Replay regression commands are documented in
+[multiplayer/NETWORK-DEMOS.md](../multiplayer/NETWORK-DEMOS.md). Run
+`-replaycontrolcheck` and `-replayformatcheck` without cartridge assets, then
+`-replaydeterminism FILE` against a recorded match with game assets available.
+The latter verifies replay-vs-replay state equivalence, not live-client or
+full-world checkpoint equivalence. Keep `.fpdemo` fixtures and extracted assets
+out of Git; record local `-netcheck ... -recorddemo` sessions to regenerate them.

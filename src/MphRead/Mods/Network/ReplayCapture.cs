@@ -35,7 +35,7 @@ namespace MphRead.Mods.Network
             var players = new List<ReplayPlayerInfo>();
             MatchStatePacket? match = NetSession.ServerMatch;
             string room = match?.RoomKey ?? "";
-            if (_room != room)
+            if (_room != room || _mapHash == 0)
             {
                 ulong hash = hashMap && room.Length > 0 ? ReplayMapIdentity.Compute(room) : 0;
                 _room = room;

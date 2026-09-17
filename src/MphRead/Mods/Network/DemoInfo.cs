@@ -28,7 +28,7 @@ namespace MphRead.Mods.Network
             if (reader == null)
             {
                 Console.WriteLine($"[demo] \"{path}\" is not a demo this build can read "
-                    + $"(bad magic, or not format version {DemoFile.FormatVersion})");
+                    + "(bad magic, unsupported format, or corrupt metadata)");
                 return 1;
             }
             var counts = new Dictionary<PacketType, int>();

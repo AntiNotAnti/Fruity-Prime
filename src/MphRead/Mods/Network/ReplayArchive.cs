@@ -61,6 +61,7 @@ namespace MphRead.Mods.Network
                 DemoRecord? record;
                 while ((record = reader.ReadNext()) is { } next && next.Frame < start) Remember(bootstrap, next.Data);
                 if (record == null) return reader.LastResult == ReplayOpenResult.Success ? ReplayOpenResult.Empty : reader.LastResult;
+                if (record.Value.Frame > end) return ReplayOpenResult.Empty;
                 if (!bootstrap.TryGetValue(PacketType.MatchState, out byte[]? matchBytes)) return ReplayOpenResult.MissingMatchState;
                 var match = MatchStatePacket.Read(matchBytes.AsSpan(1));
                 var players = new List<ReplayPlayerInfo>();

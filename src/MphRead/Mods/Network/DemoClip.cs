@@ -10,7 +10,12 @@ namespace MphRead.Mods.Network
     {
         public static readonly int[] Lengths = { 15, 30, 60, 120 };
         public static readonly int[] PostRollLengths = { 0, 2, 3, 5 };
-        public static int Seconds { get; set; } = 30;
+        private static int _seconds = 30;
+        public static int Seconds
+        {
+            get => _seconds;
+            set { _seconds = Math.Clamp(value, 0, 120); if (_seconds == 0) Purge(); }
+        }
         public static int PostRollSeconds { get; set; } = 3;
         private const long MaxBytes = 24 * 1024 * 1024;
         private const int PageSize = 64 * 1024;
@@ -141,6 +146,7 @@ namespace MphRead.Mods.Network
                 }
                 writer.Dispose();
                 LastSavedPath = path;
+                Chat.ChatBox.System("Saved replay clip: " + Path.GetFileName(path));
                 return true;
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is InvalidDataException)
@@ -148,6 +154,7 @@ namespace MphRead.Mods.Network
                 writer?.Abort();
                 LastError = "Could not save replay: " + ex.Message;
                 Console.WriteLine($"[replay] {LastError}");
+                Chat.ChatBox.System(LastError);
                 return false;
             }
         }
