@@ -71,7 +71,7 @@ namespace MphRead.Mods.Launcher.Gui
             return new FormattedText(Text, CultureInfo.InvariantCulture,
                 FlowDirection.LeftToRight,
                 new Typeface(_font, FontStyle.Normal, FontWeight.Bold),
-                _size, brush);
+                _size * UiMetrics.TextFactor, brush);
         }
 
         protected override Size MeasureOverride(Size availableSize)
@@ -163,6 +163,7 @@ namespace MphRead.Mods.Launcher.Gui
 
         public override void Render(DrawingContext context)
         {
+            using var opacity = context.PushOpacity(IsEffectivelyEnabled ? 1 : UiMetrics.DisabledOpacity);
             // Avalonia hit-tests what was drawn, not the bounds: without this
             // the word only answers the pointer over its own glyphs.
             context.FillRectangle(Brushes.Transparent,
@@ -182,9 +183,11 @@ namespace MphRead.Mods.Launcher.Gui
             // here". So: no ramp, no movement, and the one thing that changes
             // is the colour.
             Color colour = !IsEnabled ? GuiTheme.TextDim
+                : _pressed ? GuiTheme.Shade(GuiTheme.Accent, -0.2)
                 : lit ? GuiTheme.Shade(GuiTheme.Accent, 0.2)
                 : Selected ? GuiTheme.Accent : _colour;
             context.DrawText(Label(new SolidColorBrush(colour)), new Point(0, 0));
+            UiMetrics.DrawFocus(context, this);
         }
     }
 }

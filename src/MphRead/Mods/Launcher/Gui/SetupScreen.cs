@@ -27,7 +27,8 @@ namespace MphRead.Mods.Launcher.Gui
         /// <summary>Raised when the files are there, or when the player backed out.</summary>
         public event EventHandler? Closed;
 
-        private readonly Note _log = new("");
+        private readonly Note _log = new("") { IsVisible = false };
+        private readonly Note _stage = new("1. Choose ROM   →   2. Extract   →   3. Generate previews   →   4. Ready");
         private readonly ProgressRow _progress = new();
         private readonly UiMark _choose;
         private readonly UiMark _back;
@@ -40,10 +41,11 @@ namespace MphRead.Mods.Launcher.Gui
             Focusable = true;
 
             var body = new StackPanel { Spacing = 8 };
+            body.Children.Add(_stage);
             body.Children.Add(new Note(Mods.Branding.Name
-                + " needs your own Metroid Prime Hunters cartridge dump. It unpacks what "
-                + "it needs next to this program and leaves the file alone. No game data "
-                + "is included in this download, and none is downloaded."));
+                + " needs your own Metroid Prime Hunters cartridge dump.\n\n"
+                + $"It extracts the game data it needs into {Mods.Branding.Name}'s data folder and leaves your ROM unchanged. "
+                + $"No game data is included with {Mods.Branding.Name} or downloaded from the Internet."));
             if (GameFiles.InProcessSetup)
             {
                 body.Children.Add(new Note("The unpacked files land in " + GameFiles.Root
@@ -66,7 +68,7 @@ namespace MphRead.Mods.Launcher.Gui
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
             });
 
-            _choose = new UiMark(UiMark.Shape.Accept, "choose your .nds file");
+            _choose = new UiMark(UiMark.Shape.Accept, "Choose .nds file");
             _choose.Click += async (_, _) => await ChooseRom();
             _back = new UiMark(UiMark.Shape.Cancel, "back")
             {
@@ -142,6 +144,7 @@ namespace MphRead.Mods.Launcher.Gui
             TopLevel? top = TopLevel.GetTopLevel(this);
             if (top?.StorageProvider == null)
             {
+                _log.IsVisible = true;
                 _log.Text = "The device's file picker is unavailable.";
                 return;
             }
@@ -159,6 +162,7 @@ namespace MphRead.Mods.Launcher.Gui
             }
             catch (Exception ex)
             {
+                _log.IsVisible = true;
                 _log.Text = $"The file picker could not be opened: {ex.Message}";
                 _progress.IsVisible = false;
                 return;
@@ -168,7 +172,7 @@ namespace MphRead.Mods.Launcher.Gui
                 return;
             }
             _choose.IsEnabled = false;
-            _choose.Label = "working...";
+            _choose.Label = "Working…";
             string? path = picked[0].TryGetLocalPath();
             string? scratch = null;
             if (path == null)
@@ -177,7 +181,7 @@ namespace MphRead.Mods.Launcher.Gui
                 // it. Copying is the only way to give the extractor a file, and
                 // it is the player's own cartridge dump, so it is copied into
                 // the app's directory and deleted afterwards.
-                _log.Text = "Copying the file onto this device...";
+                _log.Text = "Copying the file to this device…";
                 try
                 {
                     scratch = Path.Combine(GameFiles.Root, "picked.nds");
@@ -190,6 +194,7 @@ namespace MphRead.Mods.Launcher.Gui
                 }
                 catch (Exception ex)
                 {
+                    _log.IsVisible = true;
                     _log.Text = $"The file could not be read: {ex.Message}";
                     _progress.IsVisible = false;
                     TryDelete(scratch);
@@ -205,15 +210,18 @@ namespace MphRead.Mods.Launcher.Gui
             if (!File.Exists(path) || !String.Equals(Path.GetExtension(path), ".nds",
                 StringComparison.OrdinalIgnoreCase))
             {
-                _log.Text = "Choose an existing .nds file.";
+                _log.IsVisible = true;
+                _log.Text = "This is not a supported .nds file. Choose a Metroid Prime Hunters cartridge dump.";
                 _progress.IsVisible = false;
                 TryDelete(temporaryPath);
                 Ready();
                 return;
             }
             _choose.IsEnabled = false;
-            _choose.Label = "working...";
+            _choose.Label = "Working…";
             _log.Text = "";
+            _log.IsVisible = false;
+            _stage.Text = "2 of 4 • Extracting game data…";
             var progress = new SetupProgress();
             _progress.IsVisible = true;
             _progress.Set(0, "Starting");
@@ -229,7 +237,7 @@ namespace MphRead.Mods.Launcher.Gui
                         _log.Text = Tail(_log.Text, line);
                         if (progress.Observe(line))
                         {
-                            _progress.Set(progress.Fraction, progress.Stage);
+                            _progress.Set(progress.Fraction, "Extracting game data…");
                         }
                     })));
                 if (ok)
@@ -239,12 +247,15 @@ namespace MphRead.Mods.Launcher.Gui
             }
             catch (Exception ex)
             {
+                ok = false;
                 _log.Text = Tail(_log.Text, $"Setup failed: {ex.Message}");
             }
             finally
             {
                 TryDelete(temporaryPath);
             }
+            _stage.Text = ok ? "4 of 4 • Ready" : "Setup could not finish. See the details below, then try again.";
+            _log.IsVisible = !ok;
             progress.Finish(ok);
             _progress.Set(progress.Fraction, progress.Stage);
             Ready();
@@ -281,17 +292,29 @@ namespace MphRead.Mods.Launcher.Gui
         private void Ready()
         {
             _choose.IsEnabled = true;
-            _choose.Label = "choose your .nds file";
+            _choose.Label = "Choose .nds file";
         }
 
         private async Task RenderPreviews()
         {
             _previews.IsEnabled = false;
-            _previews.Text = "Rendering...";
-            await RenderMissing(null);
-            _previews.IsEnabled = true;
-            _previews.Text = "Render map previews";
-            RefreshPreviewEntry();
+            _previews.Text = "Rendering…";
+            try
+            {
+                await RenderMissing(null);
+                _stage.Text = "4 of 4 • Ready";
+            }
+            catch (Exception ex)
+            {
+                _log.IsVisible = true;
+                _log.Text = "Map previews could not be generated: " + ex.Message + "\nTry Render map previews again.";
+            }
+            finally
+            {
+                _previews.IsEnabled = true;
+                _previews.Text = "Render map previews";
+                RefreshPreviewEntry();
+            }
         }
 
         /// <summary>
@@ -305,13 +328,14 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 return;
             }
-            _log.Text = Tail(_log.Text, "Rendering map previews...");
+            _stage.Text = "3 of 4 • Generating missing previews…";
+            _log.Text = Tail(_log.Text, "Rendering map previews…");
             await ThumbnailHost.RenderMissingAsync(line => Dispatcher.UIThread.Post(() =>
             {
                 _log.Text = Tail(_log.Text, line);
                 if (progress != null && progress.Observe(line))
                 {
-                    _progress.Set(progress.Fraction, progress.Stage);
+                    _progress.Set(progress.Fraction, "Generating missing previews…");
                 }
             }));
         }

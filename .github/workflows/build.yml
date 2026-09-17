@@ -46,8 +46,18 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '9.0.x'
+      - name: player-facing copy regression
+        run: dotnet run --project tools/ui-copy-check/ui-copy-check.csproj -c Release
       - name: deterministic input and headless UI checks
         run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -gamepadcheck
+      - name: launcher layout and focus matrix
+        run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -uimatrix "$env:GITHUB_WORKSPACE/artifacts/ui-matrix"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: launcher-ui-matrix
+          path: artifacts/ui-matrix
+          if-no-files-found: warn
 
   build:
     name: ${{ matrix.id }}

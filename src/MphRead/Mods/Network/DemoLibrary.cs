@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using MphRead.Mods.Launcher;
 
 namespace MphRead.Mods.Network
 {
@@ -17,7 +18,7 @@ namespace MphRead.Mods.Network
         public ReplayMetadata? Metadata { get; }
         public ReplayOpenResult Compatibility { get; }
         public uint DurationFrames { get; }
-        public string DisplayName => DemoLibrary.DisplayName(Path, Room.Length > 0 ? Room : FileName);
+        public string DisplayName => DemoLibrary.DisplayName(Path, Room.Length > 0 ? UiText.Map(Room) : FileName);
         public bool Favorite => File.Exists(Path + ".favorite");
         public ReplayIntegrity Integrity => DemoLibrary.VerifiedIntegrity(Path) ?? Metadata?.Integrity ?? (Compatibility is ReplayOpenResult.Corrupt or ReplayOpenResult.InvalidMagic ? ReplayIntegrity.Corrupt : Compatibility == ReplayOpenResult.Truncated ? ReplayIntegrity.Truncated : ReplayIntegrity.Unknown);
         public string FileName => System.IO.Path.GetFileName(Path);
@@ -86,7 +87,7 @@ namespace MphRead.Mods.Network
         }
 
         public static string Directory =>
-            Path.GetFullPath(Paths.Combine(Paths.Export, "_demos"));
+            Path.GetFullPath(Paths.Combine(Paths.AllPaths.TryGetValue("Export", out string? export) ? export : LauncherPrefs.Directory, "_demos"));
 
         /// <summary>
         /// Every recording in that folder, newest first.
@@ -159,17 +160,17 @@ namespace MphRead.Mods.Network
         public static string Describe(DemoRecording demo)
         {
             string duration = demo.DurationFrames > 0 ? Replay.ReplayHud.Time(demo.DurationFrames) : "duration unknown";
-            string integrity = demo.Integrity switch { ReplayIntegrity.Unknown => "Not checked", ReplayIntegrity.Healthy => "Healthy", ReplayIntegrity.Recovered => "Recovered", ReplayIntegrity.Truncated => "Incomplete", _ => "Damaged" };
-            string compatibility = demo.Compatibility switch { ReplayOpenResult.Success => "Compatible", ReplayOpenResult.ProtocolMismatch => "Incompatible protocol", ReplayOpenResult.UnsupportedFormat => "Unsupported format", _ => "Cannot read" };
-            return $"{duration} / {integrity} / {compatibility}";
+            return $"{duration} / {UiText.Integrity(demo.Integrity)} / {UiText.ReplayStatus(demo.Compatibility)}";
         }
         public static string Details(DemoRecording demo)
         {
-            string details = $"{demo.Recorded:d MMM yyyy, HH:mm} / {Size(demo.Bytes)}";
+            string details = $"{demo.DisplayName}\n{demo.Recorded:d MMM yyyy, HH:mm} · {Size(demo.Bytes)}"
+                + $"\nMap: {UiText.Map(demo.Room)}\n{Describe(demo)}"
+                + $"\n{(demo.Favorite ? "Favorite" : "Not a favorite")}";
             if (demo.Metadata is ReplayMetadata metadata)
-                details = $"{metadata.Mode} / {metadata.Players.Count} players / {(metadata.Type == ReplayType.FullMatch ? "Full match" : "Clip")}\n"
-                    + string.Join(", ", System.Linq.Enumerable.Select(metadata.Players, p => p.Name)) + "\n"
-                    + (metadata.BuildMatches ? "Same build" : "Different build") + " / " + details;
+                details += $"\n{UiText.Mode(metadata.Mode)} · {UiText.Players(metadata.Players.Count)} · {UiText.ReplayKind(metadata.Type)}"
+                    + "\n" + string.Join(", ", System.Linq.Enumerable.Select(metadata.Players, p => p.Name))
+                    + "\n" + (metadata.BuildMatches ? "Same build" : "Different build");
             return details;
         }
 

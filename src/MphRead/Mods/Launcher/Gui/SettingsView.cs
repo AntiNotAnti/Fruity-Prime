@@ -63,7 +63,12 @@ namespace MphRead.Mods.Launcher.Gui
         private SliderRow _resolutionScale = null!;
         private ToggleRow _lightingRow = null!;
         private ToggleRow _fogRow = null!;
-        private ToggleRow _filteringRow = null!;
+        private ChoiceRow _filteringRow = null!;
+        private ChoiceRow _presetRow = null!, _upscaleRow = null!, _crosshairColor = null!, _teamPalette = null!;
+        private ToggleRow _fxaaRow = null!, _enhancedColor = null!, _crosshairOutline = null!;
+        private ToggleRow _highContrast = null!, _reducedFlashes = null!, _reducedShake = null!;
+        private SliderRow _hudScale = null!, _uiScale = null!, _textScale = null!, _safeZone = null!, _hudOpacity = null!;
+        private bool _changingPreset;
         private ToggleRow _celRow = null!;
         private ToggleRow _brightSkinsRow = null!;
         private ToggleRow _fpsRow = null!;
@@ -320,10 +325,16 @@ namespace MphRead.Mods.Launcher.Gui
         private void BuildPages()
         {
             BuildDisplay(AddSection("Display"));
+            BuildHud(AddSection("HUD and accessibility"));
             BuildAudio(AddSection("Audio"));
-            BuildControls(AddSection("Controls"));
+            var controls = AddSection(OperatingSystem.IsAndroid() ? "Touch and mouse" : "Mouse and stylus");
+            var controller = AddSection("Controller");
+            var replay = AddSection("Replay");
+            BuildControls(controls, controller, replay);
             BuildLauncher(AddSection("Profile"));
-            BuildCredits(AddSection("Credits"));
+            var support = AddSection("Advanced / Support");
+            BuildSupport(support);
+            BuildCredits(support);
         }
 
         /// <summary>
@@ -380,7 +391,7 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 Heading(page, "Window");
                 _windowRow = Add(page, new ChoiceRow("Mode",
-                    new[] { "Windowed", "Fullscreen (borderless)" },
+                    new[] { "Windowed", "Borderless fullscreen" },
                     LauncherPrefs.WindowMode == WindowStartMode.BorderlessFullscreen ? 1 : 0));
             }
 
@@ -401,9 +412,11 @@ namespace MphRead.Mods.Launcher.Gui
             _fovRow.ValueChanged += (_, _) => RenderOptions.FieldOfView = _fovRow.Value;
 
             Heading(page, "Performance");
+            _presetRow = Add(page, new ChoiceRow("Graphics preset", VisualOptions.PresetNames, (int)VisualOptions.DisplayPreset));
             _resolutionScale = Add(page, new SliderRow("Render scale",
-                RenderOptions.ResolutionScale,
-                v => $"{Math.Max(RenderOptions.MinScale, v)}%"));
+                Math.Max(0, Array.IndexOf(VisualOptions.ScaleStops, RenderOptions.ResolutionScale)),
+                v => $"{VisualOptions.ScaleStops[Math.Clamp(v, 0, VisualOptions.ScaleStops.Length - 1)]}%",
+                min: 0, max: VisualOptions.ScaleStops.Length - 1, keyStep: 1));
             // Under the render scale because they are the same question asked
             // from both ends -- how much picture, and how often -- and because
             // the two of them are what somebody who is not getting a smooth
@@ -414,12 +427,47 @@ namespace MphRead.Mods.Launcher.Gui
                 min: 0, max: _fpsLimitStops.Length - 1, keyStep: 1));
             _lightingRow = Add(page, new ToggleRow("Lighting", RenderOptions.Lighting));
             _fogRow = Add(page, new ToggleRow("Fog", RenderOptions.Fog));
-            _filteringRow = Add(page, new ToggleRow("Texture filtering", RenderOptions.TextureFiltering));
+            _filteringRow = Add(page, new ChoiceRow("Texture filtering", VisualOptions.FilterNames, (int)VisualOptions.Current.Filtering));
+            _fxaaRow = Add(page, new ToggleRow("Anti-aliasing (FXAA)", VisualOptions.Current.Fxaa));
+            _upscaleRow = Add(page, new ChoiceRow("Upscaling", new[] { "Bilinear", "Sharp" }, VisualOptions.Current.SharpUpscaling ? 1 : 0));
+            _enhancedColor = Add(page, new ToggleRow("Enhanced color", VisualOptions.Current.EnhancedColor));
             _fpsRow = Add(page, new ToggleRow("FPS counter", RenderOptions.ShowFps));
 
             Heading(page, "Cel shading");
             _celRow = Add(page, new ToggleRow("Cel shading", RenderOptions.CelShading));
+            void Custom() { if (!_changingPreset) _presetRow.Index = (int)GraphicsPreset.Custom; }
+            _resolutionScale.ValueChanged += (_, _) => { Custom(); _upscaleRow.IsVisible = VisualOptions.ScaleStops[_resolutionScale.Value] < 100; };
+            _upscaleRow.IsVisible = RenderOptions.ResolutionScale < 100;
+            _filteringRow.Changed += (_, _) => Custom(); _upscaleRow.Changed += (_, _) => Custom();
+            foreach (var row in new[] { _lightingRow, _fogRow, _celRow, _fxaaRow, _enhancedColor }) row.Changed += (_, _) => Custom();
+            _presetRow.Changed += (_, _) =>
+            {
+                if (_changingPreset || _presetRow.Index == (int)GraphicsPreset.Custom) return;
+                _changingPreset = true;
+                var preset = VisualOptions.Preset((GraphicsPreset)_presetRow.Index, VisualOptions.Current);
+                _resolutionScale.Value = Array.IndexOf(VisualOptions.ScaleStops, preset.Scale);
+                _lightingRow.On = preset.Lighting; _fogRow.On = preset.Fog; _celRow.On = preset.Cel;
+                _filteringRow.Index = (int)preset.Settings.Filtering; _fxaaRow.On = preset.Settings.Fxaa;
+                _upscaleRow.Index = preset.Settings.SharpUpscaling ? 1 : 0; _enhancedColor.On = preset.Settings.EnhancedColor;
+                _changingPreset = false;
+            };
+        }
 
+        private void BuildHud(StackPanel page)
+        {
+            var visual = VisualOptions.Current;
+            Heading(page, "Scale and placement");
+            _hudScale = Add(page, new SliderRow("HUD scale", visual.HudScale, v => $"{v}%", min: 70, max: 100, keyStep: 5));
+            _uiScale = Add(page, new SliderRow("UI scale", visual.UiScale, v => $"{v}%", min: 75, max: 150, keyStep: 5));
+            _textScale = Add(page, new SliderRow("Text scale", visual.TextScale, v => $"{v}%", min: 85, max: 125, keyStep: 5));
+            _safeZone = Add(page, new SliderRow("HUD safe zone", visual.SafeZone, v => $"{v}%", min: 0, max: 15, keyStep: 1));
+            _hudOpacity = Add(page, new SliderRow("HUD opacity", visual.HudOpacity, v => $"{v}%", min: 30, max: 100, keyStep: 5));
+            _highContrast = Add(page, new ToggleRow("High-contrast UI", visual.HighContrast));
+            _reducedFlashes = Add(page, new ToggleRow("Reduced flashes", visual.ReducedFlashes));
+            _reducedShake = Add(page, new ToggleRow("Reduced screen shake", visual.ReducedShake));
+            _crosshairColor = Add(page, new ChoiceRow("Crosshair color", new[] { "Health", "White", "Cyan", "Yellow", "Magenta" }, visual.CrosshairColor));
+            _crosshairOutline = Add(page, new ToggleRow("Crosshair outline", visual.CrosshairOutline));
+            _teamPalette = Add(page, new ChoiceRow("Team colors", new[] { "Classic", "Blue / orange", "Purple / gold" }, visual.TeamPalette));
             Heading(page, "Visibility");
             _brightSkinsRow = Add(page, new ToggleRow("Bright player skins", RenderOptions.BrightSkins));
             Explain(page, "Use high-contrast player colors to improve visibility and team identification.");
@@ -436,7 +484,7 @@ namespace MphRead.Mods.Launcher.Gui
             // -nohelmet still sets two of them -- they simply are not asked
             // about here.
             Heading(page, "HUD");
-            _proHud = Add(page, new ToggleRow("Pro mode HUD", Features.ProHud));
+            _proHud = Add(page, new ToggleRow("Pro HUD", Features.ProHud));
             // The crosshair questions belong to Pro mode and nothing else --
             // the DS HUD draws its own reticle sprite and has no use for
             // them -- so they are only asked while it is on. Shown rather than
@@ -447,9 +495,11 @@ namespace MphRead.Mods.Launcher.Gui
             _crosshairStyleRow = Add(page, new ChoiceRow("Crosshair type",
                 Crosshair.StyleNames, (int)Crosshair.Style));
             _crosshairStyleRow.Preview = (context, area) => CrosshairPreview.Draw(context, area,
-                (CrosshairStyle)_crosshairStyleRow.Index, (CrosshairSize)_crosshairSizeRow.Index);
+                (CrosshairStyle)_crosshairStyleRow.Index, (CrosshairSize)_crosshairSizeRow.Index, _crosshairColor.Index, _crosshairOutline.On);
             // The preview lives on the type row and answers both rows, so the
             // size row has to ask for it to be repainted.
+            _crosshairColor.Changed += (_, _) => _crosshairStyleRow.InvalidateVisual();
+            _crosshairOutline.Changed += (_, _) => _crosshairStyleRow.InvalidateVisual();
             _crosshairSizeRow.Changed += (_, _) => _crosshairStyleRow.InvalidateVisual();
             // Where the gun sits, which is the one Pro-mode question with two
             // real answers rather than a right one. Static is Quake's: the
@@ -530,7 +580,7 @@ namespace MphRead.Mods.Launcher.Gui
 
         // ------------------------------------------------------------ controls
 
-        private void BuildControls(StackPanel page)
+        private void BuildControls(StackPanel page, StackPanel controller, StackPanel replay)
         {
             Heading(page, "Mouse");
             // A slider over an index (0-100 mapped across a range) could only
@@ -544,14 +594,14 @@ namespace MphRead.Mods.Launcher.Gui
                 min: 1, max: 300, keyStep: 1));
             _invertY = Add(page, new ToggleRow("Invert vertical aim", InputSettings.InvertMouseY));
             _invertX = Add(page, new ToggleRow("Invert horizontal aim", InputSettings.InvertMouseX));
-            _scrollAllWeapons = Add(page, new ToggleRow("Wheel cycles every weapon",
+            _scrollAllWeapons = Add(page, new ToggleRow("Mouse wheel cycles all weapons",
                 InputSettings.ScrollAllWeapons));
             // Off by default: a fast flick with a high-DPI mouse at high
             // sensitivity can clear the jump threshold too, which zeroed a
             // real player's aim rather than protecting it. Turning it on is
             // also the gate for everything below it -- the bottom-screen
             // zone means nothing to a mouse. See Mods.Input.PointerInput.
-            Heading(page, "Stylus / drawing tablet");
+            Heading(page, "Stylus and drawing tablet");
             _penTablet = Add(page, new ToggleRow("Stylus mode", Mods.Input.PointerInput.StylusMode));
             BuildStylusZone(page);
             _penTablet.Changed += (_, _) => ShowStylusRows();
@@ -562,14 +612,14 @@ namespace MphRead.Mods.Launcher.Gui
             // Its own section rather than more rows under "Mouse": a pad has
             // its own sensitivity, and somebody who inverts one of the two
             // very often does not invert the other.
-            Heading(page, "Gamepad");
-            _gamepadSettings = Add(page, new GamepadSettingsPanel());
+            Heading(controller, "Controller");
+            _gamepadSettings = Add(controller, new GamepadSettingsPanel());
 
-            Heading(page, "Gamepad buttons");
+            Heading(controller, "Controller buttons");
             var padRows = new List<PadRow>();
             foreach (Mods.Input.PadAction action in Mods.Input.PadBindings.Actions)
             {
-                padRows.Add(Add(page, new PadRow(action)));
+                padRows.Add(Add(controller, new PadRow(action)));
             }
 
             Heading(page, "Keys");
@@ -586,13 +636,13 @@ namespace MphRead.Mods.Launcher.Gui
             // the only thing anybody wants to know about that key, and putting
             // it on the far side of the settings from the bind would make them
             // two unrelated questions.
-            rows.Add(Add(page, new KeyRow("Save clip",
+            rows.Add(Add(replay, new KeyRow("Save replay clip",
                 () => InputSettings.ClipKey, k => InputSettings.ClipKey = k)));
-            _clipSecondsRow = Add(page, new ChoiceRow("Clip length",
+            _clipSecondsRow = Add(replay, new ChoiceRow("Clip length",
                 Array.ConvertAll(Mods.Network.DemoClip.Lengths, n => $"{n} seconds"),
                 Math.Max(0, Array.IndexOf(Mods.Network.DemoClip.Lengths,
                     Mods.Network.DemoClip.Seconds))));
-            _clipPostRollRow = Add(page, new ChoiceRow("Clip post-roll",
+            _clipPostRollRow = Add(replay, new ChoiceRow("Post-roll duration",
                 Array.ConvertAll(Mods.Network.DemoClip.PostRollLengths, n => $"{n} seconds"),
                 Math.Max(0, Array.IndexOf(Mods.Network.DemoClip.PostRollLengths, Mods.Network.DemoClip.PostRollSeconds))));
             foreach (PropertyInfo property in InputSettings.Bindings)
@@ -717,9 +767,9 @@ namespace MphRead.Mods.Launcher.Gui
             page.Children.Add(place);
             _stylusRows.Add(place);
             var note = new Note(
-                "Drag a rectangle where the DS's touch screen should be, then map "
-                + "your tablet to it. Arrow keys move it, [ and ] resize it, Shift "
-                + "for finer steps, Enter keeps it and Escape leaves it as it was.");
+                "Drag a rectangle where the DS touch screen should appear, then map your tablet to it.\n\n"
+                + "Use the arrow keys to move the zone, [ and ] to resize it, and Shift for finer adjustments. "
+                + "Press Enter to save or Escape to cancel.");
             page.Children.Add(note);
             _stylusRows.Add(note);
         }
@@ -750,8 +800,7 @@ namespace MphRead.Mods.Launcher.Gui
             Heading(page, "On-screen buttons");
             _touchButtonsRow = Add(page, new ToggleRow("Show on-screen buttons",
                 Mods.Input.TouchSettings.ButtonsVisible));
-            Add(page, new Note("The stick, aiming, the double tap that jumps and the flick "
-                + "that boosts are not buttons, so they keep working with every one of these off."));
+            Add(page, new Note("Movement, aiming, double-tap jump, and flick boost remain available when on-screen buttons are hidden."));
             foreach ((Mods.Input.TouchControl control, string label) in Mods.Input.TouchSettings.Order)
             {
                 ToggleRow row = Add(page, new ToggleRow(label,
@@ -837,7 +886,7 @@ namespace MphRead.Mods.Launcher.Gui
             // the same hunter.
             string[] colors = Enumerable.Range(1, Mods.Network.PlayerColors.Count)
                 .Select(i => i.ToString()).ToArray();
-            _colorRow = Add(page, new ChoiceRow("Suit colour", colors,
+            _colorRow = Add(page, new ChoiceRow("Suit color", colors,
                 Mods.Network.PlayerColors.Clamp(LauncherPrefs.LastColor)));
 
             Heading(page, "Servers");
@@ -845,6 +894,10 @@ namespace MphRead.Mods.Launcher.Gui
                 $"{LauncherPrefs.ServerAddress}:{LauncherPrefs.ServerPort}", boxWidth: 220));
             _masterRow = Add(page, new FieldRow("Server directory",
                 $"{LauncherPrefs.MasterHost}:{LauncherPrefs.MasterPort}", boxWidth: 220));
+        }
+
+        private void BuildSupport(StackPanel page)
+        {
             _autoUpdate = Add(page, new ToggleRow("Check for updates on startup",
                 LauncherPrefs.AutoUpdate));
 
@@ -1057,13 +1110,13 @@ namespace MphRead.Mods.Launcher.Gui
                 Mods.Network.DemoClip.Seconds = Mods.Network.DemoClip.Lengths[
                     Math.Clamp(_clipSecondsRow.Index, 0, Mods.Network.DemoClip.Lengths.Length - 1)];
             }
-            _settings.ResolutionScale = Math.Max(RenderOptions.MinScale, _resolutionScale.Value)
+            _settings.ResolutionScale = VisualOptions.ScaleStops[_resolutionScale.Value]
                 .ToString(CultureInfo.InvariantCulture);
             RenderOptions.FieldOfView = _fovRow.Value;
             _settings.FieldOfView = _fovRow.Value.ToString(CultureInfo.InvariantCulture);
             _settings.Lighting = RenderOptions.OnOff(_lightingRow.On);
             _settings.Fog = RenderOptions.OnOff(_fogRow.On);
-            _settings.TextureFiltering = RenderOptions.OnOff(_filteringRow.On);
+            _settings.TextureFiltering = RenderOptions.OnOff(_filteringRow.Index != 0);
             _settings.ShowFps = RenderOptions.OnOff(_fpsRow.On);
             int cap = _fpsLimitStops[Math.Clamp(_fpsLimitRow.Value, 0,
                 _fpsLimitStops.Length - 1)].Cap;
@@ -1142,6 +1195,15 @@ namespace MphRead.Mods.Launcher.Gui
                 LauncherPrefs.MasterPort = masterPort;
             }
             LauncherPrefs.AutoUpdate = _autoUpdate.On;
+            VisualOptions.Save(VisualOptions.Current with
+            {
+                Filtering = (TextureQuality)_filteringRow.Index, Preset = (GraphicsPreset)_presetRow.Index,
+                Fxaa = _fxaaRow.On, SharpUpscaling = _upscaleRow.Index == 1, EnhancedColor = _enhancedColor.On,
+                HudScale = _hudScale.Value, UiScale = _uiScale.Value, TextScale = _textScale.Value,
+                SafeZone = _safeZone.Value, HudOpacity = _hudOpacity.Value, CrosshairColor = _crosshairColor.Index,
+                CrosshairOutline = _crosshairOutline.On, HighContrast = _highContrast.On,
+                ReducedFlashes = _reducedFlashes.On, ReducedShake = _reducedShake.On, TeamPalette = _teamPalette.Index
+            });
             GameState.CommitSettings(_settings);
             LauncherPrefs.Save();
             // Written and *applied*: the volumes, the language and the match

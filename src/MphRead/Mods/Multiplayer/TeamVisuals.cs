@@ -1,4 +1,5 @@
 using MphRead.Entities;
+using MphRead.Mods.Render;
 using MphRead.Formats;
 
 namespace MphRead.Mods.Multiplayer
@@ -22,8 +23,25 @@ namespace MphRead.Mods.Multiplayer
         private static readonly TeamPresentation _neutral = new("Unassigned",
             new ColorRgba(255, 255, 255, 255), new ColorRgb(31, 31, 31), Team.None, -1);
 
-        public static TeamPresentation Get(int teamIndex) =>
-            (uint)teamIndex < _teams.Length ? _teams[teamIndex] : _neutral;
+        private static readonly ColorRgba[][] _palettes =
+        {
+            new[] { new ColorRgba(0, 114, 255, 255), new ColorRgba(255, 170, 0, 255), new ColorRgba(220, 90, 210, 255), new ColorRgba(245, 245, 245, 255) },
+            new[] { new ColorRgba(170, 100, 255, 255), new ColorRgba(255, 220, 70, 255), new ColorRgba(60, 210, 220, 255), new ColorRgba(245, 245, 245, 255) }
+        };
+        public static TeamPresentation Get(int teamIndex)
+        {
+            if ((uint)teamIndex >= _teams.Length) return _neutral;
+            var team = _teams[teamIndex];
+            int palette = VisualOptions.Current.TeamPalette;
+            if (palette == 0) return team;
+            var color = _palettes[palette - 1][teamIndex];
+            return team with { Color = color, ObjectiveColor = new ColorRgb((byte)(color.Red * 31 / 255),
+                (byte)(color.Green * 31 / 255), (byte)(color.Blue * 31 / 255)) };
+        }
+        public static void ApplyPalette()
+        {
+            for (int team = 0; team < 4; team++) Metadata.TeamColors[team] = Get(team).ObjectiveColor;
+        }
 
         public static void Apply(PlayerEntity player)
         {

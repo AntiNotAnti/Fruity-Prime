@@ -8,6 +8,7 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using MphRead.Entities;
 using MphRead.Mods.Network;
 
@@ -56,11 +57,14 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly UiWord _voteNo;
         private readonly StackPanel _menu;
 
+        private UiTabs? _replayTabs;
+        internal void ShowReplaySection(string name) => _replayTabs?.Select(name);
+
         /// <param name="offerWindowMode">
         /// Show the fullscreen/windowed entry. False on a phone, which has one
         /// window, it is already the whole screen, and there is no F11.
         /// </param>
-        public PauseMenuView(bool offerWindowMode)
+        public PauseMenuView(bool offerWindowMode, bool replayPreview = false)
         {
             Background = Brushes.Transparent;
             Focusable = true;
@@ -79,7 +83,7 @@ namespace MphRead.Mods.Launcher.Gui
             voteTimer.Tick += (_, _) => RefreshVote();
             AttachedToVisualTree += (_, _) => voteTimer.Start();
             DetachedFromVisualTree += (_, _) => voteTimer.Stop();
-            if (!DemoPlayback.IsActive && NetSession.Active)
+            if (!(DemoPlayback.IsActive || replayPreview) && NetSession.Active)
             {
                 // Offered whenever there is a server to ask, rather than only
                 // when a vote could pass right now: the reasons it cannot --
@@ -88,7 +92,7 @@ namespace MphRead.Mods.Launcher.Gui
                 // entry that quietly disappears tells them nothing.
                 Add(menu, "Vote map", () => VoteMapRequested?.Invoke(this, EventArgs.Empty));
             }
-            if (!DemoPlayback.IsActive)
+            if (!(DemoPlayback.IsActive || replayPreview))
             {
                 if (SpectatorMode.IsSpectating)
                 {
@@ -113,26 +117,47 @@ namespace MphRead.Mods.Launcher.Gui
                 };
                 menu.Children.Add(window);
             }
-            if (DemoPlayback.IsActive)
+            UiTabs? replayTabs = null;
+            Control? replayTime = null;
+            if ((DemoPlayback.IsActive || replayPreview))
             {
-                Add(menu, ReplayController.IsPaused ? "Play replay" : "Pause replay", () =>
+                var playback = new StackPanel { Spacing = UiMetrics.Spacing };
+                var camera = new StackPanel { Spacing = UiMetrics.Spacing };
+                var events = new StackPanel { Spacing = UiMetrics.Spacing };
+                var clip = new StackPanel { Spacing = UiMetrics.Spacing };
+                var sections = new[] { playback, camera, events, clip };
+                replayTabs = new UiTabs(new[] { "Playback", "Camera", "Events", "Clip" });
+                var pages = new Panel();
+                for (int i = 0; i < sections.Length; i++)
+                {
+                    sections[i].IsVisible = i == 0;
+                    pages.Children.Add(sections[i]);
+                }
+                replayTabs.Changed += (_, _) =>
+                {
+                    for (int i = 0; i < sections.Length; i++) sections[i].IsVisible = i == replayTabs.Index;
+                };
+                menu.Children.Add(pages);
+                Add(playback, ReplayController.IsPaused ? "Play replay" : "Pause replay", () =>
                 { ReplayController.TogglePause(); Resumed?.Invoke(this, EventArgs.Empty); });
                 var rate = new ComboBox { ItemsSource = new[] { "0.25x speed", "0.5x speed", "1x speed", "2x speed", "4x speed" },
                     SelectedIndex = Array.IndexOf(ReplayController.Rates, ReplayController.PlaybackRate), Width = 240 };
                 rate.SelectionChanged += (_, _) => { if (rate.SelectedIndex >= 0) ReplayController.SetPlaybackRate(ReplayController.Rates[rate.SelectedIndex]); };
-                menu.Children.Add(rate);
-                Add(menu, "Previous frame", () => { ReplayController.Seek(ReplayController.CurrentFrame > 0 ? ReplayController.CurrentFrame - 1 : 0, false); Resumed?.Invoke(this, EventArgs.Empty); });
-                Add(menu, "Restart replay", () => { ReplayController.Restart(); Resumed?.Invoke(this, EventArgs.Empty); });
-                Add(menu, "Next frame", () => { ReplayController.StepForward(); Resumed?.Invoke(this, EventArgs.Empty); });
-                Add(menu, "Previous player", () => { SpectatorMode.CyclePrevious(); Resumed?.Invoke(this, EventArgs.Empty); });
-                Add(menu, "Next player", () => { SpectatorMode.CycleNext(); Resumed?.Invoke(this, EventArgs.Empty); });
+                playback.Children.Add(rate);
+                Add(playback, "Previous frame", () => { ReplayController.Seek(ReplayController.CurrentFrame > 0 ? ReplayController.CurrentFrame - 1 : 0, false); Resumed?.Invoke(this, EventArgs.Empty); });
+                Add(playback, "Restart replay", () => { ReplayController.Restart(); Resumed?.Invoke(this, EventArgs.Empty); });
+                Add(playback, "Next frame", () => { ReplayController.StepForward(); Resumed?.Invoke(this, EventArgs.Empty); });
+                Add(camera, "Previous player", () => { SpectatorMode.CyclePrevious(); Resumed?.Invoke(this, EventArgs.Empty); });
+                Add(camera, "Next player", () => { SpectatorMode.CycleNext(); Resumed?.Invoke(this, EventArgs.Empty); });
                 var timeline = new Slider { Minimum = 0, Maximum = Math.Max(1, ReplayController.DurationFrames),
                     Value = ReplayController.CurrentFrame, Width = 320 };
                 var selectedTime = new TextBlock { Text = Replay.ReplayHud.Time((uint)timeline.Value) + " / " + Replay.ReplayHud.Time(ReplayController.DurationFrames), Foreground = GuiTheme.TextDimBrush };
                 timeline.PropertyChanged += (_, e) => { if (e.Property == RangeBase.ValueProperty) selectedTime.Text = Replay.ReplayHud.Time((uint)timeline.Value) + " / " + Replay.ReplayHud.Time(ReplayController.DurationFrames); };
                 timeline.PointerReleased += (_, _) => { ReplayController.Seek((uint)timeline.Value); Resumed?.Invoke(this, EventArgs.Empty); };
-                menu.Children.Add(selectedTime);
-                menu.Children.Add(timeline);
+                var timePanel = new StackPanel { Spacing = 4 };
+                timePanel.Children.Add(selectedTime);
+                timePanel.Children.Add(timeline);
+                replayTime = timePanel;
                 Replay.ReplayCamera.EnsureTrack();
                 var profile = new ComboBox { ItemsSource = new[] { "Faithful camera (default)", "Presentation camera" }, SelectedIndex = (int)Replay.ReplayCamera.Profile, Width = 280 };
                 var track = new CheckBox { Content = "Play camera track by replay frame", IsChecked = Replay.ReplayCamera.PlayTrack,
@@ -145,70 +170,70 @@ namespace MphRead.Mods.Launcher.Gui
                     track.IsChecked = Replay.ReplayCamera.PlayTrack;
                 };
                 track.IsCheckedChanged += (_, _) => Replay.ReplayCamera.PlayTrack = track.IsChecked == true;
-                menu.Children.Add(profile);
-                menu.Children.Add(new TextBlock { Text = "Presentation smooths chase camera only; gameplay is unchanged.", Foreground = GuiTheme.TextDimBrush, TextWrapping = TextWrapping.Wrap, MaxWidth = 320 });
-                menu.Children.Add(track);
+                camera.Children.Add(profile);
+                camera.Children.Add(new TextBlock { Text = "Presentation smooths chase camera only; gameplay is unchanged.", Foreground = GuiTheme.TextDimBrush, TextWrapping = TextWrapping.Wrap, MaxWidth = 320 });
+                camera.Children.Add(track);
                 var cameraModes = new ComboBox { ItemsSource = new[] { "First person", "Third-person chase", "Free camera", "Orbit camera" }, SelectedIndex = (int)Replay.ReplayCamera.Mode, Width = 240 };
                 cameraModes.SelectionChanged += (_, _) => { if (cameraModes.SelectedIndex >= 0) Replay.ReplayCamera.SetMode((Replay.ReplayCameraMode)cameraModes.SelectedIndex); };
-                menu.Children.Add(cameraModes);
+                camera.Children.Add(cameraModes);
                 void CameraSlider(string label, float value, double min, double max, Action<float> set)
                 {
-                    menu.Children.Add(new TextBlock { Text = label, Foreground = GuiTheme.TextDimBrush });
+                    camera.Children.Add(new TextBlock { Text = label, Foreground = GuiTheme.TextDimBrush });
                     var slider = new Slider { Minimum = min, Maximum = max, Value = value, Width = 240 };
                     slider.PropertyChanged += (_, e) => { if (e.Property == RangeBase.ValueProperty) set((float)slider.Value); };
-                    menu.Children.Add(slider);
+                    camera.Children.Add(slider);
                 }
                 CameraSlider("Camera distance", Replay.ReplayCamera.Distance, 1, 20, n => Replay.ReplayCamera.Distance = n);
                 CameraSlider("Camera height", Replay.ReplayCamera.Height, 0.5, 8, n => Replay.ReplayCamera.Height = n);
-                CameraSlider("Camera FOV", Replay.ReplayCamera.FieldOfView, 40, 120, n => Replay.ReplayCamera.FieldOfView = n);
+                CameraSlider("Camera field of view", Replay.ReplayCamera.FieldOfView, 40, 120, n => Replay.ReplayCamera.FieldOfView = n);
                 var players = new ComboBox { ItemsSource = GameState.Nicknames.Select((name, slot) => $"{slot + 1}: {name}").ToArray(), SelectedIndex = PlayerEntity.MainPlayerIndex, Width = 240 };
                 players.SelectionChanged += (_, _) => SpectatorMode.Watch(players.SelectedIndex);
-                menu.Children.Add(players);
+                camera.Children.Add(players);
                 var director = new CheckBox { Content = "Follow kill/objective events", IsChecked = Replay.ReplayCamera.Director };
                 director.IsCheckedChanged += (_, _) => Replay.ReplayCamera.Director = director.IsChecked == true;
-                menu.Children.Add(director);
-                Add(menu, "Watch last killer", () => { Replay.ReplayCamera.WatchEvent(false); Resumed?.Invoke(this, EventArgs.Empty); });
-                Add(menu, "Watch last victim", () => { Replay.ReplayCamera.WatchEvent(true); Resumed?.Invoke(this, EventArgs.Empty); });
+                camera.Children.Add(director);
+                Add(events, "Watch last killer", () => { Replay.ReplayCamera.WatchEvent(false); Resumed?.Invoke(this, EventArgs.Empty); });
+                Add(events, "Watch last victim", () => { Replay.ReplayCamera.WatchEvent(true); Resumed?.Invoke(this, EventArgs.Empty); });
                 var lookAt = new ComboBox { ItemsSource = new[] { "Keyframe: recorded orientation" }.Concat(GameState.Nicknames.Select((name, slot) => $"Look at {slot + 1}: {name}")).ToArray(), SelectedIndex = Replay.ReplayCamera.LookAtSlot + 1, Width = 280 };
                 lookAt.SelectionChanged += (_, _) => Replay.ReplayCamera.LookAtSlot = lookAt.SelectedIndex - 1;
-                menu.Children.Add(lookAt);
-                menu.Children.Add(new TextBlock { Text = $"Camera keyframes: {Replay.ReplayCamera.KeyframeCount}/64" + (Replay.ReplayCamera.TrackError == null ? "" : " — " + Replay.ReplayCamera.TrackError), Foreground = GuiTheme.TextDimBrush, TextWrapping = TextWrapping.Wrap, MaxWidth = 320 });
-                Add(menu, "Remove keyframe at current frame", () => { Replay.ReplayCamera.RemoveKeyframe(); Resumed?.Invoke(this, EventArgs.Empty); });
-                Add(menu, "Save camera keyframe", () => { Replay.ReplayCamera.Bookmark(); Resumed?.Invoke(this, EventArgs.Empty); });
-                Add(menu, "Preview next camera keyframe", () => { Replay.ReplayCamera.RestoreBookmark(); Resumed?.Invoke(this, EventArgs.Empty); });
+                camera.Children.Add(lookAt);
+                camera.Children.Add(new TextBlock { Text = $"Camera keyframes: {Replay.ReplayCamera.KeyframeCount}/64" + (Replay.ReplayCamera.TrackError == null ? "" : " — " + Replay.ReplayCamera.TrackError), Foreground = GuiTheme.TextDimBrush, TextWrapping = TextWrapping.Wrap, MaxWidth = 320 });
+                Add(camera, "Remove keyframe at current frame", () => { Replay.ReplayCamera.RemoveKeyframe(); Resumed?.Invoke(this, EventArgs.Empty); });
+                Add(camera, "Save camera keyframe", () => { Replay.ReplayCamera.Bookmark(); Resumed?.Invoke(this, EventArgs.Empty); });
+                Add(camera, "Preview next camera keyframe", () => { Replay.ReplayCamera.RestoreBookmark(); Resumed?.Invoke(this, EventArgs.Empty); });
                 if (DemoPlayback.Events.Count > 0)
                 {
                     var filters = new ComboBox { ItemsSource = new[] { "All events", "Kills", "Deaths", "Objectives", "Score" }, SelectedIndex = 0, Width = 240 };
                     filters.SelectionChanged += (_, _) => ReplayController.EventFilter = filters.SelectedIndex switch
                     { 1 => ReplayEventType.Kill, 2 => ReplayEventType.PlayerDeath, 3 => ReplayEventType.Objective, 4 => ReplayEventType.ScoreChanged, _ => null };
-                    menu.Children.Add(filters);
-                    Add(menu, "Previous event", () => { ReplayController.JumpEvent(false); Resumed?.Invoke(this, EventArgs.Empty); });
-                    Add(menu, "Next event", () => { ReplayController.JumpEvent(true); Resumed?.Invoke(this, EventArgs.Empty); });
+                    events.Children.Add(filters);
+                    Add(events, "Previous event", () => { ReplayController.JumpEvent(false); Resumed?.Invoke(this, EventArgs.Empty); });
+                    Add(events, "Next event", () => { ReplayController.JumpEvent(true); Resumed?.Invoke(this, EventArgs.Empty); });
                 }
-                Add(menu, "Mark clip start", () => { ReplayController.MarkIn(); Resumed?.Invoke(this, EventArgs.Empty); });
-                Add(menu, "Mark clip end", () => { ReplayController.MarkOut(); Resumed?.Invoke(this, EventArgs.Empty); });
-                Add(menu, "Save selected clip", () =>
+                Add(clip, "Mark clip start", () => { ReplayController.MarkIn(); Resumed?.Invoke(this, EventArgs.Empty); });
+                Add(clip, "Mark clip end", () => { ReplayController.MarkOut(); Resumed?.Invoke(this, EventArgs.Empty); });
+                Add(clip, "Save selected replay clip", () =>
                 {
-                    try { Chat.ChatBox.System($"Clip export: {ReplayController.SaveSelection()}"); }
-                    catch (Exception ex) { Chat.ChatBox.System("Clip export failed: " + ex.Message); }
+                    try { Chat.ChatBox.System($"Replay clip saved: {ReplayController.SaveSelection()}"); }
+                    catch (Exception ex) { Chat.ChatBox.System("Could not save replay clip: " + ex.Message); }
                     Resumed?.Invoke(this, EventArgs.Empty);
                 });
-                Add(menu, "Go to selected time", () =>
+                Add(playback, "Go to selected time", () =>
                 { ReplayController.Seek((uint)timeline.Value); Resumed?.Invoke(this, EventArgs.Empty); });
             }
-            if (!DemoPlayback.IsActive && NetSession.Active)
+            if (!(DemoPlayback.IsActive || replayPreview) && NetSession.Active)
             {
                 if (DemoClip.Active) Add(menu, $"Save last {DemoClip.Seconds} seconds", () =>
                 {
                     string? path = DemoClip.Save();
-                    Chat.ChatBox.System(path == null ? "Nothing to clip yet" : DemoClip.IsSaving ? "Saving replay..." : "Saved replay clip");
+                    Chat.ChatBox.System(path == null ? "Not enough replay history to save a clip yet." : DemoClip.IsSaving ? "Saving replay…" : "Saved replay clip");
                     Resumed?.Invoke(this, EventArgs.Empty);
                 });
-                Add(menu, DemoRecorder.IsRecording ? "Stop recording" : "Record demo",
+                Add(menu, DemoRecorder.IsRecording ? "Stop replay recording" : "Record replay",
                     () => RecordToggleRequested?.Invoke(this, EventArgs.Empty));
             }
             Add(menu, "Settings", () => SettingsRequested?.Invoke(this, EventArgs.Empty));
-            Add(menu, DemoPlayback.IsActive ? "Exit replay" : "Leave match", () => LeaveRequested?.Invoke(this, EventArgs.Empty));
+            Add(menu, (DemoPlayback.IsActive || replayPreview) ? "Exit replay" : "Leave match", () => LeaveRequested?.Invoke(this, EventArgs.Empty));
             Add(menu, "Quit", () => QuitRequested?.Invoke(this, EventArgs.Empty));
 
             // Centred, like every other screen behind the front one. Each
@@ -228,7 +253,7 @@ namespace MphRead.Mods.Launcher.Gui
             // words in a column, just smaller.
             _scaler = new LayoutTransformControl
             {
-                Child = DemoPlayback.IsActive ? null : menu,
+                Child = (DemoPlayback.IsActive || replayPreview) ? null : menu,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             };
@@ -247,12 +272,18 @@ namespace MphRead.Mods.Launcher.Gui
             // the corner while it is also the first word of the menu is one
             // action drawn twice.
 
-            if (DemoPlayback.IsActive)
+            if ((DemoPlayback.IsActive || replayPreview))
             {
                 var replayPage = UiLayout.Backdrop(overGame: true);
-                replayPage.Children.Add(new ScrollViewer { Content = menu, Margin = new Thickness(20),
-                    MaxWidth = 480, HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Stretch, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+                var frame = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,*"),
+                    Margin = new Thickness(20), MaxWidth = 540 };
+                _replayTabs = replayTabs;
+                frame.Children.Add(replayTabs!);
+                Grid.SetRow(replayTime!, 1); frame.Children.Add(replayTime!);
+                var scroll = new ScrollViewer { Content = menu, Margin = new Thickness(0, 12, 0, 0),
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+                Grid.SetRow(scroll, 2); frame.Children.Add(scroll);
+                replayPage.Children.Add(frame);
                 Content = replayPage;
             }
             else Content = UiLayout.Page(overGame: true, UiLayout.WellShort, "",

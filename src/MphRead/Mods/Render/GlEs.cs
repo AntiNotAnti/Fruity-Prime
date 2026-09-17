@@ -851,6 +851,8 @@ namespace MphRead.Mods.Render
 
         #region textures and framebuffers
 
+        public static void GenerateMipmap(GenerateMipmapTarget target) => ES.GL.GenerateMipmap((ES.TextureTarget)(int)target);
+
         public static void TexParameter(TextureTarget target, TextureParameterName pname, int param)
         {
             ES.GL.TexParameter((ES.TextureTarget)(int)target, (ES.TextureParameterName)(int)pname, param);

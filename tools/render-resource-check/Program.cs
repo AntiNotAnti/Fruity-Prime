@@ -22,6 +22,7 @@ using var window = new NativeWindow(new NativeWindowSettings
 window.Context.MakeCurrent();
 GL.LoadBindings(new GLFWBindingsContext());
 int failures = 0;
+ShaderQualityChecks.Run(Check);
 for (int cycle = 0; cycle < 3; cycle++)
 {
     var scene = (Scene)RuntimeHelpers.GetUninitializedObject(typeof(Scene));

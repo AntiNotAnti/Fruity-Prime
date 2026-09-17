@@ -20,7 +20,7 @@ loading everything.
 - multiplayer/TEAM-GAMEPLAY.md — 2–4 teams, standings, objectives, visuals and rendered gameplay probes
 - multiplayer/TEAM-RESOURCES.md — frozen world profiles, map health corrections, authoritative pickups and all-map audit
 - multiplayer/NETWORK-CHAT.md — the in-game chat line: the packet, the relay's rules, the input traps
-- multiplayer/NETWORK-DEMOS.md — recording and replaying a match: format, clocking, the gaps
+- multiplayer/NETWORK-REPLAYS.md — recording and replaying a match: format, clocking, the gaps
 - multiplayer/NETWORK-MATCHEND.md — match end, rotation, the double-counted-kill bug
 - multiplayer/NETWORK-DIAGNOSTICS.md — the full damage-bug postmortem, traps, diagnostics
 - multiplayer/NETWORK-SERVERAUTH.md — the server as the simulation authority: the headless engine, what moved, what did not, and what a room costs a server
@@ -31,6 +31,8 @@ loading everything.
 - multiplayer/NETWORK-SMOOTHING.md — remote players read off a playout clock instead of snapped to whichever snapshot arrived last, and the sub-frame ack that keeps hit registration exact through it
 - render/CEL-SHADING.md — flat colours in place of textures, and the depth-kink ink pass
 - render/RENDER-STABILITY.md — explicit GL pass boundaries, respawn diagnostics and the rendered stress check
+- render/GRAPHICS-QUALITY.md - filtering, FXAA, scaling, presets and accessibility
+- testing/UI-GRAPHICS-ACCEPTANCE.md - integration UI and graphics validation gates
 - render/BRIGHT-SKINS.md — local high-contrast multiplayer bodies, status precedence and checks
 - render/FRAME-PACING.md — 60 Hz of simulation under a picture drawn at the display's rate: the split, why interpolation was taken back out, and how both halves are tested without a 144 Hz monitor
 - mapgen/MAP-PIPELINE.md — custom maps: the generator, the Quake 3 importer, the format traps

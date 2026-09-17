@@ -112,6 +112,13 @@ namespace MphRead.Mods
 
             // Screen captures use synthetic rows and need no extracted game
             // files. Keep the UI regression harness ahead of CheckSetup.
+#if MPHREAD_AVALONIA
+            if (ValueAfter(args, "uimatrix") is string matrixDirectory)
+            {
+                Environment.ExitCode = Launcher.Gui.UiCapture.RunMatrix(matrixDirectory);
+                return true;
+            }
+#endif
             string? uiShot = ValueAfter(args, "uishot");
             if (uiShot != null)
             {
@@ -1023,7 +1030,7 @@ namespace MphRead.Mods
                 Environment.ExitCode = Render.RespawnRenderCheck.Run(
                     ValueAfter(args, "respawnrendercheck"),
                     HasFlag(args, "cycles") ? ValueAfter(args, "cycles") ?? "" : null,
-                    HasFlag(args, "timeout") ? ValueAfter(args, "timeout") ?? "" : null);
+                    HasFlag(args, "timeout") ? ValueAfter(args, "timeout") ?? "" : null, HasFlag(args, "quality"));
                 return true;
             }
 
@@ -1656,7 +1663,7 @@ namespace MphRead.Mods
                 }
                 Environment.ExitCode = Network.NetCheckClient.Run(check, ParsePort(args),
                     ParseName(args), ParseHunter(args), seconds, shots, width, height,
-                    recordDemo: HasFlag(args, "recorddemo"),
+                    recordDemo: (HasFlag(args, "recordreplay") || HasFlag(args, "recorddemo")),
                     spectateAt: spectateAt, rejoinAt: rejoinAt,
                     // -recolor N is a suit, and the harness needs to be able to
                     // ask for one: two clients asking for the same suit on the
@@ -1679,7 +1686,7 @@ namespace MphRead.Mods
             }
             // What a recorded match actually contains. Reads the file and
             // nothing else -- no room, no window, no game files.
-            string? demoInfo = ValueAfter(args, "demoinfo");
+            string? demoInfo = ValueAfter(args, "replayinfo") ?? ValueAfter(args, "demoinfo");
             if (demoInfo != null)
             {
                 Environment.ExitCode = Network.DemoInfo.Print(demoInfo,

@@ -293,9 +293,11 @@ layout(location = 3) in vec3 a_texcoord;
 
 out vec2 texcoord;
 
+uniform float hud_scale;
+
 void main()
 {
-    gl_Position = vec4(a_position.xy, 0.0, 1.0);
+    gl_Position = vec4(a_position.xy * hud_scale, 0.0, 1.0);
     texcoord = a_texcoord.xy;
 }
 ";
@@ -304,6 +306,7 @@ void main()
 precision highp float;
 
 uniform float alpha;
+uniform float hud_opacity;
 uniform bool use_mask;
 uniform float view_width;
 uniform float view_height;
@@ -315,13 +318,63 @@ in vec2 texcoord;
 
 out vec4 frag_color;
 
+
+uniform vec4 quality_flags;
+uniform float quality_texel_w;
+uniform float quality_texel_h;
+
+vec4 quality_sample(vec2 uv)
+{
+    vec2 px = vec2(quality_texel_w, quality_texel_h);
+    vec4 center = texture(tex, uv);
+    vec3 result = center.rgb;
+    if (quality_flags.x > 0.5) {
+        vec3 nw = texture(tex, uv + vec2(-1.0, -1.0) * px).rgb;
+        vec3 ne = texture(tex, uv + vec2(1.0, -1.0) * px).rgb;
+        vec3 sw = texture(tex, uv + vec2(-1.0, 1.0) * px).rgb;
+        vec3 se = texture(tex, uv + vec2(1.0, 1.0) * px).rgb;
+        vec3 luma = vec3(0.299, 0.587, 0.114);
+        float m = dot(center.rgb, luma);
+        float a = dot(nw, luma), b = dot(ne, luma), c = dot(sw, luma), d = dot(se, luma);
+        float lo = min(m, min(min(a, b), min(c, d)));
+        float hi = max(m, max(max(a, b), max(c, d)));
+        if (hi - lo > max(0.0312, hi * 0.125)) {
+            vec2 direction = vec2(-((a + b) - (c + d)), (a + c) - (b + d));
+            float reduce = max((a + b + c + d) * 0.03125, 0.0078125);
+            direction = clamp(direction / (min(abs(direction.x), abs(direction.y)) + reduce), vec2(-8.0), vec2(8.0)) * px;
+            vec3 first = 0.5 * (texture(tex, uv + direction * (-1.0 / 6.0)).rgb
+                + texture(tex, uv + direction * (1.0 / 6.0)).rgb);
+            vec3 second = first * 0.5 + 0.25 * (texture(tex, uv - direction * 0.5).rgb
+                + texture(tex, uv + direction * 0.5).rgb);
+            float brightness = dot(second, luma);
+            result = brightness < lo || brightness > hi ? first : second;
+        }
+    }
+    if (quality_flags.y > 0.5) {
+        vec3 n = texture(tex, uv + vec2(0.0, -px.y)).rgb;
+        vec3 s = texture(tex, uv + vec2(0.0, px.y)).rgb;
+        vec3 e = texture(tex, uv + vec2(px.x, 0.0)).rgb;
+        vec3 w = texture(tex, uv + vec2(-px.x, 0.0)).rgb;
+        vec3 lo = min(result, min(min(n, s), min(e, w)));
+        vec3 hi = max(result, max(max(n, s), max(e, w)));
+        // Contrast-adaptive, clamped unsharp mask; no halos beyond the local range.
+        vec3 strength = 0.18 * (vec3(1.0) - (hi - lo));
+        result = clamp(result + strength * (4.0 * result - n - s - e - w), lo, hi);
+    }
+    if (quality_flags.z > 0.5) {
+        float luminance = dot(result, vec3(0.299, 0.587, 0.114));
+        result = clamp(mix(vec3(luminance), result, 1.08), 0.0, 1.0);
+    }
+    return vec4(result, center.a);
+}
+
 void main()
 {
     if (fade_color.a > 0.0) {
         frag_color = fade_color;
     }
     else {
-        frag_color = texture(tex, texcoord);
+        frag_color = quality_sample(texcoord);
         if (use_mask) {
             float maskY = gl_FragCoord.y + (view_width - view_height) / 2.0;
             vec2 maskTexcoord = vec2(gl_FragCoord.x / view_width, 1.0 - maskY / view_width);
@@ -332,6 +385,7 @@ void main()
         }
         frag_color.a *= alpha;
     }
+    frag_color.a *= hud_opacity;
 }
 ";
 
@@ -513,6 +567,56 @@ in vec2 texcoord;
 
 out vec4 frag_color;
 
+
+uniform vec4 quality_flags;
+uniform float quality_texel_w;
+uniform float quality_texel_h;
+
+vec4 quality_sample(vec2 uv)
+{
+    vec2 px = vec2(quality_texel_w, quality_texel_h);
+    vec4 center = texture(tex, uv);
+    vec3 result = center.rgb;
+    if (quality_flags.x > 0.5) {
+        vec3 nw = texture(tex, uv + vec2(-1.0, -1.0) * px).rgb;
+        vec3 ne = texture(tex, uv + vec2(1.0, -1.0) * px).rgb;
+        vec3 sw = texture(tex, uv + vec2(-1.0, 1.0) * px).rgb;
+        vec3 se = texture(tex, uv + vec2(1.0, 1.0) * px).rgb;
+        vec3 luma = vec3(0.299, 0.587, 0.114);
+        float m = dot(center.rgb, luma);
+        float a = dot(nw, luma), b = dot(ne, luma), c = dot(sw, luma), d = dot(se, luma);
+        float lo = min(m, min(min(a, b), min(c, d)));
+        float hi = max(m, max(max(a, b), max(c, d)));
+        if (hi - lo > max(0.0312, hi * 0.125)) {
+            vec2 direction = vec2(-((a + b) - (c + d)), (a + c) - (b + d));
+            float reduce = max((a + b + c + d) * 0.03125, 0.0078125);
+            direction = clamp(direction / (min(abs(direction.x), abs(direction.y)) + reduce), vec2(-8.0), vec2(8.0)) * px;
+            vec3 first = 0.5 * (texture(tex, uv + direction * (-1.0 / 6.0)).rgb
+                + texture(tex, uv + direction * (1.0 / 6.0)).rgb);
+            vec3 second = first * 0.5 + 0.25 * (texture(tex, uv - direction * 0.5).rgb
+                + texture(tex, uv + direction * 0.5).rgb);
+            float brightness = dot(second, luma);
+            result = brightness < lo || brightness > hi ? first : second;
+        }
+    }
+    if (quality_flags.y > 0.5) {
+        vec3 n = texture(tex, uv + vec2(0.0, -px.y)).rgb;
+        vec3 s = texture(tex, uv + vec2(0.0, px.y)).rgb;
+        vec3 e = texture(tex, uv + vec2(px.x, 0.0)).rgb;
+        vec3 w = texture(tex, uv + vec2(-px.x, 0.0)).rgb;
+        vec3 lo = min(result, min(min(n, s), min(e, w)));
+        vec3 hi = max(result, max(max(n, s), max(e, w)));
+        // Contrast-adaptive, clamped unsharp mask; no halos beyond the local range.
+        vec3 strength = 0.18 * (vec3(1.0) - (hi - lo));
+        result = clamp(result + strength * (4.0 * result - n - s - e - w), lo, hi);
+    }
+    if (quality_flags.z > 0.5) {
+        float luminance = dot(result, vec3(0.299, 0.587, 0.114));
+        result = clamp(mix(vec3(luminance), result, 1.08), 0.0, 1.0);
+    }
+    return vec4(result, center.a);
+}
+
 void main()
 {
     int band = int((1.0 - texcoord.y) * 192.0);
@@ -526,7 +630,7 @@ void main()
         frag_color = vec4(0.0, 0.0, 0.0, 1.0);
     }
     else {
-        frag_color = texture(tex, shifted);
+        frag_color = quality_sample(shifted);
     }
     if (white_fac != 0.0) {
         float factor = white_table[band];
@@ -550,6 +654,7 @@ void main()
             }
         }
     }
+    if (quality_flags.w > 0.5 && white_fac != 0.0) frag_color.rgb = min(frag_color.rgb, vec3(0.55));
 }
 ";
 
@@ -606,13 +711,13 @@ void main()
             Check("FragmentShader", Shaders.FragmentShader,
                 "b7d15d11622cb4ff811f36572d8d74bc30450b75e81404ff27b48dc8665d8528");
             Check("RttVertexShader", Shaders.RttVertexShader,
-                "af070f447840bf1fc51d6bba88a339fab067a4e3a01e460351a2549ca9107f4f");
+                "e4ff440d47641350a2b7f59874f66c9330dcbc2c49c70951884b82d3963d6f63");
             Check("RttFragmentShader", Shaders.RttFragmentShader,
-                "021b5992926cb3a8c714fb943b0c85e091cf3cd76d2c487950ca0fb03d27c56e");
+                "64e9466c9fe2020b8075637d33573c951166a833316b4516a2721a613123239e");
             Check("CelFragmentShader", Shaders.CelFragmentShader,
                 "0fcb40630809a0e5b2d78448ed8b9518686fb6a5fc3b1a69914a37fecf28f7d5");
             Check("ShiftFragmentShader", Shaders.ShiftFragmentShader,
-                "2b2511d5506ad9a25d64005b7b9e452f56b550410f96c753a6072a743b3162fa");
+                "d8164a1fdb04f63de53b2914694cc2308801c9f72ddde78af12814a60f293b94");
         }
 
         private static void Check(string name, string source, string expected)

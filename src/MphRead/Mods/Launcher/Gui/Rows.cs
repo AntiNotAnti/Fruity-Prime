@@ -9,9 +9,11 @@ using Avalonia.Media;
 
 namespace MphRead.Mods.Launcher.Gui
 {
-    /// <summary>A small upper-case heading over a group of rows.</summary>
+    /// <summary>A small section heading over a group of rows.</summary>
     internal sealed class Caption : Control
     {
+        static Caption() => AffectsRender<Caption>(IsFocusedProperty, IsEnabledProperty);
+
         private readonly string _text;
 
         public Caption(string text)
@@ -33,18 +35,20 @@ namespace MphRead.Mods.Launcher.Gui
 
         private FormattedText Label()
         {
-            return new FormattedText(_text.ToUpperInvariant(), CultureInfo.InvariantCulture,
-                FlowDirection.LeftToRight, GuiTheme.Face(bold: true), 11,
+            return new FormattedText(_text, CultureInfo.InvariantCulture,
+                FlowDirection.LeftToRight, GuiTheme.Face(bold: true), 11 * UiMetrics.TextFactor,
                 GuiTheme.TextDimBrush);
         }
 
         public override void Render(DrawingContext context)
         {
+            using var opacity = context.PushOpacity(IsEffectivelyEnabled ? 1 : UiMetrics.DisabledOpacity);
             FormattedText text = Label();
             context.DrawText(text, new Point(0, Bounds.Height - text.Height - 4));
             double y = Bounds.Height - 2;
             context.DrawLine(new Pen(GuiTheme.EdgeBrush, 1),
                 new Point(0, y), new Point(Bounds.Width, y));
+            UiMetrics.DrawFocus(context, this);
         }
     }
 
@@ -59,6 +63,8 @@ namespace MphRead.Mods.Launcher.Gui
     /// </summary>
     internal sealed class ChoiceRow : Control
     {
+        static ChoiceRow() => AffectsRender<ChoiceRow>(IsFocusedProperty, IsEnabledProperty);
+
         private readonly string _label;
         private IReadOnlyList<string> _options;
         private int _index;
@@ -89,7 +95,7 @@ namespace MphRead.Mods.Launcher.Gui
             _label = label;
             _options = options;
             _index = options.Count == 0 ? 0 : Math.Clamp(index, 0, options.Count - 1);
-            Height = 34;
+            Height = UiMetrics.ControlHeight;
             Focusable = true;
             Cursor = new Cursor(StandardCursorType.Hand);
         }
@@ -234,6 +240,7 @@ namespace MphRead.Mods.Launcher.Gui
 
         public override void Render(DrawingContext context)
         {
+            using var opacity = context.PushOpacity(IsEffectivelyEnabled ? 1 : UiMetrics.DisabledOpacity);
             // See UiWord.Render: hit testing follows the drawing.
             context.FillRectangle(Brushes.Transparent,
                 new Rect(0, 0, Bounds.Width, Bounds.Height));
@@ -243,13 +250,16 @@ namespace MphRead.Mods.Launcher.Gui
                     new Rect(0, 0, Bounds.Width, Bounds.Height), 4);
             }
             var label = new FormattedText(_label, CultureInfo.InvariantCulture,
-                FlowDirection.LeftToRight, GuiTheme.Face(false), 13, GuiTheme.TextDimBrush);
+                FlowDirection.LeftToRight, GuiTheme.Face(false), 13 * UiMetrics.TextFactor, GuiTheme.TextDimBrush);
+            label.MaxTextWidth = Math.Max(20, LeftArrow.X - 8);
+            label.MaxTextHeight = Math.Max(1, Bounds.Height);
+            label.Trimming = TextTrimming.CharacterEllipsis;
             context.DrawText(label, new Point(4, (Bounds.Height - label.Height) / 2));
 
             // The value lives in the fixed column between the arrows, and is
             // trimmed to it rather than pushing them apart.
             var value = new FormattedText(Value, CultureInfo.InvariantCulture,
-                FlowDirection.LeftToRight, GuiTheme.Face(true), 13, GuiTheme.TextBrush);
+                FlowDirection.LeftToRight, GuiTheme.Face(true), 13 * UiMetrics.TextFactor, GuiTheme.TextBrush);
             Rect left = LeftArrow;
             double room = RightArrow.X - left.Right - 8;
             if (value.Width > room)
@@ -269,6 +279,7 @@ namespace MphRead.Mods.Launcher.Gui
                 _preview(context, new Rect(Bounds.Width - PreviewWidth + inset, inset,
                     PreviewWidth - inset * 2, Bounds.Height - inset * 2));
             }
+            UiMetrics.DrawFocus(context, this);
         }
 
         private static void Arrow(DrawingContext context, Rect area, bool pointsLeft, bool hot)
@@ -302,6 +313,8 @@ namespace MphRead.Mods.Launcher.Gui
     /// <summary>One setting that is on or off.</summary>
     internal sealed class ToggleRow : Control
     {
+        static ToggleRow() => AffectsRender<ToggleRow>(IsFocusedProperty, IsEnabledProperty);
+
         private readonly string _label;
         private bool _on;
 
@@ -325,7 +338,7 @@ namespace MphRead.Mods.Launcher.Gui
         {
             _label = label;
             _on = on;
-            Height = 34;
+            Height = UiMetrics.ControlHeight;
             Focusable = true;
             Cursor = new Cursor(StandardCursorType.Hand);
         }
@@ -351,6 +364,7 @@ namespace MphRead.Mods.Launcher.Gui
 
         public override void Render(DrawingContext context)
         {
+            using var opacity = context.PushOpacity(IsEffectivelyEnabled ? 1 : UiMetrics.DisabledOpacity);
             // See UiWord.Render: hit testing follows the drawing.
             context.FillRectangle(Brushes.Transparent,
                 new Rect(0, 0, Bounds.Width, Bounds.Height));
@@ -360,7 +374,7 @@ namespace MphRead.Mods.Launcher.Gui
                     new Rect(0, 0, Bounds.Width, Bounds.Height), 4);
             }
             var label = new FormattedText(_label, CultureInfo.InvariantCulture,
-                FlowDirection.LeftToRight, GuiTheme.Face(false), 13, GuiTheme.TextDimBrush);
+                FlowDirection.LeftToRight, GuiTheme.Face(false), 13 * UiMetrics.TextFactor, GuiTheme.TextDimBrush);
             context.DrawText(label, new Point(4, (Bounds.Height - label.Height) / 2));
 
             const double w = 40;
@@ -372,6 +386,7 @@ namespace MphRead.Mods.Launcher.Gui
             double knob = _on ? track.Right - h / 2 : track.X + h / 2;
             context.DrawEllipse(new SolidColorBrush(_on ? GuiTheme.Ink : GuiTheme.TextDim),
                 null, new Point(knob, track.Y + h / 2), h / 2 - 3, h / 2 - 3);
+            UiMetrics.DrawFocus(context, this);
         }
     }
 
@@ -393,7 +408,7 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 Text = label,
                 FontFamily = GuiTheme.Display,
-                FontSize = 13,
+                FontSize = 13 * UiMetrics.TextFactor,
                 Foreground = GuiTheme.TextDimBrush,
                 VerticalAlignment = VerticalAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Left,
@@ -408,7 +423,7 @@ namespace MphRead.Mods.Launcher.Gui
                 Text = value,
                 Width = boxWidth,
                 FontFamily = GuiTheme.Display,
-                FontSize = 13,
+                FontSize = 13 * UiMetrics.TextFactor,
                 CornerRadius = new CornerRadius(4),
                 Padding = new Thickness(8, 4, 8, 4),
                 VerticalAlignment = VerticalAlignment.Center,
@@ -426,7 +441,7 @@ namespace MphRead.Mods.Launcher.Gui
         {
             Text = text;
             FontFamily = GuiTheme.Display;
-            FontSize = 12;
+            FontSize = UiMetrics.MetadataText * UiMetrics.TextFactor;
             Foreground = new SolidColorBrush(color ?? GuiTheme.TextDim);
             TextWrapping = TextWrapping.Wrap;
             Margin = new Thickness(4, 4, 4, 4);

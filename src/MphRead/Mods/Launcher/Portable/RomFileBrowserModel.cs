@@ -18,6 +18,7 @@ namespace MphRead.Mods.Launcher
     internal sealed class RomFileBrowserModel
     {
         private readonly List<RomFileEntry> _entries = new();
+        public string Extension { get; }
 
         /// <summary>Empty only while showing the Windows drive list.</summary>
         public string CurrentDirectory { get; private set; } = "";
@@ -25,8 +26,9 @@ namespace MphRead.Mods.Launcher
         public string? Error { get; private set; }
         public bool ShowingDrives => OperatingSystem.IsWindows() && CurrentDirectory.Length == 0;
 
-        public RomFileBrowserModel(string? lastDirectory = null)
+        public RomFileBrowserModel(string? lastDirectory = null, string extension = ".nds")
         {
+            Extension = extension;
             string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             string? root = Path.GetPathRoot(Environment.CurrentDirectory);
             if (TryStart(lastDirectory) || TryStart(home) || TryStart(root))
@@ -61,7 +63,7 @@ namespace MphRead.Mods.Launcher
                 }
                 foreach (string file in Directory.EnumerateFiles(full))
                 {
-                    if (IsRomExtension(file))
+                    if (MatchesExtension(file))
                     {
                         entries.Add(new RomFileEntry(Path.GetFileName(file),
                             file, RomFileEntryKind.Rom));
@@ -117,7 +119,7 @@ namespace MphRead.Mods.Launcher
         {
             if (String.IsNullOrWhiteSpace(path))
             {
-                Error = "Enter a folder or .nds file path.";
+                Error = $"Enter a folder or {Extension} file path.";
                 return null;
             }
             try
@@ -140,19 +142,21 @@ namespace MphRead.Mods.Launcher
             {
                 return false;
             }
-            if (!IsRomExtension(fullPath))
+            if (!MatchesExtension(fullPath))
             {
-                Error = "Choose a .nds file.";
+                Error = $"Choose a {Extension} file.";
                 return false;
             }
             if (!File.Exists(fullPath))
             {
-                Error = "That .nds file could not be found or read.";
+                Error = $"That {Extension} file could not be found or read.";
                 return false;
             }
             Error = null;
             return true;
         }
+
+        private bool MatchesExtension(string path) => String.Equals(Path.GetExtension(path), Extension, StringComparison.OrdinalIgnoreCase);
 
         private bool ShowDrives()
         {

@@ -18,12 +18,15 @@ namespace MphRead.Mods.Launcher.Gui
     internal static class CrosshairPreview
     {
         public static void Draw(DrawingContext context, Rect area, CrosshairStyle style,
-            CrosshairSize size)
+            CrosshairSize size, int? color = null, bool? outline = null)
         {
             context.DrawRectangle(GuiTheme.PanelBrush, new Pen(GuiTheme.EdgeBrush, 1),
                 new RoundedRect(area, 4));
             double cx = area.X + area.Width / 2;
             double cy = area.Y + area.Height / 2;
+            var rgb = Crosshair.Color(OpenTK.Mathematics.Vector3.One, color);
+            var brush = new SolidColorBrush(Color.FromRgb((byte)(rgb.X * 255), (byte)(rgb.Y * 255), (byte)(rgb.Z * 255)));
+            bool edged = outline ?? VisualOptions.Current.CrosshairOutline;
             float scale = Crosshair.ScaleOf(size);
             IReadOnlyList<CrosshairBar> bars = Crosshair.BarsOf(style, scale);
             for (int i = 0; i < bars.Count; i++)
@@ -32,13 +35,15 @@ namespace MphRead.Mods.Launcher.Gui
                 // the HUD is drawn, and a window measures Y down.
                 (float left, float right, float bottom, float top) =
                     Crosshair.EdgesOf(bars[i]);
-                context.FillRectangle(GuiTheme.TextBrush, new Rect(
+                if (edged) context.FillRectangle(Brushes.Black, new Rect(cx + left - 1, cy - top - 1, right - left + 2, top - bottom + 2));
+                context.FillRectangle(brush, new Rect(
                     cx + left, cy - top, right - left, top - bottom));
             }
             (float radius, float thickness) = Crosshair.RingOf(style, scale);
             if (thickness > 0)
             {
-                context.DrawEllipse(null, new Pen(GuiTheme.TextBrush, thickness),
+                if (edged) context.DrawEllipse(null, new Pen(Brushes.Black, thickness + 2), new Point(cx, cy), radius, radius);
+                context.DrawEllipse(null, new Pen(brush, thickness),
                     new Point(cx, cy), radius, radius);
             }
         }

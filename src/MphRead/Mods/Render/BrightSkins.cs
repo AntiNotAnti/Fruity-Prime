@@ -18,7 +18,7 @@ namespace MphRead.Mods.Render
 
         public static bool ShouldApply(PlayerEntity player)
         {
-            return ShouldApply(RenderOptions.BrightSkins, GameState.Multiplayer, player.IsMainPlayer,
+            return ShouldApply(RenderOptions.BrightSkins || (GameState.Teams && VisualOptions.Current.TeamPalette != 0), GameState.Multiplayer, player.IsMainPlayer,
                 player.Health, player.Flags2, player.CurAlpha, player.BrightSkinStatusOverride);
         }
 

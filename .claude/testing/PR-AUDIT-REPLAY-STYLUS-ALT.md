@@ -69,7 +69,7 @@ playback round trip verifies restoration through normal lifecycle handlers.
 - Combined-only fix: `d7920bdc341f21e6194cab30710125393246b8a5`
 - Files: `src/MphRead/Mods/Network/ReplayFormatV3.cs`,
   `src/MphRead/Mods/Network/ReplayFormatCheck.cs`,
-  `.claude/multiplayer/NETWORK-DEMOS.md`.
+  `.claude/multiplayer/NETWORK-REPLAYS.md`.
 - Not applicable to the standalone replay wire layout.
 
 ### P1: replay cannot leave a recorded load barrier
@@ -84,7 +84,7 @@ frame one/InMatch while the scene simulation counter stays zero.
 - Combined equivalent: `69dab6eff5dc0fb89d4240309d530bc60d7f9102`
 - Files: `src/MphRead/Renderer.cs`,
   `src/MphRead/Mods/Network/ReplayFormatCheck.cs`,
-  `.claude/multiplayer/NETWORK-DEMOS.md`.
+  `.claude/multiplayer/NETWORK-REPLAYS.md`.
 - Combined resolution: preserve the snapshot regression and give the synthetic
   session its required authority epoch and world profile. Runtime fix unchanged.
 
@@ -100,7 +100,7 @@ also cover menu suppression, held-Start suppression, and fresh Start after relea
 - Combined-only fix: `259ffa5ef4324e4ff6f009f542c1985f4fb9a312`
 - Files: `src/MphRead/Mods/Replay/ReplayInput.cs`, `src/MphRead/Renderer.cs`,
   `src/MphRead/Mods/Network/ReplayControlCheck.cs`,
-  `.claude/multiplayer/NETWORK-DEMOS.md`.
+  `.claude/multiplayer/NETWORK-REPLAYS.md`.
 - Depends on controller-support APIs absent from the standalone replay head.
 
 ## Application

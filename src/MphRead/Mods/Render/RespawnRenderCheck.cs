@@ -17,7 +17,7 @@ namespace MphRead.Mods.Render
     /// <summary>A bounded, real-GL death/respawn check, one room per process.</summary>
     public static class RespawnRenderCheck
     {
-        public static int Run(string? room, string? cyclesText, string? timeoutText)
+        public static int Run(string? room, string? cyclesText, string? timeoutText, bool qualityCheck = false)
         {
 #if ANDROID
             Console.WriteLine("RESPAWNRENDER unsupported: this harness needs a desktop GL window.");
@@ -33,6 +33,7 @@ namespace MphRead.Mods.Render
                     + " (defaults: 100 cycles, 1800 wall seconds)");
                 return 2;
             }
+            VisualSettings oldVisual = VisualOptions.Current;
             int oldScale = RenderOptions.ResolutionScale;
             bool oldCel = RenderOptions.CelShading;
             float oldEdge = RenderOptions.CelEdge;
@@ -41,7 +42,11 @@ namespace MphRead.Mods.Render
             bool oldScoreboard = PlayerEntity.ModForceScoreboard;
             try
             {
-                using var window = new CheckWindow();
+                if (qualityCheck) VisualOptions.Current = new VisualSettings { Filtering = TextureQuality.Anisotropic16,
+                    Fxaa = true, SharpUpscaling = true, EnhancedColor = true, HudScale = 85, SafeZone = 5,
+                    HudOpacity = 80, ReducedFlashes = true, ReducedShake = true, TeamPalette = 1 };
+                Console.WriteLine($"RESPAWNRENDER quality={(qualityCheck ? "enhanced + 200% transitions" : "default")}");
+                using var window = new CheckWindow(qualityCheck);
                 try
                 {
                     window.Initialize(room, cycles, timeout);
@@ -63,6 +68,7 @@ namespace MphRead.Mods.Render
             }
             finally
             {
+                VisualOptions.Current = oldVisual;
                 RenderOptions.ResolutionScale = oldScale;
                 RenderOptions.CelShading = oldCel;
                 RenderOptions.CelEdge = oldEdge;
@@ -125,7 +131,8 @@ namespace MphRead.Mods.Render
             private bool Disruption => Scenario == "disruption" || Scenario == "combined";
             private bool Scoreboard => Scenario == "scoreboard" || Scenario == "combined";
 
-            public CheckWindow() : base(new GameWindowSettings { UpdateFrequency = 0 },
+            private readonly bool _qualityCheck;
+            public CheckWindow(bool qualityCheck) : base(new GameWindowSettings { UpdateFrequency = 0 },
                 new NativeWindowSettings
                 {
                     ClientSize = new Vector2i(640, 480),
@@ -137,6 +144,7 @@ namespace MphRead.Mods.Render
                     StartFocused = false
                 })
             {
+                _qualityCheck = qualityCheck;
                 VSync = VSyncMode.Off;
                 CursorState = CursorState.Normal;
             }
@@ -288,9 +296,11 @@ namespace MphRead.Mods.Render
                     }
                     if (_age == 2 || _age == 151)
                     {
-                        RenderOptions.ResolutionScale = _age == 2 ? 50 : 100;
+                        RenderOptions.ResolutionScale = _age == 2 ? 50 : _qualityCheck ? 200 : 100;
                         _scales++;
                     }
+                    if (_qualityCheck && _age == 250)
+                    { RenderOptions.ResolutionScale = 100; _scales++; }
                     if (_age == 5 || _age == 152)
                     {
                         RenderOptions.CelShading = _age == 5;

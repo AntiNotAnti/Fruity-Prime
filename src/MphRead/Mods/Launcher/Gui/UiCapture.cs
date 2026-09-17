@@ -2,16 +2,17 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using MphRead.Mods.Network;
 #if MPHREAD_SHELL
 using Avalonia.Headless;
 using Avalonia.Input;
-using Avalonia.VisualTree;
 #endif
 using MphRead.Mods.Multiplayer;
 
@@ -45,6 +46,9 @@ namespace MphRead.Mods.Launcher.Gui
         /// window gives them at its own startup size, which is what they are
         /// laid out against (see UiSurface.Scale).
         /// </summary>
+        internal static readonly (string Name, Size Size)[] MatrixSizes = {
+            ("1280x720", new Size(1280, 720)), ("960x600", new Size(960, 600)),
+            ("800x400", new Size(800, 400)), ("1920x1080", new Size(1920, 1080)) };
         private static readonly Size _windowSize = new Size(940, 560);
 
         public static int RunLobby(string directory)
@@ -60,6 +64,8 @@ namespace MphRead.Mods.Launcher.Gui
                     Match = new MatchDefinition { RoomKey = rooms[0], Mode = GameMode.BattleTeams, Format = MatchFormat.FourVsFour,
                         TimeLimitSeconds = 600, PointGoal = 20, ShadowFreeze = true } };
                 foreach (var (sample, format, layout, locked) in new[] {
+                    ("ffa", MatchFormat.FreeForAll, new TeamLayout(2, 2, 2), false),
+                    ("2v2", MatchFormat.TwoVsTwo, new TeamLayout(2, 2, 2), false),
                     ("3v3", MatchFormat.ThreeVsThree, new TeamLayout(2, 3, 3), false),
                     ("4v4", MatchFormat.FourVsFour, new TeamLayout(2, 4, 4), false),
                     ("2v2v2v2", MatchFormat.TwoVsTwoVsTwoVsTwo, new TeamLayout(4, 2, 2, 2, 2), false),
@@ -68,7 +74,7 @@ namespace MphRead.Mods.Launcher.Gui
                     ("locked", MatchFormat.TwoVsTwoVsTwoVsTwo, new TeamLayout(4, 2, 2, 2, 2), true) })
                 {
                     state.Revision++;
-                    state.Match = state.Match with { Format = format, CustomTeams = layout };
+                    state.Match = state.Match with { Format = format, CustomTeams = layout, Mode = format == MatchFormat.FreeForAll ? GameMode.Battle : GameMode.BattleTeams };
                     state.RuleFlags = SessionRules.RequireReady | SessionRules.AllowJoinInProgress | (locked ? SessionRules.LockTeams : 0);
                     NetSession.ApplySessionState(state);
                     var roster = RosterPacket.Create(); roster.Count = (byte)layout.TotalPlayers; roster.Revision = state.Revision;
@@ -80,20 +86,20 @@ namespace MphRead.Mods.Launcher.Gui
                         roster.Generations[i] = 1;
                         roster.Hunters[i] = (byte)(i % 7); roster.Colors[i] = (byte)(i % 4);
                         roster.Teams[i] = TeamRules.ChooseTeam(layout, counts); counts[roster.Teams[i]]++;
+                        if (format == MatchFormat.FreeForAll) roster.Teams[i] = -1;
                         roster.LobbyReady[i] = i < 5; roster.Pings[i] = (ushort)(23 + 11 * i);
                     }
                     NetSession.ApplyRoster(roster);
-                    foreach (var (name, size) in new[] { ("desktop", new Size(1280, 720)),
-                        ("phone", new Size(960, 540)), ("short", new Size(800, 400)) })
+                    foreach (var (name, size) in MatrixSizes)
                     {
                         var lobby = new LobbyScreen(rooms); lobby.Suspend();
-                        if (Capture(lobby, Path.Combine(directory, $"lobby-{sample}-{name}.png"), size)) written++;
+                        if (Capture(lobby, Path.Combine(directory, $"lobby-{sample}-{name}.png"), size, surfaceScale: true, checkLayout: true)) written++;
                     }
                 }
                 NetSession.Stop();
             });
             Console.WriteLine($"[lobbyshot] wrote {written} layouts to {directory}");
-            return written == 18 ? 0 : 1;
+            return written == 8 * MatrixSizes.Length ? 0 : 1;
         }
 
         public static int RunReplay(string directory, string replay)
@@ -116,6 +122,57 @@ namespace MphRead.Mods.Launcher.Gui
             finally { DemoPlayback.Stop(); NetSession.Stop(); }
             Console.WriteLine($"[replayshot] {written} layouts written to {directory}");
             return written == 6 ? 0 : 1;
+        }
+
+        public static int RunMatrix(string directory)
+        {
+            if (!GuiLauncher.EnsureSetup()) return 1;
+            Directory.CreateDirectory(directory);
+            int failed = 0, written = 0;
+            Dispatcher.UIThread.Invoke(() =>
+            {
+                foreach (var (suffix, size) in MatrixSizes)
+                {
+                    foreach (var (name, view, _) in Screens(new MenuSettings(), RoomList()))
+                    {
+                        if (name == "pausemenu-small" || name == "serverbrowser") continue;
+                        if (name == "play-online" && view is PlayScreen online)
+                            online.ShowCaptureServers(_sampleServers.Select((sample, i) => (sample.Item1,
+                                new ServerStatus { Online = true, RoomKey = sample.Item2, Mode = sample.Item3,
+                                    Players = sample.Item4, MaxPlayers = 8, Latency = sample.Item5, Phase = (SessionPhase)(i % 4) })));
+                        if (name == "play-clips" && view is PlayScreen library) library.ShowCaptureReplays(SampleReplays());
+                        if (Capture(view, Path.Combine(directory, name + "-" + suffix + ".png"), size, surfaceScale: true, checkLayout: true)) written++; else failed++;
+                    }
+                    foreach (string section in new[] { "Display", "HUD and accessibility", "Audio", "Mouse and stylus", "Controller", "Replay", "Profile", "Advanced / Support" })
+                    {
+                        var settings = new SettingsView(new MenuSettings()); settings.ShowSection(section);
+                        string name = section.Replace(" / ", "-").Replace(' ', '-').ToLowerInvariant();
+                        if (Capture(settings, Path.Combine(directory, "settings-" + name + "-" + suffix + ".png"), size, surfaceScale: true, checkLayout: true)) written++; else failed++;
+                    }
+                    foreach (string section in new[] { "Playback", "Camera", "Events", "Clip" })
+                    {
+                        var replay = new PauseMenuView(true, replayPreview: true); replay.ShowReplaySection(section);
+                        if (Capture(replay, Path.Combine(directory, "replay-" + section.ToLowerInvariant() + "-" + suffix + ".png"), size, surfaceScale: true, checkLayout: true)) written++; else failed++;
+                    }
+                    var originalVisual = Render.VisualOptions.Current;
+                    try
+                    {
+                        Render.VisualOptions.Current = originalVisual with { TextScale = 125, UiScale = 150, HighContrast = true };
+                        var accessible = new SettingsView(new MenuSettings()); accessible.ShowSection("HUD and accessibility");
+                        if (Capture(accessible, Path.Combine(directory, "settings-accessibility-large-" + suffix + ".png"), size, surfaceScale: true, checkLayout: true)) written++; else failed++;
+                    }
+                    finally { Render.VisualOptions.Current = originalVisual; }
+                    var target = new TextBox { Text = "Player name", MaxLength = 32 };
+                    var keyboard = new ControllerKeyboard(target, () => { }, captureOnly: true);
+                    if (Capture(keyboard.NavigationRoot, Path.Combine(directory, "controller-keyboard-" + suffix + ".png"), size, surfaceScale: true, checkLayout: true)) written++; else failed++;
+                    keyboard.Close(false);
+                    var studio = new MapStudioScreen(); studio.LoadCaptureSample();
+                    if (Capture(studio, Path.Combine(directory, "map-studio-" + suffix + ".png"), size, surfaceScale: true, checkLayout: true)) written++; else failed++;
+                }
+            });
+            failed += RunLobby(directory);
+            Console.WriteLine($"[uimatrix] {written} launcher layouts plus lobby matrix; {failed} failures.");
+            return failed == 0 ? 0 : 1;
         }
 
         public static int Run(string directory, bool browserOnly = false)
@@ -214,7 +271,7 @@ namespace MphRead.Mods.Launcher.Gui
                 window.Show();
                 Drain(window, _windowSize);
                 Click(window, Find<UiMark>(window,
-                    mark => mark.Label == "choose your .nds file"));
+                    mark => mark.Label == "Choose .nds file"));
                 Drain(window, _windowSize);
                 if (setup.Content is not RomFileBrowser browser
                     || Find<UiListRow>(window, row => row.Choice is RomFileEntry
@@ -436,7 +493,7 @@ namespace MphRead.Mods.Launcher.Gui
             string name, Size size, ref int written)
         {
             string path = Path.Combine(output, name + ".png");
-            var bitmap = new RenderTargetBitmap(
+            using var bitmap = new RenderTargetBitmap(
                 new PixelSize((int)size.Width, (int)size.Height), new Vector(96, 96));
             bitmap.Render(window);
             bitmap.Save(path);
@@ -590,6 +647,21 @@ namespace MphRead.Mods.Launcher.Gui
             return stack;
         }
 
+        private static DemoRecording[] SampleReplays()
+        {
+            var date = new DateTime(2026, 9, 16, 18, 30, 0);
+            return new[] {
+                new DemoRecording("proving-ground.fpdemo", "MP3 PROVING GROUND", date, 12000000,
+                    new ReplayMetadata { RoomKey = "MP3 PROVING GROUND", Mode = GameMode.BattleTeams,
+                        Type = ReplayType.FullMatch, Integrity = ReplayIntegrity.Healthy,
+                        Players = new[] { new ReplayPlayerInfo(0, 0, 0, "Player one"), new ReplayPlayerInfo(1, 1, 1, "Player two") } }, duration: 36000),
+                new DemoRecording("last-round.fpdemo", "MP7 PROCESSOR CORE", date, 800000,
+                    new ReplayMetadata { Mode = GameMode.PrimeHunter, Type = ReplayType.Clip, Integrity = ReplayIntegrity.Unknown }, duration: 3600),
+                new DemoRecording("interrupted.fpdemo.part", "MP2 HARVESTER", date, 2400000,
+                    compatibility: ReplayOpenResult.Truncated)
+            };
+        }
+
         private static readonly (string, string, GameMode, int, int)[] _sampleServers =
         {
             ("net.livetek.fr", "MP3 PROVING GROUND", GameMode.Battle, 3, 41),
@@ -613,7 +685,38 @@ namespace MphRead.Mods.Launcher.Gui
         /// and without taking focus, so a capture run does not steal the
         /// pointer or flash a window per screen.
         /// </summary>
-        internal static bool Capture(Control view, string path, Size size)
+        private static bool CheckLayout(Window window, Control view, string name)
+        {
+            bool passed = true;
+            // Exercise the same focus/scroll path as controller navigation. Offscreen
+            // scroll content is valid only when focusing it brings it into view.
+            var controls = view.GetVisualDescendants().OfType<Control>().Where(c => c.Focusable
+                && c.IsEffectivelyVisible && c.IsEffectivelyEnabled && c.IsHitTestVisible
+                && c is not UserControl && c is not ScrollViewer && c.Bounds.Width > 0 && c.Bounds.Height > 0).ToArray();
+            foreach (var control in controls)
+            {
+                FocusNavigator.Focus(control);
+                window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+                var point = control.TranslatePoint(new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window);
+                var edge = control.TranslatePoint(new Point(control.Bounds.Width, control.Bounds.Height), window);
+                if (point == null || point.Value.X < 0 || point.Value.Y < 0
+                    || point.Value.X > window.Bounds.Width || point.Value.Y > window.Bounds.Height
+                    || edge == null || edge.Value.X > window.Bounds.Width + 1 || edge.Value.Y > window.Bounds.Height + 1)
+                {
+                    Console.WriteLine($"[layout] {name}: unreachable {control.GetType().Name} ({point})"); passed = false;
+                }
+                foreach (var scroll in control.GetVisualAncestors().OfType<ScrollViewer>())
+                {
+                    var within = control.TranslatePoint(new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), scroll);
+                    if (within != null && (within.Value.Y < -1 || within.Value.Y > scroll.Bounds.Height + 1))
+                    { Console.WriteLine($"[layout] {name}: {control.GetType().Name} remains clipped by its scroller"); passed = false; }
+                }
+            }
+            if (controls.Length == 0) { Console.WriteLine($"[layout] {name}: no focusable controls"); passed = false; }
+            return passed;
+        }
+
+        internal static bool Capture(Control view, string path, Size size, bool surfaceScale = false, bool checkLayout = false)
         {
             Window? window = null;
             try
@@ -629,7 +732,10 @@ namespace MphRead.Mods.Launcher.Gui
                     ShowActivated = false,
                     WindowStartupLocation = WindowStartupLocation.Manual,
                     Position = new PixelPoint(-4000, -4000),
-                    Content = view
+                    Content = surfaceScale ? new LayoutTransformControl {
+                        LayoutTransform = new Avalonia.Media.ScaleTransform(UiLayout.Factor(size.Width, size.Height), UiLayout.Factor(size.Width, size.Height)),
+                        HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+                        VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch, Child = view } : view
                 };
                 window.Show();
                 // The views post work to the dispatcher as they are built --
@@ -644,12 +750,12 @@ namespace MphRead.Mods.Launcher.Gui
                 window.Measure(size);
                 window.Arrange(new Rect(size));
                 Dispatcher.UIThread.RunJobs();
-                var bitmap = new RenderTargetBitmap(
+                using var bitmap = new RenderTargetBitmap(
                     new PixelSize((int)size.Width, (int)size.Height),
                     new Vector(96, 96));
                 bitmap.Render(window);
                 bitmap.Save(path);
-                return true;
+                return !checkLayout || CheckLayout(window, view, Path.GetFileNameWithoutExtension(path));
             }
             catch (Exception ex)
             {

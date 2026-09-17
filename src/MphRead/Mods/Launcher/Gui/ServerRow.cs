@@ -29,6 +29,8 @@ namespace MphRead.Mods.Launcher.Gui
     /// </summary>
     internal sealed class ServerRow : Control
     {
+        static ServerRow() => AffectsRender<ServerRow>(IsFocusedProperty, IsEnabledProperty);
+
         /// <summary>
         /// Where each column starts and how wide it is, worked out from the
         /// row's width and shared with <see cref="ServerHeader"/> so the two
@@ -54,13 +56,14 @@ namespace MphRead.Mods.Launcher.Gui
             /// <summary>Fits "8/8" and the PLAYERS heading, which is the widest of the five.</summary>
             private const double MaxPlayers = 52;
             /// <summary>Fits "Battle"; "Prime Hunter" trims, which is the right one to trim.</summary>
-            private const double MaxMode = 66;
+            private const double MaxMode = 95;
             /// <summary>The name's share of what the fixed columns leave.</summary>
             private const double NameShare = 0.44;
 
             public readonly double NameX, NameWidth;
             public readonly double MapX, MapWidth;
             public readonly double ModeX, ModeWidth;
+            public readonly double StateX, StateWidth;
             /// <summary>Right edge: the players and ping columns are right-aligned.</summary>
             public readonly double PlayersRight, PlayersWidth;
             public readonly double PingRight, PingWidth;
@@ -75,7 +78,9 @@ namespace MphRead.Mods.Launcher.Gui
                 // trimmed mode is still readable where a trimmed server name
                 // is not the server anybody was looking for.
                 ModeWidth = Math.Min(MaxMode, Math.Max(0, (width - 200) * 0.4));
-                ModeX = PlayersRight - MaxPlayers - Gutter - ModeWidth;
+                StateWidth = Math.Min(64, Math.Max(34, width * 0.11));
+                StateX = PlayersRight - MaxPlayers - Gutter - StateWidth;
+                ModeX = StateX - Gutter - ModeWidth;
                 NameX = Margin;
                 double rest = Math.Max(0, ModeX - Gutter - Margin);
                 NameWidth = rest * NameShare;
@@ -104,6 +109,11 @@ namespace MphRead.Mods.Launcher.Gui
         private string _map = "";
         private string _mode = "";
         private string _players = "";
+        private string _state = "Checking…";
+        private string _roomKey = "";
+        public int Latency { get; private set; } = Int32.MaxValue;
+        public int PlayerCount { get; private set; }
+        public string ServerName => _name;
         private string _ping = "";
         private IBrush _pingBrush = GuiTheme.TextDimBrush;
         private bool _answered;
@@ -136,7 +146,7 @@ namespace MphRead.Mods.Launcher.Gui
         {
             _name = name;
             _endpoint = endpoint;
-            _map = "asking...";
+            _map = "Checking…";
             Height = 30;
             Focusable = true;
             Cursor = new Cursor(StandardCursorType.Hand);
@@ -152,9 +162,12 @@ namespace MphRead.Mods.Launcher.Gui
         public void SetStatus(ServerStatus status)
         {
             _answered = status.Online;
+            Latency = status.Online && status.Latency >= 0 ? status.Latency : Int32.MaxValue;
+            PlayerCount = status.Players;
             if (!status.Online)
             {
-                _map = "did not answer";
+                _map = "No response";
+                _state = "Offline";
                 _mode = "";
                 _players = "";
                 _ping = "--";
@@ -162,14 +175,12 @@ namespace MphRead.Mods.Launcher.Gui
                 InvalidateVisual();
                 return;
             }
-            _map = status.RoomKey;
-            _mode = status.LobbyEnabled ? status.Phase switch
-            {
-                SessionPhase.Lobby => "LOBBY", SessionPhase.Starting => "LOADING",
-                SessionPhase.PostMatch => "RESULTS", _ => "IN MATCH"
-            } : NetStatus.ModeName(status.Mode);
-            ToolTip.SetTip(this, $"{status.Phase} � {status.Format} � "
-                + (status.AllowJoinInProgress ? "Join in progress allowed" : "Join in progress disabled"));
+            _roomKey = status.RoomKey;
+            _map = UiText.Map(status.RoomKey);
+            _mode = UiText.Mode(status.Mode);
+            _state = status.LobbyEnabled ? UiText.Phase(status.Phase) : "In match";
+            ToolTip.SetTip(this, $"{_name} · {_endpoint}\n{_map} · {_mode} · {_state} · {UiText.Format(status.Format)}\n"
+                + (status.AllowJoinInProgress ? "Joining in progress: allowed" : "Joining in progress: disabled"));
             _players = status.MaxPlayers > 0
                 ? $"{status.Players}/{status.MaxPlayers}"
                 : status.Players.ToString(CultureInfo.InvariantCulture);
@@ -227,6 +238,7 @@ namespace MphRead.Mods.Launcher.Gui
 
         public override void Render(DrawingContext context)
         {
+            using var opacity = context.PushOpacity(IsEffectivelyEnabled ? 1 : UiMetrics.DisabledOpacity);
             var full = new Rect(0, 0, Bounds.Width, Bounds.Height);
             // Transparent fill first: an unfilled area is not hit-testable, so
             // the whole row has to be painted for the whole row to be
@@ -248,10 +260,13 @@ namespace MphRead.Mods.Launcher.Gui
                 bold: false, rightAlign: false);
             Draw(context, _mode, columns.ModeX, columns.ModeWidth, GuiTheme.TextDimBrush,
                 bold: false, rightAlign: false);
+            Draw(context, _state, columns.StateX, columns.StateWidth, GuiTheme.TextDimBrush,
+                bold: false, rightAlign: false);
             Draw(context, _players, columns.PlayersRight, columns.PlayersWidth,
                 GuiTheme.TextBrush, bold: false, rightAlign: true);
             Draw(context, _ping, columns.PingRight, columns.PingWidth, _pingBrush,
                 bold: false, rightAlign: true);
+            UiMetrics.DrawFocus(context, this);
         }
 
         /// <summary>
@@ -270,6 +285,7 @@ namespace MphRead.Mods.Launcher.Gui
         internal static void Draw(DrawingContext context, string text, double x, double width,
             IBrush brush, bool bold, bool rightAlign, double size = 13)
         {
+            size *= UiMetrics.TextFactor;
             FormattedText? formatted = Lay(text, width, brush, bold, size);
             if (formatted == null)
             {
@@ -339,12 +355,14 @@ namespace MphRead.Mods.Launcher.Gui
         /// The map this server said it was running, or nothing until it has
         /// answered. What the preview beside the list is drawn from.
         /// </summary>
-        public string RoomKey => _answered ? _map : "";
+        public string RoomKey => _answered ? _roomKey : "";
     }
 
     /// <summary>The column headings over a <see cref="ServerRow"/> list.</summary>
     internal sealed class ServerHeader : Control
     {
+        static ServerHeader() => AffectsRender<ServerHeader>(IsFocusedProperty, IsEnabledProperty);
+
         public ServerHeader()
         {
             Height = 22;
@@ -353,20 +371,24 @@ namespace MphRead.Mods.Launcher.Gui
 
         public override void Render(DrawingContext context)
         {
+            using var opacity = context.PushOpacity(IsEffectivelyEnabled ? 1 : UiMetrics.DisabledOpacity);
             var columns = new ServerRow.Columns(Bounds.Width);
-            ServerRow.Draw(context, "SERVER", columns.NameX, columns.NameWidth,
+            ServerRow.Draw(context, "Server", columns.NameX, columns.NameWidth,
                 GuiTheme.TextDimBrush, bold: true, rightAlign: false, size: 11);
-            ServerRow.Draw(context, "MAP", columns.MapX, columns.MapWidth,
+            ServerRow.Draw(context, "Map", columns.MapX, columns.MapWidth,
                 GuiTheme.TextDimBrush, bold: true, rightAlign: false, size: 11);
-            ServerRow.Draw(context, "TYPE", columns.ModeX, columns.ModeWidth,
+            ServerRow.Draw(context, "Mode", columns.ModeX, columns.ModeWidth,
                 GuiTheme.TextDimBrush, bold: true, rightAlign: false, size: 11);
-            ServerRow.Draw(context, "PLAYERS", columns.PlayersRight, columns.PlayersWidth,
+            ServerRow.Draw(context, "State", columns.StateX, columns.StateWidth,
+                GuiTheme.TextDimBrush, bold: true, rightAlign: false, size: 11);
+            ServerRow.Draw(context, "Players", columns.PlayersRight, columns.PlayersWidth,
                 GuiTheme.TextDimBrush, bold: true, rightAlign: true, size: 11);
-            ServerRow.Draw(context, "PING", columns.PingRight, columns.PingWidth,
+            ServerRow.Draw(context, "Ping", columns.PingRight, columns.PingWidth,
                 GuiTheme.TextDimBrush, bold: true, rightAlign: true, size: 11);
             // A hairline under the headings, so the list reads as a table.
             context.FillRectangle(GuiTheme.EdgeBrush,
                 new Rect(0, Bounds.Height - 1, Bounds.Width, 1));
+            UiMetrics.DrawFocus(context, this);
         }
     }
 }

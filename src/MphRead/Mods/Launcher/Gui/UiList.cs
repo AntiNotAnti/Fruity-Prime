@@ -23,6 +23,8 @@ namespace MphRead.Mods.Launcher.Gui
     /// </summary>
     internal sealed class UiListRow : Control
     {
+        static UiListRow() => AffectsRender<UiListRow>(IsFocusedProperty, IsEnabledProperty);
+
         public event EventHandler? Clicked;
 
         /// <summary>
@@ -164,6 +166,7 @@ namespace MphRead.Mods.Launcher.Gui
         // Nothing here depends on time, so the cache only has to notice the
         // four things that do change: the row's width, its detail text, and
         // whether it is lit (which recolours the title).
+        private double _laidOutTextScale;
         private FormattedText? _titleText;
         private FormattedText? _detailText;
         private double _laidOutAt = -1;
@@ -173,10 +176,11 @@ namespace MphRead.Mods.Launcher.Gui
         private void LayOut(bool lit)
         {
             if (_titleText != null && _laidOutAt == Bounds.Width
-                && _laidOutLit == lit && _laidOutDetail == _detail)
+                && _laidOutLit == lit && _laidOutDetail == _detail && _laidOutTextScale == UiMetrics.TextFactor)
             {
                 return;
             }
+            _laidOutTextScale = UiMetrics.TextFactor;
             _laidOutAt = Bounds.Width;
             _laidOutLit = lit;
             _laidOutDetail = _detail;
@@ -184,11 +188,11 @@ namespace MphRead.Mods.Launcher.Gui
             if (_detail.Length > 0)
             {
                 _detailText = new FormattedText(_detail, CultureInfo.InvariantCulture,
-                    FlowDirection.LeftToRight, GuiTheme.Face(bold: false), 12,
+                    FlowDirection.LeftToRight, GuiTheme.Face(bold: false), 12 * UiMetrics.TextFactor,
                     GuiTheme.TextDimBrush)
                 {
                     MaxTextWidth = Math.Max(40, Bounds.Width * 0.45),
-                    MaxTextHeight = 20,
+                    MaxTextHeight = 20 * UiMetrics.TextFactor,
                     Trimming = TextTrimming.CharacterEllipsis
                 };
                 right = Bounds.Width - _detailText.Width - 14;
@@ -198,17 +202,18 @@ namespace MphRead.Mods.Launcher.Gui
                 _detailText = null;
             }
             _titleText = new FormattedText(_title, CultureInfo.InvariantCulture,
-                FlowDirection.LeftToRight, GuiTheme.Face(bold: true), 14,
+                FlowDirection.LeftToRight, GuiTheme.Face(bold: true), 14 * UiMetrics.TextFactor,
                 new SolidColorBrush(lit ? GuiTheme.Accent : GuiTheme.Text))
             {
                 MaxTextWidth = Math.Max(40, right - 14),
-                MaxTextHeight = 22,
+                MaxTextHeight = 22 * UiMetrics.TextFactor,
                 Trimming = TextTrimming.CharacterEllipsis
             };
         }
 
         public override void Render(DrawingContext context)
         {
+            using var opacity = context.PushOpacity(IsEffectivelyEnabled ? 1 : UiMetrics.DisabledOpacity);
             var full = new Rect(0, 0, Bounds.Width, Bounds.Height);
             context.FillRectangle(Brushes.Transparent, full);
             bool lit = _hot || IsFocused || _selected;
@@ -229,6 +234,7 @@ namespace MphRead.Mods.Launcher.Gui
             }
             context.DrawText(_titleText!,
                 new Point(14, (Bounds.Height - _titleText!.Height) / 2));
+            UiMetrics.DrawFocus(context, this);
         }
     }
 
@@ -291,6 +297,25 @@ namespace MphRead.Mods.Launcher.Gui
             if (header != null)
             {
                 _header.Children.Add(header);
+            }
+        }
+
+        public void Sort(Comparison<Control> comparison)
+        {
+            _focusable.Sort(comparison);
+            for (int i = 0; i < _focusable.Count; i++)
+                _rows.Children.Move(_rows.Children.IndexOf(_focusable[i]), i);
+        }
+
+        public void Filter(Func<Control, bool> predicate)
+        {
+            foreach (Control row in _focusable) row.IsVisible = predicate(row);
+            if (Selected == null || !Selected.IsVisible)
+            {
+                Selected = null;
+                foreach (Control row in _focusable)
+                    if (row.IsVisible && row.IsEnabled) { Select(row); break; }
+                MarkSelection();
             }
         }
 
@@ -374,6 +399,13 @@ namespace MphRead.Mods.Launcher.Gui
             }
         }
 
+        internal void FocusChoice(object choice)
+        {
+            foreach (Control row in _focusable)
+                if (row is UiListRow item && Equals(item.Choice, choice))
+                { Select(row); FocusNavigator.Focus(row); return; }
+        }
+
         private void Select(Control row)
         {
             if (ReferenceEquals(Selected, row))
@@ -434,7 +466,11 @@ namespace MphRead.Mods.Launcher.Gui
             int at = Selected == null ? -1 : _focusable.IndexOf(Selected);
             int next = at < 0 ? (step > 0 ? 0 : _focusable.Count - 1)
                 : Math.Clamp(at + step, 0, _focusable.Count - 1);
-            Focus(_focusable[next]);
+            while (next >= 0 && next < _focusable.Count)
+            {
+                if (_focusable[next].IsVisible && _focusable[next].IsEnabled) { Focus(_focusable[next]); break; }
+                next += step;
+            }
             return true;
         }
 
@@ -449,13 +485,15 @@ namespace MphRead.Mods.Launcher.Gui
         /// <summary>The row the list opens on, once the tree exists to focus in.</summary>
         public void FocusFirst()
         {
-            if (_focusable.Count == 0)
+            Control? row = Selected != null && Selected.IsVisible && Selected.IsEnabled ? Selected
+                : _focusable.Find(c => c.IsVisible && c.IsEnabled);
+            if (row == null) return;
+            Dispatcher.UIThread.Post(() =>
             {
-                return;
-            }
-            Control row = Selected != null && _focusable.Contains(Selected)
-                ? Selected : _focusable[0];
-            Dispatcher.UIThread.Post(() => Focus(row), DispatcherPriority.Background);
+                var current = Selected != null && Selected.IsVisible && Selected.IsEnabled ? Selected
+                    : _focusable.Find(c => c.IsVisible && c.IsEnabled);
+                if (current != null && _focusable.Contains(current)) Focus(current);
+            }, DispatcherPriority.Background);
         }
 
         /// <summary>Choose by what a row stands for, rather than by which control it is.</summary>

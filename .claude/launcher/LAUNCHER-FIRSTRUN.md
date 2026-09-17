@@ -63,3 +63,12 @@ On macOS the extraction child and launcher use the same Application Support
 directory (`Mods/Platform/AppPaths.cs`), so paths.txt and extracted game files
 never modify the signed app. Existing portable data is not moved automatically;
 see `tools/macos-README.txt` for migration and whole-app updates.
+
+## Four-stage presentation
+
+Setup names its active stage: Choose ROM, Extract, Generate missing previews,
+Ready. Normal extraction shows a simple progress label; diagnostic output is
+retained but revealed only on failure. Preview errors leave a retry action and
+cannot report successful setup. Desktop replay import reuses the same in-window
+browser with a `.fpdemo` filter; ROM selection keeps its `.nds` default. Android
+retains its platform document provider for both.

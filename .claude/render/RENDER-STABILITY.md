@@ -146,7 +146,7 @@ turn a failed rendering check into a pass.
 This harness does not claim fullscreen/alt-tab coverage, HUD-region visual
 correctness, normal gameplay/performance equivalence, or arbitrary driver
 acceptance. Mesa/XWayland remains mandatory to close issue #34; it is not
-available on this Windows host. The broader P1/P2 work is deferred.
+available on this Windows host. The subsequent UI/quality work is documented in GRAPHICS-QUALITY.md; this does not waive Mesa acceptance.
 
 ## Validation on 2026-09-16
 
@@ -178,3 +178,10 @@ process teardown. Those exits are not counted as successful acceptance runs.
 The harness now waits for OpenAL shutdown and releases its one-shot music
 engine; the final 100- and 500-cycle runs above exited normally. The updater
 canary survived all diagnostic runs, confirming that they skip updater cleanup.
+
+
+The integration graphics diagnostic also accepts `-quality`; it preserves the
+default sequence and adds an opt-in enhancement configuration and a third
+render-scale transition through 200%. See
+[UI and graphics acceptance](../testing/UI-GRAPHICS-ACCEPTANCE.md) for the latest
+Windows results and outstanding Linux/manual gates.

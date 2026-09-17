@@ -221,7 +221,7 @@ in desktop and server builds. The existing dedicated-server startup/directory
 checks passed on isolated local ports. Asset-backed gameplay and Android touch
 hardware validation were not run because extracted game files were unavailable.
 Replay regression commands are documented in
-[multiplayer/NETWORK-DEMOS.md](../multiplayer/NETWORK-DEMOS.md). Run
+[multiplayer/NETWORK-REPLAYS.md](../multiplayer/NETWORK-REPLAYS.md). Run
 `-replaycontrolcheck` and `-replayformatcheck` without cartridge assets, then
 `-replaydeterminism FILE` against a recorded match with game assets available.
 Add `-replayhashout OUTPUT.fpdemo` to create a separately named v3 copy with

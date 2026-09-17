@@ -82,3 +82,14 @@ identity precedence/conflicts, explicit overrides, and bundled-source copy/recov
 The viewport uses shaded authoring polygons, not runtime textured lighting. Imported architecture is read-only; imports expose settings and editable authored entities, and reject added native primitives rather than silently dropping them. Convex brushes support numeric transforms and serialized vertices/faces; full vertex/edge modeling, reusable prefabs, CSG and scripting are outside this first editor. Spawn weighting and per-mode entity filtering are not yet runtime features. Mode capabilities reject unsupported objective modes instead of producing nonfunctional matches. Custom audio uses the existing player with volume/loop/pause support; decode failure falls back to room music.
 
 Large maps still use the proven single-room-part output. A partitioning follow-up must split render groups into spatial cells while preserving collision plane/index ownership, bot graph connectivity, RoomMetadata node names, remote-player NodeRef mapping and portal visibility. Gate it with the existing all-spawn render sweep, node agreement probes and DUST2 regression before enabling it. The current compiler budgets provide the guardrails; no alternate runtime map engine is introduced.
+
+## Editor presentation
+
+The existing toolbar is grouped into File, Edit, Build and View commands.
+Project name and an Unsaved marker stay above the secondary path field.
+Object, Environment, Materials, Assets and Snapping are persistent inspector
+tabs. Problems show error/warning counts, a severity filter and existing codes;
+click-to-select remains intact. Budget details are secondary to the validation
+result. Modal dialogs disable the underlying editor until dismissed, and object
+deletion uses the existing confirmation surface. `-uimatrix` includes a synthetic
+editable map at all four supported screenshot sizes.

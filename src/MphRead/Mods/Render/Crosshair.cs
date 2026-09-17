@@ -57,6 +57,13 @@ namespace MphRead.Mods.Render
     /// </summary>
     public static class Crosshair
     {
+        public static OpenTK.Mathematics.Vector3 Color(OpenTK.Mathematics.Vector3 health, int? choice = null) =>
+            (choice ?? VisualOptions.Current.CrosshairColor) switch
+            {
+                1 => OpenTK.Mathematics.Vector3.One,
+                2 => new(0, 1, 1), 3 => new(1, 1, 0), 4 => new(1, 0, 1), _ => health
+            };
+
         public static CrosshairSize Size { get; set; } = CrosshairSize.Medium;
 
         public static CrosshairStyle Style { get; set; } = CrosshairStyle.Cross;

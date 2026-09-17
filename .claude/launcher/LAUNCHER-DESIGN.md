@@ -220,3 +220,29 @@ Implementation pitfalls
   was one press away from closing it. It is a two-row `Grid` now.
 - Each window focuses its own first control when it opens. Without that a
   keyboard user tabs blindly into whatever the tree happens to offer first.
+
+## Integration presentation
+
+`UiMetrics` centralizes row height, spacing, type sizes, focus outline, corner
+radius and disabled opacity. Custom controls draw a warm focus outline distinct
+from hover/selection; no continuous animation or new compositing surface was
+added. `UiTabs` wraps labels and preserves bumper/arrow navigation. `UiText`
+under Portable owns friendly multiplayer, replay, readiness and map labels.
+Visible text uses sentence case and Replay, Controller, Host, Map and No limit;
+wire symbols, settings keys and `.fpdemo` remain compatible.
+
+The browser keeps its table with separate Server, Map, Mode, State, Players and
+Ping columns. Sort, text filter, favorites, recent endpoints and Direct connect
+use existing selection/join paths. `servers.json` bounds saved lists to 32 each.
+Single-click selects; Enter/double-click joins. Late results cannot populate a
+new browser request. Replay actions operate on the selected file, and deletion
+uses `ConfirmScreen` with Cancel focused and prior focus restored.
+
+`-uimatrix DIR` captures actual desktop surface scaling at 1280x720, 960x600,
+800x400 and 1920x1080. It includes all settings/replay pages, large accessibility
+text, a populated browser/replay library, lobby formats, Map Studio, controller
+keyboard and confirmation. The check focuses each enabled visible control and
+rejects controls that remain beyond the viewport. This is structural coverage,
+not a pixel-baseline oracle for every font or arbitrary overlapping custom draw.
+Visual review complements it. `tools/ui-copy-check` checks literals and raw
+multiplayer enum formatting; parser fixtures keep its positive/negative controls.

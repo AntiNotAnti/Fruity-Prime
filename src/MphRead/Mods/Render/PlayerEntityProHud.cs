@@ -316,6 +316,7 @@ namespace MphRead.Entities
         private void ProNumber(float x, float y, Align align, ReadOnlySpan<char> text,
             ColorRgba color, float scale)
         {
+            scale *= Mods.Render.VisualOptions.Current.TextScale / 100f;
             float aspect = HudAspectFix;
             DrawText2D(x + 0.8f * aspect, y + 0.8f, align, palette: 0, text, ProHudShadow, scale: scale);
             DrawText2D(x, y, align, palette: 0, text, color, scale: scale);

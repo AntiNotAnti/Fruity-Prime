@@ -24,6 +24,8 @@ namespace MphRead.Mods.Launcher.Gui
     /// </summary>
     internal sealed class KeyRow : Control
     {
+        static KeyRow() => AffectsRender<KeyRow>(IsFocusedProperty, IsEnabledProperty);
+
         private readonly PropertyInfo? _property;
         private readonly double _labelWidth;
 
@@ -254,6 +256,7 @@ namespace MphRead.Mods.Launcher.Gui
 
         public override void Render(DrawingContext context)
         {
+            using var opacity = context.PushOpacity(IsEffectivelyEnabled ? 1 : UiMetrics.DisabledOpacity);
             // See UiWord.Render: hit testing follows the drawing.
             context.FillRectangle(Brushes.Transparent,
                 new Rect(0, 0, Bounds.Width, Bounds.Height));
@@ -282,6 +285,7 @@ namespace MphRead.Mods.Launcher.Gui
             value.Trimming = TextTrimming.CharacterEllipsis;
             context.DrawText(value, new Point(box.X + (box.Width - value.Width) / 2,
                 box.Y + (box.Height - value.Height) / 2));
+            UiMetrics.DrawFocus(context, this);
         }
     }
 }

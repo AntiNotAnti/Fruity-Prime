@@ -883,9 +883,10 @@ namespace MphRead.Entities
             // todo: FPS stuff
             if (Shake > 0 && _shake)
             {
-                Target.X += Fixed.ToFloat(Rng.GetRandomInt2(Fixed.ToInt(Shake))) - Shake / 2;
-                Target.Y += Fixed.ToFloat(Rng.GetRandomInt2(Fixed.ToInt(Shake))) - Shake / 2;
-                Target.Z += Fixed.ToFloat(Rng.GetRandomInt2(Fixed.ToInt(Shake))) - Shake / 2;
+                float shakeScale = Mods.Render.VisualOptions.Current.ReducedShake ? 0.15f : 1f;
+                Target.X += (Fixed.ToFloat(Rng.GetRandomInt2(Fixed.ToInt(Shake))) - Shake / 2) * shakeScale;
+                Target.Y += (Fixed.ToFloat(Rng.GetRandomInt2(Fixed.ToInt(Shake))) - Shake / 2) * shakeScale;
+                Target.Z += (Fixed.ToFloat(Rng.GetRandomInt2(Fixed.ToInt(Shake))) - Shake / 2) * shakeScale;
                 if (toTarget.X * (Target.X - Position.X) + toTarget.Z * (Target.Z - Position.Z) < 0)
                 {
                     Target.X = Position.X + toTarget.X / 2;

@@ -1451,6 +1451,7 @@ namespace MphRead.Entities
                             // the reticle was doing, which is why Pro mode
                             // looked like Quake even after the Weapon row was
                             // set to Dynamic.
+                            _scene.SetAimHudScale(true);
                             float reticleX = _targetCircleInst.PositionX;
                             float reticleY = _targetCircleInst.PositionY;
                             if (Features.CustomCrosshair)
@@ -1471,6 +1472,7 @@ namespace MphRead.Entities
                                 _scene.DrawHitMarker(new Vector4(1f, 1f, 1f, hitMarker),
                                     reticleX, reticleY);
                             }
+                            _scene.SetAimHudScale(false);
                             if (Features.ModernHud)
                             {
                                 DrawWeaponList();

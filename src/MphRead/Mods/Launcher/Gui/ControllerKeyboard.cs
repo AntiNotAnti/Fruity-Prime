@@ -19,7 +19,7 @@ namespace MphRead.Mods.Launcher.Gui
         private string _text;
         private bool _upper, _finished;
         public Control NavigationRoot { get; }
-        public ControllerKeyboard(TextBox target, Action closed)
+        public ControllerKeyboard(TextBox target, Action closed, bool captureOnly = false)
         {
             _target = target; _closed = closed; _text = target.Text ?? "";
             var panel = new StackPanel { Spacing = 8, Margin = new Thickness(16) };
@@ -50,13 +50,18 @@ namespace MphRead.Mods.Launcher.Gui
             panel.Children.Add(commands);
             NavigationRoot = new Border { Background = GuiTheme.PanelBrush, BorderBrush = GuiTheme.AccentBrush,
                 BorderThickness = new Thickness(1), Child = panel };
+            if (captureOnly)
+            {
+                NavigationRoot.HorizontalAlignment = HorizontalAlignment.Center;
+                NavigationRoot.VerticalAlignment = VerticalAlignment.Center;
+            }
             _popup = new Popup { PlacementTarget = target, Placement = PlacementMode.Center,
-                IsLightDismissEnabled = false, ShouldUseOverlayLayer = true, Child = NavigationRoot };
+                IsLightDismissEnabled = false, ShouldUseOverlayLayer = true, Child = captureOnly ? null : NavigationRoot };
             _parent = target.GetVisualAncestors().OfType<Panel>().FirstOrDefault();
             _parent?.Children.Add(_popup);
             _popup.Closed += (_, _) => Close(false);
             _target.DetachedFromVisualTree += TargetDetached;
-            _popup.Open();
+            if (!captureOnly) _popup.Open();
             TopLevel.GetTopLevel(target)?.UpdateLayout();
             Avalonia.Threading.Dispatcher.UIThread.Post(() => FocusNavigator.Ensure(NavigationRoot));
         }

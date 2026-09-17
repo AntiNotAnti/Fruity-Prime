@@ -3,8 +3,10 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
+    <DefineConstants>$(DefineConstants);ANDROID</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/MphRead/MphRead.csproj" />
+    <Compile Include="../../src/MphRead/Mods/Render/EsShaders.cs" Link="EsShaders.cs" />
   </ItemGroup>
 </Project>

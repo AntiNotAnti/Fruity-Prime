@@ -29,6 +29,11 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly StackPanel _inspector = new() { Spacing=6, Margin=new Thickness(10) };
         private readonly ListBox _hierarchy = new() { SelectionMode=SelectionMode.Multiple };
         private readonly ListBox _problems = new();
+        private readonly TextBlock _projectTitle = new() { Foreground = GuiTheme.TextBrush, FontSize = UiMetrics.HeadingText };
+        private readonly Note _problemSummary = new("");
+        private readonly ChoiceRow _problemFilter = new("Problems", new[] { "All", "Errors", "Warnings" });
+        private readonly UiTabs _inspectorTabs = new(new[] { "Object", "Environment", "Materials", "Assets", "Snapping" });
+        private IReadOnlyList<MapDiagnostic> _diagnostics = Array.Empty<MapDiagnostic>();
         private readonly TextBox _path = new() { Watermark="Project filename (.json)" };
         private readonly TextBlock _status = new() { Foreground=GuiTheme.TextDimBrush, TextWrapping=TextWrapping.Wrap };
         private readonly TextBox _search = new() { Watermark="Search objects" };
@@ -58,24 +63,32 @@ namespace MphRead.Mods.Launcher.Gui
             return 0;
         }
 
+        internal void LoadCaptureSample() => Load(MapTemplates.Create("Studio example", true));
+
         public MapStudioScreen()
         {
             Background=GuiTheme.InkBrush;Focusable=true;
             var toolbar=new WrapPanel { Orientation=Orientation.Horizontal };
+            toolbar.Children.Add(new Caption("File") { Margin = new Thickness(6) });
             AddButton(toolbar,"Back",Close);AddButton(toolbar,"Library",ShowLibrary);AddButton(toolbar,"New",NewMap);
             AddButton(toolbar,"Open",()=>Browse("Open project",false,p=>Open(p),".json",".fpmap"));
-            AddButton(toolbar,"Import Q3",Import);AddButton(toolbar,"Save",Save);AddButton(toolbar,"Save as",()=>Browse("Save project",true,p=>SaveTo(p),".json"));
+            AddButton(toolbar,"Import Quake III",Import);AddButton(toolbar,"Save",Save);AddButton(toolbar,"Save as",()=>Browse("Save project",true,p=>SaveTo(p),".json"));
+            toolbar.Children.Add(new Caption("Edit") { Margin = new Thickness(6) });
+            AddButton(toolbar,"Duplicate",()=>EditSelection("Duplicate",MapObjects.Duplicate));
+            AddButton(toolbar,"Delete",()=>Confirm("Delete selected objects?",()=>EditSelection("Delete",MapObjects.Delete)));
             AddButton(toolbar,"Undo",()=>_document?.History.Undo());AddButton(toolbar,"Redo",()=>_document?.History.Redo());
-            AddButton(toolbar,"Validate",()=>_=Validate());AddButton(toolbar,"Build",()=>_=Build(false));AddButton(toolbar,"Build .fpmap",()=>_=Build(true));
+            toolbar.Children.Add(new Caption("Build") { Margin = new Thickness(6) });
+            AddButton(toolbar,"Validate",()=>_=Validate());AddButton(toolbar,"Build",()=>_=Build(false));AddButton(toolbar,"Export .fpmap",()=>_=Build(true));
             AddButton(toolbar,"Play from here",()=>_=Play());AddButton(toolbar,"Run map test",()=>_=Audit());
             _editingControls.AddRange(toolbar.Children);
             AddButton(toolbar,"Cancel job",()=>_work?.Cancel());
             _root.Children.Add(toolbar);
-            Grid.SetRow(_path,1);_root.Children.Add(_path);
+            var identity = new StackPanel(); identity.Children.Add(_projectTitle); identity.Children.Add(_path);
+            Grid.SetRow(identity,1);_root.Children.Add(identity);
             var body=new Grid { ColumnDefinitions=new("200,*,245"), Margin=new Thickness(0,8) };
             var tree=new DockPanel();DockPanel.SetDock(_search,Dock.Top);tree.Children.Add(_search);tree.Children.Add(_hierarchy);body.Children.Add(tree);
             var center=new Grid { RowDefinitions=new("Auto,*") };
-            var tools=new WrapPanel();
+            var tools=new WrapPanel(); tools.Children.Add(new Caption("View") { Margin = new Thickness(6) });
             void Choice(string[] choices,Action<string> choose)
             {
                 var box=new ComboBox {ItemsSource=choices,SelectedIndex=0,Margin=new Thickness(2),MinWidth=85};
@@ -90,15 +103,23 @@ namespace MphRead.Mods.Launcher.Gui
                 if(name=="Navigation"){_=Navigation();return;}
                 _viewport.Wireframe=name=="Wireframe";_viewport.Collision=name=="Collision";_viewport.KillPlane=name=="Kill plane";_viewport.InvalidateVisual();
             });
-            Choice(new[]{"Inspector","Environment","Materials","Assets & music","Snapping"},name=>{if(name=="Materials")MaterialInspector();else if(name=="Assets & music")AssetInspector();else if(name=="Snapping")SnapInspector();else Inspect();});
+            _inspectorTabs.Changed += (_, _) => Inspect();
             AddButton(tools,"Frame all",()=>_viewport?.FrameAll());AddButton(tools,"Focus",()=>_viewport?.FrameSelection());
-            AddButton(tools,"Duplicate",()=>EditSelection("Duplicate",MapObjects.Duplicate));AddButton(tools,"Delete",()=>EditSelection("Delete",MapObjects.Delete));
+
             AddButton(tools,"Capture preview",CapturePreview);
             center.Children.Add(tools);Grid.SetRow(_viewportHost,1);center.Children.Add(_viewportHost);Grid.SetColumn(center,1);body.Children.Add(center);
-            var inspectorScroll=new ScrollViewer { Content=_inspector };Grid.SetColumn(inspectorScroll,2);body.Children.Add(inspectorScroll);
+            var inspectorPane = new Grid { RowDefinitions = new("Auto,*") };
+            inspectorPane.Children.Add(_inspectorTabs);
+            var inspectorScroll=new ScrollViewer { Content=_inspector }; Grid.SetRow(inspectorScroll,1); inspectorPane.Children.Add(inspectorScroll);
+            Grid.SetColumn(inspectorPane,2);body.Children.Add(inspectorPane);
             Grid.SetRow(body,2);_root.Children.Add(body);
             _editingControls.Add(body);_editingControls.Add(_path);
-            Grid.SetRow(_problems,3);_root.Children.Add(_problems);Grid.SetRow(_status,4);_root.Children.Add(_status);
+            var problems = new Grid { RowDefinitions = new("Auto,*") };
+            var problemHeading = new Grid { ColumnDefinitions = new("*,300") };
+            problemHeading.Children.Add(_problemSummary); Grid.SetColumn(_problemFilter,1);problemHeading.Children.Add(_problemFilter);
+            problems.Children.Add(problemHeading);Grid.SetRow(_problems,1);problems.Children.Add(_problems);
+            _problemFilter.Changed += (_, _) => FilterProblems();
+            Grid.SetRow(problems,3);_root.Children.Add(problems);Grid.SetRow(_status,4);_root.Children.Add(_status);
             var layer=new Panel();layer.Children.Add(_root);layer.Children.Add(_modal);Content=layer;
             _search.TextChanged+=(_,_)=>RefreshHierarchy();
             _hierarchy.SelectionChanged+=(_,_)=>
@@ -118,7 +139,7 @@ namespace MphRead.Mods.Launcher.Gui
                 if(_work==null&&!_checking&&_document!=null&&_document.LastEditUtc>_checked&&DateTime.UtcNow-_document.LastEditUtc>TimeSpan.FromMilliseconds(500))
                 {
                     var document=_document;var edited=document.LastEditUtc;var snapshot=document.Snapshot();_checking=true;
-                    try{var result=await Task.Run(()=>MapValidator.Validate(snapshot.Definition,false));if(_document==document&&document.LastEditUtc==edited){_checked=edited;_problems.ItemsSource=result.Diagnostics.Select(d=>new ProblemRow(d)).ToArray();}}
+                    try{var result=await Task.Run(()=>MapValidator.Validate(snapshot.Definition,false));if(_document==document&&document.LastEditUtc==edited){_checked=edited;SetProblems(result);}}
                     catch(Exception ex){Failure(ex);}finally{_checking=false;}
                 }
                 if(_document==null||!_document.IsDirty||_document.LastEditUtc<=_autosaved||DateTime.UtcNow-_document.LastEditUtc<TimeSpan.FromSeconds(3))return;
@@ -133,8 +154,8 @@ namespace MphRead.Mods.Launcher.Gui
         private static void AddButton(Panel panel,string title,Action action)
         {var button=new Avalonia.Controls.Button {Content=title,Margin=new Thickness(2),Padding=new Thickness(8,4)};button.Click+=(_,_)=>action();panel.Children.Add(button);}
         private void Modal(Control control)
-        {_modal.Child=new Border {Background=GuiTheme.PanelBrush,Padding=new Thickness(20),MaxWidth=800,MaxHeight=620,HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center,Child=control};_modal.IsVisible=true;}
-        private void Dismiss(){_modal.IsVisible=false;_modal.Child=null;}
+        {_modal.Child=new Border {Background=GuiTheme.PanelBrush,Padding=new Thickness(20),MaxWidth=800,MaxHeight=620,HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center,Child=control};_modal.IsVisible=true;_root.IsEnabled=false;}
+        private void Dismiss(){_root.IsEnabled=true;_modal.IsVisible=false;_modal.Child=null;}
         private void Confirm(string message,Action yes)
         {var view=new ConfirmScreen(message);view.Answered+=(_,answer)=>{Dismiss();if(answer)yes();};Modal(view);}
         private void WithUnsaved(Action action)
@@ -170,11 +191,17 @@ namespace MphRead.Mods.Launcher.Gui
                 if(_document==null)return;
                 if(CustomRooms.IsReadOnlyMapPath(path))path=CustomRooms.NewProjectPath(_document.Project.Definition.Name);
                 _document.Save(path);_document.DiscardRecovery(CustomRooms.WritableMapDirectory);
-                _path.Text=path;_status.Text="Saved "+path;
+                _path.Text=path;UpdateProjectTitle();_status.Text="Saved "+path;
             }
             catch(Exception ex){Failure(ex);}
         }
-        private void Changed(){RefreshHierarchy();Inspect();_status.Text=(_document?.IsDirty==true?"Unsaved changes · ":"")+"RMB orbit · MMB pan · WASD fly · F focus · drag selection or axis handles";}
+        private void Changed(){UpdateProjectTitle();RefreshHierarchy();Inspect();_status.Text=(_document?.IsDirty==true?"Unsaved changes · ":"")+"Right mouse: orbit · Middle mouse: pan · WASD: fly · F: focus · drag selection or axis handles";}
+        private void UpdateProjectTitle()
+        {
+            _projectTitle.Text = _document == null ? "Map Studio"
+                : (_document.Project.Definition.InGameName ?? _document.Project.Definition.Name)
+                    + (_document.IsDirty ? " • Unsaved" : "");
+        }
         private void RefreshHierarchy()
         {
             if(_document==null)return;_refreshing=true;
@@ -186,7 +213,7 @@ namespace MphRead.Mods.Launcher.Gui
         {if(_document==null)return;var ids=_document.Selection.ToHashSet();_document.Edit(label,d=>edit(d,ids));}
         private void NewMap()
         {
-            var view=new StackPanel {Spacing=10};view.Children.Add(Text("NEW MAP"));var name=new TextBox {Text="My Arena"};view.Children.Add(name);
+            var view=new StackPanel {Spacing=10};view.Children.Add(Text("New map"));var name=new TextBox {Text="My Arena"};view.Children.Add(name);
             var template=new ComboBox {ItemsSource=new[]{"Blank Arena","Simple Box Arena","Team Arena"},SelectedIndex=0};view.Children.Add(template);
             AddButton(view,"Create",()=>WithUnsaved(()=>{try{Load(MapTemplates.Create(name.Text??"",template.SelectedIndex!=0,template.SelectedIndex==2));}catch(Exception ex){Failure(ex);}}));AddButton(view,"Cancel",Dismiss);Modal(view);
         }
@@ -195,7 +222,7 @@ namespace MphRead.Mods.Launcher.Gui
             _inspector.Children.Clear();
             foreach(var bitmap in _images)bitmap.Dispose();_images.Clear();
             Inspect();
-            var view=new Grid {RowDefinitions=new("Auto,*,Auto"),MinWidth=650,Height=460};view.Children.Add(Text("MAP LIBRARY"));
+            var view=new Grid {RowDefinitions=new("Auto,*,Auto"),MinWidth=650,Height=460};view.Children.Add(Text("Map library"));
             var list=new ListBox();Grid.SetRow(list,1);view.Children.Add(list);
             list.ItemTemplate=new FuncDataTemplate<LibraryRow>((row,_)=>
             {
@@ -223,7 +250,7 @@ namespace MphRead.Mods.Launcher.Gui
         }
         private void RecoverUnsaved()
         {
-            var panel=new StackPanel {Spacing=8};panel.Children.Add(Text("RECOVERY FILES"));
+            var panel=new StackPanel {Spacing=8};panel.Children.Add(Text("Recovery files"));
             var list=new ListBox {MaxHeight=350};string directory=Path.Combine(CustomRooms.WritableMapDirectory,".autosave");
             list.ItemsSource=Directory.Exists(directory)?Directory.EnumerateFiles(directory,"*.json").Where(p=>!p.EndsWith(".context.json",StringComparison.OrdinalIgnoreCase)).Select(p=>new RecoveryRow(p)).ToArray():Array.Empty<RecoveryRow>();panel.Children.Add(list);
             AddButton(panel,"Restore",()=>{if(list.SelectedItem is RecoveryRow row)WithUnsaved(()=>{try{Load(MapDocument.ReadRecovery(row.Path));}catch(Exception ex){Failure(ex);}});});
@@ -281,9 +308,13 @@ namespace MphRead.Mods.Launcher.Gui
         }
         private void Inspect()
         {
+            if (_inspectorTabs.Index == 1) { EnvironmentInspector(); return; }
+            if (_inspectorTabs.Index == 2) { MaterialInspector(); return; }
+            if (_inspectorTabs.Index == 3) { AssetInspector(); return; }
+            if (_inspectorTabs.Index == 4) { SnapInspector(); return; }
             _inspector.Children.Clear();if(_document==null)return;
             var selected=MapObjects.All(_document.Project.Definition).FirstOrDefault(o=>_document.Selection.Contains(o.Id));
-            if(selected==null){EnvironmentInspector();return;}
+            if(selected==null){_inspector.Children.Add(new Note("Select an object to edit its properties."));return;}
             _inspector.Children.Add(Text(selected.Kind));Guid id=selected.Id;
             var edits=new List<Action<object>>();
             void Field(string label,object? value,Action<object,string> apply)
@@ -339,18 +370,18 @@ namespace MphRead.Mods.Launcher.Gui
         {var result=value.Split(',',StringSplitOptions.TrimEntries).Select(Number).ToArray();if(result.Length!=count)throw new FormatException($"Enter {count} comma-separated numbers.");return result;}
         private void EnvironmentInspector()
         {
-            _inspector.Children.Clear();if(_document==null)return;var d=_document.Project.Definition;_inspector.Children.Add(Text("PROJECT & ENVIRONMENT"));var edits=new List<Action<MapDefinition>>();
+            _inspector.Children.Clear();if(_document==null)return;var d=_document.Project.Definition;_inspector.Children.Add(Text("Project and environment"));var edits=new List<Action<MapDefinition>>();
             void Field(string label,string value,Action<MapDefinition,string> apply){_inspector.Children.Add(Text(label));var input=new TextBox{Text=value};_inspector.Children.Add(input);edits.Add(map=>apply(map,input.Text??""));}
             Field("Runtime name",d.Name,(m,s)=>{MapValidator.RequireRuntimeName(s);m.Name=s;});Field("Display name",d.InGameName??d.Name,(m,s)=>m.InGameName=s);Field("Author",d.Author??"",(m,s)=>m.Author=s);Field("Version",d.Version??"",(m,s)=>m.Version=s);
             Field("Kill height",d.KillHeight.ToString(CultureInfo.InvariantCulture),(m,s)=>m.KillHeight=Number(s));Field("Far clip",d.FarClip.ToString(CultureInfo.InvariantCulture),(m,s)=>m.FarClip=Number(s));
-            Field("Supported modes (comma separated)",string.Join(",",d.Capabilities?.SupportedModes??new(){"Battle","Survival"}),(m,s)=>{m.Capabilities??=new();m.Capabilities.SupportedModes=s.Split(',',StringSplitOptions.TrimEntries|StringSplitOptions.RemoveEmptyEntries).ToList();});
+            Field("Supported modes (comma-separated)",string.Join(",",d.Capabilities?.SupportedModes??new(){"Battle","Survival"}),(m,s)=>{m.Capabilities??=new();m.Capabilities.SupportedModes=s.Split(',',StringSplitOptions.TrimEntries|StringSplitOptions.RemoveEmptyEntries).ToList();});
             Field("Light 1 color (0–31)",string.Join(",",d.Light1Color),(m,s)=>m.Light1Color=ParseVector(s,3).Select(v=>(int)v).ToArray());
             Field("Light 1 direction",string.Join(",",d.Light1Vector),(m,s)=>m.Light1Vector=ParseVector(s,3));
             Field("Light 2 color (0–31)",string.Join(",",d.Light2Color),(m,s)=>m.Light2Color=ParseVector(s,3).Select(v=>(int)v).ToArray());
             Field("Fog color (0–31)",string.Join(",",d.FogColor),(m,s)=>m.FogColor=ParseVector(s,3).Select(v=>(int)v).ToArray());
             if(d.Import is {} import)
             {
-                _inspector.Children.Add(Text("IMPORTED ARCHITECTURE (read-only)"));
+                _inspector.Children.Add(Text("Imported architecture (read-only)"));
                 Field("Q3 units per world unit",import.UnitsPerUnit.ToString(CultureInfo.InvariantCulture),(m,s)=>m.Import!.UnitsPerUnit=Number(s));
                 Field("Patch detail (1–8)",import.PatchLevel.ToString(),(m,s)=>m.Import!.PatchLevel=int.Parse(s,CultureInfo.InvariantCulture));
                 var spawns=new CheckBox {Content="Use imported spawns",IsChecked=import.KeepSpawns};_inspector.Children.Add(spawns);edits.Add(m=>m.Import!.KeepSpawns=spawns.IsChecked==true);
@@ -362,7 +393,7 @@ namespace MphRead.Mods.Launcher.Gui
         }
         private void MaterialInspector()
         {
-            _inspector.Children.Clear();if(_document==null)return;_inspector.Children.Add(Text("MATERIALS"));
+            _inspector.Children.Clear();if(_document==null)return;_inspector.Children.Add(Text("Materials"));
             for(int i=0;i<_document.Project.Definition.Materials.Count;i++)
             {
                 int index=i;var m=_document.Project.Definition.Materials[i];_inspector.Children.Add(Text($"{i} · {m.Name}"));
@@ -410,7 +441,7 @@ namespace MphRead.Mods.Launcher.Gui
         }
         private void AssetInspector()
         {
-            _inspector.Children.Clear();if(_document==null)return;_inspector.Children.Add(Text("ASSETS & MUSIC"));
+            _inspector.Children.Clear();if(_document==null)return;_inspector.Children.Add(Text("Assets and music"));
             foreach(var asset in _document.Project.Definition.Assets)_inspector.Children.Add(Text(asset.Kind+" · "+Path.GetFileName(asset.Path)));
             AddButton(_inspector,"Import texture",()=>Browse("Choose a texture image",false,path=>_=Job("Baking texture",async token=>
             {
@@ -456,7 +487,21 @@ namespace MphRead.Mods.Launcher.Gui
             catch(Exception ex){Failure(ex);}
         }
         private void Problems(MapValidationResult result)
-        {_problems.ItemsSource=result.Diagnostics.Select(d=>new ProblemRow(d)).ToArray();_status.Text=(result.IsValid?"Validation passed. ":"Build blocked. ")+string.Join(" · ",result.Budgets.Select(b=>$"{b.Name}: {b.Used:N0}"+(b.Limit!=null?$" / {b.Limit:N0}":"")));}
+        {
+            SetProblems(result);
+            _status.Text = result.IsValid ? "Validation passed." : "Build blocked. Fix the errors in Problems.";
+            ToolTip.SetTip(_problemSummary, string.Join("\n", result.Budgets.Select(b => $"{b.Name}: {b.Used:N0} / {b.Limit:N0}")));
+        }
+        private void SetProblems(MapValidationResult result)
+        {
+            _diagnostics = result.Diagnostics.ToArray();
+            _problemSummary.Text = $"{UiText.Count(_diagnostics.Count(d => d.Severity == MapDiagnosticSeverity.Error), "error")} · "
+                + UiText.Count(_diagnostics.Count(d => d.Severity == MapDiagnosticSeverity.Warning), "warning");
+            FilterProblems();
+        }
+        private void FilterProblems() => _problems.ItemsSource = _diagnostics.Where(d => _problemFilter.Index == 0
+            || d.Severity == (_problemFilter.Index == 1 ? MapDiagnosticSeverity.Error : MapDiagnosticSeverity.Warning))
+            .Select(d => new ProblemRow(d)).ToArray();
         private async Task Work(string label,Func<MapProject,CancellationToken,Task> action)
         {
             if(_document==null||_work!=null)return;var snapshot=_document.Snapshot();
@@ -466,7 +511,7 @@ namespace MphRead.Mods.Launcher.Gui
         {
             if(_work!=null)return;_work=new();_status.Text=label+"…";
             SetBusy(true);
-            try{await action(_work.Token);}catch(OperationCanceledException){_status.Text="Cancelled.";}catch(Exception ex){Failure(ex);}finally{_work.Dispose();_work=null;SetBusy(false);}
+            try{await action(_work.Token);}catch(OperationCanceledException){_status.Text="Canceled.";}catch(Exception ex){Failure(ex);}finally{_work.Dispose();_work=null;SetBusy(false);}
         }
         private void SetBusy(bool busy){foreach(var control in _editingControls)control.IsEnabled=!busy;}
         private void SnapInspector()
@@ -479,7 +524,7 @@ namespace MphRead.Mods.Launcher.Gui
             _inspector.Children.Add(Text("Grid spacing (0 disables snapping)"));_inspector.Children.Add(grid);
             _inspector.Children.Add(Text("Rotation step (degrees)"));_inspector.Children.Add(angle);
             _inspector.Children.Add(Text("Scale step"));_inspector.Children.Add(scale);_inspector.Children.Add(local);
-            AddButton(_inspector,"Apply",()=>{try{float g=Number(grid.Text??""),a=Number(angle.Text??""),s=Number(scale.Text??"");if(g<0||g>100||a<1||a>180||s<=0||s>10)throw new FormatException("Use grid spacing 0–100, rotation step 1–180 and scale step above 0 through 10.");_viewport.Snap=g;_viewport.AngleSnap=a;_viewport.ScaleSnap=s;_viewport.LocalAxes=local.IsChecked==true;}catch(Exception ex){Failure(ex);}});
+            AddButton(_inspector,"Apply",()=>{try{float g=Number(grid.Text??""),a=Number(angle.Text??""),s=Number(scale.Text??"");if(g<0||g>100||a<1||a>180||s<=0||s>10)throw new FormatException("Grid spacing must be 0–100, rotation must be 1–180°, and scale must be greater than 0 and no more than 10.");_viewport.Snap=g;_viewport.AngleSnap=a;_viewport.ScaleSnap=s;_viewport.LocalAxes=local.IsChecked==true;}catch(Exception ex){Failure(ex);}});
         }
         private Task Validate()=>Work("Validating",async(p,token)=>
         {var result=await Task.Run(()=>MapCompiler.Compile(p,token),token);token.ThrowIfCancellationRequested();Problems(result.Validation);if(result.Map!=null&&p.Definition.Import!=null)_viewport?.SetImported(result.Map);});
@@ -528,7 +573,7 @@ namespace MphRead.Mods.Launcher.Gui
         });
         private void Import()=>Browse("Choose a Quake 3 source",false,source=>
         {
-            var view=new StackPanel {Spacing=8};view.Children.Add(Text("IMPORT QUAKE 3"));var maps=new ComboBox();
+            var view=new StackPanel {Spacing=8};view.Children.Add(Text("Import Quake III"));var maps=new ComboBox();
             try{maps.ItemsSource=Q3Bsp.ListMaps(source);maps.SelectedIndex=0;}catch(Exception ex){Failure(ex);return;}view.Children.Add(maps);
             var name=new TextBox {Text=Path.GetFileNameWithoutExtension(source)};view.Children.Add(Text("Runtime name"));view.Children.Add(name);
             var scale=new TextBox {Watermark="Scale (blank = automatic)"};view.Children.Add(scale);var clip=new CheckBox {Content="Keep player clips",IsChecked=true};view.Children.Add(clip);

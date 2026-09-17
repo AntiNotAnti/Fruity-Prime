@@ -147,8 +147,8 @@ export ALSOFT_DRIVERS=null PULSE_SERVER=   # else ALSA retries stall frames
 | `MphRead -shellshot DIR` | the same screens photographed **in the game window**, walking the whole loop: front screen, a key, a click, a match loaded into that window, the pause menu over it, and the front screen again after leaving. What `-uishot` cannot answer -- it renders layouts, not the composite. Needs a display (Xvfb is one) |
 | `MphRead -uidesign DIR` | everything **behind** the front screen -- Play with maps, Play with servers, settings, the pause menu -- laid out **six** different ways and photographed, for choosing between them by looking rather than by describing. The front screen is deliberately not in it. The six differ in information architecture rather than in where a menu is pinned, since moving anchors around produces six pictures of one design; the photograph, the real content at its real density and `GuiTheme`'s palette are held constant. Nothing it draws ships (`Mods/Launcher/Gui/UiDesigns.cs`) |
 | `MphRead -uishot DIR` | pictures of the launcher's own screens -- home, settings, the map picker, the pause menu -- rendered without anyone looking at a display. The one part of the program that could not otherwise be checked from a headless box |
-| `MphRead -demoinfo FILE [-replay]` | what a recorded match contains -- records, frames, a packet-type histogram, and how well it compressed. `-replay` then runs the file through the real player with no room or window and reports how the packets landed per frame, which is the measurement "the replay stutters" is about. Needs no game files. `.claude/multiplayer/NETWORK-DEMOS.md` |
-| `MphRead -netcheck ... -recorddemo` | the harness client, recording a demo as it plays |
+| `MphRead -replayinfo FILE [-replay]` | what a recorded match contains -- records, frames, a packet-type histogram, and how well it compressed. `-replay` then runs the file through the real player with no room or window and reports how the packets landed per frame, which is the measurement "the replay stutters" is about. Needs no game files. `.claude/multiplayer/NETWORK-REPLAYS.md` |
+| `MphRead -netcheck ... -recordreplay` | the harness client, recording a replay as it plays |
 | `MphRead -mechanics` | print the catalogue in `MECHANICS.md`, generated from the game's own tables |
 | `MphRead` (no arguments, Windows or macOS) | the front screen. The Windows build is a GUI binary, so double-clicking it opens the launcher with no terminal behind it |
 | `MphRead -menu` | the console menu, for people who typed something |
@@ -1239,9 +1239,9 @@ rather than trusting the sender's, and rate limits at the relay. Packet
 numbers 24 and 25 are left free for a voice channel.
 `.claude/multiplayer/NETWORK-CHAT.md`.
 
-Recording and watching a match back -- the file format, the two things a demo
+Recording and watching a match back -- the file format, the two things a replay
 has to synthesize because they were never received, and why the player counts
-frames rather than milliseconds: `.claude/multiplayer/NETWORK-DEMOS.md`.
+frames rather than milliseconds: `.claude/multiplayer/NETWORK-REPLAYS.md`.
 
 Full postmortem, measurements, before/after tables, and the traps that cost
 the most time: `.claude/multiplayer/NETWORK-DIAGNOSTICS.md`. The

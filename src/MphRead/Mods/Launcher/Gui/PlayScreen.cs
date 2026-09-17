@@ -14,6 +14,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using MphRead.Entities;
 using MphRead.Mods;
 using MphRead.Mods.Network;
@@ -74,18 +75,18 @@ namespace MphRead.Mods.Launcher.Gui
 
         private static readonly (string Label, GameMode Mode)[] _modes =
         {
-            ("Battle", GameMode.Battle),
-            ("Battle teams", GameMode.BattleTeams),
-            ("Survival", GameMode.Survival),
-            ("Survival teams", GameMode.SurvivalTeams),
-            ("Capture", GameMode.Capture),
-            ("Bounty", GameMode.Bounty),
-            ("Bounty teams", GameMode.BountyTeams),
-            ("Defender", GameMode.Defender),
-            ("Defender teams", GameMode.DefenderTeams),
-            ("Nodes", GameMode.Nodes),
-            ("Nodes teams", GameMode.NodesTeams),
-            ("Prime hunter", GameMode.PrimeHunter)
+            (UiText.Mode(GameMode.Battle), GameMode.Battle),
+            (UiText.Mode(GameMode.BattleTeams), GameMode.BattleTeams),
+            (UiText.Mode(GameMode.Survival), GameMode.Survival),
+            (UiText.Mode(GameMode.SurvivalTeams), GameMode.SurvivalTeams),
+            (UiText.Mode(GameMode.Capture), GameMode.Capture),
+            (UiText.Mode(GameMode.Bounty), GameMode.Bounty),
+            (UiText.Mode(GameMode.BountyTeams), GameMode.BountyTeams),
+            (UiText.Mode(GameMode.Defender), GameMode.Defender),
+            (UiText.Mode(GameMode.DefenderTeams), GameMode.DefenderTeams),
+            (UiText.Mode(GameMode.Nodes), GameMode.Nodes),
+            (UiText.Mode(GameMode.NodesTeams), GameMode.NodesTeams),
+            (UiText.Mode(GameMode.PrimeHunter), GameMode.PrimeHunter)
         };
 
         private static readonly string[] _hunters =
@@ -125,6 +126,11 @@ namespace MphRead.Mods.Launcher.Gui
         private CancellationTokenSource? _statusCancel;
         private bool _finished;
 
+        private readonly ServerBookmarks _bookmarks = ServerBookmarks.Load();
+        private ChoiceRow? _sortServers, _serverSource;
+        private FieldRow? _serverFilter;
+        private UiWord? _favoriteServer;
+        private int _serverRequest;
         private ChoiceRow? _hunter;
         private ChoiceRow? _mode;
         private ChoiceRow? _bots;
@@ -327,6 +333,12 @@ namespace MphRead.Mods.Launcher.Gui
             // times by the time somebody has looked at each face five times.
             _list.SelectionChanged += (_, _) =>
             {
+                if (_list.Selected is ServerRow row && _address != null)
+                {
+                    _address.Value = row.Endpoint;
+                    if (_favoriteServer != null) _favoriteServer.Text = _bookmarks.IsFavorite(row.Endpoint)
+                        ? "Remove from favorites" : "Add to favorites";
+                }
                 RefreshPreview();
                 RefreshStory();
             };
@@ -411,7 +423,9 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         private void Rebuild()
         {
+            _go.IsVisible = true;
             StopPolling();
+            _serverRequest++;
             if (_replaySelection != null) { _list.SelectionChanged -= _replaySelection; _replaySelection = null; }
             _list.Clear();
             _list.SetHeader(null);
@@ -484,7 +498,7 @@ namespace MphRead.Mods.Launcher.Gui
             _name = new FieldRow("Name", PlayerName(), boxWidth: 150);
             _hunter = AddHunter();
             _options.Children.Insert(0, _name);
-            _address = new FieldRow("Address",
+            _address = new FieldRow("Direct connect",
                 $"{LauncherPrefs.ServerAddress}:{LauncherPrefs.ServerPort}", boxWidth: 170);
             _address.Box.LostFocus += (_, _) => QueryStatusSoon();
             _options.Children.Add(_address);
@@ -499,6 +513,27 @@ namespace MphRead.Mods.Launcher.Gui
             };
             refresh.Click += (_, _) => ReloadServers();
             _options.Children.Add(refresh);
+            _serverSource = new ChoiceRow("Show", new[] { "All servers", "Favorites", "Recent servers" });
+            _sortServers = new ChoiceRow("Sort by", new[] { "Server", "Ping", "Players" });
+            _serverFilter = new FieldRow("Filter", "", boxWidth: 170);
+            _serverSource.Changed += (_, _) => ReloadServers();
+            _sortServers.Changed += (_, _) => ArrangeServers();
+            _serverFilter.Box.TextChanged += (_, _) => ArrangeServers();
+            _favoriteServer = new UiWord("Add to favorites", 15);
+            _favoriteServer.Click += (_, _) =>
+            {
+                if (_list.Selected is not ServerRow selected) return;
+                try
+                {
+                    _bookmarks.ToggleFavorite(selected.Endpoint);
+                    _favoriteServer.Text = _bookmarks.IsFavorite(selected.Endpoint) ? "Remove from favorites" : "Add to favorites";
+                    if (_serverSource.Index == 1) ReloadServers();
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                { _note.Text = "Could not save favorite: " + ex.Message; }
+            };
+            _options.Children.Add(_serverSource); _options.Children.Add(_sortServers);
+            _options.Children.Add(_serverFilter); _options.Children.Add(_favoriteServer);
             ReloadServers();
             StartPolling();
         }
@@ -513,7 +548,20 @@ namespace MphRead.Mods.Launcher.Gui
         private void ReloadServers()
         {
             _list.Clear();
-            _note.Text = $"Asking {LauncherPrefs.MasterHost}...";
+            int request = ++_serverRequest;
+            if (_serverSource?.Index is 1 or 2)
+            {
+                var saved = _serverSource.Index == 1 ? _bookmarks.Favorites : _bookmarks.Recent;
+                foreach (string endpoint in saved)
+                {
+                    string host = ""; int port = NetConfig.DefaultPort;
+                    if (ParseEndpoint(endpoint, ref host, ref port)) AddServerRow(new MasterListing { Address = host, Port = port, ServerName = endpoint });
+                }
+                _note.Text = saved.Count == 0 ? "No saved servers yet." : $"{UiText.Count(saved.Count, "server")} found.";
+                ArrangeServers();
+                return;
+            }
+            _note.Text = $"Checking {LauncherPrefs.MasterHost}…";
             _note.Foreground = GuiTheme.TextDimBrush;
             Task.Run(() =>
             {
@@ -521,35 +569,54 @@ namespace MphRead.Mods.Launcher.Gui
                     LauncherPrefs.MasterPort);
                 Dispatcher.UIThread.Post(() =>
                 {
-                    if (_finished || Current != Face.Online)
+                    if (_finished || Current != Face.Online || request != _serverRequest)
                     {
                         return;
                     }
                     if (!result.Answered)
                     {
-                        _note.Text = "The directory did not answer. It may be down, or UDP "
-                            + "may not reach it. The address beside the list still works.";
+                        _note.Text = "The server directory did not respond. It may be offline, or UDP traffic may be blocked. Use Direct connect to join a known server.";
                         _note.Foreground = GuiTheme.WarmBrush;
                         return;
                     }
                     if (result.Servers.Count == 0)
                     {
-                        _note.Text = "The directory is up and has nobody listed.";
+                        _note.Text = "The server directory is online, but no servers are currently listed.";
                         _note.Foreground = GuiTheme.WarmBrush;
                         return;
                     }
-                    _note.Text = $"{result.Servers.Count} listed.";
+                    _note.Text = $"{UiText.Count(result.Servers.Count, "server")} found.";
                     foreach (MasterListing listing in result.Servers)
                     {
                         AddServerRow(listing);
                     }
+                    ArrangeServers();
                     _list.FocusFirst();
                 });
             });
         }
 
+        private void ArrangeServers()
+        {
+            _list.Sort((a, b) => a is ServerRow first && b is ServerRow second
+                ? _sortServers?.Index switch
+                {
+                    1 => first.Latency.CompareTo(second.Latency),
+                    2 => second.PlayerCount.CompareTo(first.PlayerCount),
+                    _ => StringComparer.OrdinalIgnoreCase.Compare(first.ServerName, second.ServerName)
+                } : 0);
+            string filter = _serverFilter?.Value.Trim() ?? "";
+            _list.Filter(row => row is not ServerRow server || filter.Length == 0
+                || server.ServerName.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                || server.Endpoint.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                || UiText.Map(server.RoomKey).Contains(filter, StringComparison.OrdinalIgnoreCase));
+            if (_favoriteServer != null) _favoriteServer.IsVisible = _list.Selected is ServerRow;
+            RefreshPreview();
+        }
+
         private void AddServerRow(MasterListing listing)
         {
+            int request = _serverRequest;
             string name = listing.ServerName.Length > 0 ? listing.ServerName : listing.Endpoint;
             var row = new ServerRow(name, listing.Endpoint);
             ToolTip.SetTip(row, listing.Endpoint);
@@ -570,7 +637,9 @@ namespace MphRead.Mods.Launcher.Gui
                     allowJoinProbe: false);
                 Dispatcher.UIThread.Post(() =>
                 {
+                    if (request != _serverRequest || _finished || Current != Face.Online) return;
                     row.SetStatus(status);
+                    ArrangeServers();
                     // The answers come back in whatever order the servers
                     // reply in, and the selected row is usually the first one
                     // -- which means its map arrives after the preview was
@@ -642,7 +711,7 @@ namespace MphRead.Mods.Launcher.Gui
                     }
                     _note.Text = status.Online
                         ? $"{host}:{port} -- {Describe(status)}"
-                        : $"{host}:{port} -- no answer. It may be off, or UDP may be blocked.";
+                        : $"{host}:{port} -- no answer. The server did not respond. It may be offline, or UDP traffic may be blocked.";
                     _note.Foreground = status.Online ? GuiTheme.GoodBrush : GuiTheme.WarmBrush;
                 });
             });
@@ -668,7 +737,7 @@ namespace MphRead.Mods.Launcher.Gui
             StopPolling();
             _go.IsEnabled = false;
             _go.Label = "joining";
-            _note.Text = $"Connecting to {host}:{port}...";
+            _note.Text = $"Connecting to {host}:{port}…";
             _note.Foreground = GuiTheme.TextDimBrush;
 
             LauncherPrefs.PlayerName = name;
@@ -691,6 +760,9 @@ namespace MphRead.Mods.Launcher.Gui
                 StartPolling();
                 return;
             }
+            try { _bookmarks.Remember($"{host}:{port}"); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            { Console.WriteLine("[launcher] Could not save recent server: " + ex.Message); }
             Finish(new LaunchPlan
             {
                 Kind = LaunchKind.Online,
@@ -714,7 +786,7 @@ namespace MphRead.Mods.Launcher.Gui
             // about not being online, offering a choice whose two halves have
             // different settings under them. Running a server is its own act
             // and it moved to Online, beside the servers it joins.
-            _mode = new ChoiceRow("Match type", _modes.Select(m => m.Label).ToArray());
+            _mode = new ChoiceRow("Mode", _modes.Select(m => m.Label).ToArray());
             _options.Children.Add(_mode);
             _hunter = AddHunter();
             _bots = new ChoiceRow("Bots",
@@ -856,10 +928,23 @@ namespace MphRead.Mods.Launcher.Gui
 
         // ---------------------------------------------------------------- demo
 
+        private IReadOnlyList<DemoRecording>? _captureReplays;
+        internal void ShowCaptureReplays(IReadOnlyList<DemoRecording> recordings)
+        { _captureReplays = recordings; Rebuild(); }
+        internal void ShowCaptureServers(IEnumerable<(string Name, ServerStatus Status)> servers)
+        {
+            ++_serverRequest; StopPolling(); _list.Clear(); _note.Text = "";
+            foreach (var (name, status) in servers)
+            {
+                var row = new ServerRow(name, "192.0.2.1:27888"); row.SetStatus(status); _list.Add(row);
+            }
+            ArrangeServers(); RefreshPreview();
+        }
+
         private void BuildDemo()
         {
             _go.Label = "watch";
-            IReadOnlyList<DemoRecording> demos = DemoLibrary.List();
+            IReadOnlyList<DemoRecording> demos = _captureReplays ?? DemoLibrary.List();
             foreach (DemoRecording demo in demos)
             {
                 _list.Add(new UiListRow((demo.Favorite ? "* " : "") + demo.DisplayName,
@@ -872,27 +957,45 @@ namespace MphRead.Mods.Launcher.Gui
                 // no file manager on a modern Android can open it, so a player
                 // who wants to copy a recording off the device needs the path
                 // itself -- and this is the only place it is ever written down.
-                _note.Text = "Nothing recorded yet. Clips are made from the pause menu "
-                    + $"during an online match, and are written to:\n{DemoLibrary.Directory}";
+                _note.Text = "No replays yet.\n\nRecord a replay during an online match, or save a replay clip from the pause menu.";
             }
             UiWord? recover = null;
+            UiWord? favorite = null;
+            var actions = new StackPanel { Spacing = UiMetrics.Spacing };
+            var replayName = new FieldRow("Display name", "", boxWidth: 180);
+            replayName.Box.MaxLength = 100;
             var replayDetails = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = GuiTheme.TextDimBrush, FontSize = 12, Margin = new Thickness(0, 0, 0, 10) };
             void RefreshReplayDetails()
             {
                 if ((_list.Selected as UiListRow)?.Choice is string path)
                 {
                     var selected = demos.FirstOrDefault(d => d.Path == path);
-                    if (selected.Path != null) replayDetails.Text = DemoLibrary.Details(selected);
-                    if (recover != null) recover.IsVisible = path.EndsWith(".part", StringComparison.OrdinalIgnoreCase);
+                    if (selected.Path != null)
+                    {
+                        replayDetails.Text = DemoLibrary.Details(selected);
+                        replayName.Value = selected.DisplayName;
+                        if (favorite != null) favorite.Text = selected.Favorite ? "Remove from favorites" : "Add to favorites";
+                    }
+                    actions.IsVisible = selected.Path != null;
+                    _go.IsVisible = selected.Path != null && selected.Compatibility == ReplayOpenResult.Success
+                        && selected.Integrity != ReplayIntegrity.Corrupt && !path.EndsWith(".part", StringComparison.OrdinalIgnoreCase);
+                    if (recover != null) recover.IsVisible = path.EndsWith(".part", StringComparison.OrdinalIgnoreCase)
+                        && selected.Compatibility is ReplayOpenResult.Truncated or ReplayOpenResult.Success;
+                }
+                else
+                {
+                    actions.IsVisible = false;
+                    _go.IsVisible = true;
+                    replayDetails.Text = "Choose a replay file to watch.";
                 }
             }
             _replaySelection = (_, _) => { if (Current == Face.Clips) RefreshReplayDetails(); };
             _list.SelectionChanged += _replaySelection;
             RefreshReplayDetails();
             _options.Children.Add(replayDetails);
-            var replayName = new FieldRow("Display name", "", boxWidth: 210);
-            replayName.Box.MaxLength = 100;
-            _options.Children.Add(replayName);
+            _options.Children.Add(new Note(DemoLibrary.Directory));
+            _options.Children.Add(actions);
+            actions.Children.Add(replayName);
             UiWord Action(string label, System.Action<string> action)
             {
                 var button = new UiWord(label);
@@ -903,37 +1006,52 @@ namespace MphRead.Mods.Launcher.Gui
                     catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException)
                     { _note.Text = ex.Message; }
                 };
-                _options.Children.Add(button);
+                actions.Children.Add(button);
                 return button;
             }
-            Action("Rename", path => { DemoLibrary.Rename(path, replayName.Value); Rebuild(); });
-            var validate = new UiWord("Check replay integrity");
+            Action("Rename", path => { DemoLibrary.Rename(path, replayName.Value); RebuildSelected(path); });
+            void RebuildSelected(string path)
+            {
+                Rebuild();
+                _list.FocusChoice(path);
+            }
+            var validate = new UiWord("Check integrity");
             validate.Click += async (_, _) =>
             {
                 if ((_list.Selected as UiListRow)?.Choice is not string path) return;
-                _note.Text = "Checking replay integrity...";
-                var result = await Task.Run(() => ReplayArchive.Validate(path));
-                DemoLibrary.NoteValidation(path, result);
-                Rebuild();
-                _note.Text = $"Replay integrity: {result}";
+                validate.IsEnabled = false;
+                _note.Text = "Checking replay integrity…";
+                try
+                {
+                    var result = await Task.Run(() => ReplayArchive.Validate(path));
+                    DemoLibrary.NoteValidation(path, result);
+                    if (!_finished && Current == Face.Clips && actions.GetVisualRoot() != null)
+                    {
+                        RebuildSelected(path);
+                        _note.Text = $"Replay integrity: {UiText.ReplayStatus(result)}.";
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                { if (!_finished && Current == Face.Clips) _note.Text = "Could not check replay: " + ex.Message; }
+                finally { validate.IsEnabled = true; }
             };
-            _options.Children.Add(validate);
+            actions.Children.Add(validate);
             recover = Action("Recover interrupted recording", path =>
             {
                 if (!path.EndsWith(".part", StringComparison.OrdinalIgnoreCase)) { _note.Text = "Select an interrupted .part recording first."; return; }
                 ReplayArchive.Recover(path, out string? output, out ReplayOpenResult result);
                 Rebuild();
-                _note.Text = output == null ? $"Recovery failed: {result}" : "Recovered " + Path.GetFileName(output);
+                _note.Text = output == null ? $"Could not recover recording: {UiText.ReplayStatus(result)}." : "Recovered " + Path.GetFileName(output);
             });
-            recover.IsVisible = ((_list.Selected as UiListRow)?.Choice as string)?.EndsWith(".part", StringComparison.OrdinalIgnoreCase) == true;
-            Action("Favorite / unfavorite", path => { DemoLibrary.ToggleFavorite(path); Rebuild(); });
-            string? confirmDelete = null;
-            Action("Delete (press twice to confirm)", path =>
-            {
-                if (confirmDelete != path) { confirmDelete = path; _note.Text = "Press Delete again to delete " + Path.GetFileName(path); return; }
-                DemoLibrary.Delete(path);
-                Rebuild();
-            });
+            favorite = Action("Add to favorites", path => { DemoLibrary.ToggleFavorite(path); RebuildSelected(path); });
+            Action("Delete replay", path => ConfirmScreen.Show(this,
+                $"Delete “{DemoLibrary.DisplayName(path, Path.GetFileName(path))}”?\n\nThis cannot be undone.",
+                "Delete replay", () =>
+                {
+                    try { DemoLibrary.Delete(path); Rebuild(); }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    { _note.Text = "Could not delete replay: " + ex.Message; }
+                }, _overGame));
             var export = new UiWord("Export replay");
             export.Click += async (_, _) =>
             {
@@ -965,7 +1083,7 @@ namespace MphRead.Mods.Launcher.Gui
                 catch (Exception ex) { _note.Text = "Export failed: " + ex.Message; }
 #endif
             };
-            _options.Children.Add(export);
+            actions.Children.Add(export);
 #if !ANDROID
             Action("Reveal in folder", path =>
             {
@@ -975,9 +1093,10 @@ namespace MphRead.Mods.Launcher.Gui
 #endif
             // The system picker last rather than first: on Android it cannot
             // reach the folder the recordings are in at all.
-            _list.Add(new UiListRow("Open a file...",
-                "a demo from somewhere else on this device")
+            _list.Add(new UiListRow("Open replay file…",
+                "A replay file from another location")
             { Choice = _import });
+            RefreshReplayDetails();
         }
 
         /// <summary>The stand-in choice that means "ask the system picker instead".</summary>
@@ -1015,14 +1134,14 @@ namespace MphRead.Mods.Launcher.Gui
             // no console for anything the launcher starts, so the alternative
             // is a menu that silently does nothing.
             _go.IsEnabled = false;
-            _go.Label = "loading";
+            _go.Label = "Loading…";
             bool joined = await Task.Run(() => DemoPlayback.Join(path));
             _go.IsEnabled = true;
             _go.Label = "watch";
             if (!joined)
             {
                 _note.Text = DemoPlayback.LastError
-                    ?? "That file could not be read as a demo.";
+                    ?? "That file could not be read as a replay.";
                 _note.Foreground = GuiTheme.BadBrush;
                 return;
             }
@@ -1038,6 +1157,15 @@ namespace MphRead.Mods.Launcher.Gui
 
         private async Task ImportDemo()
         {
+            if (!OperatingSystem.IsAndroid())
+            {
+                object? previous = Content;
+                var browser = new RomFileBrowser(DemoLibrary.Directory, ".fpdemo", "Open replay file");
+                browser.Cancelled += () => { Content = previous; _list.FocusFirst(); };
+                browser.Selected += async path => { Content = previous; await Watch(path); };
+                Content = browser;
+                return;
+            }
             TopLevel? top = TopLevel.GetTopLevel(this);
             if (top == null)
             {
@@ -1051,11 +1179,11 @@ namespace MphRead.Mods.Launcher.Gui
                 // refused.
                 options.FileTypeFilter = new[]
                 {
-                    new FilePickerFileType($"{Branding.Name} demo")
+                    new FilePickerFileType($"{Branding.Name} replay")
                     {
                         Patterns = new[] { $"*{DemoFile.Extension}" }
                     },
-                    new FilePickerFileType("Every file") { Patterns = new[] { "*" } }
+                    new FilePickerFileType("All files") { Patterns = new[] { "*" } }
                 };
             }
             try
@@ -1118,7 +1246,7 @@ namespace MphRead.Mods.Launcher.Gui
 
         private void Go()
         {
-            if (_finished)
+            if (_finished || !_go.IsEnabled || !_go.IsVisible)
             {
                 return;
             }

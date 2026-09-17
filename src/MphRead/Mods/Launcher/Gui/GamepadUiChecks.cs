@@ -49,9 +49,31 @@ namespace MphRead.Mods.Launcher.Gui
             GamepadChecks.Check(cancel != null, "confirmation has focus");
             FocusNavigator.Key(cancel!, Avalonia.Input.Key.Escape);
             GamepadChecks.Check(answer == false, "controller Back dismisses confirmation");
+            var outer = UiLayout.Backdrop(); var inner = UiLayout.Backdrop();
+            var scaledText = new TextBlock { Text = "Scale once", FontSize = 20 };
+            inner.Children.Add(scaledText); outer.Children.Add(inner); window.Content = outer;
+            window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            var savedVisual = Mods.Render.VisualOptions.Current;
+            Mods.Render.VisualOptions.Current = savedVisual with { TextScale = 125 };
+            Dispatcher.UIThread.RunJobs();
+            GamepadChecks.Check(Math.Abs(scaledText.FontSize - 20 * 125.0 / savedVisual.TextScale) < .01,
+                "nested screens apply accessibility text scaling once");
+            Mods.Render.VisualOptions.Current = savedVisual;
+            Dispatcher.UIThread.RunJobs();
             var settings = new SettingsView(new MenuSettings());
             window.Width = 960; window.Height = 660; window.Content = settings;
-            settings.ShowSection("Controls"); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            settings.ShowSection("Display"); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            var graphics = settings.GetVisualDescendants().OfType<ChoiceRow>()
+                .First(row => Mods.Render.VisualOptions.PresetNames.Contains(row.Value));
+            var filtering = settings.GetVisualDescendants().OfType<ChoiceRow>()
+                .First(row => Mods.Render.VisualOptions.FilterNames.Contains(row.Value));
+            var originalVisual = Mods.Render.VisualOptions.Current;
+            graphics.Index = (int)Mods.Render.GraphicsPreset.Ultra;
+            GamepadChecks.Check(filtering.Value == "Anisotropic 16x", "graphics preset updates individual controls");
+            filtering.Index = (int)Mods.Render.TextureQuality.Pixel;
+            GamepadChecks.Check(graphics.Value == "Custom", "individual graphics choice returns preset to Custom");
+            GamepadChecks.Check(Mods.Render.VisualOptions.Current == originalVisual, "graphics draft does not apply before Save");
+            settings.ShowSection("Controller"); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
             var rows = settings.GetVisualDescendants().OfType<PadRow>().ToArray();
             GamepadChecks.Check(rows.Length == PadBindings.Actions.Count, "every pad action appears in settings");
             FocusNavigator.Focus(rows[^1]); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();

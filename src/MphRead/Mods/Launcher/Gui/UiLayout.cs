@@ -1,11 +1,14 @@
 using System;
 using System.IO;
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 
 namespace MphRead.Mods.Launcher.Gui
 {
@@ -234,7 +237,7 @@ namespace MphRead.Mods.Launcher.Gui
         public static double Factor(double width, double height)
         {
             double room = Math.Max(height, 1) / 720.0;
-            double raw = Math.Pow(room, 1.5);
+            double raw = Math.Pow(room, 1.5) * Mods.Render.VisualOptions.Current.UiScale / 100.0;
             double fits = Math.Min(Math.Max(width, 1) / MinBoxWidth,
                 Math.Max(height, 1) / MinBoxHeight);
             // The curve rounds to the nearest eighth and the cap rounds down
@@ -335,7 +338,7 @@ namespace MphRead.Mods.Launcher.Gui
         {
             var title = new TextBlock
             {
-                Text = heading.ToLowerInvariant(),
+                Text = UiText.Sentence(heading),
                 FontFamily = GuiTheme.Display,
                 FontSize = HeadingSize,
                 Foreground = GuiTheme.TextDimBrush,
@@ -492,13 +495,33 @@ namespace MphRead.Mods.Launcher.Gui
         public static Panel Backdrop(bool overGame = false,
             BackdropWash wash = BackdropWash.None)
         {
-            var root = new Panel();
-            if (overGame)
+            var root = new Panel { Tag = "UiAccessibilityRoot" };
+            root.Children.Add(overGame ? new Border { Background = GuiTheme.ScrimBrush } : new BakedBackdrop(wash));
+            var contrast = new Border { Background = GuiTheme.InkBrush, IsHitTestVisible = false,
+                IsVisible = Mods.Render.VisualOptions.Current.HighContrast };
+            root.Children.Add(contrast);
+            double textFactor = UiMetrics.TextFactor;
+            void RefreshAccessibility()
             {
-                root.Children.Add(new Border { Background = GuiTheme.ScrimBrush });
-                return root;
+                contrast.IsVisible = Mods.Render.VisualOptions.Current.HighContrast;
+                double ratio = UiMetrics.TextFactor / textFactor;
+                foreach (var control in root.GetVisualDescendants().OfType<Control>())
+                {
+                    // A front screen can contain another backdrop in its overlay.
+                    // Each scope updates only its own labels, avoiding double scaling.
+                    if (control.GetVisualAncestors().OfType<Panel>().FirstOrDefault(panel =>
+                        Equals(panel.Tag, "UiAccessibilityRoot")) != root) continue;
+                    // Explicit sizes need updating on surviving screens when Settings closes.
+                    if (control is TextBlock text && text.IsSet(TextBlock.FontSizeProperty)) text.FontSize *= ratio;
+                    if (control is TextBox box && box.IsSet(TextBox.FontSizeProperty)) box.FontSize *= ratio;
+                    control.InvalidateMeasure(); control.InvalidateVisual();
+                }
+                textFactor = UiMetrics.TextFactor;
+                root.InvalidateMeasure();
             }
-            root.Children.Add(new BakedBackdrop(wash));
+            void Changed() => Dispatcher.UIThread.Post(RefreshAccessibility);
+            root.AttachedToVisualTree += (_, _) => { RefreshAccessibility(); Mods.Render.VisualOptions.Changed += Changed; };
+            root.DetachedFromVisualTree += (_, _) => Mods.Render.VisualOptions.Changed -= Changed;
             return root;
         }
 
@@ -624,7 +647,7 @@ namespace MphRead.Mods.Launcher.Gui
         {
             return new TextBlock
             {
-                Text = text.ToLowerInvariant(),
+                Text = UiText.Sentence(text),
                 FontFamily = GuiTheme.Display,
                 FontSize = HeadingSize,
                 Foreground = GuiTheme.TextDimBrush,

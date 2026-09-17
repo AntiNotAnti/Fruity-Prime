@@ -162,10 +162,10 @@ namespace MphRead.Mods.Launcher.Gui
             var hints = new DispatcherTimer(TimeSpan.FromMilliseconds(250), DispatcherPriority.Background, (_, _) =>
             {
                 string prompt = Mods.Input.InputSourceTracker.Current == Mods.Input.InputSource.Gamepad
-                    ? $"{Mods.Input.GamepadGlyphs.Resolve(Mods.Input.GamepadButtons.A)} Select   "
-                        + $"{Mods.Input.GamepadGlyphs.Resolve(Mods.Input.GamepadButtons.B)} Back   "
-                        + $"{Mods.Input.GamepadGlyphs.Resolve(Mods.Input.GamepadButtons.LeftBumper)}/{Mods.Input.GamepadGlyphs.Resolve(Mods.Input.GamepadButtons.RightBumper)} Tabs"
-                    : "Enter Select   Esc Back";
+                    ? $"{Mods.Input.GamepadGlyphs.Resolve(Mods.Input.GamepadButtons.A)}: Select • "
+                        + $"{Mods.Input.GamepadGlyphs.Resolve(Mods.Input.GamepadButtons.B)}: Back • "
+                        + $"{Mods.Input.GamepadGlyphs.Resolve(Mods.Input.GamepadButtons.LeftBumper)}/{Mods.Input.GamepadGlyphs.Resolve(Mods.Input.GamepadButtons.RightBumper)}: Tabs"
+                    : "Enter: Select • Esc: Back";
                 if (prompt != _controllerPrompt) { help.Text = prompt; _controllerPrompt = prompt; }
             });
             AttachedToVisualTree += (_, _) => hints.Start();
@@ -642,7 +642,7 @@ namespace MphRead.Mods.Launcher.Gui
                     ok ? GuiTheme.TextDim : GuiTheme.Warm, pressable: !ok);
             });
             string label = update.AssetName.Length > 0 ? update.AssetName : update.Tag;
-            Say($"{number} -- downloading {label}...", GuiTheme.Warm);
+            Say($"{number} -- downloading {label}…", GuiTheme.Warm);
             var reported = new object();
             int shown = -1;
             void Progress(float fraction)
@@ -659,8 +659,8 @@ namespace MphRead.Mods.Launcher.Gui
                     shown = percent;
                 }
                 Dispatcher.UIThread.Post(() => Say(percent < 0
-                    ? $"{number} -- downloading {label}..."
-                    : $"{number} -- downloading {label}... {percent}%", GuiTheme.Warm));
+                    ? $"{number} -- downloading {label}…"
+                    : $"{number} -- downloading {label}… {percent}%", GuiTheme.Warm));
             }
             string error = "";
             bool ready = await Task.Run(() => installer.Prepare(update, Progress, out error));
@@ -672,8 +672,8 @@ namespace MphRead.Mods.Launcher.Gui
                 return;
             }
             Say(installer.ExitAfterInstall
-                ? $"{number} -- restarting to finish..."
-                : $"{number} -- waiting for the system installer...", GuiTheme.Warm);
+                ? $"{number} -- restarting to finish…"
+                : $"{number} -- waiting for the system installer…", GuiTheme.Warm);
             if (!installer.Install(out error))
             {
                 _updating = false;

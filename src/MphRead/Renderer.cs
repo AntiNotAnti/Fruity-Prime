@@ -1337,6 +1337,7 @@ namespace MphRead
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba, texture.Width, texture.Height, 0,
                 PixelFormat.Rgba, PixelType.UnsignedByte, pixels.ToArray());
             GL.BindTexture(TextureTarget.Texture2D, 0);
+            _mipmappedTextures.Remove(_textureCount);
             _flatColors[_textureCount] = average.Result;
             return onlyOpaque;
         }
@@ -1421,6 +1422,7 @@ namespace MphRead
                 PixelFormat.Rgba, PixelType.UnsignedByte, data.ToArray());
             GL.BindTexture(TextureTarget.Texture2D, 0);
             // this binding may already have had a different picture in it
+            _mipmappedTextures.Remove(bindingId);
             _flatColors[bindingId] = AverageOf(data);
         }
 
@@ -2643,10 +2645,12 @@ namespace MphRead
                 BeginHudMask(Layer1Info.MaskId);
                 try
                 {
+                    SetHudAccessibility(true);
                     PlayerEntity.Main.DrawHudObjects();
                 }
                 finally
                 {
+                    SetHudAccessibility(false);
                     EndHudMask();
                 }
                 if (GameState.MenuPause)
@@ -4908,6 +4912,7 @@ namespace MphRead
         /// </param>
         public void DrawCustomCrosshair(Vector3 color, float posX = 0.5f, float posY = 0.5f)
         {
+            color = Mods.Render.Crosshair.Color(color);
             float halfW = Size.X / 2f;
             float halfH = Size.Y / 2f;
             // The offset is applied in the same normalised space the bars are
@@ -4923,6 +4928,17 @@ namespace MphRead
             {
                 (float left, float right, float bottom, float top) =
                     Mods.Render.Crosshair.EdgesOf(bars[i]);
+                if (Mods.Render.VisualOptions.Current.CrosshairOutline)
+                {
+                    GL.Uniform4(_shaderLocations.FadeColor, 0f, 0f, 0f, 1f);
+                    GL.Begin(PrimitiveType.TriangleStrip);
+                    GL.Vertex3(offX + (right + 1) / halfW, offY + (top + 1) / halfH, 0f);
+                    GL.Vertex3(offX + (left - 1) / halfW, offY + (top + 1) / halfH, 0f);
+                    GL.Vertex3(offX + (right + 1) / halfW, offY + (bottom - 1) / halfH, 0f);
+                    GL.Vertex3(offX + (left - 1) / halfW, offY + (bottom - 1) / halfH, 0f);
+                    GL.End();
+                    GL.Uniform4(_shaderLocations.FadeColor, color.X, color.Y, color.Z, 1f);
+                }
                 GL.Begin(PrimitiveType.TriangleStrip);
                 GL.Vertex3(offX + right / halfW, offY + top / halfH, 0f);
                 GL.Vertex3(offX + left / halfW, offY + top / halfH, 0f);
@@ -4940,16 +4956,21 @@ namespace MphRead
                 const int segments = 40;
                 float inner = radius - thickness / 2;
                 float outer = radius + thickness / 2;
-                GL.Begin(PrimitiveType.TriangleStrip);
-                for (int i = 0; i <= segments; i++)
+                for (int pass = Mods.Render.VisualOptions.Current.CrosshairOutline ? 0 : 1; pass < 2; pass++)
                 {
-                    float angle = MathHelper.TwoPi * i / segments;
-                    float cos = MathF.Cos(angle);
-                    float sin = MathF.Sin(angle);
-                    GL.Vertex3(offX + outer * cos / halfW, offY + outer * sin / halfH, 0f);
-                    GL.Vertex3(offX + inner * cos / halfW, offY + inner * sin / halfH, 0f);
+                    float edge = pass == 0 ? 1 : 0;
+                    GL.Uniform4(_shaderLocations.FadeColor, pass == 0 ? 0 : color.X, pass == 0 ? 0 : color.Y, pass == 0 ? 0 : color.Z, 1f);
+                    GL.Begin(PrimitiveType.TriangleStrip);
+                    for (int i = 0; i <= segments; i++)
+                    {
+                        float angle = MathHelper.TwoPi * i / segments;
+                        float cos = MathF.Cos(angle);
+                        float sin = MathF.Sin(angle);
+                        GL.Vertex3(offX + (outer + edge) * cos / halfW, offY + (outer + edge) * sin / halfH, 0f);
+                        GL.Vertex3(offX + (inner - edge) * cos / halfW, offY + (inner - edge) * sin / halfH, 0f);
+                    }
+                    GL.End();
                 }
-                GL.End();
             }
             GL.Uniform4(_shaderLocations.FadeColor, Vector4.Zero);
         }
@@ -5455,10 +5476,7 @@ namespace MphRead
             if (item.HasTexture)
             {
                 GL.BindTexture(TextureTarget.Texture2D, item.TextureBindingId);
-                int minParameter = FilteringOn ? (int)TextureMinFilter.Linear : (int)TextureMinFilter.Nearest;
-                int magParameter = FilteringOn ? (int)TextureMagFilter.Linear : (int)TextureMagFilter.Nearest;
-                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, minParameter);
-                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, magParameter);
+                ApplyWorldFiltering(item.TextureBindingId);
                 switch (item.XRepeat)
                 {
                 case RepeatMode.Clamp:

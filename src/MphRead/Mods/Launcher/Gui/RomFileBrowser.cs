@@ -27,11 +27,11 @@ namespace MphRead.Mods.Launcher.Gui
         private bool _rebuilding;
         private bool _settingPath;
 
-        public RomFileBrowser(string? lastDirectory = null)
+        public RomFileBrowser(string? lastDirectory = null, string extension = ".nds", string title = "Game files")
         {
             Background = Brushes.Transparent;
             Focusable = true;
-            _model = new RomFileBrowserModel(lastDirectory ?? LauncherPrefs.LastRomDirectory);
+            _model = new RomFileBrowserModel(lastDirectory ?? LauncherPrefs.LastRomDirectory, extension);
             _startingDirectory = _model.CurrentDirectory;
             _list.SelectionChanged += (_, row) =>
             {
@@ -92,7 +92,7 @@ namespace MphRead.Mods.Launcher.Gui
             Grid.SetRow(_error, 3);
             body.Children.Add(_error);
             Content = UiLayout.Page(overGame: false, UiLayout.WellSettings,
-                "game files", strip: null, body: body, no: cancel, yes: _use);
+                title, strip: null, body: body, no: cancel, yes: _use);
             RebuildRows();
         }
 
@@ -154,7 +154,7 @@ namespace MphRead.Mods.Launcher.Gui
             foreach (RomFileEntry entry in _model.Entries)
             {
                 var row = new UiListRow(entry.Name,
-                    entry.Kind == RomFileEntryKind.Directory ? "folder >" : ".nds")
+                    entry.Kind == RomFileEntryKind.Directory ? "Folder >" : _model.Extension)
                 {
                     Choice = entry
                 };
@@ -191,7 +191,7 @@ namespace MphRead.Mods.Launcher.Gui
             if (_model.Entries.Count == 0)
             {
                 _list.AddNote(_model.ShowingDrives ? "No available drives."
-                    : "No folders or .nds files in this folder.");
+                    : $"No folders or {_model.Extension} files in this folder.");
             }
             _rebuilding = false;
             ShowError();

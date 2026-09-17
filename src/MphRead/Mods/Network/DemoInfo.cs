@@ -27,7 +27,7 @@ namespace MphRead.Mods.Network
             using DemoReader? reader = DemoReader.Open(path);
             if (reader == null)
             {
-                Console.WriteLine($"[demo] \"{path}\" is not a demo this build can read "
+                Console.WriteLine($"[demo] \"{path}\" is not a replay this build can read "
                     + "(bad magic, unsupported format, or corrupt metadata)");
                 return 1;
             }

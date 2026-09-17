@@ -21,6 +21,7 @@ namespace MphRead
 
         private void InitRenderPassState()
         {
+            InitQuality();
             _worldSampler = GL.GetUniformLocation(_shaderProgramId, "tex");
             _rttSampler = GL.GetUniformLocation(_rttShaderProgramId, "tex");
             _maskSampler = GL.GetUniformLocation(_rttShaderProgramId, "mask");
@@ -112,6 +113,8 @@ namespace MphRead
         private void UseHudShader()
         {
             GL.UseProgram(_rttShaderProgramId);
+            SetQuality(_rttQuality, world: false);
+            SetHudAccessibility(false);
             GL.Uniform1(_rttSampler, 0);
             GL.Uniform1(_maskSampler, 1);
             GL.Uniform1(_shaderLocations.UseMask, 0);
@@ -138,6 +141,7 @@ namespace MphRead
             // Reset even when inactive: switching effects must not revive the
             // previous life's shift/whiteout values.
             GL.UseProgram(_shiftShaderProgramId);
+            SetQuality(_shiftQuality, world: true);
             GL.Uniform1(_shiftSampler, 0);
             float phase = _elapsedTime / (1 / 30f);
             GL.Uniform1(_shaderLocations.ShiftIndex, (int)phase);
@@ -153,8 +157,12 @@ namespace MphRead
             if (player.HudDisruptedState == 0 && player.HudWhiteoutState == -1)
             {
                 GL.UseProgram(_rttShaderProgramId);
+                SetQuality(_rttQuality, world: true);
             }
             GL.BindTexture(TextureTarget.Texture2D, _screenTexture);
+            bool smoothComposite = Mods.RenderOptions.ResolutionScale != 100 || Mods.Render.VisualOptions.Current.Fxaa;
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)(smoothComposite ? TextureMinFilter.Linear : TextureMinFilter.Nearest));
+            GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)(smoothComposite ? TextureMagFilter.Linear : TextureMagFilter.Nearest));
             CheckGlError("BeginCompositePass");
         }
 

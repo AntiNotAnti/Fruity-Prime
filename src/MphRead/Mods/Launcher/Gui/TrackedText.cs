@@ -22,7 +22,7 @@ namespace MphRead.Mods.Launcher.Gui
     {
         public static FormattedText Make(string text, double size, bool bold, IBrush brush)
             => new(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
-                GuiTheme.Face(bold), size, brush);
+                GuiTheme.Face(bold), size * UiMetrics.TextFactor, brush);
 
         public static void Draw(DrawingContext context, string text, double size,
             IBrush brush, double x, double y, double tracking)

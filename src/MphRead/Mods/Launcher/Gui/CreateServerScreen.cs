@@ -60,18 +60,18 @@ namespace MphRead.Mods.Launcher.Gui
 
         private static readonly (string Label, GameMode Mode)[] _modes =
         {
-            ("Battle", GameMode.Battle),
-            ("Battle teams", GameMode.BattleTeams),
-            ("Survival", GameMode.Survival),
-            ("Survival teams", GameMode.SurvivalTeams),
-            ("Capture", GameMode.Capture),
-            ("Bounty", GameMode.Bounty),
-            ("Bounty teams", GameMode.BountyTeams),
-            ("Defender", GameMode.Defender),
-            ("Defender teams", GameMode.DefenderTeams),
-            ("Nodes", GameMode.Nodes),
-            ("Nodes teams", GameMode.NodesTeams),
-            ("Prime hunter", GameMode.PrimeHunter)
+            (UiText.Mode(GameMode.Battle), GameMode.Battle),
+            (UiText.Mode(GameMode.BattleTeams), GameMode.BattleTeams),
+            (UiText.Mode(GameMode.Survival), GameMode.Survival),
+            (UiText.Mode(GameMode.SurvivalTeams), GameMode.SurvivalTeams),
+            (UiText.Mode(GameMode.Capture), GameMode.Capture),
+            (UiText.Mode(GameMode.Bounty), GameMode.Bounty),
+            (UiText.Mode(GameMode.BountyTeams), GameMode.BountyTeams),
+            (UiText.Mode(GameMode.Defender), GameMode.Defender),
+            (UiText.Mode(GameMode.DefenderTeams), GameMode.DefenderTeams),
+            (UiText.Mode(GameMode.Nodes), GameMode.Nodes),
+            (UiText.Mode(GameMode.NodesTeams), GameMode.NodesTeams),
+            (UiText.Mode(GameMode.PrimeHunter), GameMode.PrimeHunter)
         };
 
         private static readonly string[] _hunters =
@@ -158,11 +158,11 @@ namespace MphRead.Mods.Launcher.Gui
             string player = LauncherPrefs.PlayerName.Trim();
             _name = new FieldRow("Server name",
                 (player.Length > 0 ? player : "Player") + "'s server", boxWidth: 230);
-            _mode = new ChoiceRow("Game type", _modes.Select(m => m.Label).ToArray());
+            _mode = new ChoiceRow("Mode", _modes.Select(m => m.Label).ToArray());
             _hunter = new ChoiceRow("Your hunter", _hunters,
                 Math.Max(0, Array.IndexOf(_hunters, LauncherPrefs.LastHunter.ToString())));
             _host = new PickRow("Host on");
-            _host.Set("asking...");
+            _host.Set("Checking…");
             _host.Clicked += (_, _) => OpenHosts();
             _maps = new PickRow("Map rotation");
             _maps.Clicked += (_, _) => OpenMaps();
@@ -189,7 +189,7 @@ namespace MphRead.Mods.Launcher.Gui
             // things stand. It is not a second way to do the same thing: the
             // tick is refused while it is up, because there is nothing behind
             // the tick to run.
-            _fetch = new UiMark(UiMark.Shape.Fetch, "files required -- install")
+            _fetch = new UiMark(UiMark.Shape.Fetch, "Install server files")
             {
                 IsVisible = false
             };
@@ -289,7 +289,7 @@ namespace MphRead.Mods.Launcher.Gui
                 _go.IsEnabled = !_busy;
                 if (_asking)
                 {
-                    Say("Asking who can run one...", GuiTheme.TextDim);
+                    Say("Finding an available host…", GuiTheme.TextDim);
                 }
                 else if (_chosen != null)
                 {
@@ -299,13 +299,11 @@ namespace MphRead.Mods.Launcher.Gui
                 else
                 {
                     Say(CanRunHere
-                        ? "No server will open one for you. Pick Dedicated server to run "
-                            + "it here."
+                        ? "No hosted server is currently available. Choose Dedicated server to run it on this PC."
                         // Nothing for the player to do about it on a phone,
                         // which cannot run one itself -- so say what is true
                         // rather than name a row that is not on the screen.
-                        : "No server will open one for you. Try again in a moment, or "
-                            + "join somebody else's from the browser.", GuiTheme.Warm);
+                        : "No hosted server is currently available. Try again later or join an existing server.", GuiTheme.Warm);
                 }
                 return;
             }
@@ -339,7 +337,7 @@ namespace MphRead.Mods.Launcher.Gui
         {
             if (_rotation.Count == 0)
             {
-                return "none picked";
+                return "No maps selected";
             }
             (RoomMetadata? meta, _) = Metadata.GetRoomByName(_rotation[0]);
             string first = meta?.InGameName ?? _rotation[0];
@@ -378,7 +376,7 @@ namespace MphRead.Mods.Launcher.Gui
                         + $"{_candidates.Count(c => c.WillHost)} can run a match");
                     if (_chosen == null)
                     {
-                        _host.Set("nobody");
+                        _host.Set("No host available");
                     }
                     Refresh();
                 }));
@@ -444,7 +442,7 @@ namespace MphRead.Mods.Launcher.Gui
             picker.Cancelled += (_, _) => ClosePage();
             picker.RefreshRequested += (_, _) =>
             {
-                _host.Set("asking...");
+                _host.Set("Checking…");
                 AskDirectories();
                 picker.Show(_candidates, asking: true);
             };
@@ -561,7 +559,7 @@ namespace MphRead.Mods.Launcher.Gui
             }
             if (_rotation.Count == 0)
             {
-                Say("Pick at least one map first.", GuiTheme.Warm);
+                Say("Select at least one map.", GuiTheme.Warm);
                 return;
             }
             string name = _name.Value.Trim();
@@ -595,7 +593,7 @@ namespace MphRead.Mods.Launcher.Gui
             List<(string RoomKey, GameMode Mode)> maps)
         {
             Busy(true, "starting");
-            Say($"Starting {name} on this machine...", GuiTheme.TextDim);
+            Say($"Starting {name} on this machine…", GuiTheme.TextDim);
             var cancel = new CancellationTokenSource();
             _work = cancel;
             int port = await Task.Run(() => LocalServer.Start(name, maps,
@@ -607,7 +605,7 @@ namespace MphRead.Mods.Launcher.Gui
                 Fail(LocalServer.LastError ?? "the server would not start");
                 return;
             }
-            Say($"Joining your server on 127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}...",
+            Say($"Joining your server on 127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}…",
                 GuiTheme.TextDim);
             bool joined = await Task.Run(() =>
                 NetLaunch.Connect("127.0.0.1", port, player, hunter, ownerToken: LocalServer.OwnerToken));
@@ -653,16 +651,16 @@ namespace MphRead.Mods.Launcher.Gui
             if (_chosen == null)
             {
                 Say(CanRunHere
-                    ? "No server will open one for you. Pick Dedicated server to run it "
+                    ? "No hosted server is currently available. Pick Dedicated server to run it "
                         + "here."
-                    : "No server will open one for you. Try again in a moment, or join "
+                    : "No hosted server is currently available. Try again in a moment, or join "
                         + "somebody else's from the browser.", GuiTheme.Warm);
                 return;
             }
             string host = _chosen.Value.Host;
             int port = _chosen.Value.Port;
             Busy(true, "starting");
-            Say($"Asking {host} to open a game with {maps.Count} map(s)...",
+            Say($"Asking {host} to open a game with {maps.Count} map(s)…",
                 GuiTheme.TextDim);
             HostedGame game = await Task.Run(() => NetMasterClient.RequestGame(host, port,
                 maps[0].RoomKey, mode, timeLimit: 7 * 60, pointGoal: 7,
@@ -895,7 +893,7 @@ namespace MphRead.Mods.Launcher.Gui
             }
             if (asking)
             {
-                _list.AddNote("asking the rest...", GuiTheme.TextDim);
+                _list.AddNote("asking the rest…", GuiTheme.TextDim);
             }
             else if (ordered.Count == 0)
             {

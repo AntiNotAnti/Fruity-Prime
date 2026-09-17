@@ -24,6 +24,8 @@ namespace MphRead.Mods.Launcher.Gui
     /// </summary>
     internal sealed class SliderRow : Control
     {
+        static SliderRow() => AffectsRender<SliderRow>(IsFocusedProperty, IsEnabledProperty);
+
         private readonly string _label;
         private readonly double _labelWidth;
         private readonly Func<int, string> _format;
@@ -46,7 +48,7 @@ namespace MphRead.Mods.Launcher.Gui
             _keyStep = Math.Max(1, keyStep);
             _value = Math.Clamp(value, _min, _max);
             _format = format ?? (v => $"{v.ToString(CultureInfo.InvariantCulture)}%");
-            Height = 34;
+            Height = UiMetrics.ControlHeight;
             Focusable = true;
             Cursor = new Cursor(StandardCursorType.Hand);
         }
@@ -171,11 +173,12 @@ namespace MphRead.Mods.Launcher.Gui
 
         public override void Render(DrawingContext context)
         {
+            using var opacity = context.PushOpacity(IsEffectivelyEnabled ? 1 : UiMetrics.DisabledOpacity);
             // See UiWord.Render: hit testing follows the drawing.
             context.FillRectangle(Brushes.Transparent,
                 new Rect(0, 0, Bounds.Width, Bounds.Height));
             var dim = new SolidColorBrush(Color.FromRgb(70, 76, 90));
-            TrackedText.Draw(context, _label.ToUpperInvariant(), 11,
+            TrackedText.Draw(context, _label, 11,
                 IsEnabled ? GuiTheme.TextDimBrush : dim,
                 4, (Bounds.Height - TrackedText.LineHeight(11)) / 2, tracking: 1);
 
@@ -194,6 +197,7 @@ namespace MphRead.Mods.Launcher.Gui
                 IsEnabled ? GuiTheme.TextBrush : dim);
             context.DrawText(value, new Point(Bounds.Width - 4 - value.Width,
                 (Bounds.Height - value.Height) / 2));
+            UiMetrics.DrawFocus(context, this);
         }
     }
 }
