@@ -278,7 +278,8 @@ namespace MphRead.Entities
                     Vector3 emission = GetEmission(inst, material, mesh.MaterialId);
                     Matrix4 texcoordMatrix = GetTexcoordMatrix(inst, material, mesh.MaterialId, node, recolor);
                     Vector4? color = PaletteOverride == null
-                        ? BrightSkins.ForMaterial(overrideColor, material.TextureId != -1, material.CurrentAlpha * alpha) : null;
+                        ? BrightSkins.ForMaterial(overrideColor, material.TextureId != -1,
+                            material.CurrentAlpha * alpha, _scene.ShowTextures) : null;
                     SelectionType selectionType = SelectionType.None;
                     int? bindingOverride = GetBindingOverride(inst, material, mesh.MaterialId);
                     _scene.AddRenderItem(material, polygonId, alpha, emission, GetLightInfo(), texcoordMatrix,
