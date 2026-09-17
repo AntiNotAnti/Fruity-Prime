@@ -2,6 +2,9 @@
 
 This file documents the first-run flow and the extraction child process used to unpack a .nds.
 
+- Path entries split at the first `=` only. Installation and external ROM
+  directories may contain `=`; the local-server copy must preserve it too.
+
 - The extraction uses upstream's `Extract.Setup` in a child process: it prints questions and expects stdin answers. The child is run so the GUI does not block on `Console.ReadKey`.
 - When the launcher runs through `dotnet FruityPrime.dll`, the child also
   receives the DLL before the ROM argument. A nonzero child exit fails setup

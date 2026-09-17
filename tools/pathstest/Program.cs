@@ -23,10 +23,10 @@ void Check(bool condition, string description)
 try
 {
     string oldInstall = Path.Combine(fixture, "old");
-    string newInstall = Path.Combine(fixture, "new");
+    string newInstall = Path.Combine(fixture, "new=portable");
     string oldMph = Path.Combine(oldInstall, "files", Ver.AMHE1);
     string oldFh = Path.Combine(oldInstall, "files", Ver.AMFE0, "data");
-    string external = Path.Combine(fixture, "external");
+    string external = Path.Combine(fixture, "external=roms");
     Directory.CreateDirectory(oldMph);
     Directory.CreateDirectory(oldFh);
     Directory.CreateDirectory(external);
