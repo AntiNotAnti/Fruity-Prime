@@ -124,6 +124,14 @@ namespace MphRead.Mods.MapGen
 
         private static Vector3 Snap(Vector3 point)
         {
+            // Check after the Y/Z conversion, which can negate the asymmetric
+            // lower bound into an unrepresentable positive fixed-point value.
+            for (int axis = 0; axis < 3; axis++)
+            {
+                double fixedPoint = MathF.Round(point[axis] * FixedOne);
+                if (!Double.IsFinite(fixedPoint) || fixedPoint < Int32.MinValue || fixedPoint > Int32.MaxValue)
+                    throw new ProgramException("Collision coordinate exceeds the fixed-point range.");
+            }
             return new Vector3(
                 MathF.Round(point.X * FixedOne) / FixedOne,
                 MathF.Round(point.Y * FixedOne) / FixedOne,
@@ -143,9 +151,7 @@ namespace MphRead.Mods.MapGen
         private static float Number(string text, string name, int line)
         {
             if (!Single.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out float value)
-                || !Single.IsFinite(value)
-                || (double)MathF.Round(value * FixedOne) < Int32.MinValue
-                || (double)MathF.Round(value * FixedOne) > Int32.MaxValue)
+                || !Single.IsFinite(value))
             {
                 throw new ProgramException($"{name} line {line}: {text} is not a number.");
             }

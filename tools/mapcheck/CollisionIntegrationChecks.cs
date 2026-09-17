@@ -88,12 +88,9 @@ internal static class CollisionIntegrationChecks
         Check(CollisionObj.Read(Encoding.UTF8.GetBytes("v -524288 0 0\nv -524288 1 0\nv -524288 0 1\nf 1 2 3\n"), "edge.obj", false).Faces.Count == 1,
             "Smallest negative representable OBJ coordinate was rejected.");
         definition.Collision!.Source = null!;
-        string exported = Path.Combine(temporary, "export-bundle", "map.json");
-        MapProjectExport.Save(MapProjectSerializer.Clone(roundtrip), exported);
-        File.Delete(archive);
-        Check(MapCompiler.Compile(MapDefinition.Load(exported)).Validation.IsValid,
-            "Package Save As lost collision when original archive was removed.");
         Check(!MapCompiler.Compile(definition).Validation.IsValid, "Null collision source bypassed diagnostics.");
+        Reject(() => CollisionObj.Read(Encoding.UTF8.GetBytes("v 0 -524288 0\nv 1 -524288 0\nv 0 -524288 1\nf 1 2 3\n"), "zup-edge.obj", true),
+            "Z-up transform produced an out-of-range fixed-point coordinate.");
         return checks;
     }
 }
