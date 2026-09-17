@@ -570,7 +570,7 @@ namespace MphRead
                     InitEntity(player.Halfturret);
                 }
             }
-            if (!Mods.Headless.Active)
+            if (!Mods.Headless.Active && ConsoleOutputEnabled)
             {
                 // The console prompt, which is a question put to a person.
                 OutputStart();
@@ -612,38 +612,58 @@ namespace MphRead
 
         public void OnResize()
         {
-            if (_screenTexture != 0)
+            if (_screenTexture != 0 && Size.X > 0 && Size.Y > 0)
             {
                 Vector2i target = RenderSize;
-                _targetSize = target;
-                GL.BindTexture(TextureTarget.Texture2D, _screenTexture);
-                GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgb, target.X, target.Y, 0,
-                    PixelFormat.Rgb, PixelType.UnsignedByte, IntPtr.Zero);
-                // Nearest is the DS look and is right at full size; a stretched
-                // target needs linear or every edge stair-steps.
-                bool upscaling = Mods.RenderOptions.ResolutionScale < 100;
-                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter,
-                    (int)(upscaling ? TextureMinFilter.Linear : TextureMinFilter.Nearest));
-                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter,
-                    (int)(upscaling ? TextureMagFilter.Linear : TextureMagFilter.Nearest));
-                GL.BindTexture(TextureTarget.Texture2D, 0);
-                if (_celTexture != 0)
+                int previousFramebuffer = GL.GetInteger(GetPName.DrawFramebufferBinding);
+                int previousReadFramebuffer = GL.GetInteger(GetPName.ReadFramebufferBinding);
+                GL.ActiveTexture(TextureUnit.Texture0);
+                try
                 {
-                    GL.BindTexture(TextureTarget.Texture2D, _celTexture);
+                    GL.BindTexture(TextureTarget.Texture2D, _screenTexture);
                     GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgb, target.X, target.Y, 0,
                         PixelFormat.Rgb, PixelType.UnsignedByte, IntPtr.Zero);
+                    // Nearest is the DS look; stretched targets need linear.
+                    bool upscaling = Mods.RenderOptions.ResolutionScale < 100;
+                    GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter,
+                        (int)(upscaling ? TextureMinFilter.Linear : TextureMinFilter.Nearest));
+                    GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter,
+                        (int)(upscaling ? TextureMagFilter.Linear : TextureMagFilter.Nearest));
                     GL.BindTexture(TextureTarget.Texture2D, 0);
+                    if (_celTexture != 0)
+                    {
+                        GL.BindTexture(TextureTarget.Texture2D, _celTexture);
+                        GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgb, target.X, target.Y, 0,
+                            PixelFormat.Rgb, PixelType.UnsignedByte, IntPtr.Zero);
+                        GL.BindTexture(TextureTarget.Texture2D, 0);
+                    }
+                    Debug.Assert(_renderBuffer != 0);
+                    GL.BindRenderbuffer(RenderbufferTarget.Renderbuffer, _renderBuffer);
+                    GL.RenderbufferStorage(RenderbufferTarget.Renderbuffer, RenderbufferStorage.Depth24Stencil8, target.X, target.Y);
+                    GL.BindRenderbuffer(RenderbufferTarget.Renderbuffer, 0);
+                    if (_depthTexture != 0)
+                    {
+                        GL.BindTexture(TextureTarget.Texture2D, _depthTexture);
+                        GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Depth24Stencil8,
+                            target.X, target.Y, 0, PixelFormat.DepthStencil, PixelType.UnsignedInt248, IntPtr.Zero);
+                        GL.BindTexture(TextureTarget.Texture2D, 0);
+                    }
+                    GL.BindFramebuffer(FramebufferTarget.Framebuffer, _frameBuffer);
+                    ValidateFramebuffer("Scene after resize");
+                    if (_celFrameBuffer != 0)
+                    {
+                        GL.BindFramebuffer(FramebufferTarget.Framebuffer, _celFrameBuffer);
+                        ValidateFramebuffer("Cel after resize");
+                    }
+                    // Publish only after all attachments agree on the new size.
+                    _targetSize = target;
                 }
-                Debug.Assert(_renderBuffer != 0);
-                GL.BindRenderbuffer(RenderbufferTarget.Renderbuffer, _renderBuffer);
-                GL.RenderbufferStorage(RenderbufferTarget.Renderbuffer, RenderbufferStorage.Depth24Stencil8, target.X, target.Y);
-                GL.BindRenderbuffer(RenderbufferTarget.Renderbuffer, 0);
-                if (_depthTexture != 0)
+                finally
                 {
-                    GL.BindTexture(TextureTarget.Texture2D, _depthTexture);
-                    GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Depth24Stencil8,
-                        target.X, target.Y, 0, PixelFormat.DepthStencil, PixelType.UnsignedInt248, IntPtr.Zero);
                     GL.BindTexture(TextureTarget.Texture2D, 0);
+                    GL.BindRenderbuffer(RenderbufferTarget.Renderbuffer, 0);
+                    GL.BindFramebuffer(FramebufferTarget.DrawFramebuffer, previousFramebuffer);
+                    GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, previousReadFramebuffer);
                 }
             }
         }
@@ -765,7 +785,7 @@ namespace MphRead
             _screenTexture = GL.GenTexture();
             _textureCount++;
             Vector2i renderTarget = RenderSize;
-            _targetSize = renderTarget;
+            GL.ActiveTexture(TextureUnit.Texture0);
             GL.BindTexture(TextureTarget.Texture2D, _screenTexture);
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgb, renderTarget.X, renderTarget.Y, 0,
                 PixelFormat.Rgb, PixelType.UnsignedByte, IntPtr.Zero);
@@ -803,16 +823,8 @@ namespace MphRead
 
             FramebufferErrorCode status = GL.CheckFramebufferStatus(FramebufferTarget.Framebuffer);
             FramebufferStatus = status;
-            if (status != FramebufferErrorCode.FramebufferComplete)
-            {
-                // Was a Debugger.Break, which is silence in a release build --
-                // and an incomplete framebuffer is exactly the fault that
-                // renders nothing while every other signal says the context
-                // is fine. Say it out loud.
-                Console.WriteLine($"[render] the offscreen target is not usable: {status}. "
-                    + $"Nothing drawn into it will appear. Size {Size.X}x{Size.Y}.");
-                Debugger.Break();
-            }
+            ValidateFramebuffer("Scene initialization");
+            _targetSize = renderTarget;
 
             GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
 
@@ -877,6 +889,7 @@ namespace MphRead
             _shaderLocations.LerpFactor = GL.GetUniformLocation(_shiftShaderProgramId, "lerp_fac");
             _shaderLocations.WhiteoutTable = GL.GetUniformLocation(_shiftShaderProgramId, "white_table");
             _shaderLocations.WhiteoutFactor = GL.GetUniformLocation(_shiftShaderProgramId, "white_fac");
+            InitRenderPassState();
 
             GL.UseProgram(_shiftShaderProgramId);
 
@@ -1701,6 +1714,11 @@ namespace MphRead
         /// </summary>
         public void OnDrawFrame()
         {
+            if (Size.X <= 0 || Size.Y <= 0)
+            {
+                return;
+            }
+            BeginRenderDiagnostics();
             // The results screen coming up and going away, which the map
             // ballot and the previews on it hang off. In the scene's own draw
             // rather than in the window's frame: every harness client drives
@@ -1710,6 +1728,7 @@ namespace MphRead
             // -netcheck while the ballot beside them was correct.
             Mods.EndScreen.Tick(_room?.Meta.Name ?? "", _globalElapsedTime);
             Mods.Render.MapThumbnail.BeginFrame();
+            GL.ActiveTexture(TextureUnit.Texture0);
             GL.BindFramebuffer(FramebufferTarget.Framebuffer, _frameBuffer);
             // The scene's own target, which the resolution scale may have made
             // smaller than the window. Reallocated here rather than only on a
@@ -1976,6 +1995,7 @@ namespace MphRead
                 GL.DeleteTexture(_depthTexture);
                 _textureCount--;
                 _depthTexture = 0;
+                ValidateFramebuffer("Scene renderbuffer depth");
                 return;
             }
             _depthTexture = GL.GenTexture();
@@ -1990,10 +2010,6 @@ namespace MphRead
             GL.BindTexture(TextureTarget.Texture2D, 0);
             GL.FramebufferTexture2D(FramebufferTarget.Framebuffer,
                 FramebufferAttachment.DepthStencilAttachment, TextureTarget.Texture2D, _depthTexture, 0);
-            _claimedQuantum = MeasureDepthQuantum();
-            // Until a frame has been looked at, the driver's own answer is the
-            // best there is.
-            _depthQuantum = _claimedQuantum;
             FramebufferErrorCode status = GL.CheckFramebufferStatus(FramebufferTarget.Framebuffer);
             if (status != FramebufferErrorCode.FramebufferComplete)
             {
@@ -2007,6 +2023,10 @@ namespace MphRead
                 _textureCount--;
                 _depthTexture = 0;
             }
+            ValidateFramebuffer("Scene depth attachment");
+            CheckGlError("Scene depth attachment");
+            _claimedQuantum = MeasureDepthQuantum();
+            _depthQuantum = _claimedQuantum;
         }
 
         /// <summary>
@@ -2102,6 +2122,7 @@ namespace MphRead
                 return;
             }
             Vector2i target = _targetSize;
+            BeginPostProcessPass();
             // The scene, kept where the pass can read it. First, because
             // everything below draws over the target -- including the probe,
             // which is why it can afford to.
@@ -2113,6 +2134,8 @@ namespace MphRead
                 CalibrateInk(target);
             }
             DrawCelQuad(target, probe: false);
+            RenderPostProcessCount++;
+            CheckGlError("EndPostProcessPass");
         }
 
         /// <summary>
@@ -2137,6 +2160,7 @@ namespace MphRead
                 GL.FramebufferTexture2D(FramebufferTarget.Framebuffer,
                     FramebufferAttachment.ColorAttachment0, TextureTarget.Texture2D,
                     _screenTexture, 0);
+                ValidateFramebuffer("Cel color attachment");
                 _celFrameBufferColor = _screenTexture;
             }
             return _celFrameBuffer;
@@ -2153,6 +2177,8 @@ namespace MphRead
             GL.ActiveTexture(TextureUnit.Texture0);
             GL.BindTexture(TextureTarget.Texture2D, _celTexture);
             GL.UseProgram(_celShaderProgramId);
+            GL.Uniform1(_celSampler, 0);
+            GL.Uniform1(_celDepthSampler, 1);
             GL.Uniform1(_shaderLocations.CelTexelWidth, 1f / target.X);
             GL.Uniform1(_shaderLocations.CelTexelHeight, 1f / target.Y);
             GL.Uniform1(_shaderLocations.CelOutline, Mods.RenderOptions.CelEdge);
@@ -2380,6 +2406,24 @@ namespace MphRead
 
         public bool OnRenderFrame()
         {
+            if (Size.X <= 0 || Size.Y <= 0)
+            {
+                return !_exiting;
+            }
+            BeginWorldPass();
+            try
+            {
+                return RenderFrameContent();
+            }
+            finally
+            {
+                EndHudPass();
+                EndRenderDiagnostics();
+            }
+        }
+
+        private bool RenderFrameContent()
+        {
             CountFrame();
             GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit | ClearBufferMask.StencilBufferBit);
             GL.ClearStencil(0);
@@ -2488,39 +2532,15 @@ namespace MphRead
 
             // After the weapon, so it is drawn around too, and before the
             // target is put on screen, so the helmet and the HUD are not.
+            CheckGlError("EndWorldPass");
             DrawCelOutline();
 
-            GL.Disable(EnableCap.CullFace);
-            GL.UseProgram(_rttShaderProgramId);
-            GL.Uniform1(_shaderLocations.LayerAlpha, 1f);
-            GL.Uniform4(_shaderLocations.FadeColor, Vector4.Zero);
-
-            if (PlayerEntity.Main.HudDisruptedState != 0 || PlayerEntity.Main.HudWhiteoutState != -1)
-            {
-                float div = _elapsedTime / (1 / 30f);
-                int index = (int)div;
-                float factor = div % 1;
-                GL.UseProgram(_shiftShaderProgramId);
-                GL.Uniform1(_shaderLocations.ShiftFactor, PlayerEntity.Main.HudDisruptionFactor);
-                GL.Uniform1(_shaderLocations.ShiftIndex, index);
-                GL.Uniform1(_shaderLocations.LerpFactor, factor);
-                GL.Uniform1(_shaderLocations.WhiteoutFactor, PlayerEntity.Main.HudWhiteoutFactor);
-                if (PlayerEntity.Main.HudWhiteoutFactor != 0)
-                {
-                    GL.Uniform1(_shaderLocations.WhiteoutTable, 192, PlayerEntity.HudWhiteoutTable);
-                }
-            }
-
-            GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+            BeginCompositePass();
             // Back to the window: everything from here down -- the quad, the
             // helmet, the HUD and the fade -- is drawn at full size through
             // the RTT program, not the one the scene was drawn with, so cel
             // shading is already behind us and there is nothing to turn off.
-            GL.Viewport(0, 0, Size.X, Size.Y);
             GL.Clear(ClearBufferMask.ColorBufferBit);
-            GL.Disable(EnableCap.DepthTest);
-            GL.Enable(EnableCap.Blend);
-            GL.BindTexture(TextureTarget.Texture2D, _screenTexture);
 
             GL.Begin(PrimitiveType.TriangleStrip);
             // top right
@@ -2539,10 +2559,7 @@ namespace MphRead
 
             GL.BindTexture(TextureTarget.Texture2D, 0);
 
-            if (PlayerEntity.Main.HudDisruptedState != 0 || PlayerEntity.Main.HudWhiteoutState != -1)
-            {
-                GL.UseProgram(_rttShaderProgramId);
-            }
+            BeginHudPass();
             GL.Uniform4(_shaderLocations.FadeColor, _fadeColor, _fadeColor, _fadeColor, 0);
             if (PlayerEntity.Main.LoadFlags.TestFlag(LoadFlags.Active) && CameraMode == CameraMode.Player)
             {
@@ -2555,21 +2572,14 @@ namespace MphRead
                 DrawHudLayer(Layer1Info); // visor
                 DrawHudLayer(Layer2Info); // helmet front
                 DrawHudLayer(Layer5Info); // dialog overlay
-                if (Layer1Info.MaskId != -1)
+                BeginHudMask(Layer1Info.MaskId);
+                try
                 {
-                    GL.ActiveTexture(TextureUnit.Texture1);
-                    GL.BindTexture(TextureTarget.Texture2D, Layer1Info.MaskId);
-                    GL.ActiveTexture(TextureUnit.Texture0);
-                    GL.Uniform1(_shaderLocations.ViewWidth, (float)Size.X);
-                    GL.Uniform1(_shaderLocations.ViewHeight, (float)Size.Y);
+                    PlayerEntity.Main.DrawHudObjects();
                 }
-                PlayerEntity.Main.DrawHudObjects();
-                GL.Uniform1(_shaderLocations.UseMask, 0);
-                if (Layer1Info.MaskId != -1)
+                finally
                 {
-                    GL.ActiveTexture(TextureUnit.Texture1);
-                    GL.BindTexture(TextureTarget.Texture2D, 0);
-                    GL.ActiveTexture(TextureUnit.Texture0);
+                    EndHudMask();
                 }
                 if (GameState.MenuPause)
                 {
@@ -2614,13 +2624,6 @@ namespace MphRead
                     GL.Vertex3(-1f, -1f, 0f);
                     GL.End();
                 }
-            }
-            GL.Enable(EnableCap.DepthTest);
-            GL.Disable(EnableCap.Blend);
-            if (_faceCulling)
-            {
-                GL.Enable(EnableCap.CullFace);
-                GL.CullFace(TriangleFace.Back);
             }
             return true;
         }
@@ -5161,7 +5164,7 @@ namespace MphRead
             float height = inst.Height;
             bool center = inst.Center;
             GL.Uniform1(_shaderLocations.LayerAlpha, inst.Alpha);
-            GL.Uniform1(_shaderLocations.UseMask, inst.UseMask ? 1 : 0);
+            GL.Uniform1(_shaderLocations.UseMask, inst.UseMask && _hudMaskActive ? 1 : 0);
             GL.BindTexture(TextureTarget.Texture2D, inst.BindingId);
             // Nearest, which is what the DS did and what every sprite in this
             // game is drawn for -- except the supersampled ones, whose texture
