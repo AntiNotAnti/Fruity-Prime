@@ -528,30 +528,19 @@ directory, and how to run an emulator here.
 
 ## Gamepads
 
-**A pad and the touchscreen are both live at once on Android.** Using the pad
-puts the on-screen layout away and does nothing else: the surface underneath
-keeps working, so a touch does what it landed on *and* brings the layout back.
-A stick in one hand and a thumb on FIRE is a normal way to hold a phone, and
-the weapon wheel cannot be reached from a pad at all.
+Desktop and Android normalize each physical controller through
+`Mods/Input/GamepadManager`; `GamepadInput` still adds the active device to the
+existing gameplay bindings. The launcher and pause/settings screens use semantic
+controller navigation and existing Avalonia focus. Settings expose separate stick
+calibration, curves, southpaw, primary/secondary bindings and explicit conflicts.
+The right stick click opens a native directional weapon wheel. Family labels and
+capability-dependent haptics stay outside gameplay mapping.
 
-A pad plays the game on the desktop and on Android, over USB or Bluetooth,
-in an Xbox-shaped layout: sticks move and aim, right trigger shoots, A jumps,
-B morphs, the bumpers and d-pad change weapon, Back is the scoreboard and
-Start is the pause menu. There is **no weapon wheel on a pad** -- it reads an
-absolute pointer position, which a stick does not have.
-
-It reaches the game the way the touch controls do, from the other end: after
-`ProcessAllInput` has run, the pad's contribution is **ored** onto the same
-keybinds the keyboard just filled in, so a pad and a keyboard work at once and
-no upstream call site changed. Aim is the exception, since a stick is analogue
--- it goes in at `ApplyModAim`, in the same units and at the same point in the
-frame as the mouse's.
-
-`FruityPrime -gamepad` prints what a pad is doing with no match in the way,
-and distinguishes "not connected" from "connected but unmapped". Layout, feel
-(radial dead zone, squared look curve, 3.5 degrees a frame at full stick), the
-four settings, and how to test one with a virtual pad on `uinput`:
-`.claude/GAMEPAD.md`.
+`FruityPrime -gamepad -verbose` inspects devices and actual bindings;
+`FruityPrime -gamepadcheck` runs deterministic input and headless UI regressions
+without ROM assets. Physical USB/Bluetooth and Android hardware validation remains
+pending. Architecture, settings migration, mappings provenance, controls and
+platform haptics limits: `.claude/GAMEPAD.md`.
 
 ## Pen tablets, and the weapon wheel
 

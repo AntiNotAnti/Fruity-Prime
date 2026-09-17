@@ -258,9 +258,9 @@ on the glass.
 **Hiding the layout hides the layout, and nothing else.** The screen keeps
 working the whole time the pad is in use: both are live at once, and that is
 the point — a stick in one hand and a thumb on FIRE is a normal way to hold a
-phone, and the weapon wheel cannot be reached from a pad at all (it reads an
-absolute pointer position; see GAMEPAD.md), so a player who wants it has to be
-able to touch the screen without first paying a press to wake the controls up.
+phone. The controller weapon wheel now uses the aim stick (see GAMEPAD.md),
+while touch still uses its original absolute position. Touch remains available
+without first paying a press to wake the controls up.
 
 Two things that are easy to get wrong here and are not:
 
@@ -852,3 +852,15 @@ watched for, in this order:
    `GlEs.EmitIndices`, which is the one piece of this with no test behind it.
 4. Untextured or wrongly-coloured meshes: that is the `imm_color`/`a_color_set`
    path, i.e. a mesh whose display list never set a colour of its own.
+
+## Controller lifecycle and navigation
+
+MainActivity registers GamepadBridge's InputDeviceListener and routes each device's
+keys/motion into its own cached profile/state. Motion never clears key-held D-pad
+or triggers. Removal and focus loss clear state immediately. The shared launcher
+runs semantic controller navigation while visible; gameplay is isolated by input
+context. Text fields have an in-window controller keyboard. The native controller
+weapon wheel now supplies a stick vector without manipulating the touch pointer.
+Controller haptics use that input device's vibrator and declare the VIBRATE
+permission. See `.claude/GAMEPAD.md` for controls, regressions and unverified
+physical-hardware scenarios.

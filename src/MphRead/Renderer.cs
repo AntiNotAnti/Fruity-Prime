@@ -1564,6 +1564,8 @@ namespace MphRead
                 // the things that suppress a keyboard, and by spectating,
                 // where PlayerEntity.Main is somebody else's hunter.
                 Mods.Input.GamepadDesktop.Poll();
+                Mods.Input.GamepadContexts.Current = Mods.Input.GamepadContexts.Resolve(
+                    Mods.Chat.ChatBox.Composing, Mods.EndScreen.Available);
                 Mods.Input.GamepadInput.BeginFrame();
                 // Straight after the edges are worked out and before anything
                 // consumes them. A pad has no key events to hook, so the
@@ -7306,6 +7308,9 @@ namespace MphRead
             // scene because opening the menu is a window operation and the
             // window is this class -- the same reason the keyboard's Escape
             // is handled in OnKeyDown and not in the entity.
+            if (Mods.Chat.ChatBox.Composing && Mods.Input.GamepadInput.TakePress(
+                Mods.Input.GamepadButtons.B | Mods.Input.GamepadButtons.Start))
+                Mods.Chat.ChatBox.Cancel();
             if (Mods.Input.GamepadInput.TakeMenuPress()
                 && (Scene.CameraMode == CameraMode.Player || Scene.IsFreeCam))
             {
@@ -7461,8 +7466,26 @@ namespace MphRead
             }
         }
 
+        protected override void OnJoystickConnected(JoystickEventArgs e)
+        {
+            Mods.Input.GamepadDesktop.DeviceChanged(e.JoystickId);
+            base.OnJoystickConnected(e);
+        }
+
+        protected override void OnFocusedChanged(FocusedChangedEventArgs e)
+        {
+            Mods.Input.GamepadContexts.Focused = e.IsFocused;
+            if (!e.IsFocused)
+            {
+                Mods.Input.GamepadManager.ClearAll();
+                Mods.Input.GamepadHaptics.Stop();
+            }
+            base.OnFocusedChanged(e);
+        }
+
         protected override void OnMouseDown(MouseButtonEventArgs e)
         {
+            Mods.Input.InputSourceTracker.Note(Mods.Input.InputSource.KeyboardMouse);
 #if MPHREAD_SHELL
             // A screen is up in this window -- the launcher, the pause menu,
             // the settings. It gets the whole of the input while it is, the
@@ -7550,6 +7573,8 @@ namespace MphRead
 
         protected override void OnMouseMove(MouseMoveEventArgs e)
         {
+            if (Math.Abs(e.DeltaX) + Math.Abs(e.DeltaY) > 2)
+                Mods.Input.InputSourceTracker.Note(Mods.Input.InputSource.KeyboardMouse);
 #if MPHREAD_SHELL
             // A screen is up in this window -- the launcher, the pause menu,
             // the settings. It gets the whole of the input while it is, the
@@ -7640,6 +7665,7 @@ namespace MphRead
 
         protected override void OnKeyDown(KeyboardKeyEventArgs e)
         {
+            Mods.Input.InputSourceTracker.Note(Mods.Input.InputSource.KeyboardMouse);
 #if MPHREAD_SHELL
             // A screen is up in this window -- the launcher, the pause menu,
             // the settings. It gets the whole of the input while it is, the
