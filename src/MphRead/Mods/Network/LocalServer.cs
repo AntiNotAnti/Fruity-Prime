@@ -390,8 +390,9 @@ namespace MphRead.Mods.Network
 
         /// <summary>
         /// Put this installation's <c>paths.txt</c> beside a server that is
-        /// somewhere else. Nothing to do for the ordinary case, where the
-        /// server *is* this installation.
+        /// somewhere else. ROM entries must be absolute before the server
+        /// reads them from its own directory. Nothing to do for the ordinary
+        /// case, where the server *is* this installation.
         /// </summary>
         private static void CopyPaths(string directory)
         {
@@ -402,7 +403,27 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
-            File.Copy(source, target, overwrite: true);
+            string[] lines = File.ReadAllLines(source);
+            for (int i = 0; i < lines.Length; i++)
+            {
+                int equals = lines[i].IndexOf('=');
+                if (equals < 0 || lines[i].IndexOf('=', equals + 1) >= 0)
+                {
+                    continue;
+                }
+                string key = lines[i][..equals].Trim();
+                if (key == "Export")
+                {
+                    continue;
+                }
+                string storedPath = lines[i][(equals + 1)..].Trim();
+                string resolved = RomPaths.Resolve(key, storedPath, GameFiles.Root);
+                if (resolved != storedPath)
+                {
+                    lines[i] = lines[i][..(equals + 1)] + resolved;
+                }
+            }
+            File.WriteAllLines(target, lines);
         }
 
         /// <summary>
