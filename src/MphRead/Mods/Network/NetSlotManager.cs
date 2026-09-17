@@ -59,6 +59,10 @@ namespace MphRead.Mods.Network
                 bool occupied = slot == NetSession.LocalSlot
                     || (slot < NetSession.SlotOccupied.Length && NetSession.SlotOccupied[slot]);
 
+                // The final team roster can arrive after the match starts.
+                // Correct active players as well as newly activated slots.
+                if (occupied && _activated[slot]) SyncTeam(player, slot);
+
                 if (occupied && !_activated[slot])
                 {
                     // Weapons.Current is populated by SceneSetup when the room
@@ -120,13 +124,7 @@ namespace MphRead.Mods.Network
             // MatchStart), and a rule that only spoke up when the value was
             // out of range had nothing to say about eight players all
             // correctly holding zero.
-            int wanted = GameState.Teams ? Math.Max(0, (int)NetSession.SlotTeamIndex[slot]) : slot;
-            if (player.TeamIndex != wanted)
-            {
-                player.TeamIndex = wanted;
-                if (GameState.Teams) MphRead.Mods.Multiplayer.TeamVisuals.Apply(player);
-                else player.Team = Team.None;
-            }
+            SyncTeam(player, slot);
             // The hunter comes from the server's roster, not from this
             // machine's menu: a client that used its own choice for every
             // slot drew the other player with the right name at the right
@@ -147,6 +145,16 @@ namespace MphRead.Mods.Network
                 + $"({GameState.Nicknames[slot]}) -- {PlayerEntity.PlayerCount} player(s) in scene");
             NetLog.Event($"slot {slot} activated ({GameState.Nicknames[slot]}), "
                 + $"{PlayerEntity.PlayerCount} player(s) in scene");
+        }
+
+        private static void SyncTeam(PlayerEntity player, int slot)
+        {
+            int wanted = GameState.Teams ? NetSession.SlotTeamIndex[slot] : slot;
+            if (wanted < 0 || (GameState.Teams && wanted >= GameState.TeamCount)
+                || player.TeamIndex == wanted) return;
+            player.TeamIndex = wanted;
+            if (GameState.Teams) MphRead.Mods.Multiplayer.TeamVisuals.Apply(player);
+            else player.Team = Team.None;
         }
 
         /// <summary>

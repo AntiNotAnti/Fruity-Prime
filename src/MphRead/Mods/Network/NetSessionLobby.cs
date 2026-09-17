@@ -92,6 +92,13 @@ namespace MphRead.Mods.Network
 
         internal static void ApplySessionState(SessionStatePacket state)
         {
+            // Match control can arrive before its session packet. Check that
+            // stream too, before a stale lobby packet resets the running world.
+            if (state.MatchId == 0 || state.AuthorityEpoch == 0) return;
+            if (ServerMatch is { } match
+                && (state.AuthorityEpoch < match.AuthorityEpoch
+                    || (state.AuthorityEpoch == match.AuthorityEpoch && state.MatchId != match.MatchId
+                        && !NetLifecycleTracker.Newer(state.MatchId, match.MatchId)))) return;
             if (ServerSession is { } old)
             {
                 if (state.AuthorityEpoch != old.AuthorityEpoch
