@@ -2124,10 +2124,13 @@ namespace MphRead.Mods.Network
                 || header.PlayerCount > PlayerEntity.SlotCapacity
                 || packet.Payload.Length != SnapshotHeader.Size + header.PlayerCount * PlayerState.Size
                 || (_snapshotSeen && !NetLifecycleTracker.Newer(header.Frame, _snapshotFrame))) return;
+            int seenSlots = 0;
             for (int i = 0; i < header.PlayerCount; i++)
             {
                 PlayerState state = PlayerState.Read(packet.Payload[(SnapshotHeader.Size + i * PlayerState.Size)..]);
-                if (state.SlotIndex >= _slotLives.Length || state.SlotGeneration != _slotGenerations[state.SlotIndex]) return;
+                if (state.SlotIndex >= _slotLives.Length || (seenSlots & (1 << state.SlotIndex)) != 0
+                    || state.SlotGeneration != _slotGenerations[state.SlotIndex]) return;
+                seenSlots |= 1 << state.SlotIndex;
             }
             // Commit only after the entire packet has passed validation.
             for (int i = 0; i < header.PlayerCount; i++)

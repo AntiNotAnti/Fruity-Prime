@@ -20,6 +20,7 @@ namespace MphRead.NetTest
             try
             {
                 Wire();
+                RelaySnapshotValidation();
                 StateMachine();
                 LoopbackAdmission();
                 PacketOrdering();
@@ -176,6 +177,52 @@ namespace MphRead.NetTest
                 cancel.Cancel();
                 Check(running.Wait(3000), "loopback server stops cleanly");
             }
+        }
+
+        private static void RelaySnapshotValidation()
+        {
+            // Drive the production handler without UDP timing or game assets.
+            const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+            var server = new DedicatedServer(0) { RunsTheMatch = false };
+            var owner = new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 31001);
+            var other = new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 31002);
+            T Field<T>(string name) => (T)typeof(DedicatedServer).GetField(name, flags)!.GetValue(server)!;
+            void Send(System.Net.IPEndPoint sender, PacketType type, byte[] body)
+            {
+                byte[] data = new byte[body.Length + 1]; data[0] = (byte)type; body.CopyTo(data, 1);
+                typeof(DedicatedServer).GetMethod("Handle", flags)!.Invoke(server,
+                    new object[] { new ReceivedPacket(sender, data, data.Length), 1.0 });
+            }
+            void Hello(System.Net.IPEndPoint sender, uint id)
+            {
+                byte[] body = new byte[6]; body[0] = NetConfig.ProtocolVersion; body[1] = 255;
+                BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(2), id);
+                Send(sender, PacketType.Hello, body);
+            }
+            byte[] Snapshot(uint frame, params PlayerState[] states)
+            {
+                byte[] body = new byte[SnapshotHeader.Size + states.Length * PlayerState.Size];
+                new SnapshotHeader { MatchId = Field<ushort>("_matchId"), AuthorityEpoch = Field<ulong>("_authorityEpoch"),
+                    Frame = frame, PlayerCount = (byte)states.Length }.Write(body);
+                for (int i = 0; i < states.Length; i++) states[i].Write(body.AsSpan(SnapshotHeader.Size + i * PlayerState.Size));
+                return body;
+            }
+            Hello(owner, 1); Hello(other, 2);
+            var state = new PlayerState { SlotIndex = 0, SlotGeneration = 1, LifeId = 1, Health = 50,
+                Flags = PlayerState.FlagActive | PlayerState.FlagSpawned, Facing = Vector3.UnitZ };
+            Send(owner, PacketType.Snapshot, Snapshot(1, state));
+            Check(Field<uint>("_snapshotFrame") == 1, "valid authority establishes relay frame");
+            byte[] previous = Field<byte[]>("_lastSnapshot");
+            Send(other, PacketType.Snapshot, Snapshot(500, state));
+            Check(Field<uint>("_snapshotFrame") == 1, "non-authority cannot advance relay frame");
+            state.LifeId = 2;
+            Send(owner, PacketType.Snapshot, Snapshot(100, state, state));
+            Check(Field<uint>("_snapshotFrame") == 1 && Field<ushort[]>("_slotLives")[0] == 1
+                && ReferenceEquals(previous, Field<byte[]>("_lastSnapshot")),
+                "duplicate slots cannot commit frame, life or cached snapshot");
+            state.LifeId = 1;
+            Send(owner, PacketType.Snapshot, Snapshot(2, state));
+            Check(Field<uint>("_snapshotFrame") == 2, "valid lower frame survives malformed higher frame");
         }
 
         private static void ClaimBoundaries()
