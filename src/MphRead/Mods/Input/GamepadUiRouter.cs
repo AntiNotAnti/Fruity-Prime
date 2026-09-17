@@ -8,7 +8,7 @@ namespace MphRead.Mods.Input
 
     public static class GamepadContexts
     {
-        private static bool _menu, _capture;
+        private static bool _menu, _capture, _focused = true;
         private static long _revision;
         public static long Revision => Interlocked.Read(ref _revision);
         public static bool MenuVisible
@@ -21,7 +21,18 @@ namespace MphRead.Mods.Input
             get => Volatile.Read(ref _capture);
             set { if (_capture != value) { Volatile.Write(ref _capture, value); Interlocked.Increment(ref _revision); } }
         }
-        public static bool Focused { get; set; } = true;
+        public static bool Focused
+        {
+            get => Volatile.Read(ref _focused);
+            set
+            {
+                if (_focused == value) return;
+                Volatile.Write(ref _focused, value);
+                // Polling may run while unfocused, or miss the whole focus
+                // transition. Both edges must re-arm the held-input barrier.
+                Interlocked.Increment(ref _revision);
+            }
+        }
         public static GamepadContext Current { get; set; }
         public static GamepadContext Resolve(bool textEntry = false, bool results = false)
             => Capturing ? GamepadContext.BindingCapture : MenuVisible ? GamepadContext.Menu
@@ -46,7 +57,7 @@ namespace MphRead.Mods.Input
     {
         private readonly GamepadEdges _edges = new();
         private UiAction? _direction;
-        private long _started, _next, _revision = -1;
+        private long _started, _next, _revision = -1, _contextRevision = -1;
         private GamepadContext _context;
         private bool _neutralRequired;
         public event Action<UiAction>? Action;
@@ -54,8 +65,9 @@ namespace MphRead.Mods.Input
         public void Update(GamepadSnapshot snapshot, GamepadContext context, long milliseconds)
         {
             var pressed = _edges.Update(snapshot);
-            bool changed = _revision != snapshot.Revision || _context != context;
-            _revision = snapshot.Revision; _context = context;
+            long contextRevision = GamepadContexts.Revision;
+            bool changed = _revision != snapshot.Revision || _context != context || _contextRevision != contextRevision;
+            _revision = snapshot.Revision; _context = context; _contextRevision = contextRevision;
             if (changed) { Reset(); pressed = 0; }
             if (context != GamepadContext.Menu && context != GamepadContext.Results && context != GamepadContext.TextEntry) return;
             var state = snapshot.State;

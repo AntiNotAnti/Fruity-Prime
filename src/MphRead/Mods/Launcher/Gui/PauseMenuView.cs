@@ -224,6 +224,19 @@ namespace MphRead.Mods.Launcher.Gui
             Dispatcher.UIThread.Post(() => _resume.Focus(), DispatcherPriority.Background);
         }
 
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            if (e.Key == Key.Escape)
+            {
+                // Android has no InGameMenu ancestor to handle semantic Back.
+                // Resume also performs the host's view/input lifecycle cleanup.
+                Resumed?.Invoke(this, EventArgs.Empty);
+                e.Handled = true;
+                return;
+            }
+            base.OnKeyDown(e);
+        }
+
         private static string WindowLabel()
         {
             return WindowMode.IsFullscreen ? "Windowed" : "Fullscreen";
