@@ -100,6 +100,8 @@ namespace MphRead.Mods.Input
                 GamepadManager.UpdateDevice("mapped", State(), true); GamepadInput.BeginFrame();
                 GamepadManager.UpdateDevice("mapped", State(GamepadButtons.B), true); GamepadInput.BeginFrame();
                 Check(GamepadInput.TakePress(GamepadButtons.B), "gameplay resumes after release and repress");
+                CheckFocusLifecycle();
+                CheckMenuLifecycle();
                 foreach (var key in new[] { GamepadButtons.DpadUp, GamepadButtons.RightTrigger })
                 {
                     var events = new GamepadEventState();
@@ -195,6 +197,66 @@ namespace MphRead.Mods.Input
             public bool Stopped;
             public void Rumble(float lowFrequency, float highFrequency, TimeSpan duration) { Low = lowFrequency; Stopped = false; }
             public void Stop() { Stopped = true; }
+        }
+        private static void CheckFocusLifecycle()
+        {
+            PadBindings.Reset();
+            GamepadContexts.Current = GamepadContext.Gameplay;
+            GamepadContexts.Focused = true;
+            void Frame(GamepadButtons buttons)
+            {
+                GamepadManager.UpdateDevice("mapped", State(buttons), true);
+                GamepadInput.BeginFrame();
+            }
+            Frame(0);
+            Frame(GamepadButtons.RightThumb);
+            Check(GamepadInput.WheelHeld, "wheel can open before losing focus");
+            // Desktop continues polling during focus loss. The clear's device
+            // revision can already have been consumed when the window returns.
+            GamepadContexts.Focused = false;
+            GamepadManager.ClearAll();
+            Frame(0);
+            Frame(GamepadButtons.RightThumb);
+            Frame(GamepadButtons.RightThumb);
+            Check(!GamepadInput.WheelHeld, "background wheel is suppressed");
+            GamepadContexts.Focused = true;
+            Frame(GamepadButtons.RightThumb);
+            Check(!GamepadInput.WheelHeld, "focus regain blocks buttons held during background polling");
+            Frame(0);
+            Frame(GamepadButtons.RightThumb);
+            Check(GamepadInput.WheelHeld, "focus regain allows release and repress");
+            Frame(0);
+            GamepadContexts.Focused = false;
+            GamepadContexts.Focused = true;
+            Frame(GamepadButtons.RightThumb);
+            Check(!GamepadInput.WheelHeld && !GamepadInput.TakePress(GamepadButtons.RightThumb),
+                "focus change between simulation steps blocks held input");
+            Frame(0);
+        }
+        private static void CheckMenuLifecycle()
+        {
+            var actions = new List<UiAction>();
+            var router = new GamepadUiRouter();
+            router.Action += actions.Add;
+            GamepadContexts.MenuVisible = true;
+            router.Update(new("one", State(), 1), GamepadContext.Menu, 0);
+            // Android keeps the same StartScreen/navigation object and only
+            // polls it while visible. No router update occurs during gameplay.
+            GamepadContexts.MenuVisible = false;
+            GamepadContexts.MenuVisible = true;
+            router.Update(new("one", State(GamepadButtons.Start), 1), GamepadContext.Menu, 100);
+            Check(actions.Count == 0, "reopened menu ignores the Start press that opened it");
+            router.Update(new("one", State(), 1), GamepadContext.Menu, 110);
+            router.Update(new("one", State(GamepadButtons.Start), 1), GamepadContext.Menu, 120);
+            Check(actions.Count == 1 && actions[0] == UiAction.Back, "reopened menu accepts a fresh Back press");
+            GamepadContexts.Focused = false;
+            GamepadContexts.Focused = true;
+            router.Update(new("one", State(GamepadButtons.A), 1), GamepadContext.Menu, 130);
+            Check(actions.Count == 1, "menu blocks held input after focus changes between UI ticks");
+            router.Update(new("one", State(), 1), GamepadContext.Menu, 140);
+            router.Update(new("one", State(GamepadButtons.A), 1), GamepadContext.Menu, 150);
+            Check(actions.Count == 2 && actions[1] == UiAction.Accept, "menu accepts a fresh press after regaining focus");
+            GamepadContexts.MenuVisible = false;
         }
         private static void CheckPersistence()
         {
