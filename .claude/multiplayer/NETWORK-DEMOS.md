@@ -59,7 +59,10 @@ integrity **Unknown**, not Healthy; Healthy requires a full chunk validation.
 Limits include 1024 bytes per metadata string, eight players, 32 bootstrap
 packets, 128 KiB metadata, 2 MiB raw chunks, 16 MiB footer, 200,000 chunk/event
 entries, and seven days of frame numbers. V3 packet size is the current wire
-limit (1024 bytes). V2 retains its UInt16 packet size. Index extents, frame
+limit (2048 bytes in protocol 10). Snapshot bootstrap validation includes the
+mandatory team clocks and bounded health-spawner tail, using the live wire
+validators; it also rejects repeated or out-of-range player slots. V2 retains
+its UInt16 packet size. Index extents, frame
 order, record counts, compressed/decompressed lengths and checksums are checked
 before data is accepted. Corruption and partial records are explicit results,
 not ordinary EOF. A v2 Deflate stream has no checksum/footer; a truncated stream
