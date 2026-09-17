@@ -1490,7 +1490,10 @@ namespace MphRead
                     string key = split[0].Trim();
                     if (split.Length == 2 && _allPaths.ContainsKey(key))
                     {
-                        _allPaths[key] = split[1].Trim();
+                        string value = split[1].Trim();
+                        _allPaths[key] = value.Length == 0
+                            ? ""
+                            : Path.GetFullPath(value);
                     }
                 }
             }
