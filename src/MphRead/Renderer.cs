@@ -1508,7 +1508,7 @@ namespace MphRead
             // Input and free camera remain on the presentation clock while paused.
             _frameTime = 1 / 60f;
             if (!Mods.Headless.Active) Mods.Input.GamepadDesktop.Poll();
-            Mods.Input.GamepadInput.BeginFrame();
+            Mods.Replay.ReplayInput.BeginFrame();
             Mods.Replay.ReplayInput.PollGamepad();
             Mods.SpectatorMode.NoteScoreboard(_keyboardState.IsKeyDown(Keys.Tab)
                 || Mods.Input.GamepadInput.State.Down(Mods.Input.GamepadButtons.Back));
@@ -1557,6 +1557,9 @@ namespace MphRead
         {
             if (Mods.Network.NetSession.FreezeGameplay)
             {
+                // The recorded session packet that releases the load barrier must
+                // still arrive while gameplay is frozen. Playback has no socket.
+                Mods.Network.DemoPlayback.PumpFrame();
                 if (Mods.Network.NetSession.IsStarting) Mods.Network.NetSession.MarkMatchLoaded();
                 Mods.Network.NetSession.Pump();
                 return;

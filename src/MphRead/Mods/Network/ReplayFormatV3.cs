@@ -158,12 +158,29 @@ namespace MphRead.Mods.Network
                 PacketType.MatchState => payload.Length == MatchStatePacket.Size,
                 PacketType.SessionState => SessionStatePacket.TryRead(payload, out _),
                 PacketType.Roster => RosterPacket.TryRead(payload, out _),
-                PacketType.Snapshot => payload.Length >= SnapshotHeader.Size
-                    && payload[12] <= RosterPacket.MaxSlots
-                    && payload.Length == SnapshotHeader.Size + payload[12] * PlayerState.Size,
+                PacketType.Snapshot => ValidSnapshotBootstrap(payload),
                 PacketType.SlotIntent => payload.Length == 1 + IntentPacket.FullSize && payload[0] < RosterPacket.MaxSlots,
                 _ => false
             };
+        }
+
+        private static bool ValidSnapshotBootstrap(ReadOnlySpan<byte> payload)
+        {
+            if (payload.Length < SnapshotHeader.Size) return false;
+            int count = SnapshotHeader.Read(payload).PlayerCount;
+            int timeOffset = SnapshotHeader.Size + count * PlayerState.Size;
+            int healthOffset = timeOffset + NetMatchTimeSync.Size;
+            if (count > RosterPacket.MaxSlots || healthOffset > payload.Length
+                || !NetMatchTimeSync.Validate(payload.Slice(timeOffset, NetMatchTimeSync.Size))
+                || !NetHealthSync.Validate(payload[healthOffset..])) return false;
+            int seen = 0;
+            for (int i = 0; i < count; i++)
+            {
+                int slot = payload[SnapshotHeader.Size + i * PlayerState.Size];
+                if (slot >= RosterPacket.MaxSlots || (seen & (1 << slot)) != 0) return false;
+                seen |= 1 << slot;
+            }
+            return true;
         }
 
         internal static ReplayOpenResult Failure(Exception ex) => ex switch

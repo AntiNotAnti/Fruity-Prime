@@ -6,6 +6,14 @@ namespace MphRead.Mods.Replay
 {
     public static class ReplayInput
     {
+        public static void BeginFrame()
+        {
+            // Replay bypasses the live-player input pass that normally refreshes
+            // this context. Do not inherit a previous match's menu/results state.
+            GamepadContexts.Current = GamepadContexts.Resolve(Chat.ChatBox.Composing);
+            GamepadInput.BeginFrame();
+        }
+
         public static bool HandleKey(Keys key)
         {
             if (!DemoPlayback.IsActive || PauseMenu.Open) return false;
@@ -32,7 +40,7 @@ namespace MphRead.Mods.Replay
         }
         public static void PollGamepad()
         {
-            if (!DemoPlayback.IsActive || PauseMenu.Open) return;
+            if (!DemoPlayback.IsActive || PauseMenu.Open || GamepadContexts.Current != GamepadContext.Gameplay) return;
             if (GamepadInput.TakePress(GamepadButtons.A)) ReplayController.TogglePause();
             if (GamepadInput.TakePress(GamepadButtons.X)) ReplayController.StepForward();
             if (GamepadInput.TakePress(GamepadButtons.Y)) ReplayCamera.ToggleFree();

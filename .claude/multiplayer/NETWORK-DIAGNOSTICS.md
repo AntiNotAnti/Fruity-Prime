@@ -876,3 +876,12 @@ and needs no game state, so there is nothing for it to wait for a frame for.
 
 Measured on loopback, where the true round trip is nil: **8-11 ms before,
 1 ms after.**
+
+## Spire flick input timing
+
+Spire's mouse/touch flick edge is prepared in the hardware input pass, before
+`NetHooks.AfterInput` records press history. Creating it in `ProcessAlt` is too
+late: the next input pass clears it before the network can see it. Samus still
+consumes its aimed boost in simulation. `-altformcheck` exercises the production
+input pass followed by press capture without assets; attack animation and damage
+still require gameplay validation.

@@ -8,6 +8,83 @@ namespace MphRead.Mods.Network
 {
     internal static class ReplayFormatCheck
     {
+        private static void CheckSnapshotBootstrap(Action<bool, string> require)
+        {
+            int timeOffset = 1 + SnapshotHeader.Size + RosterPacket.MaxSlots * PlayerState.Size;
+            int healthOffset = timeOffset + NetMatchTimeSync.Size;
+            byte[] packet = new byte[healthOffset + NetHealthSync.HeaderSize
+                + NetHealthSync.MaxSpawns * NetHealthSync.EntrySize];
+            packet[0] = (byte)PacketType.Snapshot;
+            new SnapshotHeader { PlayerCount = RosterPacket.MaxSlots }.Write(packet.AsSpan(1));
+            for (byte slot = 0; slot < RosterPacket.MaxSlots; slot++)
+                new PlayerState { SlotIndex = slot }.Write(packet.AsSpan(1 + SnapshotHeader.Size + slot * PlayerState.Size));
+            packet[healthOffset + 2] = NetHealthSync.MaxSpawns;
+            for (short i = 0; i < NetHealthSync.MaxSpawns; i++)
+                BinaryPrimitives.WriteInt16LittleEndian(packet.AsSpan(healthOffset + NetHealthSync.HeaderSize
+                    + i * NetHealthSync.EntrySize), i);
+            bool Valid(byte[] value)
+            {
+                try
+                {
+                    var metadata = new ReplayMetadata { Bootstrap = new ReplayBootstrap { Packets = new[] { value } } };
+                    ReplayFormatV3.DecodeMetadata((byte)NetConfig.ProtocolVersion, ReplayFormatV3.EncodeMetadata(metadata));
+                    return true;
+                }
+                catch (InvalidDataException) { return false; }
+            }
+            require(packet.Length <= NetConfig.MaxPacketSize && Valid(packet), "maximum snapshot bootstrap accepted");
+            require(!Valid(packet.AsSpan(0, timeOffset).ToArray()), "missing snapshot tails rejected");
+            require(!Valid(packet.AsSpan(0, packet.Length - 1).ToArray()), "truncated health tail rejected");
+            byte[] changed = (byte[])packet.Clone();
+            BinaryPrimitives.WriteSingleLittleEndian(changed.AsSpan(timeOffset), float.NaN);
+            require(!Valid(changed), "nonfinite snapshot clock rejected");
+            changed = (byte[])packet.Clone(); changed[healthOffset + 2]++;
+            require(!Valid(changed), "health count beyond bound rejected");
+            changed = (byte[])packet.Clone(); changed[healthOffset + NetHealthSync.HeaderSize + 2] = 4;
+            require(!Valid(changed), "invalid health flags rejected");
+            changed = (byte[])packet.Clone(); changed[1 + SnapshotHeader.Size + PlayerState.Size] = 0;
+            require(!Valid(changed), "duplicate snapshot slot rejected");
+            changed = (byte[])packet.Clone(); changed[1 + SnapshotHeader.Size] = RosterPacket.MaxSlots;
+            require(!Valid(changed), "out of range snapshot slot rejected");
+        }
+
+        private static void CheckFrozenReplay(string directory, MatchStatePacket match, byte[] matchBytes,
+            Action<bool, string> require)
+        {
+            var session = new SessionStatePacket { Policy = ServerSessionPolicy.Lobby,
+                Phase = SessionPhase.Starting, Revision = 1, MatchId = match.MatchId,
+                AuthorityEpoch = match.AuthorityEpoch, MaxPlayers = 8,
+                WorldProfile = Multiplayer.MatchWorldProfile.Resolve(8),
+                OwnerSlot = byte.MaxValue, Match = new MatchDefinition { RoomKey = match.RoomKey, Mode = GameMode.Battle } };
+            byte[] lobby = new byte[1 + SessionStatePacket.Size];
+            lobby[0] = (byte)PacketType.SessionState; session.Write(lobby.AsSpan(1));
+            session.Phase = SessionPhase.InMatch; session.Revision++;
+            byte[] playing = new byte[lobby.Length];
+            playing[0] = (byte)PacketType.SessionState; session.Write(playing.AsSpan(1));
+            string path = Path.Combine(directory, "lobby-transition.fpdemo");
+            using (var writer = new ReplayWriterV3(path, new ReplayMetadata { RoomKey = match.RoomKey,
+                Mode = GameMode.Battle, Bootstrap = new ReplayBootstrap { Packets = new[] { lobby, matchBytes } } }))
+            {
+                writer.WriteRecord(0, new byte[] { (byte)PacketType.Ping });
+                writer.WriteRecord(1, playing);
+            }
+            try
+            {
+                require(DemoPlayback.Join(path) && NetSession.FreezeGameplay, "lobby replay begins frozen");
+                // The frozen branch touches no loaded scene data; exercise the real
+                // host step without a window, assets, or an alternative replay loop.
+                var scene = (Scene)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(Scene));
+                var step = typeof(Scene).GetMethod("RunSimulationFrame", System.Reflection.BindingFlags.Instance
+                    | System.Reflection.BindingFlags.NonPublic)!.CreateDelegate<Action<Scene>>();
+                step(scene);
+                step(scene);
+                require(DemoPlayback.CurrentFrame == 1 && !NetSession.FreezeGameplay,
+                    "frozen host advances replay packets until the recorded match starts");
+                require(scene.FrameCount == 0, "lobby replay does not simulate gameplay while frozen");
+            }
+            finally { DemoPlayback.Stop(); NetSession.Stop(); }
+        }
+
         public static int Run()
         {
             string directory = Path.Combine(Path.GetTempPath(), "fruity-replay-check-" + Guid.NewGuid().ToString("N"));
@@ -30,8 +107,28 @@ namespace MphRead.Mods.Network
                 roster.Slots[0] = 1; roster.Generations[0] = 3; roster.Teams[0] = 0; roster.Names[0] = "First";
                 roster.Slots[1] = 6; roster.Generations[1] = 9; roster.Teams[1] = 1; roster.Names[1] = "Second";
                 NetSession.ApplyRoster(roster);
+                // Capture a snapshot accepted by the real session, including the
+                // mandatory clocks and health tail from the combined protocol.
+                byte[] snapshot = new byte[1 + SnapshotHeader.Size + PlayerState.Size
+                    + NetMatchTimeSync.Size + NetHealthSync.HeaderSize];
+                snapshot[0] = (byte)PacketType.Snapshot;
+                new SnapshotHeader { Frame = 100, MatchId = 1, AuthorityEpoch = 1, PlayerCount = 1 }
+                    .Write(snapshot.AsSpan(1));
+                new PlayerState { SlotIndex = 1, SlotGeneration = 3, LifeId = 1, Health = 99,
+                    Flags = PlayerState.FlagSpawned }.Write(snapshot.AsSpan(1 + SnapshotHeader.Size));
+                NetMatchTimeSync.Write(snapshot.AsSpan(1 + SnapshotHeader.Size + PlayerState.Size));
+                NetHealthSync.BeginRoom();
+                NetHealthSync.Write(snapshot.AsSpan(snapshot.Length - NetHealthSync.HeaderSize));
+                NetSession.InjectPlaybackPacket(snapshot, snapshot.Length);
+                NetSession.Update(0);
+                Require(NetSession.SnapshotsReceived == 1, "production snapshot accepted before capture");
                 var metadata = ReplayCapture.Capture(ReplayType.FullMatch, hashMap: false);
+                Require(metadata.Bootstrap.Packets.Count == 3, "capture includes accepted snapshot");
+                CheckSnapshotBootstrap(Require);
                 NetSession.Stop();
+                var matchBytes = new byte[1 + MatchStatePacket.Size];
+                matchBytes[0] = (byte)PacketType.MatchState; match.Write(matchBytes.AsSpan(1));
+                CheckFrozenReplay(directory, match, matchBytes, Require);
                 byte[] packet = { (byte)PacketType.Ping, 17, 42 };
                 string clean = Path.Combine(directory, "clean.fpdemo");
                 using (var writer = new ReplayWriterV3(clean, metadata))
@@ -110,6 +207,9 @@ namespace MphRead.Mods.Network
                     "captured bootstrap restores sparse roster generations and teams");
                 Require(NetSession.Active && NetSession.LocalSlot == -1 && !NetSession.IsAuthority,
                     "reconnect/control packets cannot create a local player or end playback");
+                Require(NetSession.SnapshotsReceived == 1 && NetSession.RemoteStateValid[1]
+                    && NetSession.RemoteStates[1].Health == 99 && NetSession.RemoteStates[1].LifeId == 1,
+                    "captured snapshot restores through normal lifecycle handlers");
                 DemoPlayback.Stop(); NetSession.Stop();
                 string extracted = Path.Combine(directory, "extracted.fpdemo");
                 Require(ReplayArchive.Extract(clean, 60, 180, extracted) == ReplayOpenResult.Success, "extract clip");
