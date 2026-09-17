@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using MphRead.Entities;
 using MphRead.Formats;
 using MphRead.Mods.Network;
@@ -7,6 +6,7 @@ using OpenTK.Mathematics;
 
 namespace MphRead.Mods.Replay
 {
+    public enum ReplayPresentationProfile { Faithful, Presentation }
     public enum ReplayCameraMode { FirstPerson, Chase, Free, Orbit }
     public static class ReplayCamera
     {
@@ -15,19 +15,67 @@ namespace MphRead.Mods.Replay
         public static float Height { get; set; } = 1.5f;
         public static float FieldOfView { get; set; } = 80;
         public static bool Director { get; set; }
-        internal static readonly List<(uint Frame, Vector3 Position, Vector3 Facing, float Fov)> Bookmarks = new();
-        internal static int BookmarkIndex;
-        internal static void ClearBookmarks() { Bookmarks.Clear(); BookmarkIndex = 0; }
+        internal static readonly ReplayCameraTrack Track = new();
+        private static string? _trackPath;
+        private static int _bookmarkIndex;
+        public static ReplayPresentationProfile Profile { get; private set; } = ReplayPresentationProfile.Faithful;
+        private static bool _playTrack;
+        public static bool PlayTrack { get => _playTrack; set { _playTrack = value; Changed = true; } }
+        public static int LookAtSlot { get; set; } = -1;
+        public static string? TrackError => Track.LastError;
+        public static int KeyframeCount => Track.Keys.Count;
+        public static void SetProfile(ReplayPresentationProfile profile)
+        {
+            Profile = profile;
+            if (profile == ReplayPresentationProfile.Faithful) PlayTrack = false;
+            Changed = true;
+            ReplayController.NoteInput();
+        }
+        internal static void ClearBookmarks()
+        {
+            Track.Clear(); _trackPath = null; _bookmarkIndex = 0;
+            Profile = ReplayPresentationProfile.Faithful; PlayTrack = false; LookAtSlot = -1;
+        }
+        internal static void EnsureTrack()
+        {
+            string? path = DemoPlayback.CurrentPath;
+            if (path == null || path == _trackPath) return;
+            _trackPath = path;
+            Track.Load(path);
+            _bookmarkIndex = 0;
+        }
+        internal static void SaveKeyframe(Vector3 position, Vector3 facing, float fov)
+        {
+            EnsureTrack();
+            if (Track.Put(new ReplayCameraKeyframe(ReplayController.CurrentFrame, position,
+                ReplayCameraTrack.FacingRotation(facing), fov, (sbyte)Math.Clamp(LookAtSlot, -1, 7))) && _trackPath != null)
+                Track.Save(_trackPath);
+            Chat.ChatBox.System(Track.LastError == null ? "Camera keyframe saved" : "Camera track: " + Track.LastError);
+        }
+        public static void RemoveKeyframe()
+        {
+            EnsureTrack();
+            if (!Track.Remove(ReplayController.CurrentFrame)) { Chat.ChatBox.System("No camera keyframe at this frame"); return; }
+            if (_trackPath != null) Track.Save(_trackPath);
+            Chat.ChatBox.System(Track.LastError == null ? "Camera keyframe removed" : "Camera track: " + Track.LastError);
+        }
+        internal static bool NextKeyframe(out ReplayCameraKeyframe key)
+        {
+            EnsureTrack(); key = default;
+            if (Track.Keys.Count == 0) return false;
+            key = Track.Keys[_bookmarkIndex++ % Track.Keys.Count];
+            return true;
+        }
         private static int _eventCursor;
         private static uint _lastFrame;
         internal static bool Changed;
         internal static bool BookmarkRequested;
         internal static bool RestoreRequested;
-        public static void SetMode(ReplayCameraMode mode) { Mode = mode; Changed = true; ReplayController.NoteInput(); }
+        public static void SetMode(ReplayCameraMode mode) { PlayTrack = false; Mode = mode; Changed = true; ReplayController.NoteInput(); }
         public static void ToggleFree() => SetMode(Mode == ReplayCameraMode.Free ? ReplayCameraMode.FirstPerson : ReplayCameraMode.Free);
         public static void Bookmark() { BookmarkRequested = true; ReplayController.NoteInput(); }
         public static void RestoreBookmark() { RestoreRequested = true; ReplayController.NoteInput(); }
-        internal static void Reset() { Mode = ReplayCameraMode.FirstPerson; Changed = true; _eventCursor = 0; _lastFrame = 0; }
+        internal static void Reset() { Mode = ReplayCameraMode.FirstPerson; Changed = true; _eventCursor = 0; _lastFrame = 0; BookmarkRequested = false; RestoreRequested = false; }
         internal static void TickDirector()
         {
             uint frame = ReplayController.CurrentFrame;
@@ -62,6 +110,7 @@ namespace MphRead
         private void ModReplayCamera()
         {
             if (!Mods.Network.DemoPlayback.IsActive) return;
+            Mods.Replay.ReplayCamera.EnsureTrack();
             Mods.Replay.ReplayCamera.TickDirector();
             var mode = Mods.Replay.ReplayCamera.Mode;
             if (Mods.Replay.ReplayCamera.Changed)
@@ -76,21 +125,31 @@ namespace MphRead
             if (Mods.Replay.ReplayCamera.BookmarkRequested)
             {
                 Mods.Replay.ReplayCamera.BookmarkRequested = false;
-                if (Mods.Replay.ReplayCamera.Bookmarks.Count < 64) Mods.Replay.ReplayCamera.Bookmarks.Add((Mods.Network.ReplayController.CurrentFrame, _cameraPosition, _cameraFacing, _cameraFov));
+                // In first-person the scene's auxiliary facing may be stale; capture
+                // the camera actually shown, without writing back into the hunter.
+                Mods.Replay.ReplayCamera.SaveKeyframe(_freeCam ? _cameraPosition : PlayerEntity.Main.CameraInfo.Position,
+                    _freeCam ? _cameraFacing : PlayerEntity.Main.CameraInfo.Facing,
+                    _freeCam ? _cameraFov : MathHelper.DegreesToRadians(Math.Clamp(
+                        (PlayerEntity.Main.CameraInfo.Fov > 0 ? PlayerEntity.Main.CameraInfo.Fov : Mods.RenderOptions.DefaultFov)
+                        * Mods.RenderOptions.FovScale, 1, 175)));
             }
             if (Mods.Replay.ReplayCamera.RestoreRequested)
             {
                 Mods.Replay.ReplayCamera.RestoreRequested = false;
-                if (Mods.Replay.ReplayCamera.Bookmarks.Count > 0)
+                if (Mods.Replay.ReplayCamera.NextKeyframe(out var saved))
                 {
-                    var saved = Mods.Replay.ReplayCamera.Bookmarks[Mods.Replay.ReplayCamera.BookmarkIndex++ % Mods.Replay.ReplayCamera.Bookmarks.Count];
+                    Mods.Replay.ReplayCamera.PlayTrack = false;
                     Mods.Replay.ReplayCamera.SetMode(Mods.Replay.ReplayCameraMode.Free);
-                    SetFreeCamera(true);
-                    _cameraPosition = saved.Position; _cameraFacing = saved.Facing; _cameraFov = saved.Fov;
-                    _cameraRight = Vector3.Cross(_cameraFacing, Vector3.UnitY).Normalized();
-                    _cameraUp = Vector3.Cross(_cameraRight, _cameraFacing).Normalized();
+                    ApplyReplayKeyframe(saved);
                     return;
                 }
+            }
+            if (Mods.Replay.ReplayCamera.Profile == Mods.Replay.ReplayPresentationProfile.Presentation
+                && Mods.Replay.ReplayCamera.PlayTrack
+                && Mods.Replay.ReplayCamera.Track.Sample(Mods.Network.ReplayController.CurrentFrame, out var trackFrame))
+            {
+                ApplyReplayKeyframe(trackFrame);
+                return;
             }
             if (mode is not (Mods.Replay.ReplayCameraMode.Chase or Mods.Replay.ReplayCameraMode.Orbit)) return;
             var player = PlayerEntity.Main;
@@ -107,7 +166,7 @@ namespace MphRead
                 facing = new Vector3(MathF.Sin(_replayOrbit), 0, MathF.Cos(_replayOrbit));
             }
             Vector3 desired = target - facing * Math.Clamp(Mods.Replay.ReplayCamera.Distance, 1, 20);
-            Vector3 candidate = _replayFollowPosition.HasValue ? Vector3.Lerp(_replayFollowPosition.Value, desired, 1 - MathF.Exp(-delta * 10)) : desired;
+            Vector3 candidate = Mods.Replay.ReplayCamera.Profile == Mods.Replay.ReplayPresentationProfile.Presentation && _replayFollowPosition.HasValue ? Vector3.Lerp(_replayFollowPosition.Value, desired, 1 - MathF.Exp(-delta * 10)) : desired;
             CollisionResult collision = default;
             if (CollisionDetection.CheckBetweenPoints(target, candidate, TestFlags.Players, this, ref collision))
                 candidate = target + (candidate - target) * Math.Max(0, collision.Distance - 0.05f);
@@ -118,6 +177,28 @@ namespace MphRead
             _cameraRight = Vector3.Cross(_cameraFacing, Vector3.UnitY).Normalized();
             _cameraUp = Vector3.Cross(_cameraRight, _cameraFacing).Normalized();
             _cameraFov = MathHelper.DegreesToRadians(Math.Clamp(Mods.Replay.ReplayCamera.FieldOfView, 40, 120));
+        }
+        private void ApplyReplayKeyframe(Mods.Replay.ReplayCameraKeyframe key)
+        {
+            SetFreeCamera(true);
+            _cameraPosition = key.Position;
+            _cameraFacing = Vector3.Transform(-Vector3.UnitZ, key.Rotation).Normalized();
+            _cameraUp = Vector3.Transform(Vector3.UnitY, key.Rotation).Normalized();
+            if (key.LookAtSlot >= 0 && key.LookAtSlot < PlayerEntity.Players.Count)
+            {
+                var target = PlayerEntity.Players[key.LookAtSlot];
+                if (target.LoadFlags.TestFlag(LoadFlags.Active) && target.LoadFlags.TestFlag(LoadFlags.Spawned))
+                {
+                    Vector3 direction = target.Position + Vector3.UnitY - _cameraPosition;
+                    if (direction.LengthSquared > 0.0001f) _cameraFacing = direction.Normalized();
+                }
+            }
+            Vector3 right = Vector3.Cross(_cameraFacing, _cameraUp);
+            if (right.LengthSquared < 0.0001f)
+                right = Vector3.Cross(_cameraFacing, Math.Abs(_cameraFacing.Y) < 0.9f ? Vector3.UnitY : Vector3.UnitZ);
+            _cameraRight = right.Normalized();
+            _cameraUp = Vector3.Cross(_cameraRight, _cameraFacing).Normalized();
+            _cameraFov = key.Fov;
         }
     }
 }

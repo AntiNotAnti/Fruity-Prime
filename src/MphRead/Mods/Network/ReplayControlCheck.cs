@@ -41,6 +41,7 @@ namespace MphRead.Mods.Network
                     Require(frames == 960, $"display rate {fps} changed replay timing");
                 }
                 Console.WriteLine("[replaycheck] timing: all rates, pause, step, resume and presentation independence passed");
+                Replay.ReplayCameraTrackCheck.Run();
                 return 0;
             }
             catch (Exception ex) { Console.WriteLine($"[replaycheck] FAIL: {ex.Message}"); return 1; }

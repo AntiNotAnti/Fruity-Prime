@@ -122,6 +122,21 @@ namespace MphRead.Mods.Launcher.Gui
                 timeline.PointerReleased += (_, _) => { ReplayController.Seek((uint)timeline.Value); Resumed?.Invoke(this, EventArgs.Empty); };
                 menu.Children.Add(selectedTime);
                 menu.Children.Add(timeline);
+                Replay.ReplayCamera.EnsureTrack();
+                var profile = new ComboBox { ItemsSource = new[] { "Faithful camera (default)", "Presentation camera" }, SelectedIndex = (int)Replay.ReplayCamera.Profile, Width = 280 };
+                var track = new CheckBox { Content = "Play camera track by replay frame", IsChecked = Replay.ReplayCamera.PlayTrack,
+                    IsEnabled = Replay.ReplayCamera.Profile == Replay.ReplayPresentationProfile.Presentation };
+                profile.SelectionChanged += (_, _) =>
+                {
+                    if (profile.SelectedIndex < 0) return;
+                    Replay.ReplayCamera.SetProfile((Replay.ReplayPresentationProfile)profile.SelectedIndex);
+                    track.IsEnabled = profile.SelectedIndex == 1;
+                    track.IsChecked = Replay.ReplayCamera.PlayTrack;
+                };
+                track.IsCheckedChanged += (_, _) => Replay.ReplayCamera.PlayTrack = track.IsChecked == true;
+                menu.Children.Add(profile);
+                menu.Children.Add(new TextBlock { Text = "Presentation smooths chase camera only; gameplay is unchanged.", Foreground = GuiTheme.TextDimBrush, TextWrapping = TextWrapping.Wrap, MaxWidth = 320 });
+                menu.Children.Add(track);
                 var cameraModes = new ComboBox { ItemsSource = new[] { "First person", "Third-person chase", "Free camera", "Orbit camera" }, SelectedIndex = (int)Replay.ReplayCamera.Mode, Width = 240 };
                 cameraModes.SelectionChanged += (_, _) => { if (cameraModes.SelectedIndex >= 0) Replay.ReplayCamera.SetMode((Replay.ReplayCameraMode)cameraModes.SelectedIndex); };
                 menu.Children.Add(cameraModes);
@@ -143,8 +158,13 @@ namespace MphRead.Mods.Launcher.Gui
                 menu.Children.Add(director);
                 Add(menu, "Watch last killer", () => { Replay.ReplayCamera.WatchEvent(false); Resumed?.Invoke(this, EventArgs.Empty); });
                 Add(menu, "Watch last victim", () => { Replay.ReplayCamera.WatchEvent(true); Resumed?.Invoke(this, EventArgs.Empty); });
-                Add(menu, "Save camera bookmark", () => { Replay.ReplayCamera.Bookmark(); Resumed?.Invoke(this, EventArgs.Empty); });
-                Add(menu, "Next camera bookmark", () => { Replay.ReplayCamera.RestoreBookmark(); Resumed?.Invoke(this, EventArgs.Empty); });
+                var lookAt = new ComboBox { ItemsSource = new[] { "Keyframe: recorded orientation" }.Concat(GameState.Nicknames.Select((name, slot) => $"Look at {slot + 1}: {name}")).ToArray(), SelectedIndex = Replay.ReplayCamera.LookAtSlot + 1, Width = 280 };
+                lookAt.SelectionChanged += (_, _) => Replay.ReplayCamera.LookAtSlot = lookAt.SelectedIndex - 1;
+                menu.Children.Add(lookAt);
+                menu.Children.Add(new TextBlock { Text = $"Camera keyframes: {Replay.ReplayCamera.KeyframeCount}/64" + (Replay.ReplayCamera.TrackError == null ? "" : " — " + Replay.ReplayCamera.TrackError), Foreground = GuiTheme.TextDimBrush, TextWrapping = TextWrapping.Wrap, MaxWidth = 320 });
+                Add(menu, "Remove keyframe at current frame", () => { Replay.ReplayCamera.RemoveKeyframe(); Resumed?.Invoke(this, EventArgs.Empty); });
+                Add(menu, "Save camera keyframe", () => { Replay.ReplayCamera.Bookmark(); Resumed?.Invoke(this, EventArgs.Empty); });
+                Add(menu, "Preview next camera keyframe", () => { Replay.ReplayCamera.RestoreBookmark(); Resumed?.Invoke(this, EventArgs.Empty); });
                 if (DemoPlayback.Events.Count > 0)
                 {
                     var filters = new ComboBox { ItemsSource = new[] { "All events", "Kills", "Deaths", "Objectives", "Score" }, SelectedIndex = 0, Width = 240 };
