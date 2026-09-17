@@ -57,6 +57,12 @@ callback is installed before GLFW initialization so window-creation failures
 report their native reason and return to OpenTK's managed failure check instead
 of throwing through a native callback and aborting without a useful message.
 
+GLFW initialization must set `CocoaChdirResources=false` before creating any
+window or polling controllers. Its default changes cwd to the bundle Resources
+directory: the extraction child still writes to Application Support, but the
+launcher then reads paths.txt from the wrong directory and reports missing files.
+The init hint preserves the writable working directory for settings and saves too.
+
 ## Smoke coverage and limits
 
 `-smoketest` exits before game setup and checks configuration access, real
@@ -65,20 +71,25 @@ map discovery, and macOS native loads/exports for OpenAL, GLFW, miniaudio,
 Skia, HarfBuzz and AvaloniaNative. It also calls GLFW's version binding.
 Each failure returns a nonzero exit code. No audio device or game files are
 required. `run-macos-smoke.sh` runs with a fresh HOME and unrelated working
-directory, with a 120-second process timeout. It also runs `-windowcheck`, opening the
-actual launcher window, compiling world/composite/cel/disruption shaders,
-checking non-black UI readback and GL errors before and after a resize, and
-closing normally. This runs on the flat publish and both staged/extracted app
-bundles, so loading GLFW without creating a context can no longer pass alone.
-On a graphics-capable host both Mac jobs also run `tools/render-resource-check`
-against the legacy context for framebuffer allocation, filtering, FXAA, HUD
-transforms and teardown. `check-macos-graphics.sh` queries CGL's actual renderer
-list first. Exit 77 means no accelerated renderer (GLFW requires one); the
-workflow explicitly reports rendered checks as **NOT RUN**, keeps native
-startup/signature checks mandatory, and leaves hardware acceptance pending.
-Query errors or application failures on a graphics-capable host still fail.
-This is necessary for virtual hosted runners without GPU passthrough; a green
-build there is not proof of rendered Mac startup.
+directory, with a 120-second process timeout. On a graphics-capable host it also
+runs `-windowcheck`: the real launcher renders, compiles world/composite/cel/
+disruption shaders, checks non-black readback and GL errors, resizes, and closes.
+The packaged and re-extracted app receive the same check.
+On graphics-capable hosts the Mac jobs also run `tools/render-resource-check`
+for framebuffer allocation, filtering, FXAA, HUD transforms and teardown.
+
+`-glfwpathcheck` is mandatory even without a GPU. In a temporary writable
+fixture it creates an empty extraction directory and relative paths.txt entry,
+initializes the actual GLFW/monitor path, and verifies cwd and launcher readiness
+are preserved. Staged and re-extracted .app bundles run it too; no game data is used.
+
+`check-macos-graphics.sh` queries CGL's renderer list before attempting graphics.
+Exit 77 means no accelerated renderer (GLFW requires one), so rendered checks
+are explicitly reported as **NOT RUN**. Native library/startup and signature
+checks remain mandatory. Query errors and application failures on hosts with
+an accelerated renderer still fail. Hosted virtual Macs can report only a
+software renderer; a green build on those hosts leaves hardware rendering
+acceptance pending.
 
 This does not test a rendered game, an audio device, or Finder/Gatekeeper's
 handling of a quarantined Internet download. Those require manual Mac checks.
