@@ -23,8 +23,13 @@ The final draft release waits for all packages to pass before uploading them.
   prints `otool -L`, verifies signatures, and checks the JIT entitlement's value.
 - `tools/package-macos.sh DIRECTORY DIST RID VERSION` preserves the publish
   native layout inside `Fruity Prime.app/Contents/MacOS`; maps go in
-  `Contents/Resources/maps` because Apple's signer treats subdirectories of
-  MacOS as nested code. It versions Info.plist from
+  `Contents/Resources/maps`; `gamecontrollerdb.txt` and its license also move
+  into Resources because Apple's signer treats entries in MacOS as nested
+  code. The controller loader uses the resource root while user settings
+  still override the bundled mappings. The packaging regression verifies
+  controller resource placement and rejects a modified database seal;
+  `-smoketest` reads the packaged database through the runtime lookup.
+  It versions Info.plist from
   the build version, generates an ICNS from the existing project mark, signs
   components and the app, then verifies the bundle. `--deep` is verification
   only. It runs the existing asset/map guards over the staged package.

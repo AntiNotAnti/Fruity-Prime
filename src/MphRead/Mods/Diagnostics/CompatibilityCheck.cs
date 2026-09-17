@@ -83,6 +83,14 @@ namespace MphRead.Mods.Diagnostics
 #endif
             if (OperatingSystem.IsMacOS())
             {
+                Check("controller mapping resources", () =>
+                {
+                    string mappings = Input.GamepadMappings.Paths()[0];
+                    if (!File.ReadLines(mappings).Any(line => line.Length > 0 && !line.StartsWith('#')))
+                        throw new InvalidDataException("Bundled controller mappings are empty.");
+                    if (!File.Exists(Path.Combine(Platform.AppPaths.ResourceDirectory, "gamecontrollerdb.LICENSE")))
+                        throw new FileNotFoundException("Controller mapping license is missing.");
+                });
                 foreach ((string file, string symbol) in new[] {
                     ("libopenal.1.dylib", "alcOpenDevice"),
                     ("libglfw.3.dylib", "glfwGetVersion"),
