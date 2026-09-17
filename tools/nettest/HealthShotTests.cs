@@ -230,6 +230,7 @@ namespace MphRead.NetTest
                     for (int peer = 0; peer < 2; peer++)
                     {
                         Session(); var puppet = Player(1);
+                        Field(puppet, "<CurrentWeapon>k__BackingField", weapon);
                         var queue = new NetFaultQueue<byte[]>(8128 + peer, rtt / 2.0, jitter, loss, reorder, duplicate);
                         uint lastApplied = 0;
                         for (uint frame = 1; frame <= 150; frame++)
@@ -243,6 +244,7 @@ namespace MphRead.NetTest
                                 bool alive = frame < 30 || frame >= 70;
                                 bool shooting = frame >= 10 && frame < 60 + (profiles % 3 - 1) * 3;
                                 var input = Intent(frame, frame < 60 ? (ushort)7 : (ushort)8, shooting, alive);
+                                input.WeaponSelect = (byte)weapon;
                                 // A dead press repeated in history must not become an alive action.
                                 if (frame is >= 30 and < 35) input.Presses[frame - 30] = (uint)IntentButtons.Shoot;
                                 byte[] bytes = new byte[IntentPacket.FullSize]; input.Write(bytes);

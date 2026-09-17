@@ -135,9 +135,77 @@ agreement passed. Inspect hit counts, headshot agreement, claims and frame timin
 
 ## Validation status
 
-Local deterministic and engine regressions are implemented. Process-level A/B
-measurements and platform build results are being collected. Press-age remains
-off by default pending convincing regression-free A/B evidence. LAN, Pi, Japan
-and other real-line checks are unavailable: the user requested local injected
-faults and has no second machine or endpoint. No Internet-play acceptance claim
-is made from loopback results.
+On 2026-09-17 the deterministic suites passed 2,967,742 health/input assertions,
+3,687 lifecycle assertions, eight continuous-clock checks, and 93 actual-engine
+combat assertions. The lobby suite passed 2,700 assertions, replay format passed
+534, and replay timing/camera checks passed. Asset and map-package guards passed.
+The engine suite also tests a stream of earlier claims against the arbitration
+deadline and verifies duplicate requests do not inflate outcome counters.
+
+[Native CI run](https://github.com/AntiNotAnti/Fruity-Prime/actions/runs/35258854961)
+passed all 13 jobs: Windows client/server, Apple Silicon and Intel Mac packages,
+Linux client/server/ARM64 server, Android, lobby and controller/UI checks. Mac
+packages passed the existing signing, executable, startup and compatibility
+checks; this is not a manual Mac gameplay test. The local Android SDK was absent,
+so Android validation used CI.
+
+### Local process measurements
+
+The full press-age matrix completed 96 separate server/two-client sessions,
+20 simulation seconds per client, seed 8128. The 18 final eight-weapon/duel runs
+completed at 30 seconds each. Severe faults mean 400 ms added RTT, up to 80 ms
+jitter each way, 5% loss, 3% duplication and 3% reordering. The runner's reports
+and numerical summaries are retained locally; compact source-controlled evidence
+is in [health-shot-results](../testing/health-shot-results/).
+
+| Press-age arm (48 runs each) | Off | On |
+|---|---:|---:|
+| Local predicted hits / claims | 88 | 86 |
+| Authority damage events | 98 | 104 |
+| Rescued claims | 5 | 2 |
+| Already-resolved verdicts | 32 | 35 |
+| Victim-down verdicts | 41 | 38 |
+| Geometric/other refusals | 0 | 0 |
+| Unanswered at expiration | 4 | 8 |
+| Claim resends | 27 | 35 |
+| Predicted headshots | 55 | 49 |
+| Agreed / downgraded headshots | 24 / 13 | 28 / 10 |
+| Rewinds sampled / clamped | 355 / 0 | 351 / 1 |
+| Mean rewind (frames) | 24.19 | 25.03 |
+| Repeated authority Imperialist spawn keys | 0 | 0 |
+
+These are short runs with unequal shot exposure and imperfect prediction pairing.
+They do not establish a regression-free improvement. **PressAgeEnabled remains
+false.** The A/B binaries preceded the later ricochet, zero-damage refusal and
+diagnostic refinements; press-age/input/rewind behavior was unchanged. The final
+weapon sessions include those repairs. Numerical differences across these two
+experiments must not be attributed solely to press age.
+
+In the Samus Shock Coil runs, owner/authority ammo cadence agreed on all 1,420
+baseline and 1,577 severe-fault common logical phases. Damage agreed on 1,412
+and 1,538, respectively (99.4% and 97.5%). Including the observer, both quantities
+agreed on 1,360/1,386 and 1,513/1,555 common phases. The logical phase, not the
+acknowledged target-world frame, identifies a continuous firing tick. Comparing
+only acknowledged world frames incorrectly conflates acquisition timing and
+clock alignment. The remaining damage mismatch is **not claimed fixed**: phase
+agreement alone does not prove equal target acquisition, ramp damage or contact.
+The original 16-unit volley range could leave Sylux firing without contact; the
+runner now holds Shock Coil at nine units so the drain scenario exercises hits.
+Two subsequent 45-second Sylux sessions at the closer range produced 221 and 93
+local predicted hits, with 94 and 89 health drained ahead of authority. Ammo
+agreed on all 2,195 and 2,222 common phases; damage agreed on 2,173 and 2,216.
+The severe run still expired 20 claims and recorded 92/110 predicted/authority
+health removed. Those are measured limits, not a claim of perfect reconciliation.
+The results CSV retains the earlier no-contact Sylux arm as a failed exposure
+check; its zero damage is not evidence that drain synchronization passed.
+
+All eight weapons produced authority hits in the final baseline and severe runs.
+The input matrix and actual-engine tests verify the repaired not-in-play and
+old-life trigger cases. Full three-process one-to-one fire-event equivalence is
+not established by aggregate counts or repeated world-frame keys; continuous
+and multi-projectile weapons can legitimately share those keys. No universal
+zero-ghost-hit claim is made. Claims still expire under severe loss, and the
+continuous-damage mismatch remains an explicit acceptance limitation.
+
+LAN, Pi, Japan and other real-line checks were replaced by local injected faults
+at the user's request. No Internet-play acceptance claim is made from loopback.

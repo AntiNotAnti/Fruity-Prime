@@ -18,6 +18,11 @@ namespace MphRead.Entities
     /// </summary>
     public partial class PlayerEntity
     {
+        private static int ModOpponentHudHealth(PlayerEntity opponent) => NetHudHealth.Sample(opponent).Health;
+        private bool ModHudHealthVisible => NetHudHealth.Visible(SlotIndex);
+        private int ModHudHealth => !NetSession.Active || SlotIndex == NetSession.LocalSlot
+            ? Health : ModOpponentHudHealth(this);
+
         /// <summary>
         /// Column centres in the HUD's 256-wide space. The stock two sit at
         /// 160 and 215, which leaves no room for a third: "deaths" is six
@@ -25,11 +30,6 @@ namespace MphRead.Entities
         /// match the two of them move left to make room, and offline nothing
         /// moves at all.
         /// </summary>
-        private static int ModOpponentHudHealth(PlayerEntity opponent) => NetHudHealth.Sample(opponent).Health;
-        private bool ModHudHealthVisible => NetHudHealth.Visible(SlotIndex);
-        private int ModHudHealth => !NetSession.Active || SlotIndex == NetSession.LocalSlot
-            ? Health : ModOpponentHudHealth(this);
-
         private const float _scoreColumn1Net = 145;
         private const float _scoreColumn2Net = 193;
         private const float _scoreColumn1Solo = 160;
