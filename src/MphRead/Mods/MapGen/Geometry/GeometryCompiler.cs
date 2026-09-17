@@ -68,6 +68,10 @@ namespace MphRead.Mods.MapGen
                 if (normal.LengthSquared < 1e-10f) throw new MapAuthoringException("FP-MAP-013", "Degenerate geometry face.");
                 normal.Normalize();
                 if (Vector3.Dot(normal, points[0]-center) < 0) { Array.Reverse(points); normal = -normal; }
+                // Two faces per edge also describes a flattened tetrahedron.
+                // A solid convex brush must have an interior behind every face.
+                if (geometry is MapConvexBrush && !(Vector3.Dot(normal, center-points[0]) < 0))
+                    throw new MapAuthoringException("FP-MAP-013", "Convex brush must enclose a nonzero volume.");
                 if (geometry is MapConvexBrush && (vertices.Any(p => Vector3.Dot(normal, p-points[0]) > .001)
                     || points.Any(p => Math.Abs(Vector3.Dot(normal, p-points[0])) > .001)))
                     throw new MapAuthoringException("FP-MAP-013", "Brush faces must be planar and convex.");

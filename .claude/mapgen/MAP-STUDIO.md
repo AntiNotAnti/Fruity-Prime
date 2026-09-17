@@ -29,6 +29,8 @@ The library refreshes its own catalog and shows previews, metadata, source type,
 
 Diagnostics carry stable `FP-MAP-*` codes, severity and optional object ID. Validators check geometry transforms/ranges/topology, materials/assets, spawn placement/headroom, multiplayer pickups, jump-pad settings, modes, imported dependencies and collision budgets. Runtime limits produce warnings at 70%/90% and errors at 100%. `-mapinspect` also generates navigation and reports node/edge budgets.
 
+Closed convex brushes must enclose a nonzero volume; a flattened tetrahedron is invalid even when every edge belongs to two faces. Relative import and texture paths resolve beside the project before the working-directory and library fallbacks, so an unrelated same-named file cannot change the map being compiled or packaged.
+
 ```text
 FruityPrime -mapvalidate "TEST ARENA" -mapdir maps
 FruityPrime -mapinspect "TEST PADS" -mapdir maps
@@ -44,6 +46,8 @@ Validate/inspect do not require launcher setup for native maps or imports with t
 V2 `.fpmap` is a ZIP containing `manifest.json` and `project.json`; import, texture, audio and preview directories are optional. Native maps need no BSP. Legacy one-recipe packages still load. Imported packages carry a trimmed `import/level.bsp` and baked `textures/map.tex`. Packaging copies only declared map assets, never extracted game audio or borrowed cartridge textures.
 
 Entries are sorted, timestamps fixed, and the canonical content hash includes each path, length and bytes except the manifest. A separate archive SHA-256 verifies the exact transferred file. The reader bounds compressed size to 128 MiB, expanded content to 256 MiB, individual entries to 64 MiB, projects to 8 MiB and entries to 2048. It rejects traversal, rooted/device paths, duplicates, unsupported types, inconsistent identity, missing assets and hash mismatches. Files are read from the archive rather than extracted over the library.
+
+Device-name checks apply before the first dot in each path component on every platform, including multi-extension names such as `CON.backup.tex`.
 
 **Network protocol 8 is required on both client and server.** The dedicated server cooks a bounded package cache before listening. Join and rotation verify an offer containing MapId, version, canonical hash, archive hash and byte count before loading a custom room. Requests identify a hash and byte offset, never a client-supplied server filename. Transfer uses 960-byte chunks, a 16-chunk window, retries, selected-endpoint checks and a per-peer token budget. Downloads stall after 15 seconds without progress and time out after three minutes overall.
 
