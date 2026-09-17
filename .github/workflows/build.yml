@@ -59,18 +59,6 @@ jobs:
             rid: linux-arm64
             summary: the dedicated server and the directory, for a Raspberry Pi
             extra: "-p:MphReadServer=true"
-          # macOS, both processors. Cross-compiled here like the rest: the
-          # launcher is Avalonia on every platform now, so there is nothing in
-          # a mac build that has to be produced on a mac. Nobody has started
-          # one -- see the known gaps in CLAUDE.md.
-          - id: osx-x64
-            rid: osx-x64
-            summary: the game and the launcher, for an Intel Mac
-            extra: ""
-          - id: osx-arm64
-            rid: osx-arm64
-            summary: the game and the launcher, for an Apple Silicon Mac
-            extra: ""
     steps:
       - uses: actions/checkout@v7
 
@@ -88,8 +76,7 @@ jobs:
       - name: cook the map bundles
         run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -mapdir maps -mapbundle
 
-      # Every target is net9.0 and every launcher is Avalonia, so all six of
-      # these come off one Ubuntu runner.
+      # Windows and Linux targets remain cross-published on Ubuntu.
       - name: publish ${{ matrix.summary }}
         run: >
           dotnet publish src/MphRead/MphRead.csproj
@@ -129,6 +116,43 @@ jobs:
         with:
           name: FruityPrime-${{ matrix.id }}
           path: publish/${{ matrix.id }}
+          if-no-files-found: error
+
+  macos:
+    name: macOS ${{ matrix.rid }}
+    needs: assets
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: osx-arm64
+            runner: macos-latest
+          - rid: osx-x64
+            runner: macos-15-intel
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '9.0.x'
+      - name: cook the map bundles
+        run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -mapdir maps -mapbundle
+      - name: publish, sign and validate
+        env:
+          RID: ${{ matrix.rid }}
+        run: |
+          set -euo pipefail
+          dotnet publish src/MphRead/MphRead.csproj -c Release -r "$RID" \
+            --self-contained true -p:PublishSingleFile=true -o "publish/$RID"
+          chmod +x "publish/$RID/FruityPrime"
+          tools/sign-macos.sh "publish/$RID"
+          tools/check-macos-build.sh "publish/$RID" "$RID"
+          tools/check-no-game-assets.sh "publish/$RID"
+          tools/check-maps-shipped.sh "publish/$RID"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: FruityPrime-${{ matrix.rid }}
+          path: publish/${{ matrix.rid }}
           if-no-files-found: error
 
   # The Android head, and the APK a phone can install.
