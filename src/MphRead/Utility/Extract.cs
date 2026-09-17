@@ -69,13 +69,14 @@ namespace MphRead
             ExtractRomFs(header, bytes, rootName, hasArchives: !isFh);
             ExtractRomData(rootName);
             string newPath;
+            // Relative, so files/ and paths.txt survive the installation being moved.
             if (isFh)
             {
-                newPath = Path.GetFullPath(Paths.Combine("files", rootName, "data"));
+                newPath = Paths.Combine("files", rootName, "data");
             }
             else
             {
-                newPath = Path.GetFullPath(Paths.Combine("files", rootName));
+                newPath = Paths.Combine("files", rootName);
             }
             Paths.SetPath(rootName, newPath);
             var lines = new List<string>();

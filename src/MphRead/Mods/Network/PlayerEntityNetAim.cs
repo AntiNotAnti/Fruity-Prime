@@ -1,4 +1,5 @@
 using System;
+using MphRead.Formats;
 using MphRead.Mods.Network;
 using OpenTK.Mathematics;
 
@@ -688,6 +689,43 @@ namespace MphRead.Entities
         {
             if (altForm == IsAltForm)
             {
+                // Unmorph changes the form bit before its animation ends. If
+                // that animation stalls, UpdateForm must not run a second time:
+                // it would shift the position by the collision-centre offset.
+                // A stalled morph being cancelled back to biped also needs
+                // ExitAltForm to remove Weavel's halfturret and other effects.
+                if (IsMorphing && !altForm)
+                {
+                    ExitAltForm();
+                }
+                if (IsUnmorphing && !altForm)
+                {
+                    NetLog.Event($"slot {SlotIndex} stalled unmorph completed from {ModFormState()}");
+                    if (IsMainPlayer && CameraSequence.Current != null)
+                    {
+                        CameraSequence.Current.InitialCamInfo.NodeRef = NodeRef;
+                    }
+                    else
+                    {
+                        CameraInfo.NodeRef = NodeRef;
+                    }
+                    Flags1 &= ~PlayerFlags1.Unmorphing;
+                    SetBipedAnimation(PlayerAnimation.Idle, AnimFlags.None);
+                    if (_burnTimer > 0)
+                    {
+                        CreateBurnEffect();
+                    }
+                    if (CameraType != CameraType.First)
+                    {
+                        SwitchCamera(CameraType.First, _facingVector);
+                    }
+                }
+                else if (IsMorphing)
+                {
+                    // The form was already applied; only the stale animation
+                    // flag remains. Preserve the alt model and camera.
+                    Flags1 &= ~PlayerFlags1.Morphing;
+                }
                 return;
             }
             NetLog.Event($"slot {SlotIndex} form forced to {(altForm ? "alt" : "biped")} "

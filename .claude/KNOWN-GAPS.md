@@ -128,21 +128,15 @@ claiming coverage that isn't there.
   with damage it did not deal, and it is a one-word fix (`NoSlot`) whenever
   that file is next touched.
 
-- **With the server as the authority, nobody gets the snapshot-based form
-  correction any more.** `NetPlayerBridge` reconciles a puppet's alt form
-  against `IntentButtons.AltFormState` only on the authority -- deliberately,
-  because a client doing it as well would take corrections from the owner's
-  intent and the authority's snapshot at once. When the authority was a
-  player, that player's own view of everybody was corrected; now the authority
-  is not a player, so every client converges by replaying presses alone.
-  Measured against the Pi with 150 ms injected on two of three clients, this
-  shows up as one client reporting a remote player in the wrong form for 78
-  consecutive frames. It is **not new** -- the relay control does not report
-  it only because the client that would have is the authority and is exempt
-  from the check -- but it is now everybody's. Whether clients can safely
-  reconcile form from the snapshot once the authority is not a player is an
-  open question, and one to settle with `run-remote-lag.sh` rather than by
-  reasoning. See `.claude/multiplayer/NETWORK-SERVERAUTH.md`.
+- **Live validation of snapshot-based form reconciliation remains.** The
+  authority now reconciles from the owner's intent and each client from the
+  authority's snapshot, with a transition-aware guard for stale state. The
+  prior Pi run with 150 ms injected on two of three clients found a remote
+  puppet wrong for 78 consecutive frames; that predates this change. The
+  deterministic form test covers morph and unmorph at 150 and 300 ms, but a
+  restart-free `run-remote-lag.sh` run is still needed to measure real packet
+  timing and whether any visual bounce remains. See
+  `.claude/multiplayer/NETWORK-DIAGNOSTICS.md`.
 - **The damage pipeline's `Replayed` count reads zero for one slot on one
   client, and the reason is not established.** Measured against Japan,
   2026-09-09, four two-client runs: the first client's slot carries the same

@@ -2,6 +2,18 @@
 
 Build and release workflow summary.
 
+Release versions use canonical `vMAJOR.MINOR.PATCH` tags with each component
+between 0 and 999, and a nonzero Android versionCode. Validation happens before
+a bump creates its tag. Oversized or zero-padded numbers are refused before
+Bash arithmetic. Local desktop and Android builds have an explicit `local`
+informational stamp; release builds override it, so `v1.0.0` is also a usable
+release. Prerelease suffixes remain outside the automatic update channel.
+
+Offline regressions: `tools/check-release-version.ps1` runs the real workflow
+tag step with a mocked `gh`, and `dotnet run --project tools/updatecheck` checks
+the updater against synthetic metadata. Run the latter again with
+`-p:InformationalVersion=1.0.0 -- 1.0.0` to check a stamped assembly.
+
 Workflows
 
 | Workflow | When | What |
