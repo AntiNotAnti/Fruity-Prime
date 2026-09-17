@@ -60,6 +60,8 @@ namespace MphRead.Mods.Network
         private static readonly List<RemotePeer> _peers = new();
         private static IPEndPoint? _hostEndPoint;
         private static readonly byte[] _scratch = new byte[NetConfig.MaxPacketSize];
+        internal static void SendMapRequest(byte[] payload)
+        {if(_hostEndPoint!=null)_transport?.Send(_hostEndPoint,PacketType.MapWant,payload);}
 
         public static NetRole Role { get; private set; } = NetRole.Offline;
         public static bool Active => Role != NetRole.Offline;
@@ -394,6 +396,7 @@ namespace MphRead.Mods.Network
         {
             ResetLobbySession();
             _playback = false;
+            NetMapTransfer.Reset();
             NetPlayerSetup.Reset();
             SpectatorMode.Reset();
             DemoRecorder.Stop();
@@ -604,6 +607,7 @@ namespace MphRead.Mods.Network
         {
             DemoClip.Tick();
             if (Role == NetRole.Client && !DemoPlayback.IsActive) time = Clock;
+            _updateTime = time;
             if (Role == NetRole.Server)
             {
                 // No socket here: DedicatedServer owns it, drains it on its
@@ -693,6 +697,14 @@ namespace MphRead.Mods.Network
         private const double SilenceBeforeRejoin = 5.0;
 
         private static double _lastServerPacket;
+        private static double _updateTime;
+        // Loading pauses the scene clock. Drain replies without advancing the
+        // simulation frame or replacing its clock with a download stopwatch.
+        internal static void PumpMapTransfer()
+        {
+            if(_transport==null)return;
+            foreach(var packet in _transport.Drain())Handle(packet,_updateTime);
+        }
 
         /// <summary>
         /// How many times this client found the server silent long enough to
@@ -745,6 +757,8 @@ namespace MphRead.Mods.Network
                 or PacketType.Bye or PacketType.Refused) return;
             if (Role == NetRole.Client && !_playback
                 && (_hostEndPoint == null || !packet.Sender.Equals(_hostEndPoint))) return;
+            if(packet.Type is PacketType.MapOffer or PacketType.MapChunk
+                && (Role!=NetRole.Client||_hostEndPoint==null||!packet.Sender.Equals(_hostEndPoint)))return;
             if (Role == NetRole.Client)
             {
                 if (_lastServerPacket > 0 && time > _lastServerPacket)
@@ -766,6 +780,10 @@ namespace MphRead.Mods.Network
                     break;
                 case PacketType.LobbyCommandResult when Role == NetRole.Client:
                     if (LobbyCommandResultPacket.TryRead(packet.Payload, out var result)) ApplyLobbyResult(result);
+                    break;
+                case PacketType.MapOffer when Role == NetRole.Client:
+                case PacketType.MapChunk when Role == NetRole.Client:
+                    if(_hostEndPoint!=null&&packet.Sender.Equals(_hostEndPoint))NetMapTransfer.Receive(packet.Type,packet.Payload);
                     break;
                 case PacketType.Hello when Role == NetRole.Host:
                     HandleHello(packet, time);

@@ -1,8 +1,10 @@
 # Custom maps: the generator and the Quake 3 importer
 
+See [MAP-STUDIO.md](MAP-STUDIO.md) for the v2 project/editor, validation, reproducible builds, universal packages and protocol 8 transfer.
+
 ## What ships: one file
 
-**A map is handed out as a `.fpmap` bundle** -- the recipe, the level and the
+**An imported map is handed out as a `.fpmap` bundle** -- the recipe, the level and the
 baked texture pack in one zip, with the level trimmed to the lumps the importer
 reads (`Q3Bsp.UsedLumps`: entities, textures, planes, models, brushes,
 brushsides, vertexes, meshverts, faces). Everything else a compiler writes --
@@ -21,11 +23,11 @@ against the **2.8 MB** its folder weighed.
   is the source, and a `.pk3` is kept out of every package by
   `CopyToPublishDirectory=Never` while still being copied to a *build* output,
   which is what the convert-and-test loop uses.
-- **A folder and a bundle of the same name are the same map.** `MapFiles()`
+- **A source and package with matching identity are one map.** `MapCatalog`
   lists bundles first and drops any recipe with a bundle's name, so a checkout
   that has both registers one room and not two.
 - The recipe inside a bundle is rewritten as it is cooked: `import.source`
-  points at `maps/<level>.bsp` *inside* the bundle, so a bundle names nothing
+  points at `import/level.bsp` *inside* the bundle, so a bundle names nothing
   outside itself.
 - **Cooking bakes the texture pack if it is not already there**, and refuses
   to write a bundle it cannot give one to. The pack is derived from the
@@ -53,7 +55,7 @@ against the **2.8 MB** its folder weighed.
 - A bundle does not settle whether a level may be handed out. Cooking
   somebody's level into a smaller container leaves it their level.
 
-**A map is two files: the recipe and the level, and both ship.** The asset
+**A loose imported map needs its recipe and level; native maps need no external level.** The asset
 guard used to refuse a `.pk3` by extension; it now refuses only id Software's
 own paks, by name. What that guard is for is keeping somebody else's
 *commercial* data out -- the cartridge, and a game somebody bought -- and a
@@ -457,49 +459,6 @@ the map picker. A map whose source level is absent is left out rather than
 listed and crashing. With nothing shipping, the APK now logs
 `[android] 0 bundled map files` and the picker shows the 27 cartridge rooms.
 
-## Not done yet
+## Current authoring and distribution
 
-- **A map is left out when its source level is missing**, which is the case
-  that happens (the map file travels with the repository, the Quake level it
-  was made from does not). A map that fails to build for any *other* reason
-  still appears in the room list and crashes when picked: registration happens
-  in `Metadata`'s static initialiser, before the game files are known, so that
-  is as much as it can check.
-- **Nothing hashes the map** in the network handshake: two clients on the same
-  build with different `maps/` will disagree silently.
-
-## Handing a custom map to a client that does not have it
-
-**Not implemented. The packet numbers are spent, and that is the whole of it.**
-
-`PacketType` 32-35 are reserved for it -- `MapOffer` (the server names the map,
-its hash and its size), `MapWant` (the client asks for the bytes from offset N),
-`MapChunk` (one piece of the `.fpmap`), `MapDone` (the client has it and it
-hashes right). Nothing in this build sends or answers any of them.
-
-They were spent early on purpose. `NetConfig.ProtocolVersion` 7 already refuses
-every client built before it, for reasons that have nothing to do with map
-transfer; taking the numbers now means that refusal is the same refusal that
-will cover the transfer, instead of a second protocol bump -- and a second bump
-is a second day of every server in the world having to be redeployed before
-anybody can play. A client built today cannot meet a server that speaks the
-transfer and misread a chunk as something else, because it cannot connect to it
-at all.
-
-What is settled about the shape, so that the numbers mean something:
-
-- **the bundle is the unit.** `-mapbundle` already cooks a map into one
-  `.fpmap` -- recipe, level and baked textures, level trimmed to the lumps the
-  importer reads, 376 KB for de_dust2 against 2.8 MB for the folder. That file
-  is what would travel, and its hash is what identifies it.
-- **the offer comes before the load, not during it.** A client that is told
-  about a custom map at the moment the rotation reaches it has a room to load
-  and no bytes to load it from; the offer belongs with the match state, early
-  enough that the transfer finishes before the map is needed.
-- **the hash is the name.** Two people with a map called `de_dust2` do not
-  necessarily have the same map, and a rotation that names one by string alone
-  cannot tell.
-- **`net.livetek.fr` is where they come from.** The directory already knows
-  which servers are up and is the one machine in the world every launcher
-  talks to; hosting the bundles there means a server does not have to serve
-  them out of its own bandwidth mid-match.
+The v2 implementation and remaining limits are documented in [MAP-STUDIO.md](MAP-STUDIO.md). Custom-room generation checks all five outputs and SHA-256 dependencies. Native and imported projects both package as .fpmap. Protocol 8 clients verify/download the selected dedicated server's exact package before joining or rotating.

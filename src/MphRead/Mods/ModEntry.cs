@@ -413,6 +413,35 @@ namespace MphRead.Mods
                     System.IO.Path.Combine(ConsoleSetup.LaunchDirectory, mapDir));
             }
 
+            foreach (string command in new[] { "mapvalidate", "mapinspect" })
+            {
+                if (HasFlag(args, command))
+                {
+                    Environment.ExitCode = MapGen.MapCommands.Run(command, ValueAfter(args, command), ValueAfter(args, "out"));
+                    return true;
+                }
+            }
+
+            if (HasFlag(args, "mapstudio"))
+            {
+#if MPHREAD_SHELL
+                Launcher.Gui.Shell.OpenStudioOnStart = true;
+                Launcher.Gui.Shell.Run();
+#else
+                Console.WriteLine("[mapeditor] Map Studio requires a desktop game build.");
+                Environment.ExitCode = 1;
+#endif
+                return true;
+            }
+#if MPHREAD_SHELL
+            if(ValueAfter(args,"mapstudioshot") is {} studioShots)
+            {
+                Environment.ExitCode=Launcher.Gui.MapStudioScreen.Capture(System.IO.Path.GetFullPath(
+                    System.IO.Path.Combine(ConsoleSetup.LaunchDirectory,studioShots)));
+                return true;
+            }
+#endif
+
             // Cooking a bundle is here, before the game-file check, for the
             // reason the dedicated server is: it reads a recipe, the level
             // beside it and the textures baked from it, and touches no
@@ -426,17 +455,17 @@ namespace MphRead.Mods
                 string? outPath = ValueAfter(args, "out");
                 int cooked = 0;
                 int failed = 0;
-                foreach (MapGen.MapDefinition def in MapGen.CustomRooms.Definitions)
+                foreach (MapGen.MapDefinition def in new MapGen.MapCatalog(MapGen.CustomRooms.MapDirectory).Refresh(false)
+                    .Where(entry=>entry.Definition!=null).Select(entry=>entry.Definition!))
                 {
                     if (which != null && !which.Equals(def.Name, StringComparison.OrdinalIgnoreCase)
                         && !which.Equals("all", StringComparison.OrdinalIgnoreCase))
                     {
                         continue;
                     }
-                    if (def.SourcePath == null || def.BundlePath != null || def.Import == null)
+                    if (def.SourcePath == null || def.BundlePath != null)
                     {
-                        // Already a bundle, or a map that builds from its own
-                        // description and has no level to carry.
+                        // Build packages from editable sources, including native maps.
                         continue;
                     }
                     try
@@ -452,8 +481,8 @@ namespace MphRead.Mods
                 }
                 if (cooked == 0 && failed == 0)
                 {
-                    Console.WriteLine("No map to bundle. A bundle is cooked from a recipe and the "
-                        + $"level it converts; put both in {MapGen.CustomRooms.MapDirectory}.");
+                    Console.WriteLine($"No matching editable map source in {MapGen.CustomRooms.MapDirectory}.");
+                    failed++;
                 }
                 Environment.ExitCode = failed == 0 ? 0 : 1;
                 return true;
@@ -1114,6 +1143,11 @@ namespace MphRead.Mods
             // textures come out of the player's own extracted files, so this
             // has to run here rather than at build time, and what ships in the
             // repository is the JSON, never the .bin.
+            if (HasFlag(args, "mapbuild"))
+            {
+                Environment.ExitCode = MapGen.MapCommands.Run("mapbuild", ValueAfter(args, "mapbuild"), ValueAfter(args, "out"));
+                return true;
+            }
             if (HasFlag(args, "mapgen"))
             {
                 string? only = ValueAfter(args, "mapgen");

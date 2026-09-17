@@ -103,7 +103,19 @@ namespace MphRead.Mods.Network
                 Thread.Sleep(20);
             }
             DisableCheatsForMatch();
-            return NetSession.Active;
+            return NetSession.Active && VerifyServerMap();
+        }
+
+        // Lobby connection precedes map selection. Verify only when loading,
+        // so an idle lobby never needs a running ServerMatch or a download.
+        public static bool VerifyServerMap()
+        {
+            if (!NetSession.IsClient || DemoPlayback.IsActive) return true;
+            string? room = ServerRoom()?.RoomKey;
+            if (room != null && NetMapTransfer.Ensure(room, force: true)) return true;
+            LastJoinError = NetMapTransfer.LastError ?? "Could not verify the server map.";
+            NetSession.Stop();
+            return false;
         }
 
         private static void PollTerminalInput()

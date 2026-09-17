@@ -22,6 +22,11 @@ namespace MphRead.Mods.MapGen
     /// </summary>
     public class MapDefinition
     {
+        public int FormatVersion { get; set; } = 1;
+        public Guid MapId { get; set; }
+        public string? Author { get; set; }
+        public string? Version { get; set; }
+        public string? Description { get; set; }
         public string Name { get; set; } = "CUSTOM";
         public string? InGameName { get; set; }
 
@@ -60,6 +65,11 @@ namespace MphRead.Mods.MapGen
 
         public List<MapMaterial> Materials { get; set; } = new List<MapMaterial>();
         public List<MapBrush> Brushes { get; set; } = new List<MapBrush>();
+        public List<MapGeometry> Geometry { get; set; } = new();
+        public List<MapAsset> Assets { get; set; } = new();
+        public MapAudioSettings? Audio { get; set; }
+        public MapCapabilities? Capabilities { get; set; }
+        public List<MapNavigationLink> NavigationLinks { get; set; } = new();
         public List<MapSpawn> Spawns { get; set; } = new List<MapSpawn>();
         public List<MapJumpPad> JumpPads { get; set; } = new List<MapJumpPad>();
         public List<MapItem> Items { get; set; } = new List<MapItem>();
@@ -96,6 +106,7 @@ namespace MphRead.Mods.MapGen
 
         public static MapDefinition Load(string path)
         {
+            if(!MapBundle.Is(path)&&new FileInfo(path).Length>8*1024*1024)throw new InvalidDataException("Map project exceeds 8 MiB.");
             string text = MapBundle.Is(path)
                 ? MapBundle.ReadRecipe(path)
                     ?? throw new ProgramException($"{Path.GetFileName(path)} has no map in it.")
@@ -105,6 +116,10 @@ namespace MphRead.Mods.MapGen
             {
                 throw new ProgramException($"Could not read map definition {path}.");
             }
+            if (result.FormatVersion is < 1 or > 2)
+                throw new MapAuthoringException("FP-MAP-008", $"Unsupported map format {result.FormatVersion}.");
+            MapValidator.RequireRuntimeName(result.Name);
+            if(result.FormatVersion==1)result.Name=result.Name.ToUpperInvariant();
             result.BaseDirectory = Path.GetDirectoryName(Path.GetFullPath(path));
             result.SourcePath = Path.GetFullPath(path);
             result.BundlePath = MapBundle.Is(path) ? result.SourcePath : null;
@@ -118,7 +133,7 @@ namespace MphRead.Mods.MapGen
 
         public void Save(string path)
         {
-            File.WriteAllText(path, Serialize());
+            AtomicFile.Write(path, System.Text.Encoding.UTF8.GetBytes(Serialize()));
         }
 
         /// <summary>The recipe as it would be written, for a bundle to carry.</summary>
@@ -170,7 +185,7 @@ namespace MphRead.Mods.MapGen
 
         public string? Resolve()
         {
-            if (Source.Length == 0)
+            if (string.IsNullOrEmpty(Source))
             {
                 return null;
             }
@@ -350,6 +365,8 @@ namespace MphRead.Mods.MapGen
     /// </summary>
     public class MapMaterial
     {
+        public Guid Id { get; set; }
+        public string? Texture { get; set; }
         public string Name { get; set; } = "mat";
         /// <summary>Index of the material in the source room to take the texture and palette from.</summary>
         public int SourceMaterial { get; set; }
@@ -360,6 +377,8 @@ namespace MphRead.Mods.MapGen
     /// <summary>An axis-aligned box. Six quads of geometry, six faces of collision.</summary>
     public class MapBrush
     {
+        public Guid Id { get; set; }
+        public string? Label { get; set; }
         public float[] Min { get; set; } = new float[3];
         public float[] Max { get; set; } = new float[3];
         public int Material { get; set; }
@@ -372,9 +391,9 @@ namespace MphRead.Mods.MapGen
         public string? Terrain { get; set; }
     }
 
-    public class MapSpawn
+    public class MapSpawn : MapEntityDefinition
     {
-        public float[] Position { get; set; } = new float[3];
+        public int Team { get; set; } = -1;
         /// <summary>Degrees, 0 = facing +Z, counter-clockwise seen from above.</summary>
         public float Yaw { get; set; }
     }
@@ -383,9 +402,8 @@ namespace MphRead.Mods.MapGen
     /// A jump pad. Either give it a Target and let the launch velocity be
     /// solved for, or set Vector and Speed directly.
     /// </summary>
-    public class MapJumpPad
+    public class MapJumpPad : MapEntityDefinition
     {
-        public float[] Position { get; set; } = new float[3];
         public float[]? Target { get; set; }
         public float[]? Vector { get; set; }
         public float Speed { get; set; }
@@ -399,10 +417,9 @@ namespace MphRead.Mods.MapGen
         public ushort ControlLockTime { get; set; } = 30;
     }
 
-    public class MapItem
+    public class MapItem : MapEntityDefinition
     {
-        public float[] Position { get; set; } = new float[3];
-        public string Type { get; set; } = "MissileExpansion";
+        public string Type { get; set; } = "MissileSmall";
         public bool HasBase { get; set; } = true;
         public ushort SpawnInterval { get; set; } = 300;
     }
