@@ -29,11 +29,10 @@ namespace MphRead.Mods.Input
     ///
     /// <list type="bullet">
     /// <item><c>gamecontrollerdb.txt</c> beside the executable -- what a
-    /// release would ship if one were ever bundled, and where a player who
+    /// release ships, and where a player who
     /// unzipped the game will naturally drop a file.</item>
     /// <item><c>gamecontrollerdb.txt</c> in the settings directory, beside
-    /// <c>controls.txt</c> -- the one that survives reinstalling, and on
-    /// Android the only one the app can read at all.</item>
+    /// <c>controls.txt</c> -- the one that survives reinstalling.</item>
     /// <item><c>SDL_GAMECONTROLLERCONFIG</c>, SDL's own environment variable,
     /// because somebody who has already made their pad work in another game
     /// most likely did it there.</item>

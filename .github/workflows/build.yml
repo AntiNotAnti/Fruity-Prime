@@ -38,6 +38,16 @@ jobs:
           dotnet-version: '9.0.x'
       - name: persistent lobby regression without game assets
         run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -netlobbytest
+  controller-checks:
+    name: controller regressions
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '9.0.x'
+      - name: deterministic input and headless UI checks
+        run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -gamepadcheck
 
   build:
     name: ${{ matrix.id }}
