@@ -154,12 +154,18 @@ internal static class MapNetworkTests
         Check(offer?.Name == "MP1 SANCTORUS", "map offers follow frozen lobby selection rather than continuous rotation");
     }
 
-    private static (bool Ok, string? Error, int Chunks) Exchange(MapOffer offer, byte[] archive, bool rotate = false, bool handover = false)
+    private static (bool Ok, string? Error, int Chunks, bool KeptLobby) Exchange(MapOffer offer, byte[] archive,
+        bool rotate = false, bool handover = false, bool cancelStart = false)
     {
         using var server = new NetTransport(0);
         using var cancel = new CancellationTokenSource();
         NetSession.StartClient("127.0.0.1", server.LocalPort);
         NetSession.ApplyMatchState(new MatchStatePacket { RoomKey = offer.Name, MatchId = 1, AuthorityEpoch = 1, Mode = (byte)GameMode.Battle }, false);
+        var session = new SessionStatePacket { Policy = ServerSessionPolicy.Lobby, Phase = SessionPhase.Starting,
+            MatchId = 1, AuthorityEpoch = 1, Revision = 1, MaxPlayers = 4, OwnerSlot = 255,
+            WorldProfile = MphRead.Mods.Multiplayer.MatchWorldProfile.Resolve(4),
+            Match = new MatchDefinition { RoomKey = offer.Name, Mode = GameMode.Battle } };
+        if (cancelStart) typeof(NetSession).GetMethod("ApplySessionState", Private)!.Invoke(null, new object[] { session });
         int chunks = 0;
         var responder = Task.Run(() =>
         {
@@ -170,6 +176,13 @@ internal static class MapNetworkTests
                     if (request.Type != PacketType.MapWant) continue;
                     if (request.Payload.Length == 1)
                     {
+                        if (cancelStart)
+                        {
+                            session.Phase = SessionPhase.Lobby; session.Revision++;
+                            byte[] state = new byte[SessionStatePacket.Size]; session.Write(state);
+                            server.Send(request.Sender, PacketType.SessionState, state);
+                            continue;
+                        }
                         if (rotate || handover)
                         {
                             byte[] state = new byte[MatchStatePacket.Size];
@@ -191,7 +204,8 @@ internal static class MapNetworkTests
                 Thread.Sleep(1);
             }
         });
-        try { bool ok = NetMapTransfer.Ensure(offer.Name, force: true); return (ok, NetMapTransfer.LastError, chunks); }
+        try { bool ok = cancelStart ? NetLaunch.VerifyServerMap() : NetMapTransfer.Ensure(offer.Name, force: true);
+            return (ok, NetMapTransfer.LastError, chunks, NetLaunch.LoadReturnedToLobby); }
         finally { cancel.Cancel(); responder.GetAwaiter().GetResult(); NetSession.Stop(); }
     }
 
@@ -252,6 +266,9 @@ internal static class MapNetworkTests
         var handedOver = Exchange(new MapOffer("MP3 PROVING GROUND", Guid.Empty, null, "", "", 0), Array.Empty<byte>(), handover: true);
         Check(!handedOver.Ok && handedOver.Error?.Contains("changed", StringComparison.OrdinalIgnoreCase) == true,
             "same-match authority change cancels stale download/bootstrap");
+        var canceled = Exchange(new MapOffer("MP3 PROVING GROUND", Guid.Empty, null, "", "", 0), Array.Empty<byte>(), cancelStart: true);
+        Check(!canceled.Ok && canceled.Error == null && canceled.KeptLobby,
+            "canceled start returns to the live lobby without a load-failure disconnect");
         Check(!Directory.Exists(Path.Combine(CustomRooms.MapDirectory, ".downloads"))
             || !Directory.EnumerateFiles(Path.Combine(CustomRooms.MapDirectory, ".downloads")).Any(), "temporary downloads cleaned up");
     }

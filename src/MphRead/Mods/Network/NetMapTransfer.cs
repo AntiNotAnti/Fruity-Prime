@@ -139,6 +139,9 @@ namespace MphRead.Mods.Network
                 while(clock.Elapsed<TimeSpan.FromMinutes(3))
                 {
                     NetSession.PumpMapTransfer();
+                    // A canceled start keeps its stream identity. Return to
+                    // that lobby without installing or disconnecting the peer.
+                    if (NetLaunch.LoadReturnedToLobby) return false;
                     if(_error!=null)throw new InvalidDataException(_error);
                     if(!NetSession.IsClient||NetSession.ServerMatch?.RoomKey!=room||NetSession.ServerMatch?.MatchId!=matchId
                         ||NetSession.ServerMatch?.AuthorityEpoch!=epoch)
