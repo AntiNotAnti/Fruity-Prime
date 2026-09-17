@@ -147,6 +147,7 @@ jobs:
           chmod +x "publish/$RID/FruityPrime"
           tools/sign-macos.sh "publish/$RID"
           tools/check-macos-build.sh "publish/$RID" "$RID"
+          "publish/$RID/FruityPrime" -smoketest
           tools/check-no-game-assets.sh "publish/$RID"
           tools/check-maps-shipped.sh "publish/$RID"
       - uses: actions/upload-artifact@v7

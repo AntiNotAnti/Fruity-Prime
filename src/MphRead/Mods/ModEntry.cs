@@ -33,6 +33,11 @@ namespace MphRead.Mods
         /// </summary>
         public static bool TryHandleHeadless(string[] args)
         {
+            if (HasFlag(args, "smoketest"))
+            {
+                Environment.ExitCode = Diagnostics.CompatibilityCheck.Run();
+                return true;
+            }
             // Keys and mouse feel, before anything creates a player. Called
             // here because this runs for every invocation, launcher or not.
             InputSettings.Load();
