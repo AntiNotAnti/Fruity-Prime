@@ -70,7 +70,9 @@ echo 'macOS signing gate regressions passed.'
 fixture="$temp/package-input"
 mkdir -p "$fixture/maps"
 cp "$root/FruityPrime" "$root/libopenal.1.dylib" "$fixture/"
-cp "$repo/src/MphRead/gamecontrollerdb.txt" "$repo/src/MphRead/gamecontrollerdb.LICENSE" "$fixture/"
+# Synthetic data keeps the packaging gate independent of controller feature branches.
+printf '# Controller mapping packaging fixture\n' > "$fixture/gamecontrollerdb.txt"
+printf 'Controller mapping license fixture\n' > "$fixture/gamecontrollerdb.LICENSE"
 printf '{"Name":"PACKAGING TEST"}\n' > "$fixture/maps/fixture.json"
 "$repo/tools/package-macos.sh" "$fixture" "$temp/dist" "$rid" 1.2.3
 mkdir "$temp/unpacked"
