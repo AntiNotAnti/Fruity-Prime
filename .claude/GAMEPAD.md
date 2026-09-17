@@ -62,7 +62,7 @@ expired votes disappear and restore focus to Resume.
 
 ## Settings and bindings
 
-Settings -> Controls exposes independent inner/outer deadzones, X/Y sensitivity,
+Settings -> Controller exposes independent inner/outer deadzones, X/Y sensitivity,
 X/Y inversion, Linear/Classic/Precision/Dynamic response curves, southpaw, trigger
 actuation, controller activity threshold, family labels, vibration and intensity.
 Classic remains the squared curve. Dynamic is a 1.5 exponent preset. Defaults keep
@@ -80,8 +80,17 @@ During capture, B cancels, Back clears, and Start opens a button picker. The pic
 makes every button bindable, including B, Back and Start themselves. Left/right
 chooses a button (or unbound), then Accept assigns it. Conflicts offer Swap,
 Replace, Keep Both or Cancel; existing bindings are not changed until a choice.
-Disconnect cancels capture. Presets are Default, Bumper Jumper, Southpaw and Classic;
-manual edits set Custom. Keyboard bindings are independent of controller presets.
+Swap is initially selected, so Accept confirms the reassignment; Cancel remains available. Swapping preserves
+the other action's Primary/Secondary slot positions. Capture takes its baseline
+after polling the device and reports disconnect/focus changes instead of silently
+stopping. Disconnect cancels capture. Presets are Default, Bumper Jumper,
+Southpaw and Classic; manual edits set Custom. Preset changes retain focus and refresh all button rows;
+calibration is retained. The live test at the top shows the active controller,
+mapping source, sticks, trigger bars, pressed buttons and the actions they reach.
+Keyboard bindings are independent of controller presets. Using a controller on a
+keyboard action row opens its corresponding controller binding. A controller
+press during keyboard capture binds that game action without replacing the
+keyboard key. Keyboard-only actions explain where the controller sticks are set.
 
 The default right stick click opens a native radial weapon wheel. The aim stick
 selects among the six existing special-weapon slots, clockwise from the top, and
@@ -127,10 +136,41 @@ upstream repository when refreshing mappings. Load order is bundled -> settings
 directory -> SDL_GAMECONTROLLERCONFIG, so user mappings override bundled ones.
 Raw guessing remains the last fallback and is labelled unmapped.
 
+### macOS Xbox Bluetooth firmware compatibility
+
+The Xbox Series X/S report exposed an unsafe fallback: all six-axis devices used
+Linux's interleaved layout (right stick 3/4), while the macOS Bluetooth profile
+uses right stick 2/3 and RT/LT 4/5. RT therefore became camera input when the
+firmware GUID lacked an exact mapping. Device-specific selection now keeps these
+axes separate, including the raw fallback if the database cannot be loaded.
+
+For otherwise unmapped Microsoft 045e:0b13/0b20 devices with the known six-axis,
+15-or-more-button, one-hat shape, a compatibility mapping is registered for the
+actual firmware GUID. Existing GLFW/bundled/user/environment mappings keep
+priority. Other products and report shapes are not assigned this compatibility
+mapping. The layout follows the macOS entries in the bundled
+[SDL_GameControllerDB snapshot](https://github.com/mdqinc/SDL_GameControllerDB/blob/5a12daa568d19344f9b6e9286ef5929833b25c7c/gamecontrollerdb.txt).
+GLFW's [Cocoa device enumeration](https://github.com/glfw/glfw/blob/3.4/src/cocoa_joystick.m)
+includes the firmware version in its GUID, so an unknown firmware revision can
+miss an otherwise equivalent database entry.
+
+`GamepadPlatformChecks` tests raw macOS Bluetooth fixtures through the same reader
+used in gameplay: every button, both sticks/triggers, diagonal hats, unfamiliar
+firmware, profile guards, all presets and conflict slot preservation. The live
+monitor provides a hardware retest: hold RT alone and confirm the RT bar fills,
+both stick dots stay centered, and Default reports Fire / alt attack.
+
+
 ```
 FruityPrime -gamepad -verbose -seconds 30
 FruityPrime -gamepadcheck
 FruityPrime -gamepadcheck -shots OUTPUT_DIRECTORY
+```
+
+For an installed Mac app, run the executable inside the bundle (no sudo):
+
+```sh
+"/Applications/Fruity Prime.app/Contents/MacOS/FruityPrime" -gamepad -verbose -seconds 10
 ```
 
 Neither diagnostic needs ROM assets. The probe resolves actions from the current
@@ -144,14 +184,17 @@ focus/menu transitions between ticks, and B/Start on the Android-hosted pause vi
 
 ## Validation limits
 
-No physical controller or Android device was available for this implementation.
-Builds and synthetic checks are not hardware certification. In particular, test
+The user reported Xbox Series X/S Bluetooth failures on macOS using the integration
+UI branch. Local Windows builds and synthetic macOS HID fixtures validate the
+repair; the actual Mac/controller retest remains pending. No physical controller
+or Android device is attached to the development machine. Synthetic checks are
+not hardware certification. In particular, test
 USB/Bluetooth reconnects, raw mappings, Android motion profiles and actual vibration
 on real devices before calling the hardware matrix complete.
 
 Required manual matrix: Windows Xbox USB/Bluetooth, DualSense USB/Bluetooth,
 DualShock 4, Switch Pro and generic mapped/unmapped pads; Linux Xbox, DualSense and
-generic pads; Android Xbox/DualSense Bluetooth and USB-C/generic pads; Steam Deck
+generic pads; macOS Xbox Series X/S Bluetooth; Android Xbox/DualSense Bluetooth and USB-C/generic pads; Steam Deck
 where available. For each, exercise launcher -> settings/rebinding -> host/join ->
 match -> pause/settings -> map vote/results -> launcher -> quit. Disconnect while
 holding a trigger or D-pad, reconnect, connect a second pad, switch activity and

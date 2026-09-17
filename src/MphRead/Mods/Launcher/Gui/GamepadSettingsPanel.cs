@@ -14,26 +14,32 @@ namespace MphRead.Mods.Launcher.Gui
         private ChoiceRow? _devices, _presetRow;
         private bool _refreshing;
         private GamepadFamily _shownFamily;
+        private long _shownBindings = -1;
         private static readonly string[] Presets = { "Default", "Bumper Jumper", "Southpaw", "Classic", "Custom" };
         public GamepadSettingsPanel()
         {
             Spacing = 8;
             Reload();
-            _timer = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background,
+            _timer = new DispatcherTimer(TimeSpan.FromMilliseconds(100), DispatcherPriority.Background,
                 (_, _) => { if (IsEffectivelyVisible) { RefreshDevices(); RefreshLabels(); } });
             AttachedToVisualTree += (_, _) => _timer.Start();
             DetachedFromVisualTree += (_, _) => _timer.Stop();
         }
         public void Reload()
         {
-            Children.Clear(); _deviceList = ""; _devices = null;
+            bool presetFocused = _presetRow?.IsFocused == true;
+            Children.Clear(); _deviceList = ""; _devices = null; _presetRow = null;
             RefreshDevices();
+            Children.Add(new GamepadMonitor());
             Choice("Button labels", new[] { "Automatic", "Xbox", "PlayStation", "Nintendo", "Generic" }, (int)GamepadOptions.GlyphStyle,
                 i => GamepadOptions.GlyphStyle = (GamepadFamily)i);
-            Choice("Preset", new[] { "Default", "Bumper Jumper", "Southpaw", "Classic", "Custom" },
-                Array.IndexOf(new[] { "Default", "Bumper Jumper", "Southpaw", "Classic", "Custom" }, PadBindings.Preset),
-                i => { PadBindings.ApplyPreset(new[] { "Default", "Bumper Jumper", "Southpaw", "Classic", "Custom" }[i]);
-                    Dispatcher.UIThread.Post(Reload); });
+            Choice("Preset", Presets, Array.IndexOf(Presets, PadBindings.Preset),
+                i => { PadBindings.ApplyPreset(Presets[i]); RefreshLabels(); Dispatcher.UIThread.Post(Reload); });
+            Children.Add(new TextBlock
+            {
+                Text = "Presets change button actions and swap sticks for Southpaw. Your aim calibration is retained.",
+                FontSize = 11, Foreground = GuiTheme.TextDimBrush, TextWrapping = Avalonia.Media.TextWrapping.Wrap
+            });
             Number("Horizontal sensitivity", GamepadOptions.LookX, .1f, 5, v => GamepadOptions.LookX = v);
             Number("Vertical sensitivity", GamepadOptions.LookY, .1f, 5, v => GamepadOptions.LookY = v);
             Number("Left inner deadzone", GamepadOptions.LeftInner, 0, .9f, v => GamepadOptions.LeftInner = v);
@@ -49,6 +55,7 @@ namespace MphRead.Mods.Launcher.Gui
             Flag("Vibration", GamepadOptions.Vibration, v => { GamepadOptions.Vibration = v; if (!v) GamepadHaptics.Stop(); });
             Number("Vibration strength", GamepadOptions.VibrationStrength, 0, 1,
                 v => { GamepadOptions.VibrationStrength = v; if (v <= 0) GamepadHaptics.Stop(); });
+            if (presetFocused) Dispatcher.UIThread.Post(() => FocusNavigator.Focus(_presetRow));
         }
         private void RefreshDevices()
         {
@@ -66,7 +73,7 @@ namespace MphRead.Mods.Launcher.Gui
             Children.Insert(0, _devices);
             if (focused) _devices.Focus();
         }
-        private void RefreshLabels()
+        internal void RefreshLabels()
         {
             if (_presetRow != null && _presetRow.Value != PadBindings.Preset)
             {
@@ -76,8 +83,8 @@ namespace MphRead.Mods.Launcher.Gui
             }
             var family = GamepadOptions.GlyphStyle == GamepadFamily.Unknown
                 ? GamepadManager.ActiveDevice?.Family ?? GamepadFamily.Generic : GamepadOptions.GlyphStyle;
-            if (family == _shownFamily) return;
-            _shownFamily = family;
+            if (family == _shownFamily && _shownBindings == PadBindings.Revision) return;
+            _shownFamily = family; _shownBindings = PadBindings.Revision;
             var settings = this.GetVisualAncestors().OfType<SettingsView>().FirstOrDefault();
             if (settings != null) foreach (var row in settings.GetVisualDescendants().OfType<PadRow>()) row.InvalidateVisual();
         }

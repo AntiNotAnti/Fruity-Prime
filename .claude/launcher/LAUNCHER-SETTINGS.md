@@ -10,13 +10,16 @@ Wrapped tabs remain above the page; Cancel and Save remain below its scroller.
 | HUD and accessibility | HUD/UI/text scale, safe zone, opacity, crosshair color and outline, high contrast, reduced flashes/shake, team palette, Pro HUD, radar and bright skins |
 | Audio | Sound effects, music, language |
 | Mouse and stylus | Mouse sensitivity/inversion, wheel behavior, stylus zone, keyboard bindings; Android shows Touch and mouse |
-| Controller | Connected controller/profile, sensitivity, dead zones, curves, inversion, vibration, bindings and presets |
+| Controller | Connected controller/profile, live stick/trigger/button test, sensitivity, dead zones, curves, inversion, vibration, bindings and presets |
 | Replay | Save replay clip binding, clip length, post-roll duration |
 | Profile | Player name, hunter, suit color, default server and server directory |
 | Advanced / Support | Game files, updates, debug logging, platform log sharing and credits |
 
 Device-only sections retain their platform guards. The controller panel retains
-its existing live calibration behavior. Other new visual controls are drafts
+its existing live calibration behavior. Presets retain focus and refresh button
+rows; binding edits select Custom. Controller presses on supported keyboard
+binding rows redirect to the matching controller action without modifying the
+keyboard key. Binding conflicts initially select Swap and preserve slot positions. Other new visual controls are drafts
 until Save; FOV retains its existing live preview and Cancel restoration.
 Graphics presets set coherent individual controls; editing one changes the
 selector to Custom. Debug-key changes are detected when Settings is reopened.

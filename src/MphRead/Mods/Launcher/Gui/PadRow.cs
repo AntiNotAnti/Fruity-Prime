@@ -31,8 +31,10 @@ namespace MphRead.Mods.Launcher.Gui
         static PadRow() => AffectsRender<PadRow>(IsFocusedProperty, IsEnabledProperty);
 
         private readonly PadAction _action;
+        internal PadAction Action => _action;
         private readonly double _labelWidth;
         private bool _listening;
+        private string? _message;
         private int _slot, _choice, _pickIndex;
         private bool _picking;
         private static readonly GamepadButtons[] PickButtons = Enum.GetValues<GamepadButtons>();
@@ -123,14 +125,30 @@ namespace MphRead.Mods.Launcher.Gui
             }
         }
 
+        internal void Capture(GamepadButtons pressed = 0)
+        {
+            Listen();
+            if (pressed != 0)
+            {
+                foreach (var button in PickButtons)
+                    if (button != 0 && (pressed & button) != 0) { Choose(button); break; }
+            }
+        }
+
         private void Listen()
         {
             _listening = true;
+            _message = null;
             Height = 72;
             GamepadContexts.Capturing = true;
-            _deviceRevision = GamepadManager.Snapshot.Revision;
+            // Polling can discover a controller or switch the active device. The
+            // baseline must describe that device, not the stale pre-poll revision.
             GamepadDesktop.PollForMenu();
-            _baseline = GamepadInput.State.Buttons;
+            var snapshot = GamepadManager.Snapshot;
+            _deviceRevision = snapshot.Revision;
+            _baseline = snapshot.State.Buttons;
+            TopLevel.GetTopLevel(this)?.UpdateLayout();
+            this.BringIntoView();
             _watch?.Stop();
             _watch = new DispatcherTimer(TimeSpan.FromMilliseconds(30),
                 DispatcherPriority.Input, (_, _) => Check());
@@ -149,7 +167,12 @@ namespace MphRead.Mods.Launcher.Gui
             // is nothing else pumping GLFW. Both cases are inside this call.
             GamepadDesktop.PollForMenu();
             var snapshot = GamepadManager.Snapshot;
-            if (!snapshot.State.Connected || snapshot.Revision != _deviceRevision) { Done(); return; }
+            if (!GamepadContexts.Focused || !snapshot.State.Connected || snapshot.Revision != _deviceRevision)
+            {
+                _message = !GamepadContexts.Focused ? "Focus lost - try again"
+                    : !snapshot.State.Connected ? "Connect a controller, then try again" : "Controller changed - try again";
+                Done(); return;
+            }
             GamepadButtons pressed = snapshot.State.Buttons & ~_baseline;
             _baseline = snapshot.State.Buttons;
             if (pressed == 0) return;
@@ -185,7 +208,7 @@ namespace MphRead.Mods.Launcher.Gui
             if (conflicts.Count == 0) { PadBindings.SetSlot(_action, _slot, button); Done(); }
             else
             {
-                _pending = button; _choice = 3;
+                _pending = button; _choice = 0;
                 _conflict = PadBindings.ButtonName(button) + " is assigned to "
                     + string.Join(" / ", conflicts.Select(PadBindings.Name));
                 Height = 108; this.BringIntoView(); InvalidateVisual();
@@ -265,10 +288,10 @@ namespace MphRead.Mods.Launcher.Gui
                     : IsFocused || _hot ? GuiTheme.Accent : GuiTheme.Edge), 1),
                 new RoundedRect(box, 4));
 
-            string text = _picking ? "< " + PadBindings.Describe(PickButtons[_pickIndex]) + " >  Accept / Back" : _listening
+            string text = _conflict != null ? "Choose how to use " + PadBindings.Describe(_pending) : _picking ? "< " + PadBindings.Describe(PickButtons[_pickIndex]) + " >  Accept / Back" : _listening
                 ? "Press a button"
-                : (_slot == 0 && IsFocused ? "> " : "") + "Primary: " + PadBindings.Describe(PadBindings.Slot(_action, 0))
-                    + "    " + (_slot == 1 && IsFocused ? "> " : "") + "Secondary: " + PadBindings.Describe(PadBindings.Slot(_action, 1));
+                : _message ?? ((_slot == 0 && IsFocused ? "> " : "") + "Primary: " + PadBindings.Describe(PadBindings.Slot(_action, 0))
+                    + "    " + (_slot == 1 && IsFocused ? "> " : "") + "Secondary: " + PadBindings.Describe(PadBindings.Slot(_action, 1)));
             if (_listening && _conflict == null)
             {
                 var hint = TrackedText.Make($"{PadBindings.ButtonName(GamepadButtons.B)} cancel   "
