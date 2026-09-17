@@ -57,6 +57,13 @@ namespace MphRead.Mods
                 Environment.ExitCode = Testing.TestBrightSkins.Run();
                 return true;
             }
+#if !ANDROID
+            if (HasFlag(args, "playeroutlinecheck"))
+            {
+                Environment.ExitCode = Scene.RunPlayerOutlineCheck();
+                return true;
+            }
+#endif
 
             // The copying half of a desktop update, which is this build
             // started by the *previous* one. First, and before anything reads

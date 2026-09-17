@@ -286,7 +286,7 @@ namespace MphRead.Entities
                     _scene.AddRenderItem(material, polygonId, alpha, emission, GetLightInfo(), texcoordMatrix,
                         node.Animation, mesh.ListId, model.NodeMatrixIds.Count, model.MatrixStackValues, color,
                         PaletteOverride, selectionType, node.BillboardMode, _drawScale, bindingOverride,
-                        color.HasValue && Mods.RenderOptions.BrightSkinStyle == Mods.PlayerSkinStyle.Textured,
+                        color.HasValue && Mods.RenderOptions.BrightSkinStyle != Mods.PlayerSkinStyle.Solid,
                         PaletteOverride == null ? outlineColor : null);
                 }
                 if (node.ChildIndex != -1)

@@ -21,6 +21,15 @@ namespace MphRead
         private Vector2i _playerOutlineSize;
         private bool _playerOutlineRefused;
 
+        private void DrawWorldOutlines()
+        {
+            // Cel's black silhouette can completely cover a colored inward rim at low
+            // render scales. Composite player edges last, before preview/HUD layers.
+            DrawCelOutline();
+            DrawPlayerOutlines();
+            GL.UseProgram(_shaderProgramId);
+        }
+
         private void DrawPlayerOutlines()
         {
             if (RenderOptions.PlayerOutline == PlayerOutlineStyle.Off || _playerOutlineRefused)
@@ -72,9 +81,12 @@ namespace MphRead
 
                 GL.BindFramebuffer(FramebufferTarget.Framebuffer, _frameBuffer);
                 GL.UseProgram(_playerOutlineProgram);
-                // Width is in window pixels, independent of render scale.
-                GL.Uniform1(_playerOutlineStepXUniform, RenderOptions.PlayerOutlineWidth / (float)Math.Max(1, Size.X));
-                GL.Uniform1(_playerOutlineStepYUniform, RenderOptions.PlayerOutlineWidth / (float)Math.Max(1, Size.Y));
+                // Width is in window pixels, rounded up to the mask's minimum visible
+                // texel: nearest sampling cannot detect a fractional-texel boundary.
+                GL.Uniform1(_playerOutlineStepXUniform,
+                    Math.Max(1f / _targetSize.X, RenderOptions.PlayerOutlineWidth / (float)Math.Max(1, Size.X)));
+                GL.Uniform1(_playerOutlineStepYUniform,
+                    Math.Max(1f / _targetSize.Y, RenderOptions.PlayerOutlineWidth / (float)Math.Max(1, Size.Y)));
                 GL.ActiveTexture(TextureUnit.Texture0);
                 GL.BindTexture(TextureTarget.Texture2D, _playerOutlineTexture);
                 GL.Disable(EnableCap.DepthTest);
@@ -120,7 +132,7 @@ namespace MphRead
         {
             if (_playerOutlineProgram == 0)
             {
-                int vertex = CompilePlayerOutlineShader(ShaderType.VertexShader, Shaders.RttVertexShader);
+                int vertex = CompilePlayerOutlineShader(ShaderType.VertexShader, PlayerOutlineShader.VertexSource);
                 int fragment = 0;
                 try
                 {
@@ -151,7 +163,7 @@ namespace MphRead
             {
                 _playerOutlineFramebuffer = GL.GenFramebuffer();
                 _playerOutlineTexture = GL.GenTexture();
-                _textureCount++;
+                _textureCount = Math.Max(_textureCount, _playerOutlineTexture);
             }
             GL.BindFramebuffer(FramebufferTarget.Framebuffer, _playerOutlineFramebuffer);
             bool targetChanged = _playerOutlineSize != _targetSize || _playerOutlineDepth != _depthTexture;
@@ -218,7 +230,6 @@ namespace MphRead
             if (_playerOutlineTexture != 0)
             {
                 DeleteTexture(ref _playerOutlineTexture);
-                _textureCount--;
             }
             DeleteProgram(ref _playerOutlineProgram);
             _playerOutlineSize = default;
@@ -231,6 +242,28 @@ namespace MphRead.Mods.Render
 {
     internal static class PlayerOutlineShader
     {
+        // A world composite must not inherit HUD scale/placement uniforms. Uninitialized
+        // uniforms default to zero, which can collapse a reused HUD quad to a point.
+#if ANDROID
+        public static string VertexSource { get; } = @"#version 300 es
+precision highp float;
+layout(location = 0) in vec4 a_position;
+layout(location = 3) in vec3 a_texcoord;
+out vec2 texcoord;
+void main() {
+    gl_Position = vec4(a_position.xy, 0.0, 1.0);
+    texcoord = a_texcoord.xy;
+}
+";
+#else
+        public static string VertexSource { get; } = @"#version 120
+varying vec2 texcoord;
+void main() {
+    gl_Position = vec4(gl_Vertex.xy, 0.0, 1.0);
+    texcoord = gl_MultiTexCoord0.xy;
+}
+";
+#endif
         // One body for both targets: no separate ES algorithm to drift out of sync.
 #if ANDROID
         public static string Source { get; } = "#version 300 es\nprecision highp float;\n"

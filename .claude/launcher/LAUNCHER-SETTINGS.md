@@ -49,7 +49,8 @@ Saving and applying
 Notable toggles
 
 - **Player skins** under Display / Visibility offers Off, Textured (brightened
-  original textures), and Solid (flat identifying color). **Player outline**
+  original textures), High contrast textured (strong suit/team tint with texture
+  detail), and Solid (flat identifying color). **Player outline**
   independently offers Off, Team color, and Bright red, with 1–8 px thickness.
   Team outlines use red in FFA. Both features default off and Save/Apply takes
   effect immediately. The options persist in `launcher.txt`; old enabled

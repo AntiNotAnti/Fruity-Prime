@@ -164,6 +164,8 @@ namespace MphRead
         private bool _outputCameraPos = false;
 
         // map each model's texture ID/palette ID combinations to the bound OpenGL texture ID and "onlyOpaque" boolean
+        // Texture names handed out by BindTexture/BindGetTexture, not a live-object count.
+        // Never decrement: a freed name can precede another target that is still alive.
         private int _textureCount = 0;
         private readonly Dictionary<int, TextureMap> _texPalMap = new Dictionary<int, TextureMap>();
 
@@ -764,7 +766,7 @@ namespace MphRead
             _frameBuffer = GL.GenFramebuffer();
             GL.BindFramebuffer(FramebufferTarget.Framebuffer, _frameBuffer);
             _screenTexture = GL.GenTexture();
-            _textureCount++;
+            _textureCount = Math.Max(_textureCount, _screenTexture);
             Vector2i renderTarget = RenderSize;
             _targetSize = renderTarget;
             GL.BindTexture(TextureTarget.Texture2D, _screenTexture);
@@ -785,7 +787,7 @@ namespace MphRead
             // The ink pass's copy of the scene. Same size and same filtering;
             // it is only ever sampled texel for texel.
             _celTexture = GL.GenTexture();
-            _textureCount++;
+            _textureCount = Math.Max(_textureCount, _celTexture);
             GL.BindTexture(TextureTarget.Texture2D, _celTexture);
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgb, renderTarget.X, renderTarget.Y, 0,
                 PixelFormat.Rgb, PixelType.UnsignedByte, IntPtr.Zero);
@@ -1981,12 +1983,11 @@ namespace MphRead
                     FramebufferAttachment.DepthStencilAttachment, RenderbufferTarget.Renderbuffer,
                     _renderBuffer);
                 GL.DeleteTexture(_depthTexture);
-                _textureCount--;
                 _depthTexture = 0;
                 return;
             }
             _depthTexture = GL.GenTexture();
-            _textureCount++;
+            _textureCount = Math.Max(_textureCount, _depthTexture);
             GL.BindTexture(TextureTarget.Texture2D, _depthTexture);
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Depth24Stencil8,
                 target.X, target.Y, 0, PixelFormat.DepthStencil, PixelType.UnsignedInt248, IntPtr.Zero);
@@ -2011,7 +2012,6 @@ namespace MphRead
                     FramebufferAttachment.DepthStencilAttachment, RenderbufferTarget.Renderbuffer,
                     _renderBuffer);
                 GL.DeleteTexture(_depthTexture);
-                _textureCount--;
                 _depthTexture = 0;
             }
         }
@@ -2474,7 +2474,7 @@ namespace MphRead
             GL.Disable(EnableCap.StencilTest);
             GL.PolygonMode(TriangleFace.FrontAndBack, OpenTK.Graphics.OpenGL.PolygonMode.Fill);
 
-            DrawPlayerOutlines();
+            DrawWorldOutlines();
 
             // After the world and before the window: the preview is a corner
             // of the scene target with its own camera in it, so the HUD's own
@@ -2494,10 +2494,6 @@ namespace MphRead
                 PlayerEntity.Main.DrawHudModels();
                 UnsetHudLayerUniforms();
             }
-
-            // After the weapon, so it is drawn around too, and before the
-            // target is put on screen, so the helmet and the HUD are not.
-            DrawCelOutline();
 
             GL.Disable(EnableCap.CullFace);
             GL.UseProgram(_rttShaderProgramId);
@@ -5429,7 +5425,8 @@ namespace MphRead
             }
             GL.Uniform1(_shaderLocations.UseTexture, item.HasTexture && _showTextures ? 1 : 0);
             SetFlatColor(item.HasTexture && _showTextures ? item.TextureBindingId : -1);
-            GL.Uniform1(_texturedPlayerSkinUniform, !_drawingPlayerOutlineMask && item.TexturedPlayerSkin ? 1 : 0);
+            GL.Uniform1(_texturedPlayerSkinUniform, !_drawingPlayerOutlineMask && item.TexturedPlayerSkin
+                ? (Mods.RenderOptions.BrightSkinStyle == Mods.PlayerSkinStyle.HighContrastTextured ? 2 : 1) : 0);
             Vector4? overrideColor = _drawingPlayerOutlineMask ? null : item.OverrideColor;
             if (overrideColor != null)
             {
