@@ -104,6 +104,21 @@ static class Program
                 wanted, "stale form after agreement", frame);
         }
 
+        // A death/cancel can return a player to biped without an observed
+        // unmorph animation. The next morph is a NEW animation, not the old
+        // transition continuing through all the intervening settled frames.
+        var restartedMorph = new FormReconciliation();
+        Expect(restartedMorph.Step(0, true, false, true, false, 0),
+            FormCorrection.None, "first morph", 0);
+        Expect(restartedMorph.Step(20, false, false, false, false, 0),
+            FormCorrection.None, "settled after cancelled morph", 20);
+        for (uint frame = 200; frame <= 290; frame++)
+        {
+            Expect(restartedMorph.Step(frame, true, false, true, false, 0),
+                frame == 290 ? FormCorrection.Force : FormCorrection.None,
+                "new morph gets its own transition timeout", frame);
+        }
+
         var reset = new FormReconciliation();
         for (uint frame = 0; frame < 7; frame++)
         {

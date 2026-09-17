@@ -19,6 +19,7 @@ namespace MphRead.Mods.Network
         private bool _mismatching;
         private bool _attempted;
         private bool _transitionSeen;
+        private bool _transitionActive;
         private bool _transitionTarget;
 
         public void Reset() => this = default;
@@ -30,7 +31,7 @@ namespace MphRead.Mods.Network
             if (transitioning)
             {
                 bool target = morphing;
-                if (!_transitionSeen || _transitionTarget != target)
+                if (!_transitionActive || _transitionTarget != target)
                 {
                     _transitionSince = frame;
                 }
@@ -38,6 +39,9 @@ namespace MphRead.Mods.Network
                 _transitionTarget = target;
                 _transitionLastSeen = frame;
             }
+            // Keep the last transition for latency grace, but do not charge a
+            // later same-direction animation for time spent settled in between.
+            _transitionActive = transitioning;
 
             if (actualAlt == desiredAlt && !transitioning)
             {

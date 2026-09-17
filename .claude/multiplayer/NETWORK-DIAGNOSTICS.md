@@ -330,6 +330,10 @@ form bit; forced completion clears its animation flag and restores the biped
 model without shifting the collision centre again. These are elapsed
 `NetFrame` intervals, not packet or call counts. `Reset`, `ForgetSlot`, and
 room change clear the timing state.
+An observed settled frame also ends the active transition timer. A later
+same-direction morph gets its own 90-frame ceiling, including after a
+cancel/death returned the player to biped without an observed unmorph.
+The last transition time is retained separately for post-animation latency grace.
 The position conversion through `InForm` still applies when forms disagree.
 
 The headless runtime regression is `-simcheck "MP3 PROVING GROUND" -players 1
