@@ -19,7 +19,17 @@ namespace MphRead.Mods.Launcher.Gui
         {
             if (!GamepadContexts.Focused) { _router.Reset(); return; }
             if (_root != root) { _root = root; _router.Reset(); }
-            _router.Update(GamepadManager.Snapshot, GamepadContexts.Capturing
+            var snapshot = GamepadManager.Snapshot;
+            if (FocusNavigator.Focused(root) is KeyRow { Listening: true } keyRow)
+            {
+                var pressed = keyRow.ControllerPress(snapshot);
+                if (pressed != 0)
+                {
+                    keyRow.OpenControllerBinding(pressed);
+                    _router.Reset(); Changed?.Invoke(); return;
+                }
+            }
+            _router.Update(snapshot, GamepadContexts.Capturing
                 ? GamepadContext.BindingCapture : GamepadContext.Menu, Environment.TickCount64);
         }
         private void Dispatch(UiAction action)
@@ -29,6 +39,10 @@ namespace MphRead.Mods.Launcher.Gui
             if (root == null) return;
             var focused = FocusNavigator.Ensure(root);
             if (focused == null) return;
+            if (action == UiAction.Accept && focused is KeyRow keyboardRow)
+            {
+                keyboardRow.OpenControllerBinding(); _router.Reset(); return;
+            }
             if (action == UiAction.Accept && focused is TextBox text && _keyboard == null)
             {
                 _keyboard = new ControllerKeyboard(text, () => { _keyboard = null; _router.Reset(); });

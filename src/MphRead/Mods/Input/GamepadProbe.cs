@@ -68,7 +68,7 @@ namespace MphRead.Mods.Input
                     var right = GamepadAnalog.ApplyRadialDeadZone(device.State.RightX, device.State.RightY,
                         GamepadOptions.RightInner, GamepadOptions.RightOuter);
                     line += $"\n    {device.DeviceId} {device.Family} mapped={device.IsMapped} active={device == GamepadManager.ActiveDevice}"
-                        + $" capabilities={device.Capabilities} {Describe(device.State)} processed L{left} R{right}";
+                        + $" mapping={device.Mapping} capabilities={device.Capabilities} {Describe(device.State)} processed L{left} R{right}";
                 }
                 if (verbose) for (int slot = 0; slot < 16; slot++)
                 {

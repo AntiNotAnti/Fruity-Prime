@@ -1,9 +1,12 @@
 using System;
 using System.Reflection;
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.VisualTree;
+using MphRead.Mods.Input;
 using MphRead.Entities;
 using MphRead.Mods;
 using GlfwKeys = OpenTK.Windowing.GraphicsLibraryFramework.Keys;
@@ -40,6 +43,10 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly Func<GlfwKeys>? _get;
         private readonly Action<GlfwKeys>? _set;
         private bool _listening;
+        private readonly GamepadEdges _padEdges = new();
+        private string? _controllerHint;
+        internal bool Listening => _listening;
+        internal string? BindingName => _property?.Name ?? _label;
         private bool _hot;
 
         public event EventHandler? Rebound;
@@ -75,7 +82,7 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 if (Box.Contains(e.GetPosition(this)))
                 {
-                    _listening = true;
+                    Listen();
                     InvalidateVisual();
                 }
                 e.Handled = true;
@@ -134,7 +141,7 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 if (e.Key == Key.Enter || e.Key == Key.Space)
                 {
-                    _listening = true;
+                    Listen();
                     InvalidateVisual();
                     e.Handled = true;
                 }
@@ -180,9 +187,44 @@ namespace MphRead.Mods.Launcher.Gui
             Rebound?.Invoke(this, EventArgs.Empty);
         }
 
+        private void Listen()
+        {
+            _listening = true; _controllerHint = null;
+            _padEdges.Update(GamepadManager.Snapshot);
+        }
+
+        internal GamepadButtons ControllerPress(GamepadSnapshot snapshot) => _padEdges.Update(snapshot);
+
+        // Controller presses bind game actions, never synthetic keyboard Enter/arrow keys.
+        internal void OpenControllerBinding(GamepadButtons pressed = 0)
+        {
+            PadAction? action = BindingName switch
+            {
+                "Shoot" or "AltAttack" => PadAction.Shoot, "Jump" or "Boost" => PadAction.Jump,
+                "Zoom" => PadAction.Zoom, "Morph" => PadAction.Morph, "Scan" => PadAction.Scan,
+                "ScanVisor" => PadAction.ScanVisor, "WeaponMenu" => PadAction.WeaponWheel,
+                "Pause" => PadAction.Scoreboard, "NextWeapon" => PadAction.NextWeapon,
+                "PrevWeapon" => PadAction.PrevWeapon, "Missile" => PadAction.Missile,
+                "PowerBeam" => PadAction.PowerBeam, "Chat" => PadAction.Chat, _ => null
+            };
+            var settings = this.GetVisualAncestors().OfType<SettingsView>().FirstOrDefault();
+            _listening = false;
+            if (action.HasValue && settings != null)
+            {
+                settings.ShowSection("Controls");
+                TopLevel.GetTopLevel(settings)?.UpdateLayout();
+                var row = settings.GetVisualDescendants().OfType<PadRow>().First(r => r.Action == action.Value);
+                FocusNavigator.Focus(row);
+                row.Capture(pressed);
+                return;
+            }
+            _controllerHint = "Keyboard only; configure sticks under Controls";
+            InvalidateVisual();
+        }
+
         protected override void OnLostFocus(Avalonia.Interactivity.RoutedEventArgs e)
         {
-            _listening = false;
+            _listening = false; _controllerHint = null;
             InvalidateVisual();
             base.OnLostFocus(e);
         }
@@ -270,9 +312,9 @@ namespace MphRead.Mods.Launcher.Gui
 
             string text = _listening
                 ? (_get != null ? "press a key" : "press a key, a mouse button or the wheel")
-                : _get != null
+                : _controllerHint ?? (_get != null
                     ? (_get() == GlfwKeys.Unknown ? "none" : InputSettings.KeyName(_get()))
-                    : InputSettings.Describe(InputSettings.Bind(_property!));
+                    : InputSettings.Describe(InputSettings.Bind(_property!)));
             FormattedText value = TrackedText.Make(text, 12, bold: true,
                 new SolidColorBrush(_listening ? GuiTheme.Warm : GuiTheme.Text));
             // Never wider than the box: a binding nobody has heard of should

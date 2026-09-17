@@ -90,6 +90,7 @@ namespace MphRead.Mods.Input
         };
 
         public static string Preset { get; internal set; } = "Default";
+        public static long Revision { get; private set; }
 
         private static readonly GamepadButtons[] _current = (GamepadButtons[])_defaults.Clone();
         private static readonly GamepadButtons[] Primary = new GamepadButtons[_defaults.Length];
@@ -122,6 +123,7 @@ namespace MphRead.Mods.Input
                     else if (Secondary[index] == 0) Secondary[index] = button;
                 }
             Preset = "Custom";
+            Revision++;
         }
 
         public static GamepadButtons Default(PadAction action)
@@ -138,6 +140,7 @@ namespace MphRead.Mods.Input
             if (slot == 0) Primary[index] = button; else Secondary[index] = button;
             _current[index] = (_current[index] & ~old) | Primary[index] | Secondary[index];
             Preset = "Custom";
+            Revision++;
         }
         public static void LoadSlots(IEnumerable<string> lines)
         {
@@ -168,7 +171,14 @@ namespace MphRead.Mods.Input
             var old = Slot(action, slot);
             if (resolution == "Swap" || resolution == "Replace")
                 foreach (var other in Conflicts(action, button))
-                    Set(other, (Get(other) & ~button) | (resolution == "Swap" ? old : 0));
+                {
+                    int index = (int)other;
+                    var replacement = resolution == "Swap" ? old : GamepadButtons.None;
+                    if (Primary[index] == button) Primary[index] = replacement;
+                    if (Secondary[index] == button) Secondary[index] = replacement;
+                    _current[index] = (Get(other) & ~button) | replacement | Primary[index] | Secondary[index];
+                    Revision++;
+                }
             SetSlot(action, slot, button);
         }
         public static void ApplyPreset(string name)

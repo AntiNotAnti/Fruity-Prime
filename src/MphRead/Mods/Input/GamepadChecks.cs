@@ -20,6 +20,7 @@ namespace MphRead.Mods.Input
         {
             try
             {
+                GamepadPlatformChecks.Run();
                 GamepadOptions.Reset();
                 var dead = GamepadAnalog.ApplyRadialDeadZone(.1f, .1f, .2f);
                 Check(dead == (0, 0), "radial inner deadzone");
