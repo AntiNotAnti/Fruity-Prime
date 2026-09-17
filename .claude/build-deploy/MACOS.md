@@ -41,6 +41,17 @@ These are ad-hoc signatures, not Developer ID signatures or notarization.
 Gatekeeper can still require the user's approval for a downloaded archive.
 See `tools/macos-README.txt`; quarantine removal is scoped to the app only.
 
+## OpenGL startup
+
+macOS uses an OpenGL 2.1 context with no profile hint. Its OpenGL 3.2+
+contexts are core-only; the renderer's GLSL 1.20, immediate mode and fixed
+function UI require legacy GL. Requesting 3.2 compatibility aborted inside
+`_glfwCreateContextNSGL` before any launcher frame on Apple Silicon.
+Windows/Linux retain the existing 3.2 compatibility request. A startup error
+callback is installed before GLFW initialization so window-creation failures
+report their native reason and return to OpenTK's managed failure check instead
+of throwing through a native callback and aborting without a useful message.
+
 ## Smoke coverage and limits
 
 `-smoketest` exits before game setup and checks configuration access, real
@@ -49,7 +60,18 @@ map discovery, and macOS native loads/exports for OpenAL, GLFW, miniaudio,
 Skia, HarfBuzz and AvaloniaNative. It also calls GLFW's version binding.
 Each failure returns a nonzero exit code. No audio device or game files are
 required. `run-macos-smoke.sh` runs with a fresh HOME and unrelated working
-directory, with a 120-second process timeout.
+directory, with a 120-second process timeout. On a graphics-capable host it also
+runs `-windowcheck`: the real launcher renders, compiles world/composite/cel/
+disruption shaders, checks non-black readback and GL errors, resizes, and closes.
+The packaged and re-extracted app receive the same check.
+
+`check-macos-graphics.sh` queries CGL's renderer list before attempting graphics.
+Exit 77 means no accelerated renderer (GLFW requires one), so rendered checks
+are explicitly reported as **NOT RUN**. Native library/startup and signature
+checks remain mandatory. Query errors and application failures on hosts with
+an accelerated renderer still fail. Hosted virtual Macs can report only a
+software renderer; a green build on those hosts leaves hardware rendering
+acceptance pending.
 
 This does not test a rendered game, an audio device, or Finder/Gatekeeper's
 handling of a quarantined Internet download. Those require manual Mac checks.

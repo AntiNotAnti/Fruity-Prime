@@ -42,6 +42,13 @@ namespace MphRead.Mods
                     System.IO.Path.Combine(Platform.AppPaths.ExecutableDirectory, "libopenal.1.dylib");
             }
 #endif
+#if MPHREAD_SHELL
+            if (HasFlag(args, "windowcheck"))
+            {
+                Environment.ExitCode = Diagnostics.LauncherWindowCheck.Run();
+                return true;
+            }
+#endif
             if (HasFlag(args, "smoketest"))
             {
                 Environment.ExitCode = Diagnostics.CompatibilityCheck.Run();
