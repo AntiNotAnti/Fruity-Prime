@@ -52,6 +52,13 @@ namespace MphRead.Mods
             Update.Updater.Disabled = HasFlag(args, "noupdate");
             ApplyRenderOverrides(args);
 
+            // Arithmetic and cosmetic-noise checks need no extracted game files.
+            if (HasFlag(args, "frametimingcheck"))
+            {
+                Environment.ExitCode = Render.FrameTimingCheck.Run();
+                return true;
+            }
+
             // The copying half of a desktop update, which is this build
             // started by the *previous* one. First, and before anything reads
             // a file or draws a window: it is not the game, it waits for the
@@ -80,10 +87,10 @@ namespace MphRead.Mods
                     relaunch);
                 return true;
             }
-            // Whatever the last update left behind. The form regression is a
-            // read-only diagnostic of a running match; it must not erase an
-            // update staged beside the executable just because it was run.
-            if (!(ValueAfter(args, "simcheck") != null && HasFlag(args, "formcheck")))
+            // Whatever the last update left behind. The headless diagnostics
+            // are read-only and must leave an update staged beside the
+            // executable alone; ordinary startup still clears it.
+            if (!HasFlag(args, "spireposecheck") && !HasFlag(args, "formcheck"))
             {
                 Update.DesktopUpdate.Clean();
             }
@@ -1132,9 +1139,12 @@ namespace MphRead.Mods
                 return true;
             }
 
-            if (HasFlag(args, "frametimingcheck"))
+            // Spire's slam, driven through the headless simulation. Needs
+            // extracted game files, like -simcheck below.
+            string? spirePoseCheck = ValueAfter(args, "spireposecheck");
+            if (spirePoseCheck != null)
             {
-                Environment.ExitCode = Render.FrameTimingCheck.Run();
+                Environment.ExitCode = Network.SpireAltPoseCheck.Run(spirePoseCheck);
                 return true;
             }
 
