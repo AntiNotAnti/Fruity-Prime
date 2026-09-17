@@ -35,7 +35,9 @@ Both existing shaders apply the RGB override before cel processing and fog.
 Textured geometry keeps material and texture alpha with override alpha 1.
 Untextured geometry replaces alpha in those shaders, so `ForMaterial` supplies
 material alpha times entity alpha for that path (the vertex shaders emit alpha
-1). Placeholder override semantics are unchanged. There are no shader changes.
+1). The Debug viewer's texture toggle also selects that untextured branch, even for
+a material with a texture, so color preparation reads the scene's toggle too.
+Placeholder override semantics are unchanged. There are no shader changes.
 
 ## Checks
 
