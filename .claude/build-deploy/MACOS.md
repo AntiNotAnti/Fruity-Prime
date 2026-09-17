@@ -52,7 +52,10 @@ macOS uses an OpenGL 2.1 context with no profile hint. Its OpenGL 3.2+
 contexts are core-only; the renderer's GLSL 1.20, immediate mode and fixed
 function UI require legacy GL. Requesting 3.2 compatibility aborted inside
 `_glfwCreateContextNSGL` before any launcher frame on Apple Silicon.
-Windows/Linux retain the existing 3.2 compatibility request.
+Windows/Linux retain the existing 3.2 compatibility request. A startup error
+callback is installed before GLFW initialization so window-creation failures
+report their native reason and return to OpenTK's managed failure check instead
+of throwing through a native callback and aborting without a useful message.
 
 ## Smoke coverage and limits
 

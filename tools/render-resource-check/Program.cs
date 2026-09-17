@@ -11,11 +11,13 @@ using GLFWBindingsContext = OpenTK.Windowing.GraphicsLibraryFramework.GLFWBindin
 // Exercise the real cel target allocator and scene teardown in one persistent
 // GL context. No Scene constructor: that loads music/game data. Only the empty
 // texture registry and the synthetic color attachment are needed for teardown.
+GLFWProvider.SetErrorCallback((code, description) => Console.Error.WriteLine($"GLFW {code}: {description}"));
 using var window = new NativeWindow(new NativeWindowSettings
 {
     ClientSize = new Vector2i(32, 32),
     StartVisible = false,
     StartFocused = false,
+    Flags = ContextFlags.Default,
     Profile = OperatingSystem.IsMacOS() ? ContextProfile.Any : ContextProfile.Compatability,
     APIVersion = OperatingSystem.IsMacOS() ? new Version(2, 1) : new Version(3, 2)
 });

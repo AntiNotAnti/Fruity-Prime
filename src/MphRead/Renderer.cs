@@ -6814,18 +6814,7 @@ namespace MphRead
             UpdateFrequency = 0
         };
 
-        private static readonly NativeWindowSettings _nativeWindowSettings = new NativeWindowSettings()
-        {
-            ClientSize = new Vector2i(1280, 768),
-            Title = Mods.Branding.Name,
-            // macOS exposes legacy GL 2.1 or core-only GL 3.2+. The renderer
-            // uses GLSL 1.20 and immediate mode, so requesting 3.2 compatibility
-            // makes NSGL reject window creation before the launcher can run.
-            Profile = OperatingSystem.IsMacOS() ? ContextProfile.Any : ContextProfile.Compatability,
-            Flags = ContextFlags.Default,
-            APIVersion = OperatingSystem.IsMacOS() ? new Version(2, 1) : new Version(3, 2),
-            StartVisible = false
-        };
+        private static readonly NativeWindowSettings _nativeWindowSettings = Mods.Render.DesktopGlContext.Settings();
 
         /// <summary>
         /// The match, while there is one.
@@ -7176,6 +7165,7 @@ namespace MphRead
                     Mods.DebugLog.Line("window", $"glfw feature unavailable, ignored: {description}");
                     return;
                 }
+                Console.Error.WriteLine($"[window] GLFW {code}: {description}");
                 throw new GLFWException(description, code);
             };
             GLFW.SetErrorCallback(_glfwErrorCallback);
