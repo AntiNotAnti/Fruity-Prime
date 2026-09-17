@@ -48,6 +48,43 @@ namespace MphRead.Mods.Network
             require(!Valid(changed), "out of range snapshot slot rejected");
         }
 
+        private static void CheckFrozenReplay(string directory, MatchStatePacket match, byte[] matchBytes,
+            Action<bool, string> require)
+        {
+            var session = new SessionStatePacket { Policy = ServerSessionPolicy.Lobby,
+                Phase = SessionPhase.Starting, Revision = 1, MatchId = match.MatchId,
+                AuthorityEpoch = match.AuthorityEpoch, MaxPlayers = 8,
+                WorldProfile = Multiplayer.MatchWorldProfile.Resolve(8),
+                OwnerSlot = byte.MaxValue, Match = new MatchDefinition { RoomKey = match.RoomKey, Mode = GameMode.Battle } };
+            byte[] lobby = new byte[1 + SessionStatePacket.Size];
+            lobby[0] = (byte)PacketType.SessionState; session.Write(lobby.AsSpan(1));
+            session.Phase = SessionPhase.InMatch; session.Revision++;
+            byte[] playing = new byte[lobby.Length];
+            playing[0] = (byte)PacketType.SessionState; session.Write(playing.AsSpan(1));
+            string path = Path.Combine(directory, "lobby-transition.fpdemo");
+            using (var writer = new ReplayWriterV3(path, new ReplayMetadata { RoomKey = match.RoomKey,
+                Mode = GameMode.Battle, Bootstrap = new ReplayBootstrap { Packets = new[] { lobby, matchBytes } } }))
+            {
+                writer.WriteRecord(0, new byte[] { (byte)PacketType.Ping });
+                writer.WriteRecord(1, playing);
+            }
+            try
+            {
+                require(DemoPlayback.Join(path) && NetSession.FreezeGameplay, "lobby replay begins frozen");
+                // The frozen branch touches no loaded scene data; exercise the real
+                // host step without a window, assets, or an alternative replay loop.
+                var scene = (Scene)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(Scene));
+                var step = typeof(Scene).GetMethod("RunSimulationFrame", System.Reflection.BindingFlags.Instance
+                    | System.Reflection.BindingFlags.NonPublic)!.CreateDelegate<Action<Scene>>();
+                step(scene);
+                step(scene);
+                require(DemoPlayback.CurrentFrame == 1 && !NetSession.FreezeGameplay,
+                    "frozen host advances replay packets until the recorded match starts");
+                require(scene.FrameCount == 0, "lobby replay does not simulate gameplay while frozen");
+            }
+            finally { DemoPlayback.Stop(); NetSession.Stop(); }
+        }
+
         public static int Run()
         {
             string directory = Path.Combine(Path.GetTempPath(), "fruity-replay-check-" + Guid.NewGuid().ToString("N"));
@@ -89,6 +126,9 @@ namespace MphRead.Mods.Network
                 Require(metadata.Bootstrap.Packets.Count == 3, "capture includes accepted snapshot");
                 CheckSnapshotBootstrap(Require);
                 NetSession.Stop();
+                var matchBytes = new byte[1 + MatchStatePacket.Size];
+                matchBytes[0] = (byte)PacketType.MatchState; match.Write(matchBytes.AsSpan(1));
+                CheckFrozenReplay(directory, match, matchBytes, Require);
                 byte[] packet = { (byte)PacketType.Ping, 17, 42 };
                 string clean = Path.Combine(directory, "clean.fpdemo");
                 using (var writer = new ReplayWriterV3(clean, metadata))
