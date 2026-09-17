@@ -162,13 +162,18 @@
   <!-- Every game build gets it, under whichever name that platform's loader
        probes for: openal32.dll on Windows, libopenal.so.1 on Linux,
        libopenal.1.dylib on macOS. The RID picks the copy; a build with no RID
-       at all (plain `dotnet build` on this machine) is treated as this
-       machine's, which is what makes F5 produce a binary with sound. -->
+       at all (plain `dotnet build`) takes the SDK host RID first. That matters
+       on Apple Silicon: hard-coding osx-x64 made an F5 build copy an Intel
+       OpenAL dylib next to an arm64 process. -->
   <PropertyGroup>
     <MphReadAudioRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</MphReadAudioRid>
-    <MphReadAudioRid Condition="'$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('Windows'))">win-x64</MphReadAudioRid>
-    <MphReadAudioRid Condition="'$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('Linux'))">linux-x64</MphReadAudioRid>
-    <MphReadAudioRid Condition="'$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('OSX'))">osx-x64</MphReadAudioRid>
+    <MphReadAudioRid Condition="'$(RuntimeIdentifier)' == '' and '$(NETCoreSdkRuntimeIdentifier)' != ''">$(NETCoreSdkRuntimeIdentifier)</MphReadAudioRid>
+    <!-- Very old/custom SDK hosts may not expose NETCoreSdkRuntimeIdentifier.
+         Keep the previous x64 fallbacks for those rather than producing no
+         native audio library at all. -->
+    <MphReadAudioRid Condition="'$(MphReadAudioRid)' == '' and $([MSBuild]::IsOSPlatform('Windows'))">win-x64</MphReadAudioRid>
+    <MphReadAudioRid Condition="'$(MphReadAudioRid)' == '' and $([MSBuild]::IsOSPlatform('Linux'))">linux-x64</MphReadAudioRid>
+    <MphReadAudioRid Condition="'$(MphReadAudioRid)' == '' and $([MSBuild]::IsOSPlatform('OSX'))">osx-x64</MphReadAudioRid>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(MphReadServer)' != 'true' and $(MphReadAudioRid.StartsWith('win'))">
