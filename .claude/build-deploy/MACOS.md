@@ -46,6 +46,14 @@ These are ad-hoc signatures, not Developer ID signatures or notarization.
 Gatekeeper can still require the user's approval for a downloaded archive.
 See `tools/macos-README.txt`; quarantine removal is scoped to the app only.
 
+## OpenGL startup
+
+macOS uses an OpenGL 2.1 context with no profile hint. Its OpenGL 3.2+
+contexts are core-only; the renderer's GLSL 1.20, immediate mode and fixed
+function UI require legacy GL. Requesting 3.2 compatibility aborted inside
+`_glfwCreateContextNSGL` before any launcher frame on Apple Silicon.
+Windows/Linux retain the existing 3.2 compatibility request.
+
 ## Smoke coverage and limits
 
 `-smoketest` exits before game setup and checks configuration access, real
@@ -54,7 +62,13 @@ map discovery, and macOS native loads/exports for OpenAL, GLFW, miniaudio,
 Skia, HarfBuzz and AvaloniaNative. It also calls GLFW's version binding.
 Each failure returns a nonzero exit code. No audio device or game files are
 required. `run-macos-smoke.sh` runs with a fresh HOME and unrelated working
-directory, with a 120-second process timeout.
+directory, with a 120-second process timeout. It also runs `-windowcheck`, opening the
+actual launcher window, compiling world/composite/cel/disruption shaders,
+checking non-black UI readback and GL errors before and after a resize, and
+closing normally. This runs on the flat publish and both staged/extracted app
+bundles, so loading GLFW without creating a context can no longer pass alone.
+Both Mac jobs also run `tools/render-resource-check` against the legacy context
+for framebuffer allocation, filtering, FXAA, HUD transforms and teardown.
 
 This does not test a rendered game, an audio device, or Finder/Gatekeeper's
 handling of a quarantined Internet download. Those require manual Mac checks.

@@ -16,5 +16,12 @@ import tempfile
 with tempfile.TemporaryDirectory(prefix="fruity-smoke-") as temp:
     env = dict(os.environ, HOME=temp, DOTNET_CLI_HOME=temp)
     result = subprocess.run([sys.argv[1], "-smoketest"], cwd=temp, env=env, timeout=120)
-    sys.exit(result.returncode)
+    if result.returncode:
+        sys.exit(result.returncode)
+    result = subprocess.run([sys.argv[1], "-windowcheck"], cwd=temp, env=env,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, timeout=120)
+    print(result.stdout, end="")
+    if result.returncode or "Launcher window check passed." not in result.stdout:
+        sys.exit(result.returncode or 1)
 PY

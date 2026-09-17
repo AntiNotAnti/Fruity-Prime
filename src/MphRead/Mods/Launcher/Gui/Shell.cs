@@ -475,6 +475,7 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         internal static void AfterDraw(RenderWindow window)
         {
+            Diagnostics.LauncherWindowCheck.AfterDraw(window);
             if (_shotDirectory == null)
             {
                 return;

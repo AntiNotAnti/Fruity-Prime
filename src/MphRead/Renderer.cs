@@ -6818,9 +6818,12 @@ namespace MphRead
         {
             ClientSize = new Vector2i(1280, 768),
             Title = Mods.Branding.Name,
-            Profile = ContextProfile.Compatability,
+            // macOS exposes legacy GL 2.1 or core-only GL 3.2+. The renderer
+            // uses GLSL 1.20 and immediate mode, so requesting 3.2 compatibility
+            // makes NSGL reject window creation before the launcher can run.
+            Profile = OperatingSystem.IsMacOS() ? ContextProfile.Any : ContextProfile.Compatability,
             Flags = ContextFlags.Default,
-            APIVersion = new Version(3, 2),
+            APIVersion = OperatingSystem.IsMacOS() ? new Version(2, 1) : new Version(3, 2),
             StartVisible = false
         };
 
