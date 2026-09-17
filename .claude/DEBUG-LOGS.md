@@ -25,6 +25,11 @@ a map is loading. The log is the only thing that can be read afterwards.
 | `logs/FruityPrime-<yyyyMMdd-HHmmss>.log` | the file, beside the executable |
 | `logs/FruityPrime-<yyyyMMdd-HHmmss>-native.txt` | the same run's **native** standard error, in a file of its own |
 
+On macOS these logs live under `~/Library/Application Support/Fruity Prime/logs/`.
+`platform-startup.log` is also written there on every launch, even when debug
+logging is off; it records the runtime/native-loader diagnostics described in
+`build-deploy/MACOS.md`.
+
 On Android the file goes to the app's data directory, because
 `LauncherPrefs.Directory` is pointed there by the head before anything reads --
 a package's own directory is read-only. The switch is the same control on the

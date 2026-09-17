@@ -143,9 +143,9 @@ namespace MphRead.Mods.Network
                 {
                     return null;
                 }
-                return new ServerBinary(exe, new[] { dll }, directory, downloaded: false);
+                return new ServerBinary(exe, new[] { dll }, Platform.AppPaths.UserDataDirectory, downloaded: false);
             }
-            return new ServerBinary(exe, Array.Empty<string>(), directory, downloaded: false);
+            return new ServerBinary(exe, Array.Empty<string>(), Platform.AppPaths.UserDataDirectory, downloaded: false);
         }
 
         // --------------------------------------------------------- installing

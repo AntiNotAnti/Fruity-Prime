@@ -85,7 +85,7 @@ export ALSOFT_DRIVERS=null PULSE_SERVER=   # else ALSA retries stall frames
   (`Scene.ReadSceneTarget`, used by `Mods/ScreenCapture.cs`), which carries the
   world but not the HUD.
 - `paths.txt` must sit **next to the DLL**, not in the working directory:
-  `ConsoleSetup.Run` does `Directory.SetCurrentDirectory(BaseDirectory)`.
+  `ConsoleSetup.Run` selects the installation directory on Windows/Linux and the user-data directory on macOS (see `.claude/build-deploy/MACOS.md`).
 - Audio failures used to kill the process from a static constructor. That is now
   non-fatal, but under WSL the audio device is flaky enough that the test rig
   disables it outright.

@@ -58,3 +58,8 @@ ROM selection
   uses temporary fixtures to cover browser rows, navigation, selection, typed
   paths, resize and cancel, so this UI check runs without extracted assets or
   `paths.txt`.
+
+On macOS the extraction child and launcher use the same Application Support
+directory (`Mods/Platform/AppPaths.cs`), so paths.txt and extracted game files
+never modify the signed app. Existing portable data is not moved automatically;
+see `tools/macos-README.txt` for migration and whole-app updates.

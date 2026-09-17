@@ -3,8 +3,22 @@ $ErrorActionPreference = 'Stop'
 # Run the real pre-checkout workflow step with gh replaced by a shell function.
 # No GitHub calls, tags, downloads, or publishes are performed.
 $workflow = Get-Content -Raw (Join-Path $PSScriptRoot '../.github/workflows/release.yml')
-$block = [regex]::Match($workflow, '(?s)      - name: resolve the tag.*?        run: \|\r?\n(.*?)\r?\n      - uses: actions/checkout').Groups[1].Value
+$block = [regex]::Match($workflow, '(?ms)^      - name: resolve the tag\r?\n.*?^        run: \|\r?\n((?:(?: {10}[^\r\n]*|[ \t]*)\r?\n)*)').Groups[1].Value
 if (!$block) { throw 'Could not find the release tag step' }
+# The macOS workflow splits version resolution from publishing. Verify that
+# both Android values cross that job boundary, not just that the shell emits them.
+if ($workflow -match '(?m)^  resolve:') {
+    foreach ($key in @('version', 'android_version_code')) {
+        if (!$workflow.Contains(('      {0}: ${{{{ steps.name.outputs.{0} }}}}' -f $key))) {
+            throw "Missing resolve job output: $key"
+        }
+    }
+    $apkEnv = [regex]::Match($workflow, '(?s)- name: publish the APK\r?\n        env:(.*?)\r?\n        run:').Groups[1].Value
+    if (!$apkEnv.Contains('VERSION: ${{ needs.resolve.outputs.version }}') -or
+        !$apkEnv.Contains('ANDROID_VERSION_CODE: ${{ needs.resolve.outputs.android_version_code }}')) {
+        throw 'APK version inputs must use the resolve job outputs'
+    }
+}
 $block = ($block -split '\r?\n' | ForEach-Object { $_ -replace '^          ', '' }) -join "`n"
 $mock = @'
 gh() {
