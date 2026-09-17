@@ -54,6 +54,9 @@ namespace MphRead.Mods.Launcher.Gui
         private static LaunchPlan? _pending;
         private static bool _endMatch;
         private static bool _quit;
+        internal static bool OpenStudioOnStart { get; set; }
+        private static MapGen.MapDefinition? _studioPreview;
+        internal static void PrepareStudioPreview(MapGen.MapDefinition definition) => _studioPreview = definition;
 
         /// <summary>
         /// Open the window and run until the player quits.
@@ -228,6 +231,11 @@ namespace MphRead.Mods.Launcher.Gui
                 _front.Reset();
             }
             surface.Show(_front);
+            if (OpenStudioOnStart)
+            {
+                OpenStudioOnStart = false;
+                _front.OpenMapStudio();
+            }
         }
 
         private static void Decided(LaunchPlan plan)
@@ -281,6 +289,11 @@ namespace MphRead.Mods.Launcher.Gui
 
         private static void StartMatch(RenderWindow window, LaunchPlan plan)
         {
+            if (_studioPreview != null)
+            {
+                Metadata.RegisterStudioPreview(_studioPreview);
+                _studioPreview = null;
+            }
             _played = plan;
             UiSurface.Current?.Hide();
             try
