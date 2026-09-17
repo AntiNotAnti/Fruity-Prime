@@ -95,16 +95,25 @@ namespace MphRead.Mods.Network
             _terminalLobby = NetSession.PersistentLobby;
             if (!NetSession.ShouldLoadMatch)
                 Console.WriteLine("Connected to lobby. Waiting for the lobby owner to start... Commands: ready, start, leave.");
-            while (NetSession.Active && !NetSession.ShouldLoadMatch)
+            while (NetSession.Active)
             {
-                NetSession.Pump();
-                if (NetSession.Refused || NetSession.SessionTimedOut) { NetSession.Stop(); return false; }
-                PollTerminalInput();
-                Thread.Sleep(20);
+                while (NetSession.Active && !NetSession.ShouldLoadMatch)
+                {
+                    NetSession.Pump();
+                    if (NetSession.Refused || NetSession.SessionTimedOut) { NetSession.Stop(); return false; }
+                    PollTerminalInput();
+                    Thread.Sleep(20);
+                }
+                if (!NetSession.Active) return false;
+                DisableCheatsForMatch();
+                if (VerifyServerMap()) return true;
+                if (!LoadReturnedToLobby) return false;
             }
-            DisableCheatsForMatch();
-            return NetSession.Active && VerifyServerMap();
+            return false;
         }
+
+        public static bool LoadReturnedToLobby => NetSession.IsClient
+            && NetSession.PersistentLobby && NetSession.IsInLobby;
 
         // Lobby connection precedes map selection. Verify only when loading,
         // so an idle lobby never needs a running ServerMatch or a download.
@@ -113,6 +122,7 @@ namespace MphRead.Mods.Network
             if (!NetSession.IsClient || DemoPlayback.IsActive) return true;
             string? room = ServerRoom()?.RoomKey;
             if (room != null && NetMapTransfer.Ensure(room, force: true)) return true;
+            if (LoadReturnedToLobby) { LastJoinError = ""; return false; }
             LastJoinError = NetMapTransfer.LastError ?? "Could not verify the server map.";
             NetSession.Stop();
             return false;
@@ -154,7 +164,11 @@ namespace MphRead.Mods.Network
                     {
                         Kind = Launcher.LaunchKind.Online, RoomKey = match.RoomKey, Mode = match.Mode,
                         Hunter = NetSession.LocalHunter, PlayerName = NetSession.PlayerName
-                    })) throw new ProgramException("The map could not be loaded.");
+                    }))
+                    {
+                        if (LoadReturnedToLobby) return true;
+                        throw new ProgramException("The map could not be loaded.");
+                    }
                 }
                 catch (Exception ex)
                 {

@@ -741,6 +741,12 @@ namespace MphRead.Droid
                     Scene.OnLoad();
                     MphRead.Mods.Network.NetSession.MarkMatchLoaded();
                 }
+                catch (OperationCanceledException) when (MphRead.Mods.Network.NetLaunch.LoadReturnedToLobby)
+                {
+                    Scene?.DoCleanup(); Scene = null; _ended = true;
+                    lock (_lock) { _stopping = true; }
+                    MainActivity.Instance?.RunOnUiThread(() => MainActivity.Instance?.EndMatchToLobby());
+                }
                 catch (Exception ex)
                 {
                     // A missing room, a shader the driver would not take, a set

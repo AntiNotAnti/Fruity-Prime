@@ -305,6 +305,7 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 if (!MatchStart.Begin(window, _settings, plan))
                 {
+                    if (NetLaunch.LoadReturnedToLobby) { EndNetworkMatchToLobby(window); return; }
                     NetSession.ReportMatchLoadFailed("The map could not be loaded.");
                     EndMatch(window);
                 }

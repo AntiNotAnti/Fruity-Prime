@@ -26,6 +26,11 @@ namespace MphRead.Droid
         public static Scene Build(AndroidInput input, Vector2i size, LaunchPlan plan, Action close)
         {
             GameFiles.ApplyPaths();
+            if (plan.Kind is LaunchKind.Online or LaunchKind.Host && !NetLaunch.VerifyServerMap())
+            {
+                if (NetLaunch.LoadReturnedToLobby) throw new OperationCanceledException("Match start canceled.");
+                throw new ProgramException(NetLaunch.LastJoinError);
+            }
             // Cheap once the binaries exist -- a file check per map -- and the
             // one place that is guaranteed to run before a room is loaded, so
             // a map added since the last launch is built rather than missing.

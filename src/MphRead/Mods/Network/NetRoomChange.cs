@@ -98,6 +98,7 @@ namespace MphRead.Mods.Network
             }
             if(!NetMapTransfer.Ensure(wanted,force:true))
             {
+                if (NetLaunch.LoadReturnedToLobby) return;
                 Console.WriteLine("[net] map rotation refused: "+NetMapTransfer.LastError);
                 NetSession.Stop();
                 return;
