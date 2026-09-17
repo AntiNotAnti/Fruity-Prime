@@ -14,10 +14,7 @@ namespace MphRead.Mods.Input
     /// build a pad on which the ball cannot boost and nothing on screen says
     /// why.
     ///
-    /// The weapon wheel is missing for the reason <see cref="GamepadInput"/>
-    /// gives: it reads an absolute pointer position, which a stick does not
-    /// have. <see cref="NextWeapon"/> and <see cref="PrevWeapon"/> reach every
-    /// weapon without it.
+    /// The weapon wheel shares the existing gameplay bind and slot resolver.
     /// </summary>
     public enum PadAction
     {
@@ -48,7 +45,8 @@ namespace MphRead.Mods.Input
         /// through <see cref="GamepadInput.TakeChatPress"/> rather than held
         /// as a bind.
         /// </summary>
-        Chat
+        Chat,
+        WeaponWheel
     }
 
     /// <summary>
@@ -64,9 +62,8 @@ namespace MphRead.Mods.Input
     ///
     /// A binding may be more than one button -- the defaults put the weapon
     /// cycling on a bumper *and* the d-pad -- which is why this is a flag set
-    /// and not a single value. The settings screen replaces the whole set with
-    /// the one button that was pressed; a player who wants both back has the
-    /// reset.
+    /// and not a single value. Primary and secondary slots are saved alongside
+    /// the legacy flag set so older controls files continue to load.
     /// </summary>
     public static class PadBindings
     {
@@ -88,10 +85,16 @@ namespace MphRead.Mods.Input
             // the defaults had not already spent. Awkward to hit by accident
             // while aiming, which is what you want from the one that stops you
             // playing and starts you typing.
-            /* Chat       */ GamepadButtons.LeftThumb
+            /* Chat       */ GamepadButtons.LeftThumb,
+            /* WeaponWheel */ GamepadButtons.RightThumb
         };
 
+        public static string Preset { get; internal set; } = "Default";
+
         private static readonly GamepadButtons[] _current = (GamepadButtons[])_defaults.Clone();
+        private static readonly GamepadButtons[] Primary = new GamepadButtons[_defaults.Length];
+        private static readonly GamepadButtons[] Secondary = new GamepadButtons[_defaults.Length];
+        static PadBindings() { Reset(); }
 
         /// <summary>Every action, in the order a settings screen should list them.</summary>
         public static IReadOnlyList<PadAction> Actions { get; } = new[]
@@ -99,7 +102,7 @@ namespace MphRead.Mods.Input
             PadAction.Shoot, PadAction.Jump, PadAction.Morph, PadAction.Zoom,
             PadAction.ScanVisor, PadAction.Scan, PadAction.NextWeapon,
             PadAction.PrevWeapon, PadAction.Missile, PadAction.PowerBeam,
-            PadAction.Scoreboard, PadAction.Menu, PadAction.Chat
+            PadAction.Scoreboard, PadAction.Menu, PadAction.Chat, PadAction.WeaponWheel
         };
 
         public static GamepadButtons Get(PadAction action)
@@ -110,6 +113,15 @@ namespace MphRead.Mods.Input
         public static void Set(PadAction action, GamepadButtons buttons)
         {
             _current[(int)action] = buttons;
+            int index = (int)action;
+            Primary[index] = Secondary[index] = 0;
+            foreach (GamepadButtons button in Enum.GetValues<GamepadButtons>())
+                if (button != 0 && (buttons & button) != 0)
+                {
+                    if (Primary[index] == 0) Primary[index] = button;
+                    else if (Secondary[index] == 0) Secondary[index] = button;
+                }
+            Preset = "Custom";
         }
 
         public static GamepadButtons Default(PadAction action)
@@ -117,10 +129,71 @@ namespace MphRead.Mods.Input
             return _defaults[(int)action];
         }
 
+        public static GamepadButtons Slot(PadAction action, int slot)
+            => slot == 0 ? Primary[(int)action] : Secondary[(int)action];
+        public static void SetSlot(PadAction action, int slot, GamepadButtons button)
+        {
+            int index = (int)action;
+            GamepadButtons old = Slot(action, slot);
+            if (slot == 0) Primary[index] = button; else Secondary[index] = button;
+            _current[index] = (_current[index] & ~old) | Primary[index] | Secondary[index];
+            Preset = "Custom";
+        }
+        public static void LoadSlots(IEnumerable<string> lines)
+        {
+            foreach (string line in lines)
+            {
+                int split = line.IndexOf('=');
+                if (split < 0) continue;
+                string key = line[..split].Trim(), value = line[(split + 1)..].Trim();
+                int slot = key.EndsWith("_primary", StringComparison.Ordinal) ? 0 : 1;
+                string suffix = slot == 0 ? "_primary" : "_secondary";
+                if (!key.StartsWith("pad_", StringComparison.Ordinal) || !key.EndsWith(suffix, StringComparison.Ordinal)) continue;
+                if (Enum.TryParse<PadAction>(key[4..^suffix.Length], out var action) && Enum.IsDefined(action)
+                    && Enum.TryParse<GamepadButtons>(value, out var button) && ((int)button & ~0xffff) == 0
+                    && ((int)button & ((int)button - 1)) == 0) SetSlot(action, slot, button);
+            }
+        }
+
+        public static IReadOnlyList<PadAction> Conflicts(PadAction action, GamepadButtons button)
+        {
+            var result = new List<PadAction>();
+            if (button != 0) foreach (var other in Actions)
+                if (other != action && (Get(other) & button) != 0) result.Add(other);
+            return result;
+        }
+        public static void Assign(PadAction action, int slot, GamepadButtons button, string resolution)
+        {
+            if (resolution == "Cancel") return;
+            var old = Slot(action, slot);
+            if (resolution == "Swap" || resolution == "Replace")
+                foreach (var other in Conflicts(action, button))
+                    Set(other, (Get(other) & ~button) | (resolution == "Swap" ? old : 0));
+            SetSlot(action, slot, button);
+        }
+        public static void ApplyPreset(string name)
+        {
+            if (name == "Custom") { Preset = name; return; }
+            Reset();
+            GamepadOptions.Southpaw = name == "Southpaw";
+            if (name == "Bumper Jumper")
+            {
+                Set(PadAction.Jump, GamepadButtons.LeftBumper);
+                Set(PadAction.PrevWeapon, GamepadButtons.A | GamepadButtons.DpadLeft);
+            }
+            if (name == "Classic")
+            {
+                Set(PadAction.WeaponWheel, GamepadButtons.None);
+                Set(PadAction.Chat, GamepadButtons.LeftThumb);
+            }
+            Preset = name;
+        }
+
         /// <summary>Put every button back where it shipped.</summary>
         public static void Reset()
         {
-            Array.Copy(_defaults, _current, _defaults.Length);
+            foreach (PadAction action in Actions) Set(action, _defaults[(int)action]);
+            Preset = "Default";
         }
 
         /// <summary>The name of the setting a row is editing.</summary>
@@ -140,6 +213,7 @@ namespace MphRead.Mods.Input
                 PadAction.Missile => "Missile",
                 PadAction.PowerBeam => "Power beam",
                 PadAction.Menu => "Menu",
+                PadAction.WeaponWheel => "Weapon wheel",
                 _ => action.ToString()
             };
         }
@@ -165,33 +239,11 @@ namespace MphRead.Mods.Input
         /// <summary>
         /// What the button is called on the pad in the player's hands.
         ///
-        /// Xbox names, because that is the layout both readers remap onto --
-        /// see <see cref="GamepadState"/> -- and because naming the face
-        /// buttons after a DualShock's shapes would be wrong for everyone
-        /// holding anything else.
+        /// Family-specific labels keep normalized physical positions unchanged.
         /// </summary>
         public static string ButtonName(GamepadButtons button)
         {
-            return button switch
-            {
-                GamepadButtons.A => "A",
-                GamepadButtons.B => "B",
-                GamepadButtons.X => "X",
-                GamepadButtons.Y => "Y",
-                GamepadButtons.LeftBumper => "LB",
-                GamepadButtons.RightBumper => "RB",
-                GamepadButtons.LeftTrigger => "LT",
-                GamepadButtons.RightTrigger => "RT",
-                GamepadButtons.Back => "Back",
-                GamepadButtons.Start => "Start",
-                GamepadButtons.LeftThumb => "Left stick",
-                GamepadButtons.RightThumb => "Right stick",
-                GamepadButtons.DpadUp => "D-pad up",
-                GamepadButtons.DpadDown => "D-pad down",
-                GamepadButtons.DpadLeft => "D-pad left",
-                GamepadButtons.DpadRight => "D-pad right",
-                _ => button.ToString()
-            };
+            return GamepadGlyphs.Resolve(button);
         }
 
         /// <summary>The key this action is written under in controls.txt.</summary>
@@ -209,7 +261,9 @@ namespace MphRead.Mods.Input
         {
             if (!key.StartsWith("pad_", StringComparison.Ordinal)
                 || !Enum.TryParse(key[4..], out PadAction action)
-                || !Enum.TryParse(value, out GamepadButtons buttons))
+                || !Enum.IsDefined(action)
+                || !Enum.TryParse(value, out GamepadButtons buttons)
+                || ((int)buttons & ~0xffff) != 0)
             {
                 return false;
             }

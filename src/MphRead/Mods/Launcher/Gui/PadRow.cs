@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -30,6 +31,13 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly PadAction _action;
         private readonly double _labelWidth;
         private bool _listening;
+        private int _slot, _choice, _pickIndex;
+        private bool _picking;
+        private static readonly GamepadButtons[] PickButtons = Enum.GetValues<GamepadButtons>();
+        private GamepadButtons _pending;
+        private long _deviceRevision;
+        private string? _conflict;
+        private static readonly string[] Resolutions = { "Swap", "Replace", "Keep Both", "Cancel" };
         private bool _hot;
         private DispatcherTimer? _watch;
 
@@ -53,13 +61,20 @@ namespace MphRead.Mods.Launcher.Gui
         }
 
         private Rect Box => new(_labelWidth, 2,
-            Math.Max(60, Bounds.Width - _labelWidth - 4), Bounds.Height - 4);
+            Math.Max(60, Bounds.Width - _labelWidth - 4), 28);
 
         protected override void OnPointerPressed(PointerPressedEventArgs e)
         {
             Focus();
+            if (_conflict != null)
+            {
+                var point = e.GetPosition(this);
+                if (point.Y > 60) { _choice = Math.Clamp((int)(point.X / Math.Max(1, Bounds.Width / 4)), 0, 3); Resolve(); }
+                e.Handled = true; return;
+            }
             if (!_listening && Box.Contains(e.GetPosition(this)))
             {
+                _slot = e.GetPosition(this).X < Box.Center.X ? 0 : 1;
                 Listen();
             }
             e.Handled = true;
@@ -68,8 +83,20 @@ namespace MphRead.Mods.Launcher.Gui
 
         protected override void OnKeyDown(KeyEventArgs e)
         {
+            if (_conflict != null)
+            {
+                if (e.Key == Key.Left) _choice = Math.Max(0, _choice - 1);
+                if (e.Key == Key.Right) _choice = Math.Min(3, _choice + 1);
+                if (e.Key == Key.Enter) Resolve();
+                if (e.Key == Key.Escape) Done();
+                e.Handled = true; InvalidateVisual(); return;
+            }
             if (!_listening)
             {
+                if (e.Key == Key.Left || e.Key == Key.Right)
+                {
+                    _slot = e.Key == Key.Left ? 0 : 1; InvalidateVisual(); e.Handled = true; return;
+                }
                 if (e.Key == Key.Enter || e.Key == Key.Space)
                 {
                     Listen();
@@ -89,7 +116,7 @@ namespace MphRead.Mods.Launcher.Gui
                 // Unbinding is worth having: a pad with a broken bumper is
                 // better with nothing on it than with something that fires by
                 // itself, and GamepadInput reads None as "never held".
-                PadBindings.Set(_action, GamepadButtons.None);
+                PadBindings.SetSlot(_action, _slot, GamepadButtons.None);
                 Done();
             }
         }
@@ -97,6 +124,9 @@ namespace MphRead.Mods.Launcher.Gui
         private void Listen()
         {
             _listening = true;
+            Height = 72;
+            GamepadContexts.Capturing = true;
+            _deviceRevision = GamepadManager.Snapshot.Revision;
             GamepadDesktop.PollForMenu();
             _baseline = GamepadInput.State.Buttons;
             _watch?.Stop();
@@ -106,7 +136,7 @@ namespace MphRead.Mods.Launcher.Gui
             InvalidateVisual();
         }
 
-        private void Check()
+        internal void Check()
         {
             if (!_listening)
             {
@@ -116,33 +146,61 @@ namespace MphRead.Mods.Launcher.Gui
             // desktop's pad is polled, and with no game window running there
             // is nothing else pumping GLFW. Both cases are inside this call.
             GamepadDesktop.PollForMenu();
-            GamepadButtons pressed = GamepadInput.State.Buttons & ~_baseline;
-            // Whatever is no longer held stops shielding: a player who was
-            // holding a button when the row opened can still choose it by
-            // letting go and pressing it again.
-            _baseline &= GamepadInput.State.Buttons;
-            if (pressed == GamepadButtons.None)
+            var snapshot = GamepadManager.Snapshot;
+            if (!snapshot.State.Connected || snapshot.Revision != _deviceRevision) { Done(); return; }
+            GamepadButtons pressed = snapshot.State.Buttons & ~_baseline;
+            _baseline = snapshot.State.Buttons;
+            if (pressed == 0) return;
+            if (_conflict != null)
             {
-                return;
+                if ((pressed & GamepadButtons.DpadLeft) != 0) _choice = Math.Max(0, _choice - 1);
+                if ((pressed & GamepadButtons.DpadRight) != 0) _choice = Math.Min(3, _choice + 1);
+                if ((pressed & GamepadButtons.A) != 0) Resolve();
+                else if ((pressed & GamepadButtons.B) != 0) Done();
+                InvalidateVisual(); return;
             }
-            // One button, not the handful a trigger can set off at once: the
-            // lowest bit that is up. A binding with two buttons in it is a
-            // default (the bumper and the d-pad both cycle weapons), not
-            // something a press should produce.
-            foreach (GamepadButtons button in Enum.GetValues<GamepadButtons>())
+            if ((pressed & GamepadButtons.B) != 0) { Done(); return; }
+            if (_picking)
             {
-                if (button != GamepadButtons.None && (pressed & button) == button)
-                {
-                    PadBindings.Set(_action, button);
-                    Done();
-                    return;
-                }
+                if ((pressed & GamepadButtons.DpadLeft) != 0) _pickIndex = (_pickIndex + PickButtons.Length - 1) % PickButtons.Length;
+                if ((pressed & GamepadButtons.DpadRight) != 0) _pickIndex = (_pickIndex + 1) % PickButtons.Length;
+                if ((pressed & GamepadButtons.A) != 0) Choose(PickButtons[_pickIndex]);
+                InvalidateVisual(); return;
             }
+            // The picker makes even the capture commands themselves bindable.
+            if ((pressed & GamepadButtons.Start) != 0) { _picking = true; _pickIndex = 1; InvalidateVisual(); return; }
+            if ((pressed & GamepadButtons.Back) != 0) { PadBindings.SetSlot(_action, _slot, 0); Done(); return; }
+            foreach (GamepadButtons button in PickButtons)
+            {
+                if (button == 0 || (pressed & button) == 0) continue;
+                Choose(button); return;
+            }
+        }
+        private void Choose(GamepadButtons button)
+        {
+            _picking = false;
+            var conflicts = PadBindings.Conflicts(_action, button);
+            if (conflicts.Count == 0) { PadBindings.SetSlot(_action, _slot, button); Done(); }
+            else
+            {
+                _pending = button; _choice = 3;
+                _conflict = PadBindings.ButtonName(button) + " is assigned to "
+                    + string.Join(" / ", conflicts.Select(PadBindings.Name));
+                Height = 108; this.BringIntoView(); InvalidateVisual();
+            }
+        }
+
+        private void Resolve()
+        {
+            PadBindings.Assign(_action, _slot, _pending, Resolutions[_choice]);
+            Done();
         }
 
         private void Done()
         {
             _listening = false;
+            GamepadContexts.Capturing = false;
+            _conflict = null; _picking = false; Height = 32;
             _watch?.Stop();
             _watch = null;
             InvalidateVisual();
@@ -184,6 +242,8 @@ namespace MphRead.Mods.Launcher.Gui
             _watch?.Stop();
             _watch = null;
             _listening = false;
+            GamepadContexts.Capturing = false;
+            _conflict = null; _picking = false; Height = 32;
             base.OnDetachedFromVisualTree(e);
         }
 
@@ -194,7 +254,7 @@ namespace MphRead.Mods.Launcher.Gui
                 new Rect(0, 0, Bounds.Width, Bounds.Height));
             FormattedText label = TrackedText.Make(PadBindings.Name(_action), 12,
                 bold: true, GuiTheme.TextBrush);
-            context.DrawText(label, new Point(4, (Bounds.Height - label.Height) / 2));
+            context.DrawText(label, new Point(4, (32 - label.Height) / 2));
 
             Rect box = Box;
             context.DrawRectangle(GuiTheme.PanelLightBrush,
@@ -202,9 +262,30 @@ namespace MphRead.Mods.Launcher.Gui
                     : IsFocused || _hot ? GuiTheme.Accent : GuiTheme.Edge), 1),
                 new RoundedRect(box, 4));
 
-            string text = _listening
-                ? "press a button on the pad"
-                : PadBindings.Describe(PadBindings.Get(_action));
+            string text = _picking ? "< " + PadBindings.Describe(PickButtons[_pickIndex]) + " >  Accept / Back" : _listening
+                ? "Press a button"
+                : (_slot == 0 && IsFocused ? "> " : "") + "Primary: " + PadBindings.Describe(PadBindings.Slot(_action, 0))
+                    + "    " + (_slot == 1 && IsFocused ? "> " : "") + "Secondary: " + PadBindings.Describe(PadBindings.Slot(_action, 1));
+            if (_listening && _conflict == null)
+            {
+                var hint = TrackedText.Make($"{PadBindings.ButtonName(GamepadButtons.B)} cancel   "
+                    + $"{PadBindings.ButtonName(GamepadButtons.Back)} clear   {PadBindings.ButtonName(GamepadButtons.Start)} choose button", 11, true, GuiTheme.TextDimBrush);
+                hint.MaxTextWidth = Math.Max(20, Bounds.Width - 8); hint.MaxTextHeight = 28;
+                context.DrawText(hint, new Point(4, 40));
+            }
+            if (_conflict != null)
+            {
+                var note = TrackedText.Make(_conflict, 11, true, GuiTheme.TextBrush);
+                note.MaxTextWidth = Math.Max(20, Bounds.Width - 8);
+                note.MaxTextHeight = 28; note.Trimming = TextTrimming.CharacterEllipsis;
+                context.DrawText(note, new Point(4, 36));
+                for (int i = 0; i < 4; i++)
+                {
+                    var option = TrackedText.Make((_choice == i ? "> " : "") + Resolutions[i], 12, true,
+                        _choice == i ? GuiTheme.AccentBrush : GuiTheme.TextBrush);
+                    context.DrawText(option, new Point(i * Bounds.Width / 4 + 4, 74));
+                }
+            }
             FormattedText value = TrackedText.Make(text, 12, bold: true,
                 new SolidColorBrush(_listening ? GuiTheme.Warm : GuiTheme.Text));
             value.MaxTextWidth = Math.Max(20, box.Width - 12);
