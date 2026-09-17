@@ -34,7 +34,6 @@ namespace MphRead.Mods.Network
         private static uint _nextCommandId;
         private static ushort? _loadedMatch;
         private static double _lastLoadAck, _lastIdentity;
-        private static ushort? _rosterRevision;
         private sealed class PendingLobbyCommand
         {
             public LobbyCommandPacket Packet;
@@ -92,19 +91,26 @@ namespace MphRead.Mods.Network
 
         internal static void ApplySessionState(SessionStatePacket state)
         {
-            if (ServerSession is { } old && state.Revision != old.Revision
-                && !SessionStatePacket.IsNewer(state.Revision, old.Revision)) return;
+            if (ServerSession is { } old)
+            {
+                if (state.AuthorityEpoch != old.AuthorityEpoch
+                    && !NetLifecycleTracker.Newer(state.AuthorityEpoch, old.AuthorityEpoch)) return;
+                if (state.AuthorityEpoch == old.AuthorityEpoch && state.Revision != old.Revision
+                    && !SessionStatePacket.IsNewer(state.Revision, old.Revision)) return;
+            }
             bool newMatch = ServerSession?.MatchId != state.MatchId;
             if (state.Policy == ServerSessionPolicy.Lobby && (newMatch || (state.Phase == SessionPhase.Lobby && !IsInLobby)))
                 ResetMatchState();
             ServerSession = state;
-            if (state.Phase is SessionPhase.Starting or SessionPhase.InMatch && ServerMatch == null)
+            if (ServerMatch == null || ServerMatch.Value.MatchId != state.MatchId
+                || ServerMatch.Value.AuthorityEpoch != state.AuthorityEpoch)
             {
-                ServerMatch = new MatchStatePacket { RoomKey = state.Match.RoomKey, Mode = (byte)state.Match.Mode,
+                ApplyMatchState(new MatchStatePacket { RoomKey = state.Match.RoomKey, Mode = (byte)state.Match.Mode,
+                    AuthorityEpoch = state.AuthorityEpoch,
                     PointGoal = state.Match.PointGoal, TimeRemaining = state.Match.TimeLimitSeconds, MatchId = state.MatchId,
                     Flags = (byte)(MatchStatePacket.FlagInProgress | (state.Match.FriendlyFire ? MatchStatePacket.FlagFriendlyFire : 0)
                         | (state.Match.ShadowFreeze ? 0 : MatchStatePacket.FlagNoShadowFreeze)
-                        | MatchStatePacket.RuleFlags(1, state.Match.AffinityWeapons)) };
+                        | MatchStatePacket.RuleFlags(1, state.Match.AffinityWeapons)) }, rotated: false);
             }
             if (newMatch) _loadedMatch = null;
         }
@@ -143,13 +149,14 @@ namespace MphRead.Mods.Network
             Array.Clear(RemoteStateValid); Array.Clear(RemoteIntentValid);
             Array.Clear(RemoteIntentArrived); Array.Clear(_lastSlotIntentFrame);
             _lastSnapshotFrame = 0; SnapshotArrived = 0; AppliedSnapshotFrame = 0;
-            _lateSnapshotRun = 0; ServerMatch = null;
+            _hasSnapshot = false; ContinuousPhase.Reset();
+            NetPlayerLifecycle.ResetLives();
         }
 
         private static void ResetLobbySession()
         {
             ServerSession = null; _pendingLobby.Clear(); _loadedMatch = null;
-            _rosterRevision = null; _ownerToken = Guid.Empty;
+            _rosterRevision = 0; _hasRoster = false; _ownerToken = Guid.Empty;
             LobbyMessage = ""; _lastLoadAck = _lastIdentity = 0;
             Array.Fill(SlotTeamIndex, (sbyte)-1); Array.Clear(SlotLobbyReady);
             Chat.NetChat.Clear();
@@ -158,12 +165,15 @@ namespace MphRead.Mods.Network
         public static RosterPacket LobbyRoster()
         {
             var roster = RosterPacket.Create();
-            roster.Revision = _rosterRevision ?? 0;
+            roster.Revision = _rosterRevision;
+            roster.MatchId = CurrentMatchId;
+            roster.AuthorityEpoch = AuthorityEpoch;
             for (int slot = 0; slot < SlotOccupied.Length; slot++)
             {
                 if (!SlotOccupied[slot]) continue;
                 int at = roster.Count++;
                 roster.Slots[at] = (byte)slot; roster.Teams[at] = SlotTeamIndex[slot];
+                roster.Generations[at] = NetPlayerLifecycle.Generation(slot);
                 roster.LobbyReady[at] = SlotLobbyReady[slot]; roster.Names[at] = GameState.Nicknames[slot];
                 roster.Hunters[at] = (byte)SlotHunter[slot]; roster.Colors[at] = (byte)PlayerColors.Choice[slot];
                 roster.Pings[at] = (ushort)SlotPing[slot];

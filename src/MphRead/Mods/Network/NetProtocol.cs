@@ -560,8 +560,9 @@ namespace MphRead.Mods.Network
     /// </summary>
     public struct MatchStatePacket
     {
+        public ulong AuthorityEpoch;
         public const int MaxNameBytes = 40;
-        public const int Size = 1 + 4 + 4 + 1 + 1 + 2 + 2 + MaxNameBytes + MaxNameBytes;
+        public const int Size = 1 + 4 + 4 + 1 + 1 + 2 + 2 + MaxNameBytes + MaxNameBytes + 8;
 
         public byte Mode;              // GameMode
         public float TimeRemaining;    // seconds left in this match
@@ -695,6 +696,7 @@ namespace MphRead.Mods.Network
 
         public void Write(Span<byte> dest)
         {
+            BinaryPrimitives.WriteUInt64LittleEndian(dest[95..], AuthorityEpoch);
             dest[0] = Mode;
             BinaryPrimitives.WriteSingleLittleEndian(dest[1..], TimeRemaining);
             BinaryPrimitives.WriteSingleLittleEndian(dest[5..], TimeElapsed);
@@ -710,6 +712,7 @@ namespace MphRead.Mods.Network
         {
             return new MatchStatePacket
             {
+                AuthorityEpoch = BinaryPrimitives.ReadUInt64LittleEndian(src[95..]),
                 Mode = src[0],
                 TimeRemaining = BinaryPrimitives.ReadSingleLittleEndian(src[1..]),
                 TimeElapsed = BinaryPrimitives.ReadSingleLittleEndian(src[5..]),
@@ -888,11 +891,15 @@ namespace MphRead.Mods.Network
         // rides along for the same reason: it is a property of who is in the
         // slot, the server is the only party that can measure it for
         // everybody, and it already sends this packet every second.
-        public const int EntrySize = 1 + 1 + 1 + 2 + MaxNameBytes + 2;
-        public const int Size = 3 + MaxSlots * EntrySize;
+        public const int EntrySize = 1 + 1 + 1 + 2 + MaxNameBytes + 4;
+        public const int HeaderSize = 15;
+        public const int Size = HeaderSize + MaxSlots * EntrySize;
+        public ushort MatchId;
+        public ulong AuthorityEpoch;
+        public uint Revision;
+        public ushort[] Generations;
 
         public byte Count;
-        public ushort Revision;
         public sbyte[] Teams;
         public bool[] LobbyReady;
         public byte[] Slots;      // slot index per entry
@@ -906,6 +913,7 @@ namespace MphRead.Mods.Network
             return new RosterPacket
             {
                 Count = 0,
+                Generations = new ushort[MaxSlots],
                 Slots = new byte[MaxSlots],
                 Teams = new sbyte[MaxSlots],
                 LobbyReady = new bool[MaxSlots],
@@ -920,8 +928,10 @@ namespace MphRead.Mods.Network
         {
             dest[..Size].Clear();
             dest[0] = Count;
-            BinaryPrimitives.WriteUInt16LittleEndian(dest[1..], Revision);
-            int offset = 3;
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[1..], MatchId);
+            BinaryPrimitives.WriteUInt64LittleEndian(dest[3..], AuthorityEpoch);
+            BinaryPrimitives.WriteUInt32LittleEndian(dest[11..], Revision);
+            int offset = HeaderSize;
             for (int i = 0; i < Count && i < MaxSlots; i++)
             {
                 dest[offset] = Slots[i];
@@ -929,8 +939,9 @@ namespace MphRead.Mods.Network
                 dest[offset + 2] = Colors[i];
                 BinaryPrimitives.WriteUInt16LittleEndian(dest[(offset + 3)..], Pings[i]);
                 WriteName(dest.Slice(offset + 5, MaxNameBytes), Names[i]);
-                dest[offset + 5 + MaxNameBytes] = unchecked((byte)Teams[i]);
-                dest[offset + 6 + MaxNameBytes] = LobbyReady[i] ? (byte)1 : (byte)0;
+                dest[offset + 7 + MaxNameBytes] = unchecked((byte)Teams[i]);
+                dest[offset + 8 + MaxNameBytes] = LobbyReady[i] ? (byte)1 : (byte)0;
+                BinaryPrimitives.WriteUInt16LittleEndian(dest[(offset + 21)..], Generations[i]);
                 offset += EntrySize;
             }
         }
@@ -942,11 +953,11 @@ namespace MphRead.Mods.Network
             int seen = 0;
             for (int i = 0; i < src[0]; i++)
             {
-                int offset = 3 + i * EntrySize;
+                int offset = HeaderSize + i * EntrySize;
                 int slot = src[offset];
-                int team = unchecked((sbyte)src[offset + 5 + MaxNameBytes]);
+                int team = unchecked((sbyte)src[offset + 7 + MaxNameBytes]);
                 if (slot >= MaxSlots || (seen & (1 << slot)) != 0 || src[offset + 1] >= 7
-                    || src[offset + 2] > 3 || team < -1 || team > 3 || src[offset + 6 + MaxNameBytes] > 1)
+                    || src[offset + 2] > 3 || team < -1 || team > 3 || src[offset + 8 + MaxNameBytes] > 1)
                     return false;
                 seen |= 1 << slot;
             }
@@ -958,8 +969,10 @@ namespace MphRead.Mods.Network
         {
             RosterPacket roster = Create();
             roster.Count = Math.Min(src[0], (byte)MaxSlots);
-            roster.Revision = BinaryPrimitives.ReadUInt16LittleEndian(src[1..]);
-            int offset = 3;
+            roster.MatchId = BinaryPrimitives.ReadUInt16LittleEndian(src[1..]);
+            roster.AuthorityEpoch = BinaryPrimitives.ReadUInt64LittleEndian(src[3..]);
+            roster.Revision = BinaryPrimitives.ReadUInt32LittleEndian(src[11..]);
+            int offset = HeaderSize;
             for (int i = 0; i < roster.Count; i++)
             {
                 roster.Slots[i] = src[offset];
@@ -967,8 +980,9 @@ namespace MphRead.Mods.Network
                 roster.Colors[i] = src[offset + 2];
                 roster.Pings[i] = BinaryPrimitives.ReadUInt16LittleEndian(src[(offset + 3)..]);
                 roster.Names[i] = ReadName(src.Slice(offset + 5, MaxNameBytes));
-                roster.Teams[i] = unchecked((sbyte)src[offset + 5 + MaxNameBytes]);
-                roster.LobbyReady[i] = src[offset + 6 + MaxNameBytes] != 0;
+                roster.Teams[i] = unchecked((sbyte)src[offset + 7 + MaxNameBytes]);
+                roster.LobbyReady[i] = src[offset + 8 + MaxNameBytes] != 0;
+                roster.Generations[i] = BinaryPrimitives.ReadUInt16LittleEndian(src[(offset + 21)..]);
                 offset += EntrySize;
             }
             return roster;
@@ -1120,6 +1134,10 @@ namespace MphRead.Mods.Network
 
     public struct IntentPacket
     {
+        public ushort MatchId;
+        public ulong AuthorityEpoch;
+        public ushort SlotGeneration;
+        public ushort LifeId;
         /// <summary>
         /// How many frames of rising edges each packet carries. A button held
         /// for one frame -- morph, weapon switch, alt attack -- exists in
@@ -1130,7 +1148,7 @@ namespace MphRead.Mods.Network
         /// number each one belongs to lets the receiver take each press once.
         /// </summary>
         public const int PressHistory = 8;
-        public const int Size = 4 + 4 + 12 + 1 + 4 * PressHistory + 12 + 2 + 2 + 4 + 1;
+        public const int Size = 4 + 4 + 12 + 1 + 4 * PressHistory + 12 + 2 + 2 + 4 + 1 + 14;
 
         /// <summary>
         /// Four bytes appended <b>past</b> <see cref="Size"/>, carrying the
@@ -1286,6 +1304,10 @@ namespace MphRead.Mods.Network
 
         public void Write(Span<byte> dest)
         {
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[74..], MatchId);
+            BinaryPrimitives.WriteUInt64LittleEndian(dest[76..], AuthorityEpoch);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[84..], SlotGeneration);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[86..], LifeId);
             BinaryPrimitives.WriteUInt32LittleEndian(dest[0..], Frame);
             BinaryPrimitives.WriteUInt32LittleEndian(dest[4..], (uint)Buttons);
             BinaryPrimitives.WriteSingleLittleEndian(dest[8..], Aim.X);
@@ -1323,6 +1345,10 @@ namespace MphRead.Mods.Network
             }
             return new IntentPacket
             {
+                MatchId = BinaryPrimitives.ReadUInt16LittleEndian(src[74..]),
+                AuthorityEpoch = BinaryPrimitives.ReadUInt64LittleEndian(src[76..]),
+                SlotGeneration = BinaryPrimitives.ReadUInt16LittleEndian(src[84..]),
+                LifeId = BinaryPrimitives.ReadUInt16LittleEndian(src[86..]),
                 Frame = BinaryPrimitives.ReadUInt32LittleEndian(src[0..]),
                 Buttons = (IntentButtons)BinaryPrimitives.ReadUInt32LittleEndian(src[4..]),
                 Aim = new Vector3(
@@ -1357,9 +1383,48 @@ namespace MphRead.Mods.Network
     /// health/weapon/team are cheap enough to resend every snapshot rather
     /// than tracking deltas at this stage.
     /// </summary>
+    public struct DamageEvent
+    {
+        public const int Size = 26;
+        public ushort EventId, VictimLifeId, AttackerLifeId, AttackerGeneration, Damage;
+        public byte VictimSlot, AttackerSlot, Beam, Flags;
+        public Vector3 Direction;
+
+        public readonly void Write(Span<byte> dest)
+        {
+            BinaryPrimitives.WriteUInt16LittleEndian(dest, EventId);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[2..], VictimLifeId);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[4..], AttackerLifeId);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[6..], AttackerGeneration);
+            dest[8] = VictimSlot;
+            dest[9] = AttackerSlot;
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[10..], Damage);
+            dest[12] = Beam;
+            dest[13] = Flags;
+            BinaryPrimitives.WriteSingleLittleEndian(dest[14..], Direction.X);
+            BinaryPrimitives.WriteSingleLittleEndian(dest[18..], Direction.Y);
+            BinaryPrimitives.WriteSingleLittleEndian(dest[22..], Direction.Z);
+        }
+
+        public static DamageEvent Read(ReadOnlySpan<byte> src) => new DamageEvent
+        {
+            EventId = BinaryPrimitives.ReadUInt16LittleEndian(src),
+            VictimLifeId = BinaryPrimitives.ReadUInt16LittleEndian(src[2..]),
+            AttackerLifeId = BinaryPrimitives.ReadUInt16LittleEndian(src[4..]),
+            AttackerGeneration = BinaryPrimitives.ReadUInt16LittleEndian(src[6..]),
+            VictimSlot = src[8], AttackerSlot = src[9],
+            Damage = BinaryPrimitives.ReadUInt16LittleEndian(src[10..]),
+            Beam = src[12], Flags = src[13],
+            Direction = new Vector3(BinaryPrimitives.ReadSingleLittleEndian(src[14..]),
+                BinaryPrimitives.ReadSingleLittleEndian(src[18..]), BinaryPrimitives.ReadSingleLittleEndian(src[22..]))
+        };
+    }
+
     public struct PlayerState
     {
-        public const int Size = 1 + 1 + 12 + 12 + 12 + 2 + 1 + 1 + 1 + 1 + 1 + 1 + 12 + 2 + 2 + 2;
+        public ushort SlotGeneration;
+        public ushort LifeId;
+        public const int Size = 70 + DamageEvent.Size * DamageHistory;
 
         public byte SlotIndex;
         public byte Flags;          // bit 0 = active, bit 1 = alt form, bit 2 = spawned
@@ -1375,7 +1440,14 @@ namespace MphRead.Mods.Network
         /// Comparing health instead would replay a repeated snapshot as a
         /// fresh hit and miss two that cancelled out.
         /// </summary>
-        public byte DamageSeq;
+        public ushort DamageEventId;
+        public const int DamageHistory = 4;
+        public DamageEvent Damage0, Damage1, Damage2, Damage3;
+        public readonly DamageEvent EventAt(int index) => index switch
+        {
+            0 => Damage0, 1 => Damage1, 2 => Damage2, 3 => Damage3,
+            _ => throw new ArgumentOutOfRangeException(nameof(index))
+        };
         public byte AttackerSlot;   // 0xFF = nobody
         public byte DamageBeam;     // BeamType, 0xFF = not a beam
         public byte DamageFlags;    // headshot / deathalt / burn
@@ -1469,6 +1541,10 @@ namespace MphRead.Mods.Network
 
         public void Write(Span<byte> dest)
         {
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[64..], SlotGeneration);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[66..], LifeId);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[68..], DamageEventId);
+            for (int i = 0; i < DamageHistory; i++) EventAt(i).Write(dest[(70 + i * DamageEvent.Size)..]);
             dest[0] = SlotIndex;
             dest[1] = Flags;
             WriteVec(dest[2..], Position);
@@ -1477,7 +1553,7 @@ namespace MphRead.Mods.Network
             BinaryPrimitives.WriteUInt16LittleEndian(dest[38..], Health);
             dest[40] = CurrentWeapon;
             dest[41] = Team;
-            dest[42] = DamageSeq;
+            dest[42] = 0; // reserved; event identity is now 16 bits
             dest[43] = AttackerSlot;
             dest[44] = DamageBeam;
             dest[45] = DamageFlags;
@@ -1491,6 +1567,8 @@ namespace MphRead.Mods.Network
         {
             return new PlayerState
             {
+                SlotGeneration = BinaryPrimitives.ReadUInt16LittleEndian(src[64..]),
+                LifeId = BinaryPrimitives.ReadUInt16LittleEndian(src[66..]),
                 SlotIndex = src[0],
                 Flags = src[1],
                 Position = ReadVec(src[2..]),
@@ -1499,7 +1577,11 @@ namespace MphRead.Mods.Network
                 Health = BinaryPrimitives.ReadUInt16LittleEndian(src[38..]),
                 CurrentWeapon = src[40],
                 Team = src[41],
-                DamageSeq = src[42],
+                DamageEventId = BinaryPrimitives.ReadUInt16LittleEndian(src[68..]),
+                Damage0 = DamageEvent.Read(src[70..]),
+                Damage1 = DamageEvent.Read(src[(70 + DamageEvent.Size)..]),
+                Damage2 = DamageEvent.Read(src[(70 + 2 * DamageEvent.Size)..]),
+                Damage3 = DamageEvent.Read(src[(70 + 3 * DamageEvent.Size)..]),
                 AttackerSlot = src[43],
                 DamageBeam = src[44],
                 DamageFlags = src[45],
@@ -1534,7 +1616,9 @@ namespace MphRead.Mods.Network
     /// </summary>
     public struct SnapshotHeader
     {
-        public const int Size = 4 + 4 + 4 + 1;
+        public ushort MatchId;
+        public ulong AuthorityEpoch;
+        public const int Size = 4 + 4 + 4 + 1 + 10;
 
         public uint Frame;
         public uint Rng1;
@@ -1543,6 +1627,8 @@ namespace MphRead.Mods.Network
 
         public void Write(Span<byte> dest)
         {
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[13..], MatchId);
+            BinaryPrimitives.WriteUInt64LittleEndian(dest[15..], AuthorityEpoch);
             BinaryPrimitives.WriteUInt32LittleEndian(dest[0..], Frame);
             BinaryPrimitives.WriteUInt32LittleEndian(dest[4..], Rng1);
             BinaryPrimitives.WriteUInt32LittleEndian(dest[8..], Rng2);
@@ -1553,6 +1639,8 @@ namespace MphRead.Mods.Network
         {
             return new SnapshotHeader
             {
+                MatchId = BinaryPrimitives.ReadUInt16LittleEndian(src[13..]),
+                AuthorityEpoch = BinaryPrimitives.ReadUInt64LittleEndian(src[15..]),
                 Frame = BinaryPrimitives.ReadUInt32LittleEndian(src[0..]),
                 Rng1 = BinaryPrimitives.ReadUInt32LittleEndian(src[4..]),
                 Rng2 = BinaryPrimitives.ReadUInt32LittleEndian(src[8..]),
@@ -1597,7 +1685,13 @@ namespace MphRead.Mods.Network
     /// </summary>
     public struct HitClaimPacket
     {
-        public const int Size = 2 + 4 + 4 + 4 + 1 + 1 + 2 + 1 + 12;
+        public ushort MatchId;
+        public ulong AuthorityEpoch;
+        public ushort ShooterGeneration;
+        public ushort ShooterLifeId;
+        public ushort VictimGeneration;
+        public ushort VictimLifeId;
+        public const int Size = 2 + 4 + 4 + 4 + 1 + 1 + 2 + 1 + 12 + 18;
 
         /// <summary>How many claims one datagram may carry.</summary>
         public const int MaxPerPacket = 6;
@@ -1672,6 +1766,12 @@ namespace MphRead.Mods.Network
 
         public void Write(Span<byte> dest)
         {
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[31..], MatchId);
+            BinaryPrimitives.WriteUInt64LittleEndian(dest[33..], AuthorityEpoch);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[41..], ShooterGeneration);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[43..], ShooterLifeId);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[45..], VictimGeneration);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[47..], VictimLifeId);
             BinaryPrimitives.WriteUInt16LittleEndian(dest[0..], ClaimId);
             BinaryPrimitives.WriteUInt32LittleEndian(dest[2..], Frame);
             BinaryPrimitives.WriteUInt32LittleEndian(dest[6..], AckFrame);
@@ -1689,6 +1789,12 @@ namespace MphRead.Mods.Network
         {
             return new HitClaimPacket
             {
+                MatchId = BinaryPrimitives.ReadUInt16LittleEndian(src[31..]),
+                AuthorityEpoch = BinaryPrimitives.ReadUInt64LittleEndian(src[33..]),
+                ShooterGeneration = BinaryPrimitives.ReadUInt16LittleEndian(src[41..]),
+                ShooterLifeId = BinaryPrimitives.ReadUInt16LittleEndian(src[43..]),
+                VictimGeneration = BinaryPrimitives.ReadUInt16LittleEndian(src[45..]),
+                VictimLifeId = BinaryPrimitives.ReadUInt16LittleEndian(src[47..]),
                 ClaimId = BinaryPrimitives.ReadUInt16LittleEndian(src[0..]),
                 Frame = BinaryPrimitives.ReadUInt32LittleEndian(src[2..]),
                 AckFrame = BinaryPrimitives.ReadUInt32LittleEndian(src[6..]),
@@ -1721,6 +1827,7 @@ namespace MphRead.Mods.Network
     /// </summary>
     public struct HitVerdictPacket
     {
+        public const int HeaderSize = 15;
         public const int EntrySize = 3;
         public const int MaxPerPacket = 16;
 
@@ -1754,16 +1861,22 @@ namespace MphRead.Mods.Network
         public const byte ResultRefused = 4;
         /// <summary>The claim named a frame the history no longer holds.</summary>
         public const byte ResultTooOld = 5;
+        public const byte ResultWrongLife = 6;
 
         public ushort ClaimId;
         public byte Result;
 
-        public static void Write(Span<byte> dest, ReadOnlySpan<(ushort Id, byte Result)> entries)
+        public static void Write(Span<byte> dest, ReadOnlySpan<(ushort Id, byte Result)> entries,
+            ushort matchId, ulong epoch, ushort generation, ushort lifeId)
         {
             dest[0] = (byte)entries.Length;
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[1..], matchId);
+            BinaryPrimitives.WriteUInt64LittleEndian(dest[3..], epoch);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[11..], generation);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[13..], lifeId);
             for (int i = 0; i < entries.Length; i++)
             {
-                int at = 1 + i * EntrySize;
+                int at = HeaderSize + i * EntrySize;
                 BinaryPrimitives.WriteUInt16LittleEndian(dest[at..], entries[i].Id);
                 dest[at + 2] = entries[i].Result;
             }
@@ -1773,6 +1886,7 @@ namespace MphRead.Mods.Network
         {
             return result switch
             {
+                ResultWrongLife => "wrong lifecycle",
                 ResultApplied => "applied",
                 ResultDuplicate => "already resolved",
                 ResultDeadShooter => "shooter was already dead when it fired",
@@ -1787,7 +1901,7 @@ namespace MphRead.Mods.Network
     public static class NetConfig
     {
         public const ushort DefaultPort = 27888;
-        public const int MaxPacketSize = 1024;
+        public const int MaxPacketSize = 2048; // bounded combined lifecycle, team-clock and health-spawner snapshot
         /// <summary>
         /// Bumped when the wire format changes in a way an older build would
         /// misread rather than notice. Version 2 added the ping to the roster:
@@ -1870,7 +1984,7 @@ namespace MphRead.Mods.Network
         /// is unchanged, but version 7 peers would simulate different ammo
         /// and damage events, so mixed builds must be refused.
         /// </summary>
-        public const int ProtocolVersion = 9;
+        public const int ProtocolVersion = 10;
         /// <summary>
         /// Frames between intent packets. One, so every frame.
         ///

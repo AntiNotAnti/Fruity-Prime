@@ -58,6 +58,7 @@ namespace MphRead.Mods.Network
         private SessionStatePacket BuildSessionState() => new()
         {
             Phase = _phase, Policy = SessionPolicy, Revision = _sessionRevision, MatchId = _matchId,
+            AuthorityEpoch = _authorityEpoch,
             OwnerSlot = _lobbyOwnerClientId == 0 ? (byte)255 : (byte)(_peers.Find(p => p.ClientId == _lobbyOwnerClientId)?.SlotIndex ?? 255),
             MaxPlayers = (byte)_maxPlayers, Match = CurrentDefinition,
             WorldProfile = SessionPolicy == ServerSessionPolicy.Lobby && _phase != SessionPhase.Lobby
@@ -187,7 +188,10 @@ namespace MphRead.Mods.Network
                         reason = "The server could not load this map.";
                         return LobbyResultCode.MapUnavailable;
                     }
-                    _matchId++;
+                    _matchId = NetLifecycleTracker.Next(_matchId);
+                    _snapshotSeen = false;
+                    Array.Clear(_slotLives);
+                    foreach (Peer connected in _peers) connected.LastIntentFrame = 0;
                     _matchEndedAt = -1;
                     _lastSnapshot = null;
                     _expectedLoadedSlots = 0; _loadedSlots = 0;

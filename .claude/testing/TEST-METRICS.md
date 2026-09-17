@@ -1,5 +1,11 @@
 # Testing — metrics and interpreting results
 
+Protocol-8 lifecycle regression: `dotnet run --project tools/nettest/nettest.csproj
+-c Release -- --lifecycle` (one command). It runs production code and seeded
+packet faults without game assets. See [NETWORK-LIFECYCLE.md](../multiplayer/NETWORK-LIFECYCLE.md)
+for coverage and the separate live gameplay acceptance checks.
+
+
 This file describes how to read netcheck and maptest results and common traps.
 
 Key lines and their meaning

@@ -96,21 +96,6 @@ namespace MphRead.Mods.Network
         private static void Activate(PlayerEntity player, int slot)
         {
             _activated[slot] = true;
-            // Whoever is arriving is not whoever left. Every per-slot record
-            // the net code keeps -- reported positions and frame numbers,
-            // spawn barriers, divergence and staleness counters, the damage
-            // sequence, and the score -- describes the previous occupant, and
-            // inheriting it is what makes a rejoining player behave like a
-            // stale one, or arrive holding somebody else's kills. See
-            // NetPlayerBridge.ForgetSlot and NetScoreboard.ForgetSlot.
-            NetPlayerBridge.ForgetSlot(slot);
-            NetDamage.ForgetSlot(slot);
-            NetSession.ForgetSlot(slot);
-            NetScoreboard.ForgetSlot(slot);
-            NetHitPrediction.ForgetSlot(slot);
-            NetHitClaims.ForgetSlot(slot);
-            // The same flags Scene.AddPlayer sets, minus the bot marking:
-            // a networked player is driven by relayed intent, not by AI.
             player.LoadFlags |= LoadFlags.SlotActive;
             player.LoadFlags |= LoadFlags.Active;
             player.LoadFlags |= LoadFlags.Initial;
@@ -231,11 +216,7 @@ namespace MphRead.Mods.Network
             // On the way out as well as the way in: a slot can be filled again
             // before this machine has run a frame with it empty, and the
             // clearing has to happen either way round.
-            NetPlayerBridge.ForgetSlot(slot);
-            NetDamage.ForgetSlot(slot);
-            NetSession.ForgetSlot(slot);
-            NetHitPrediction.ForgetSlot(slot);
-            NetHitClaims.ForgetSlot(slot);
+            NetPlayerLifecycle.OnSlotChanged(slot);
             // The score goes when they go, not only when somebody takes the
             // slot: a player who left is not on the board, and the board is
             // drawn from these while the slot stands empty.

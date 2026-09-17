@@ -27,6 +27,10 @@ namespace MphRead.Entities
         // Spawn's firing phase must survive until a Shock Coil beam tests an enemy.
         public ulong ModContinuousPhase { get; set; }
         public bool ModHasSharedContinuousPhase { get; set; }
+        public ushort ModLaunchMatch { get; set; }
+        public ulong ModLaunchAuthority { get; set; }
+        public ushort ModLaunchGeneration { get; set; }
+        public ushort ModLaunchLife { get; set; }
         public BeamType Beam { get; set; }
         public BeamType BeamKind { get; set; }
 
@@ -1680,6 +1684,7 @@ namespace MphRead.Entities
                 beam.Owner = owner;
                 beam.ModContinuousPhase = phase;
                 beam.ModHasSharedContinuousPhase = sharedPhase;
+                NetPlayerLifecycle.StampProjectile(beam);
                 beam.Beam = weapon.Beam;
                 beam.BeamKind = weapon.BeamKind;
                 beam.Flags = flags;

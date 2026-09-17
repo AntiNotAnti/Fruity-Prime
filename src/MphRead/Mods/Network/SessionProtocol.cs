@@ -7,7 +7,8 @@ namespace MphRead.Mods.Network
     // Fixed, bounded control packets. TryRead is the only wire entry point.
     public struct SessionStatePacket
     {
-        public const int Size = 27 + HostRequestPacket.MaxRoomBytes;
+        public const int Size = 35 + HostRequestPacket.MaxRoomBytes;
+        public ulong AuthorityEpoch;
         public SessionPhase Phase;
         public ServerSessionPolicy Policy;
         public ushort Revision, MatchId;
@@ -35,6 +36,7 @@ namespace MphRead.Mods.Network
             dest[22] = Match.CustomTeams.TeamB; dest[23] = Match.CustomTeams.TeamC; dest[24] = Match.CustomTeams.TeamD;
             dest[25] = WorldProfile.EntityLayerPlayers; dest[26] = (byte)WorldProfile.Resources;
             NetText.Write(dest.Slice(27, HostRequestPacket.MaxRoomBytes), Match.RoomKey);
+            BinaryPrimitives.WriteUInt64LittleEndian(dest[(Size - 8)..], AuthorityEpoch);
         }
 
         public static bool TryRead(ReadOnlySpan<byte> src, out SessionStatePacket state)
@@ -53,6 +55,7 @@ namespace MphRead.Mods.Network
                 Phase = (SessionPhase)src[0], Policy = (ServerSessionPolicy)src[1],
                 Revision = BinaryPrimitives.ReadUInt16LittleEndian(src[2..]),
                 MatchId = BinaryPrimitives.ReadUInt16LittleEndian(src[4..]),
+                AuthorityEpoch = BinaryPrimitives.ReadUInt64LittleEndian(src[(Size - 8)..]),
                 OwnerSlot = src[6], MaxPlayers = src[7], RuleFlags = flags,
                 ExpectedParticipants = src[16], LoadedParticipants = src[17],
                 WorldProfile = new MatchWorldProfile(src[25], (ResourceSpawnProfile)src[26]),

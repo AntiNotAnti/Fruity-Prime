@@ -1,5 +1,11 @@
 # Instant hit registration
 
+> Protocol 8: see [NETWORK-LIFECYCLE.md](NETWORK-LIFECYCLE.md) for current
+> lifecycle, identity, wire and reset rules. The protocol-7 measurements below
+> are historical. Remote death prediction is now always disabled, including
+> with `-deathprediction`; only a new authoritative LifeId permits respawn.
+> Older protocol demos are refused.
+
 Code: `Mods/Network/NetHitPrediction.cs`. The other half of
 [lag compensation](NETWORK-UNLAGGED.md), and it only works because that
 exists.

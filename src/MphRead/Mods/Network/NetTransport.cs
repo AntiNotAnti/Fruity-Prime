@@ -77,8 +77,9 @@ namespace MphRead.Mods.Network
         /// with different guards against it, and mixing the two would make a
         /// run that reproduced one impossible to read.
         /// </summary>
-        private readonly Queue<(long DueAt, ReceivedPacket Packet)> _heldIn = new();
-        private readonly Queue<(long DueAt, IPEndPoint Target, byte[] Data, int Length)> _heldOut = new();
+        private readonly NetFaultQueue<ReceivedPacket> _heldIn = NetLag.CreateQueue<ReceivedPacket>(outbound: false);
+        private readonly NetFaultQueue<(IPEndPoint Target, byte[] Data, int Length)> _heldOut
+            = NetLag.CreateQueue<(IPEndPoint Target, byte[] Data, int Length)>(outbound: true);
         private readonly object _heldLock = new();
         private Thread? _lagWorker;
 
@@ -167,17 +168,16 @@ namespace MphRead.Mods.Network
         {
             while (_running)
             {
-                long now = Stopwatch.GetTimestamp();
+                double now = Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency;
                 while (true)
                 {
-                    (long DueAt, IPEndPoint Target, byte[] Data, int Length) held;
+                    (IPEndPoint Target, byte[] Data, int Length) held;
                     lock (_heldLock)
                     {
-                        if (_heldOut.Count == 0 || _heldOut.Peek().DueAt > now)
+                        if (!_heldOut.TryDequeue(now, out held))
                         {
                             break;
                         }
-                        held = _heldOut.Dequeue();
                     }
                     SendNow(held.Target, held.Data.AsSpan(0, held.Length));
                 }
@@ -216,7 +216,7 @@ namespace MphRead.Mods.Network
                     {
                         continue;
                     }
-                    if (data.Length == 0)
+                    if (data.Length == 0 || data.Length > NetConfig.MaxPacketSize)
                     {
                         continue;
                     }
@@ -240,7 +240,7 @@ namespace MphRead.Mods.Network
                         // the one number a latency run is read by would be
                         // describing the instrument.
                         Send(sender, PacketType.Pong, data.AsSpan(1),
-                            _lagWorker != null ? NetLag.HoldTicks() : 0);
+                            _lagWorker != null ? (long)(NetLag.RoundTripMs / 2.0 * Stopwatch.Frequency / 1000) : 0);
                         continue;
                     }
                     if (Volatile.Read(ref _inboxCount) >= MaxQueuedPackets)
@@ -263,20 +263,12 @@ namespace MphRead.Mods.Network
                     // there is something running that lets it out again.
                     if (_lagWorker != null)
                     {
-                        if (NetLag.Drops())
+                        lock (_heldLock)
                         {
-                            continue;
+                            _heldIn.Enqueue(Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency,
+                                new ReceivedPacket(sender, data, data.Length));
                         }
-                        long holdFor = NetLag.HoldTicks();
-                        if (holdFor > 0)
-                        {
-                            lock (_heldLock)
-                            {
-                                _heldIn.Enqueue((Stopwatch.GetTimestamp() + holdFor,
-                                    new ReceivedPacket(sender, data, data.Length)));
-                            }
-                            continue;
-                        }
+                        continue;
                     }
                     Interlocked.Increment(ref _inboxCount);
                     _inbox.Enqueue(new ReceivedPacket(sender, data, data.Length));
@@ -309,17 +301,16 @@ namespace MphRead.Mods.Network
 
         private void PromoteHeldArrivals()
         {
-            long now = Stopwatch.GetTimestamp();
+            double now = Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency;
             while (true)
             {
                 ReceivedPacket packet;
                 lock (_heldLock)
                 {
-                    if (_heldIn.Count == 0 || _heldIn.Peek().DueAt > now)
+                    if (!_heldIn.TryDequeue(now, out packet))
                     {
                         return;
                     }
-                    packet = _heldIn.Dequeue().Packet;
                 }
                 Interlocked.Increment(ref _inboxCount);
                 _inbox.Enqueue(packet);
@@ -360,23 +351,13 @@ namespace MphRead.Mods.Network
             payload.CopyTo(buffer[1..]);
             if (_lagWorker != null)
             {
-                if (NetLag.Drops())
+                byte[] copy = buffer[..(payload.Length + 1)].ToArray();
+                lock (_heldLock)
                 {
-                    return;
+                    _heldOut.Enqueue(Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency,
+                        (target, copy, copy.Length), extraHoldTicks * 1000.0 / Stopwatch.Frequency);
                 }
-                long holdFor = NetLag.HoldTicks() + extraHoldTicks;
-                if (holdFor > 0)
-                {
-                    // Copied, because the caller's span is a scratch buffer it
-                    // is about to write the next packet into.
-                    byte[] copy = buffer[..(payload.Length + 1)].ToArray();
-                    lock (_heldLock)
-                    {
-                        _heldOut.Enqueue((Stopwatch.GetTimestamp() + holdFor,
-                            target, copy, copy.Length));
-                    }
-                    return;
-                }
+                return;
             }
             SendNow(target, buffer[..(payload.Length + 1)]);
         }
