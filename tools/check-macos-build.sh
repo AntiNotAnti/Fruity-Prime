@@ -31,5 +31,9 @@ while IFS= read -r -d '' component; do
 done < "$list"
 codesign -d --entitlements :- "$root/FruityPrime" > "$entitlements"
 cat "$entitlements"
-[[ $(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.cs.allow-jit' "$entitlements") == true ]]
+# Bash 3.2 does not reliably apply errexit to a failed [[ ... ]] command.
+# Both an unreadable plist and a false/missing entitlement must fail explicitly.
+jit=$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.cs.allow-jit' "$entitlements") \
+    || { echo 'error: missing JIT entitlement' >&2; exit 1; }
+[[ "$jit" == true ]] || { echo 'error: JIT entitlement is not true' >&2; exit 1; }
 echo "Validated architecture, signatures and JIT entitlement for $2."

@@ -41,8 +41,8 @@ rm "$root/nested/wrong.dylib"
 codesign --remove-signature "$root/nested/extensionless-native"
 expect_failure "$repo/tools/check-macos-build.sh" "$root" "$rid"
 "$repo/tools/sign-macos.sh" "$root"
-# Build a fresh inode: re-signing a previously entitled executable can retain
-# its entitlements on current Apple tooling.
+# A fresh executable proves the missing-entitlement case independently of
+# any metadata preserved while replacing an existing code signature.
 clang "$temp/main.c" -o "$root/NoJit"
 codesign --force --sign - "$root/NoJit"
 mv "$root/NoJit" "$root/FruityPrime"
