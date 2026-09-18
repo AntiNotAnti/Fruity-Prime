@@ -142,7 +142,7 @@ combat assertions. The lobby suite passed 2,700 assertions, replay format passed
 The engine suite also tests a stream of earlier claims against the arbitration
 deadline and verifies duplicate requests do not inflate outcome counters.
 
-[Native CI run](https://github.com/AntiNotAnti/Fruity-Prime/actions/runs/35258854961)
+[Latest CI run](https://github.com/AntiNotAnti/Fruity-Prime/actions/runs/35291447143)
 passed all 13 jobs: Windows client/server, Apple Silicon and Intel Mac packages,
 Linux client/server/ARM64 server, Android, lobby and controller/UI checks. Mac
 packages passed the existing signing, executable, startup and compatibility
