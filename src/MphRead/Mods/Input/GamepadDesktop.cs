@@ -15,6 +15,7 @@ namespace MphRead.Mods.Input
             public bool Mapped, XInput;
             public GamepadFamily Family;
             public GamepadLayout Layout;
+            public GamepadCapabilities Capabilities;
         }
         private static readonly Slot[] Slots = CreateSlots();
         private static bool _unavailable;
@@ -116,6 +117,7 @@ namespace MphRead.Mods.Input
                     if (!slot.Mapped) slot.Name += " (unmapped)";
                     slot.Family = GamepadGlyphs.Detect(slot.Name, guid);
                     slot.Layout = GamepadLayout.For(i);
+                    slot.Capabilities = GamepadMappings.Capabilities(guid, slot.Layout.Capabilities(GLFW.GetJoystickAxes(i).Length));
                     slot.LeftFloor = slot.RightFloor = 0;
                 }
                 if (GamepadMappingWizard.RequestedDevice == slot.Id)
@@ -174,7 +176,7 @@ namespace MphRead.Mods.Input
             Add(ref buttons, raw.Buttons, ButtonDpadLeft, GamepadButtons.DpadLeft);
             state.Buttons = buttons;
             GamepadManager.UpdateDevice(Slots[slot].Id!, state, Slots[slot].Mapped, Slots[slot].Family,
-                capabilities: GamepadCapabilities.AnalogTriggers
+                capabilities: Slots[slot].Capabilities
                     | (GamepadHaptics.Available(Slots[slot].Id!) ? GamepadCapabilities.Rumble : 0),
                 mapping: Slots[slot].Mapping);
             return true;
@@ -200,7 +202,7 @@ namespace MphRead.Mods.Input
                 ref Slots[slot].LeftFloor, ref Slots[slot].RightFloor);
             state.Name = Slots[slot].Name;
             GamepadManager.UpdateDevice(Slots[slot].Id!, state, Slots[slot].Mapped, Slots[slot].Family,
-                capabilities: GamepadCapabilities.AnalogTriggers
+                capabilities: Slots[slot].Layout.Capabilities(axes.Length)
                     | (GamepadHaptics.Available(Slots[slot].Id!) ? GamepadCapabilities.Rumble : 0),
                 mapping: Slots[slot].Mapping);
             return true;

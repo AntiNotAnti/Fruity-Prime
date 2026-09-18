@@ -1529,6 +1529,7 @@ namespace MphRead
                     var pad = Mods.Input.GamepadInput.State;
                     if (Math.Abs(pad.LeftY) > 0.2f) _cameraPosition += _cameraFacing * pad.LeftY * 0.15f;
                     if (Math.Abs(pad.LeftX) > 0.2f) _cameraPosition += _cameraRight * pad.LeftX * 0.15f;
+                    _cameraPosition.Y += (pad.RightTrigger - pad.LeftTrigger) * .15f;
                     UpdateCameraRotation(MathHelper.DegreesToRadians(Mods.Input.GamepadInput.AimDeltaX),
                         MathHelper.DegreesToRadians(Mods.Input.GamepadInput.AimDeltaY));
                 }
@@ -1638,6 +1639,18 @@ namespace MphRead
                     Mods.Input.GamepadContexts.Current = Mods.Input.GamepadContexts.Resolve(
                         Mods.Chat.ChatBox.Composing, Mods.EndScreen.Available);
                     Mods.Input.GamepadInput.BeginFrame();
+                    if (Mods.SpectatorMode.IsSpectating && !Mods.PauseMenu.Open)
+                    {
+                        var spectator = Mods.Input.SpectatorInput.ReadController();
+                        spectator.ApplyView();
+                        Mods.SpectatorMode.NoteScoreboard(_keyboardState.IsKeyDown(Keys.Tab) || spectator.Scoreboard);
+                        if (_freeCam)
+                        {
+                            _cameraPosition += _cameraFacing * spectator.MoveY * .15f + _cameraRight * spectator.MoveX * .15f;
+                            _cameraPosition.Y += (spectator.Ascend - spectator.Descend) * .15f;
+                            UpdateCameraRotation(MathHelper.DegreesToRadians(spectator.LookX), MathHelper.DegreesToRadians(spectator.LookY));
+                        }
+                    }
                 }
                 // Straight after the edges are worked out and before anything
                 // consumes them. A pad has no key events to hook, so the
@@ -2672,6 +2685,7 @@ namespace MphRead
                 PlayerEntity.Main.DrawHudObjects();
             }
             Mods.Replay.ReplayHud.Draw(this);
+            Mods.Input.AimAssist.AimAssistDebug.Draw(this);
             if (_movieFrameIndex != -1)
             {
                 DrawMovieFrame();

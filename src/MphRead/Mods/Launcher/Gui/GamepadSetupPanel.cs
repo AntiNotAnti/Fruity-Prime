@@ -30,6 +30,11 @@ namespace MphRead.Mods.Launcher.Gui
             }
             Button("Calibrate sticks and triggers", () => Start(false));
             if (!OperatingSystem.IsAndroid()) Button("Map controller buttons and axes", () => Start(true));
+            if (!OperatingSystem.IsAndroid()) Button("Reset custom controller mappings", () =>
+            {
+                try { GamepadMappings.ResetOverrides(); Stop("Custom mappings reset. Reconnect the controller to restore platform mapping."); }
+                catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException) { _status.Text = ex.Message; }
+            });
             _apply = new UiWord("Apply measured setup", 13) { IsEnabled = false };
             _apply.Click += (_, _) => Apply(); Children.Add(_apply);
             Button("Cancel setup", () => Stop("Setup canceled. Settings unchanged."));

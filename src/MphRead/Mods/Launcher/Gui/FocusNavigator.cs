@@ -24,15 +24,18 @@ namespace MphRead.Mods.Launcher.Gui
         }
         public static Control? Focused(Control root)
         {
+            root = ControllerNav.ModalRoot(root);
             var focused = TopLevel.GetTopLevel(root)?.FocusManager?.GetFocusedElement() as Control;
             return focused != null && (focused == root || root.IsVisualAncestorOf(focused))
                 && Eligible(focused, root) ? focused : null;
         }
         public static Control? Ensure(Control root)
         {
+            root = ControllerNav.ModalRoot(root);
             var current = Focused(root);
             if (current != null) return current;
-            current = root.GetVisualDescendants().OfType<Control>().FirstOrDefault(c => Eligible(c, root));
+            current = root.GetVisualDescendants().OfType<Control>().FirstOrDefault(c => Eligible(c, root) && c.GetValue(ControllerNav.NavDefaultProperty))
+                ?? root.GetVisualDescendants().OfType<Control>().FirstOrDefault(c => Eligible(c, root));
             Focus(current);
             return current;
         }
@@ -54,6 +57,10 @@ namespace MphRead.Mods.Launcher.Gui
         {
             var current = Ensure(root);
             if (current == null) return;
+            Control scope = ControllerNav.Scope(current, root);
+            var explicitTarget = ControllerNav.Find(scope, ControllerNav.Neighbor(current, direction));
+            if (explicitTarget != null && Eligible(explicitTarget, scope)) { Focus(explicitTarget); return; }
+            root = scope;
             var origin = current.TranslatePoint(new Point(current.Bounds.Width / 2, current.Bounds.Height / 2), root);
             if (!origin.HasValue) return;
             bool vertical = direction == UiAction.Up || direction == UiAction.Down;
@@ -71,6 +78,8 @@ namespace MphRead.Mods.Launcher.Gui
                 double distance = forward + across * 3;
                 if (distance < score) { score = distance; best = candidate; }
             }
+            if (best == null && root.GetValue(ControllerNav.NavWrapProperty))
+                best = root.GetVisualDescendants().OfType<Control>().FirstOrDefault(c => c != current && Eligible(c, root));
             Focus(best);
         }
     }

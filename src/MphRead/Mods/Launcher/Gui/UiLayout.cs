@@ -452,6 +452,15 @@ namespace MphRead.Mods.Launcher.Gui
             // rasterisations. See BakedBackdrop for what that was costing.
             Panel root = Backdrop(overGame,
                 overGame ? BackdropWash.None : BackdropWash.Standard);
+            root.SetValue(ControllerNav.NavScopeProperty, "page");
+            if (no != null) ControllerNav.Identify(no, "page.back");
+            if (yes != null) ControllerNav.Identify(yes, "page.accept");
+            if (extra != null) ControllerNav.Identify(extra, "page.extra");
+            if (no != null && yes != null)
+            {
+                no.SetValue(ControllerNav.NavRightProperty, "page.accept");
+                yes.SetValue(ControllerNav.NavLeftProperty, "page.back");
+            }
             root.Children.Add(Well(width, heading, strip, body, centreBody,
                 room: no != null || yes != null || extra != null));
             if (no != null || yes != null || extra != null)

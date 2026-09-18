@@ -1896,6 +1896,7 @@ namespace MphRead.Entities
             // Mods.Network.NetHitPrediction.
             Mods.Network.NetHitPrediction.NoteHit(this, attacker, ref flags, ref damage,
                 beam?.Beam ?? BeamType.None, beam?.ModLaunchFrame ?? 0, beam?.Age ?? 0);
+            if (attacker != this) Mods.Input.AimAssist.AimAssistTelemetry.Hit(attacker, beam?.Beam ?? BeamType.None, damage);
             bool dead = false;
             if (IsBot && GameState.SinglePlayer && AiData.Flags1 && _health <= AiData.HealthThreshold)
             {

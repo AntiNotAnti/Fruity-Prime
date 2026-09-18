@@ -1,45 +1,60 @@
 using System;
+using System.Collections.Generic;
 
 namespace MphRead.Mods.Input
 {
-    // Observe uncalibrated normalized input; applying the result is an explicit UI action.
+    // Bounded setup-only samples. No calibration work occurs in the gameplay hot path.
     public sealed class GamepadCalibration
     {
-        private float _leftDrift, _rightDrift, _leftReach, _rightReach;
-        private float _ltRest, _rtRest, _ltMax, _rtMax;
-        private int _restSamples, _rangeSamples;
+        private readonly List<GamepadState> _rest = new(), _range = new();
+        private bool _dirty = true, _valid;
+        private StickCalibration _left, _right;
+        private float _leftDead, _rightDead, _ltMin, _rtMin, _ltMax, _rtMax;
         public void Sample(GamepadState state, bool resting)
         {
-            float left = MathF.Sqrt(state.LeftX * state.LeftX + state.LeftY * state.LeftY);
-            float right = MathF.Sqrt(state.RightX * state.RightX + state.RightY * state.RightY);
-            if (resting)
-            {
-                _restSamples++;
-                _leftDrift = Math.Max(_leftDrift, left); _rightDrift = Math.Max(_rightDrift, right);
-                _ltRest = Math.Max(_ltRest, state.LeftTrigger); _rtRest = Math.Max(_rtRest, state.RightTrigger);
-            }
-            else
-            {
-                _rangeSamples++;
-                _leftReach = Math.Max(_leftReach, left); _rightReach = Math.Max(_rightReach, right);
-                _ltMax = Math.Max(_ltMax, state.LeftTrigger); _rtMax = Math.Max(_rtMax, state.RightTrigger);
-            }
+            var samples = resting ? _rest : _range;
+            if (samples.Count < 2048) { samples.Add(state); _dirty = true; }
         }
-        public bool Valid => _restSamples >= 10 && _rangeSamples >= 10 && _leftDrift < .4f && _rightDrift < .4f
-            && _leftReach >= .6f && _rightReach >= .6f;
-        public string Summary => !Valid ? "Release both sticks during rest, then move both through their full range. Please retry."
-            : $"Suggested dead zones: left {Math.Min(.9f, _leftDrift + .04f):0.00}, right {Math.Min(.9f, _rightDrift + .04f):0.00}. "
-                + "Trigger ranges are adjusted only when a full press was measured.";
+        private static float Percentile(List<GamepadState> samples, Func<GamepadState, float> value, float quantile)
+        {
+            float[] values = new float[samples.Count];
+            for (int i = 0; i < values.Length; i++) values[i] = value(samples[i]);
+            Array.Sort(values);
+            return values[(int)Math.Clamp(MathF.Floor((values.Length - 1) * quantile), 0, values.Length - 1)];
+        }
+        private bool Measure(bool left, out StickCalibration calibration, out float dead)
+        {
+            float X(GamepadState s) => left ? s.LeftX : s.RightX;
+            float Y(GamepadState s) => left ? s.LeftY : s.RightY;
+            float cx = Percentile(_rest, X, .5f), cy = Percentile(_rest, Y, .5f);
+            float radius = Percentile(_rest, s => MathF.Sqrt(MathF.Pow(X(s) - cx, 2) + MathF.Pow(Y(s) - cy, 2)), .99f);
+            calibration = new(cx, cy, Percentile(_range, X, .02f), Percentile(_range, X, .98f),
+                Percentile(_range, Y, .02f), Percentile(_range, Y, .98f));
+            dead = Math.Clamp(radius + .04f, .04f, .3f);
+            return float.IsFinite(radius) && radius < .25f && Math.Abs(cx) < .3f && Math.Abs(cy) < .3f
+                && calibration.MinX < -.5f && calibration.MaxX > .5f && calibration.MinY < -.5f && calibration.MaxY > .5f;
+        }
+        private void Measure()
+        {
+            if (!_dirty) return;
+            _dirty = false; _valid = false;
+            if (_rest.Count < 10 || _range.Count < 10) return;
+            bool left = Measure(true, out _left, out _leftDead), right = Measure(false, out _right, out _rightDead);
+            _ltMin = Percentile(_rest, s => s.LeftTrigger, .99f); _rtMin = Percentile(_rest, s => s.RightTrigger, .99f);
+            _ltMax = Percentile(_range, s => s.LeftTrigger, .98f); _rtMax = Percentile(_range, s => s.RightTrigger, .98f);
+            _valid = left && right;
+        }
+        public bool Valid { get { Measure(); return _valid; } }
+        public string Summary => !Valid ? "Insufficient range or movement during rest. Rotate both sticks in every direction and retry."
+            : $"Center offsets measured. Dead zones: left {_leftDead:0.00}, right {_rightDead:0.00}. Apply to use these measurements. Triggers without enough travel retain their current calibration.";
         public void Apply()
         {
             if (!Valid) throw new InvalidOperationException("Calibration is incomplete.");
-            GamepadOptions.LeftInner = Math.Min(.9f, _leftDrift + .04f);
-            GamepadOptions.RightInner = Math.Min(.9f, _rightDrift + .04f);
-            GamepadOptions.LeftOuter = Math.Clamp(1 - _leftReach, 0, .4f);
-            GamepadOptions.RightOuter = Math.Clamp(1 - _rightReach, 0, .4f);
-            if (_ltMax - _ltRest >= .4f) { GamepadOptions.LeftTriggerMin = _ltRest; GamepadOptions.LeftTriggerMax = _ltMax; }
-            if (_rtMax - _rtRest >= .4f) { GamepadOptions.RightTriggerMin = _rtRest; GamepadOptions.RightTriggerMax = _rtMax; }
-            PadBindings.ApplyPreset("Custom");
+            GamepadOptions.LeftCalibration = _left; GamepadOptions.RightCalibration = _right;
+            GamepadOptions.LeftInner = _leftDead; GamepadOptions.RightInner = _rightDead;
+            GamepadOptions.LeftOuter = GamepadOptions.RightOuter = 0;
+            if (_ltMax - _ltMin >= .4f) { GamepadOptions.LeftTriggerMin = _ltMin; GamepadOptions.LeftTriggerMax = _ltMax; }
+            if (_rtMax - _rtMin >= .4f) { GamepadOptions.RightTriggerMin = _rtMin; GamepadOptions.RightTriggerMax = _rtMax; }
         }
         public static float Trigger(float value, float min, float max)
             => Math.Clamp((GamepadAnalog.Finite(value, 0, 1) - min) / Math.Max(.1f, max - min), 0, 1);

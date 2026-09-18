@@ -25,7 +25,7 @@ namespace MphRead.Mods.Launcher.Gui
                 button.Click += (_, _) =>
                 {
                     try { action(); status.Text = "Done."; }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or System.Text.Json.JsonException)
+                    catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException or ArgumentException or System.Text.Json.JsonException)
                     { status.Text = ex.Message; }
                 };
                 Children.Add(button);

@@ -35,6 +35,8 @@ namespace MphRead.Mods.Input
                     "unbundled macOS mapping path remains portable");
                 GamepadPlatformChecks.Run();
                 GamepadEnhancementChecks.Run();
+                AimAssist.AimAssistChecks.Run();
+                ControllerRuntimeChecks.Run();
                 GamepadOptions.Reset();
                 var dead = GamepadAnalog.ApplyRadialDeadZone(.1f, .1f, .2f);
                 Check(dead == (0, 0), "radial inner deadzone");

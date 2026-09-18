@@ -7,6 +7,7 @@ namespace MphRead.Mods.Input
     {
         public static InputSource Current { get; private set; }
         private static long _changed;
+        internal static void Reset() { Current = InputSource.KeyboardMouse; _changed = 0; }
         public static void Note(InputSource source) => Note(source, Environment.TickCount64);
         public static void Note(InputSource source, long milliseconds)
         {

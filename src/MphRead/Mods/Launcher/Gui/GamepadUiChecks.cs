@@ -35,6 +35,10 @@ namespace MphRead.Mods.Launcher.Gui
             panel.Children.Add(choice); window.UpdateLayout(); FocusNavigator.Focus(choice);
             FocusNavigator.Key(choice, Avalonia.Input.Key.Right);
             GamepadChecks.Check(choice.Index == 1, "choice row supports semantic arrows");
+            ControllerNav.Identify(first, "fixture.first"); ControllerNav.Identify(choice, "fixture.choice");
+            first.SetValue(ControllerNav.NavDownProperty, "fixture.choice");
+            FocusNavigator.Focus(first); FocusNavigator.Move(panel, UiAction.Down);
+            GamepadChecks.Check(choice.IsFocused, "explicit navigation neighbor takes precedence over geometry");
             var text = new TextBox { Text = "Player", Width = 250 };
             panel.Children.Add(text); window.UpdateLayout();
             var keyboard = new ControllerKeyboard(text, () => { });
@@ -47,6 +51,11 @@ namespace MphRead.Mods.Launcher.Gui
             window.Content = confirm; window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
             var cancel = FocusNavigator.Ensure(confirm);
             GamepadChecks.Check(cancel != null, "confirmation has focus");
+            window.Content = null;
+            var modalRoot = new Panel(); modalRoot.Children.Add(panel); modalRoot.Children.Add(confirm);
+            window.Content = modalRoot; window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            FocusNavigator.Focus(first);
+            GamepadChecks.Check(FocusNavigator.Ensure(modalRoot) == cancel, "modal scope contains focus even when underlying control was focused");
             FocusNavigator.Key(cancel!, Avalonia.Input.Key.Escape);
             GamepadChecks.Check(answer == false, "controller Back dismisses confirmation");
             var outer = UiLayout.Backdrop(); var inner = UiLayout.Backdrop();
@@ -157,7 +166,7 @@ namespace MphRead.Mods.Launcher.Gui
             window.Content = setup; window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
             void Pad(float x = 0, float y = 0, float trigger = 0, GamepadButtons buttons = 0)
                 => GamepadManager.UpdateDevice("setup-check", new GamepadState
-                    { LeftX = x, RightY = y, LeftTrigger = trigger, RightTrigger = trigger, Buttons = buttons }, true);
+                    { LeftX = x, LeftY = y, RightX = x, RightY = y, LeftTrigger = trigger, RightTrigger = trigger, Buttons = buttons }, true);
             void Click(string label)
             {
                 var button = setup.Children.OfType<UiWord>().First(w => w.Text == label);
@@ -167,12 +176,12 @@ namespace MphRead.Mods.Launcher.Gui
             GamepadChecks.Check(GamepadContexts.Capturing, "calibration blocks menu and gameplay navigation");
             float previous = GamepadOptions.LeftInner;
             for (now = 1100; now < 3500; now += 100) { Pad(.02f, .03f); setup.Tick(); }
-            for (now = 3600; now <= 10500; now += 100) { Pad(1, 1, 1); setup.Tick(); }
+            for (now = 3600; now <= 10500; now += 100) { Pad(MathF.Cos(now / 100f), MathF.Sin(now / 100f), 1); setup.Tick(); }
             GamepadChecks.Check(!GamepadContexts.Capturing && GamepadOptions.LeftInner == previous
                 && setup.Children.OfType<UiWord>().First(w => w.Text == "Apply measured setup").IsEnabled,
                 "completed calibration previews measurements without applying them");
             Click("Apply measured setup");
-            GamepadChecks.Check(applied == 1 && Math.Abs(GamepadOptions.LeftInner - .06f) < .001f,
+            GamepadChecks.Check(applied == 1 && Math.Abs(GamepadOptions.LeftCalibration.CenterX - .02f) < .001f,
                 "calibration Apply commits the measured values");
             Pad(); Click("Calibrate sticks and triggers"); now += 100; Pad(buttons: GamepadButtons.B); setup.Tick();
             GamepadChecks.Check(!GamepadContexts.Capturing && applied == 1, "controller Back cancels calibration without applying");

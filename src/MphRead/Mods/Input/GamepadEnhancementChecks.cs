@@ -81,10 +81,15 @@ namespace MphRead.Mods.Input
         {
             var calibration = new GamepadCalibration();
             for (int i = 0; i < 20; i++) calibration.Sample(new() { LeftX = .03f, RightY = .06f, LeftTrigger = .1f }, true);
-            for (int i = 0; i < 20; i++) calibration.Sample(new() { LeftX = .9f, RightY = 1, LeftTrigger = .9f, RightTrigger = .8f }, false);
+            for (int i = 0; i < 100; i++)
+            {
+                float angle = i * MathF.PI * 2 / 100;
+                calibration.Sample(new() { LeftX = .9f * MathF.Cos(angle), LeftY = .9f * MathF.Sin(angle),
+                    RightX = MathF.Cos(angle), RightY = MathF.Sin(angle), LeftTrigger = .9f, RightTrigger = .8f }, false);
+            }
             Check(calibration.Valid, "calibration accepts measured rest and range"); calibration.Apply();
-            Check(Math.Abs(GamepadOptions.LeftInner - .07f) < .001f && Math.Abs(GamepadOptions.RightInner - .1f) < .001f,
-                "calibration derives dead zones from observed drift");
+            Check(Math.Abs(GamepadOptions.LeftInner - .04f) < .001f && Math.Abs(GamepadOptions.RightCalibration.CenterY - .06f) < .001f,
+                "calibration separates center bias from radial noise");
             Check(GamepadCalibration.Trigger(.1f, .1f, .9f) == 0 && GamepadCalibration.Trigger(.9f, .1f, .9f) == 1,
                 "calibrated trigger spans released to full press");
             Check(!new GamepadCalibration().Valid, "incomplete calibration cannot be applied");
@@ -128,10 +133,11 @@ namespace MphRead.Mods.Input
                     && PadBindings.Modifier(PadAction.Imperialist, 1) == GamepadButtons.LeftBumper, "profile round-trip retains aim, wheel and combinations");
                 string stable = GamepadProfiles.DeviceKey("glfw:guid:0:1");
                 Check(stable == GamepadProfiles.DeviceKey("glfw:guid:3:8"), "automatic profile key survives slot changes and reconnects");
-                var device = new GamepadDevice { DeviceId = "glfw:guid:0:1", ProfileKey = stable };
-                GamepadOptions.ScopedX = 1; GamepadProfiles.Assign("Precision", device); GamepadProfiles.Activate(device);
+                var device = new GamepadDeviceSnapshot { DeviceId = "glfw:guid:0:1", ProfileKey = stable };
+                GamepadOptions.ScopedX = 1; GamepadProfiles.Assign("Precision", device);
+                GamepadManager.UpdateDevice(device.DeviceId, default, true); GamepadManager.SelectDevice(device.DeviceId);
                 Check(GamepadOptions.ScopedX == .65f, "assigned controller automatically loads its saved profile");
-                GamepadProfiles.Activate(null);
+                GamepadManager.RemoveDevice(device.DeviceId);
                 Check(GamepadOptions.ScopedX == 1, "unassigned device restores the prior manual settings");
                 File.WriteAllText(path, JsonSerializer.Serialize(new GamepadProfile(1, "Bad", new[] { "Jump=Key:Enter" })));
                 bool rejected = false;

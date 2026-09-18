@@ -13,7 +13,7 @@ namespace MphRead.Mods.Input
     {
         private static readonly Dictionary<string, IGamepadHaptics> Backends = new();
         private static readonly object Gate = new();
-        private static long _last;
+        private static readonly HapticScheduler Scheduler = new();
         static GamepadHaptics() { GamepadManager.ActiveChanged += Stop; AppDomain.CurrentDomain.ProcessExit += (_, _) => Stop(); }
         public static void Register(string id, IGamepadHaptics backend) { lock (Gate) Backends[id] = backend; }
         public static bool Available(string id) { lock (Gate) return Backends.ContainsKey(id); }
@@ -21,7 +21,7 @@ namespace MphRead.Mods.Input
         {
             lock (Gate) if (Backends.Remove(id, out var backend)) backend.Stop();
         }
-        public static void Stop() { lock (Gate) foreach (var backend in Backends.Values) backend.Stop(); }
+        public static void Stop() { lock (Gate) { Scheduler.Reset(); foreach (var backend in Backends.Values) backend.Stop(); } }
         public static void Play(GamepadFeedback feedback)
         {
             if (!GamepadContexts.Focused || GamepadContexts.MenuVisible || GamepadContexts.Capturing
@@ -29,7 +29,6 @@ namespace MphRead.Mods.Input
             string? id = GamepadManager.Snapshot.DeviceId;
             if (id == null) return;
             long now = Environment.TickCount64;
-            if (feedback == GamepadFeedback.Fire && now - _last < 65) return;
             var (low, high, ms) = feedback switch
             {
                 GamepadFeedback.Fire => (0.08f, 0.18f, 45),
@@ -42,10 +41,10 @@ namespace MphRead.Mods.Input
             };
             lock (Gate) if (Backends.TryGetValue(id, out var backend))
             {
+                if (!Scheduler.Accept(feedback, now, ms)) return;
                 float scale = GamepadAnalog.Finite(GamepadOptions.VibrationStrength, 0, 1);
                 if (scale <= 0) { backend.Stop(); return; }
                 backend.Rumble(low * scale, high * scale, TimeSpan.FromMilliseconds(ms));
-                _last = now;
             }
         }
     }

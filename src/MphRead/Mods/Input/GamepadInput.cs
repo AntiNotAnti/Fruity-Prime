@@ -124,6 +124,9 @@ namespace MphRead.Mods.Input
             _blocked &= _frame.Buttons;
             _frame.Buttons &= ~_blocked;
             AimDeltaX = AimDeltaY = 0;
+            if (context != GamepadContext.Gameplay || !GamepadContexts.Focused || !_frame.Connected
+                || (PlayerEntity.MainPlayerIndex >= 0 && PlayerEntity.MainPlayerIndex < PlayerEntity.Players.Count
+                    && PlayerEntity.Players[PlayerEntity.MainPlayerIndex] is { Health: 0 })) AimInputSourceTracker.Reset();
             if (!GamepadContexts.Focused) { _frame = default; _pressed = 0; return; }
             if (!_frame.Connected) { Actions.Reset(); return; }
             Actions.Update(_frame.Buttons);

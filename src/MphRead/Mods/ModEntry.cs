@@ -170,6 +170,10 @@ namespace MphRead.Mods
             }
 
 
+            Input.AimAssist.AimAssistDebug.Enabled = HasFlag(args, "gamepadassistdebug");
+            Input.AimAssist.AimAssistDebug.UnassistedArm = HasFlag(args, "gamepadassistbaseline");
+            Input.AimAssist.AimAssistTelemetry.Configure(ValueAfter(args, "gamepadassisttelemetry"));
+
             if (HasFlag(args, "gamepadcheck"))
             {
                 Environment.ExitCode = Input.GamepadChecks.Run(ValueAfter(args, "shots"));
