@@ -37,7 +37,8 @@ namespace MphRead.Mods.Launcher.Gui
         /// The path, typed. The last resort, and on a Linux box with neither
         /// zenity nor kdialog the only one -- see
         /// <see cref="NativeFilePicker"/> for why the toolkit's own picker is
-        /// not available to these screens.
+        /// not available to these screens. Hidden until that is the case:
+        /// the screen has one thing to ask for and offers one way to answer.
         /// </summary>
         private readonly DeckField _typed = new("", widthEms: 26,
             watermark: "C:\\path\\to\\your.nds");
@@ -66,16 +67,32 @@ namespace MphRead.Mods.Launcher.Gui
             _previews = new UiWord("Render map previews", 15, colour: GuiTheme.TextDim);
             _previews.Click += async (_, _) => await RenderPreviews();
             body.Children.Add(_previews);
-            // The path, typed, beside the button that opens a dialog -- always
-            // both, never one instead of the other. A desktop with no picker
-            // installed has no other way in at all (see NativeFilePicker), and
-            // a player who already knows where the file is would rather paste
-            // it than walk a tree to it.
+            // The path, typed: the way in for a machine whose button opens
+            // nothing. It is built either way and shown only then -- see
+            // below.
             var typedGo = new UiWord("Use this file", 15, colour: GuiTheme.Accent);
             typedGo.Click += async (_, _) => await UseTypedPath();
             _typedRow = new StackPanel { Spacing = 6 };
             _typedRow.Children.Add(_typed);
             _typedRow.Children.Add(typedGo);
+            // Hidden until it is the only way in, on every platform.
+            //
+            // The screen used to offer both at once on the reading that
+            // somebody who knows where the file is would rather paste it than
+            // walk a tree to it. That is one offer too many: a fresh install
+            // has exactly one thing to do, and a text box beside the button
+            // makes a player decide which half of the screen the answer is in
+            // before they can give it. On a phone it is worse than redundant
+            // -- the picker hands back a content:// document with no path
+            // behind it (see RunSetup), so a typed path cannot name what the
+            // button opens, and the keyboard covers half the screen to ask for
+            // one.
+            //
+            // It is not gone: <see cref="ShowTyped"/> brings it back on a
+            // machine with no dialog to open, which is a Linux box with
+            // neither zenity nor kdialog and is the one case the row exists
+            // for. See <see cref="NativeFilePicker"/>.
+            _typedRow.IsVisible = false;
             _typed.Box.KeyDown += async (_, key) =>
             {
                 if (key.Key == Key.Enter)
@@ -133,6 +150,10 @@ namespace MphRead.Mods.Launcher.Gui
         /// <summary>Put the caret in the typed path, for when it is the only way in.</summary>
         private void ShowTyped()
         {
+            // It is hidden until here: reaching this means the button has no
+            // dialog behind it, typing is the only thing left, and the row has
+            // to come back with the sentence that says so.
+            _typedRow.IsVisible = true;
             Dispatcher.UIThread.Post(() => _typed.Box.Focus(), DispatcherPriority.Background);
         }
 

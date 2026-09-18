@@ -376,9 +376,27 @@ namespace MphRead.Mods.Launcher.Gui
             base.OnAttachedToVisualTree(e);
             // A fresh install has nothing to play, so the one thing it needs is
             // the whole screen rather than one refused entry among three.
+            //
+            // **After the attachment, not during it.** Pushing a screen from
+            // inside this method builds its tree while this one is still being
+            // attached, and a control added then never inherits
+            // <see cref="Deck.EmProperty"/> from the <see cref="DeckStage"/>
+            // above it: it is laid out on the property's own default -- 10.81,
+            // which happens to be the capture's em and is why nothing on the
+            // desktop showed it -- and the panel comes out a column of text a
+            // dozen characters wide with no card behind it. That is exactly
+            // what a fresh install on a phone opened onto, while the same
+            // screen reached from PLAY a second later was correct, because by
+            // then the tree was up. One dispatcher turn is the whole fix.
             if (!GameFiles.Ready && _stack.Count == 0)
             {
-                OpenSetup();
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (!GameFiles.Ready && _stack.Count == 0)
+                    {
+                        OpenSetup();
+                    }
+                }, DispatcherPriority.Loaded);
             }
         }
 

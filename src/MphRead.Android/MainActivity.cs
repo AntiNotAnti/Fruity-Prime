@@ -69,6 +69,17 @@ namespace MphRead.Droid
         private TextView? _notice;
         private volatile bool _renderingPreviews;
         private volatile bool _renderingHere;
+
+        /// <summary>
+        /// Asked of the in-process preview run between rooms: put it down, a
+        /// player wants to play.
+        ///
+        /// See <see cref="StartMatch"/>. It is set from the UI thread and read
+        /// from the render thread, and it is cleared by whoever set it down --
+        /// <see cref="RenderHere"/>'s finally -- so that a later run is not
+        /// born already cancelled.
+        /// </summary>
+        private volatile bool _stopPreviews;
         private readonly TouchControls _controls = new TouchControls();
         // What the launcher is in, which is what a match puts back when it
         // ends. The activity itself asks for landscape now, so this is what
@@ -279,20 +290,30 @@ namespace MphRead.Droid
         ///
         /// A match cannot run at the same time -- one process holds one world,
         /// and <see cref="Mods.ThumbnailMode"/> is on while this runs -- so
-        /// <see cref="StartMatch"/> refuses while it does.
+        /// <see cref="StartMatch"/> puts it down rather than queueing behind
+        /// it: the run is asked to stop between rooms (<see cref="_stopPreviews"/>)
+        /// and the match starts as soon as the room in flight is finished with.
         /// </summary>
         private int RenderHere(IReadOnlyList<string> rooms, Action<string> report)
         {
-            if (InMatch)
+            if (InMatch || _pending != null)
             {
+                // `_pending` as well as the match itself: a start that has been
+                // asked for and is waiting for the window is a match about to
+                // own the world, and a run begun in that gap would be one this
+                // process then has to stop again.
                 report("[thumbnails] not while a match is running");
                 return 0;
             }
             _renderingHere = true;
+            // Nothing has asked this run to stop yet; a request that arrived
+            // while there was no run to receive it is not one against this.
+            _stopPreviews = false;
             try
             {
                 using var gl = OffscreenGl.Create(PreviewRun.Width, PreviewRun.Height);
-                return PreviewRun.Render(rooms, PreviewRun.Width, PreviewRun.Height, report);
+                return PreviewRun.Render(rooms, PreviewRun.Width, PreviewRun.Height, report,
+                    () => _stopPreviews);
             }
             catch (Exception ex)
             {
@@ -303,6 +324,7 @@ namespace MphRead.Droid
             finally
             {
                 _renderingHere = false;
+                _stopPreviews = false;
             }
         }
 
@@ -607,11 +629,24 @@ namespace MphRead.Droid
             {
                 // One process holds one world: the preview run owns the entity
                 // lists and the game state until it is finished, and
-                // ThumbnailMode is on while it is.
-                Toast.MakeText(this, "Still rendering map previews; try again in a moment.",
-                    ToastLength.Long)?.Show();
-                AndroidApp.Home?.Reset();
-                return;
+                // ThumbnailMode is on while it is. So it is put down, not
+                // queued behind.
+                //
+                // **This is what "I press START and nothing happens" was.**
+                // A first run renders every map's picture without being asked
+                // (StartScreen.CatchUpPreviews), which is minutes of work on a
+                // phone, and pressing START during it refused the match and
+                // called Reset() -- which throws the whole screen stack away
+                // and puts the player back on the front screen, having lost
+                // the map they picked, with nothing to read but a toast behind
+                // an immersive window. The picture of a map nobody has asked
+                // for yet does not outrank playing: the run is told to stop
+                // between rooms and the start waits for the room in flight,
+                // which is a second or two. Whatever it did not get to is
+                // rendered by the next launch, or from the Render map
+                // previews entry on the setup screen.
+                Console.WriteLine("[android] stopping the preview run: a match was asked for");
+                _stopPreviews = true;
             }
             var input = new AndroidInput();
             _controls.ReleaseEverything();
@@ -700,6 +735,19 @@ namespace MphRead.Droid
         {
             if (_pending == null || _content == null || InMatch)
             {
+                return;
+            }
+            // The preview run has been asked to stop and is finishing the room
+            // it was in the middle of. Nothing may build a scene until it has
+            // let go of the one it has -- the entity lists and the game state
+            // are static and there is one of each per process. The clocks are
+            // held back with it, so the deadlines below measure the window
+            // rather than the wait for a picture of a map.
+            if (_renderingHere)
+            {
+                _waitingSince = SystemClock.UptimeMillis();
+                _sizeSettledAt = _waitingSince;
+                _content.PostDelayed(WaitForSteadyWindow, 50);
                 return;
             }
             long now = SystemClock.UptimeMillis();

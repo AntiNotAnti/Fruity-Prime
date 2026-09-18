@@ -212,6 +212,48 @@ namespace MphRead.Mods.Launcher.Gui
         }
 
         /// <summary>
+        /// Which slice of the backdrop a bake holds.
+        ///
+        /// One bitmap is the ordinary case and is what the desktop shell uses.
+        /// The two halves exist for the head that draws its own moving layer
+        /// (<see cref="MovingBackdrop"/>), which has to sit between the
+        /// photograph and the washes rather than over both.
+        /// </summary>
+        public enum BackdropPart
+        {
+            /// <summary>Everything this head is responsible for.</summary>
+            All,
+            /// <summary>The photograph alone.</summary>
+            Photo,
+            /// <summary>The two gradients alone.</summary>
+            Washes
+        }
+
+        /// <summary>
+        /// Whether something under these screens is already drawing the
+        /// photograph -- and, with it, the moving layer over the photograph.
+        ///
+        /// True only in the desktop shell, which puts both on the screen as GL
+        /// quads at the window's own resolution (see
+        /// <c>Mods/Render/LauncherPhoto.cs</c>) because the bake below is
+        /// capped at 1080p and magnified, and a photograph is the one layer
+        /// that shows it. False everywhere else: the standalone captures, the
+        /// design studies, and the Android head, which has no window under the
+        /// screens at all.
+        /// </summary>
+        private static bool PhotoDrawnBelow
+        {
+            get
+            {
+#if MPHREAD_SHELL
+                return Mods.Render.LauncherPhoto.Enabled;
+#else
+                return false;
+#endif
+            }
+        }
+
+        /// <summary>
         /// How many device pixels one layout point is, for whoever is cutting
         /// a bitmap rather than drawing into the frame.
         ///
@@ -619,7 +661,26 @@ namespace MphRead.Mods.Launcher.Gui
             GuiTheme.PixelPerfect(root);
             return root;
             }
-            root.Children.Add(new BakedBackdrop(wash));
+            if (PhotoDrawnBelow)
+            {
+                // GL has the photograph and the moving layer over it (see
+                // LauncherPhoto and LauncherNoise), so this bake is the two
+                // gradients and nothing else.
+                root.Children.Add(new BakedBackdrop(wash));
+            }
+            else
+            {
+                // Nothing underneath is drawing any of it, so the whole
+                // backdrop is the toolkit's -- and it goes down in three
+                // pieces rather than one so that the moving layer lands
+                // *between* the photograph and the washes, which is where the
+                // reference puts it and where GL puts it on the desktop. Both
+                // bakes are cached bitmaps and a blit apiece; only the middle
+                // layer costs anything a frame. See MovingBackdrop.
+                root.Children.Add(new BakedBackdrop(wash, BackdropPart.Photo));
+                root.Children.Add(new MovingBackdrop());
+                root.Children.Add(new BakedBackdrop(wash, BackdropPart.Washes));
+            }
             // One stamp at the root of every screen: these are attached
             // properties and they flow down the visual tree, so the whole
             // launcher is aliased from here rather than control by control --
@@ -636,14 +697,12 @@ namespace MphRead.Mods.Launcher.Gui
         /// This is the backdrop as it has always been -- it is only ever
         /// rasterised now instead of being kept in the tree.
         /// </summary>
-        public static Panel BackdropLayers(BackdropWash wash)
+        public static Panel BackdropLayers(BackdropWash wash,
+            BackdropPart part = BackdropPart.All)
         {
             var root = new Panel();
-            bool photoBelow = false;
-#if MPHREAD_SHELL
-            photoBelow = Mods.Render.LauncherPhoto.Enabled;
-#endif
-            if (!photoBelow)
+            bool photoBelow = PhotoDrawnBelow;
+            if (!photoBelow && part != BackdropPart.Washes)
             {
                 // Only where nothing else is drawing it. The desktop shell
                 // puts the photograph on the screen as a GL quad at the
@@ -671,8 +730,11 @@ namespace MphRead.Mods.Launcher.Gui
             // shaped like these. It is `--void` as well, not black -- #05070a
             // has a blue in it that plain black does not, and over a picture
             // that is mostly lava it is the difference between shade and soot.
-            root.Children.Add(Ground(horizontal: true));
-            root.Children.Add(Ground(horizontal: false));
+            if (part != BackdropPart.Photo)
+            {
+                root.Children.Add(Ground(horizontal: true));
+                root.Children.Add(Ground(horizontal: false));
+            }
             // `.sheet`'s own `rgba(5,7,10,.72)` is *not* here, even though it
             // is a flat rectangle that would bake for nothing: it fades in
             // with the panel it belongs to (see DeckSheet), and a layer inside

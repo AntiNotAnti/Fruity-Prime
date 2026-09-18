@@ -56,15 +56,24 @@ namespace MphRead.Mods.Launcher.Gui
         /// <summary>Device pixels the bake is rounded up to.</summary>
         private const int Grain = 32;
 
-        /// <summary>How many sizes/washes are kept: the screen up, and the one before it.</summary>
-        private const int Kept = 3;
+        /// <summary>
+        /// How many cuts are kept: the screen up, and the one before it.
+        ///
+        /// Six rather than three, because a head that draws its own moving
+        /// layer bakes the photograph and the washes separately (see
+        /// UiLayout.BackdropPart) and therefore wants two entries per size.
+        /// </summary>
+        private const int Kept = 6;
 
         private readonly UiLayout.BackdropWash _wash;
+        private readonly UiLayout.BackdropPart _part;
         private Bitmap? _image;
 
-        public BakedBackdrop(UiLayout.BackdropWash wash)
+        public BakedBackdrop(UiLayout.BackdropWash wash,
+            UiLayout.BackdropPart part = UiLayout.BackdropPart.All)
         {
             _wash = wash;
+            _part = part;
             // It is the ground, not a control: a click on the backdrop is a
             // click on whatever the screen put over it, or on nothing.
             IsHitTestVisible = false;
@@ -80,7 +89,7 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         protected override Size ArrangeOverride(Size finalSize)
         {
-            _image = Fetch(finalSize, _wash);
+            _image = Fetch(finalSize, _wash, _part);
             return base.ArrangeOverride(finalSize);
         }
 
@@ -94,11 +103,13 @@ namespace MphRead.Mods.Launcher.Gui
             context.DrawImage(image, new Rect(0, 0, Bounds.Width, Bounds.Height));
         }
 
-        private readonly record struct Cut(int Width, int Height, UiLayout.BackdropWash Wash);
+        private readonly record struct Cut(int Width, int Height,
+            UiLayout.BackdropWash Wash, UiLayout.BackdropPart Part);
 
         private static readonly List<KeyValuePair<Cut, RenderTargetBitmap>> _cache = new();
 
-        private static Bitmap? Fetch(Size size, UiLayout.BackdropWash wash)
+        private static Bitmap? Fetch(Size size, UiLayout.BackdropWash wash,
+            UiLayout.BackdropPart part)
         {
             double scale = UiLayout.BakeScale;
             int width = Round(size.Width * scale);
@@ -107,7 +118,7 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 return null;
             }
-            var cut = new Cut(width, height, wash);
+            var cut = new Cut(width, height, wash, part);
             for (int i = 0; i < _cache.Count; i++)
             {
                 if (_cache[i].Key == cut)
@@ -120,7 +131,7 @@ namespace MphRead.Mods.Launcher.Gui
                     return hit.Value;
                 }
             }
-            RenderTargetBitmap? baked = Bake(width, height, wash);
+            RenderTargetBitmap? baked = Bake(width, height, wash, part);
             if (baked == null)
             {
                 return null;
@@ -144,11 +155,12 @@ namespace MphRead.Mods.Launcher.Gui
             return Math.Min((pixels + Grain - 1) / Grain * Grain, 8192);
         }
 
-        private static RenderTargetBitmap? Bake(int width, int height, UiLayout.BackdropWash wash)
+        private static RenderTargetBitmap? Bake(int width, int height,
+            UiLayout.BackdropWash wash, UiLayout.BackdropPart part)
         {
             try
             {
-                Panel layers = UiLayout.BackdropLayers(wash);
+                Panel layers = UiLayout.BackdropLayers(wash, part);
                 // Measured and arranged by hand: it is in no visual tree, and
                 // a visual that was never arranged renders as nothing.
                 layers.Width = width;

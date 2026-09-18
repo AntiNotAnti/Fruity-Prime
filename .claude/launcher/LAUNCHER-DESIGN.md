@@ -37,6 +37,28 @@ Painting and controls
   the step at the top of the next tick *and* marks the surface dirty --
   and `DeckButton.RequestAnotherFrame` goes through it. Scrolling never showed
   the bug because a wheel event invalidates the surface itself.
+- **A screen pushed from `OnAttachedToVisualTree` is laid out on the wrong
+  em.** A control added to the tree while an ancestor is still being attached
+  never inherits `Deck.EmProperty` from the `DeckStage` above it, so it is
+  measured on the attached property's own default -- 10.81, which happens to be
+  what `-uishot`'s 940-point capture produces and is why no desktop picture
+  ever showed it -- and the panel comes out a column of text a dozen characters
+  wide with no card behind it. That is what a fresh install on a phone opened
+  onto: `StartScreen` opens the setup screen from its attach when there are no
+  game files, while the *same* screen reached from PLAY a second later was
+  perfect. One dispatcher turn (`DispatcherPriority.Loaded`) is the whole fix.
+  Anything else that wants to open a screen as another one arrives has to do
+  the same.
+- **The setup screen offers one way in.** It used to show the file dialog
+  button *and* a path to type at the same time, on the reading that somebody
+  who knows where their dump is would rather paste it. A fresh install has
+  exactly one thing to do, and two halves of a screen to do it in is a decision
+  before the action; on a phone the typed path cannot even name what the button
+  opens, since the picker hands back a `content://` document with no path
+  behind it. The row is built either way and shown only by
+  `SetupScreen.ShowTyped`, which is reached when the button has no dialog
+  behind it at all -- a Linux box with neither zenity nor kdialog, which is the
+  one case it exists for.
 - **Photographing the results: hold `Ending`, not `GameOver`.** Both satisfy
   `EndScreen.Available`, so the deck panel comes up either way -- and the HUD
   draws the *scoreboard* only on `Ending`; `GameOver` is the words GAME OVER
