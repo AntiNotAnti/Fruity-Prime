@@ -600,7 +600,7 @@ namespace MphRead.Mods.Launcher.Gui
             _work = cancel;
             int port = await Task.Run(() => LocalServer.Start(name, maps,
                 maxPlayers: PlayerEntity.SlotCapacity, timeLimit: 7 * 60,
-                pointGoal: MatchGoalRules.DefaultValue(mode),
+                pointGoal: MatchGoalRules.DefaultValue(maps[0].Mode),
                 masterHost: LauncherPrefs.MasterHost, masterPort: LauncherPrefs.MasterPort,
                 listed: LauncherPrefs.ListHostedGame, cancel: cancel.Token, lobby: true));
             if (port < 0)

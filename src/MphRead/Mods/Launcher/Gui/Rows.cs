@@ -472,7 +472,7 @@ namespace MphRead.Mods.Launcher.Gui
             ColumnSpacing = 5;
             MinHeight = 32;
 
-            _caption = new TextBlock
+            var caption = new TextBlock
             {
                 Text = label,
                 FontFamily = GuiTheme.Display,
@@ -531,7 +531,7 @@ namespace MphRead.Mods.Launcher.Gui
             bool compact = false)
         {
             Height = compact ? 21 : 36;
-            var caption = new TextBlock
+            _caption = new TextBlock
             {
                 Text = label,
                 FontFamily = GuiTheme.Display,
