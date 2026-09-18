@@ -28,14 +28,30 @@ jobs:
           dotnet restore src/MphRead/MphRead.csproj
           dotnet restore tools/nettest/nettest.csproj
           dotnet restore tools/continuous-phase-check/continuous-phase-check.csproj
-      - name: Package isolated SDK and public NuGet packages
+      - name: Package isolated SDK and expanded public NuGet packages
         run: |
-          tar -C "$RUNNER_TEMP" -czf "$RUNNER_TEMP/netcode-build-tools.tar.gz" netcode-dotnet netcode-nuget
+          tar --exclude='*.nupkg' -C "$RUNNER_TEMP" -czf "$RUNNER_TEMP/netcode-build-tools.tar.gz" netcode-dotnet netcode-nuget
           sha256sum "$RUNNER_TEMP/netcode-build-tools.tar.gz"
+          split -b 300M "$RUNNER_TEMP/netcode-build-tools.tar.gz" "$RUNNER_TEMP/netcode-tools-part-"
+          ls -lh "$RUNNER_TEMP"/netcode-tools-part-*
       - uses: actions/upload-artifact@v7
         with:
-          name: netcode-build-tools
-          path: ${{ runner.temp }}/netcode-build-tools.tar.gz
+          name: netcode-tools-aa
+          path: ${{ runner.temp }}/netcode-tools-part-aa
           compression-level: 0
           retention-days: 1
           if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: netcode-tools-ab
+          path: ${{ runner.temp }}/netcode-tools-part-ab
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        with:
+          name: netcode-tools-ac
+          path: ${{ runner.temp }}/netcode-tools-part-ac
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: ignore
