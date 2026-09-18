@@ -1,11 +1,22 @@
 Current netcode work uses protocol **12**; see [health and shot consistency](multiplayer/NETWORK-HEALTH-SHOTS.md) for behavior, checks and remaining acceptance gates. Historical protocol notes below describe earlier integrations.
 
-`feature/controller-aim-assist` branches from `feature/netcode-health-shot-consistency`
-at `37d8fd8`. It adds controller runtime isolation, profile safety, calibration,
-semantic navigation/prompts, spectator controls and local camera assistance. It
-does not merge the separate online-lobby UI branch or change protocol 12. It also
-retains the already verified preview-worker shutdown fix. See
-[AIM-ASSIST.md](AIM-ASSIST.md) for architecture and deferred hardware/balance gates.
+## September 17 PR consolidation
+
+`integration/all-branches` now includes fork PRs #4, #5, #6 and #7: macOS
+controller fixes, authoritative health/shot consistency, the online browser and
+persistent lobby overhaul, and controller runtime isolation with local camera
+assistance. All four source heads are retained in merge history. PR #3 remains
+the separate proposal to merge integration into `master`.
+
+The controller-test overlap preserves Android's section naming and the newer
+headless screenshot flush. The shared preview-worker shutdown fix is retained.
+Protocol remains **12**. Local combined-tree validation passed the Windows
+Release build (zero warnings/errors), 331 controller/UI checks and 2,967,742
+health/shot assertions with injected network faults. Cross-platform CI results
+are attached to the integration push; hardware and Internet acceptance remain
+outside these automated checks. See [AIM-ASSIST.md](AIM-ASSIST.md) for deferred
+hardware/balance gates and [ONLINE-LOBBY-UX.md](launcher/ONLINE-LOBBY-UX.md) for
+the combined online UI.
 
 # All-branches integration
 
@@ -17,7 +28,7 @@ were opened. See [FRESH-MERGE-AUDIT.md](testing/FRESH-MERGE-AUDIT.md) for curren
 branch coverage, conflict resolutions, verification and remaining gates;
 [MERGE-AUDIT.md](testing/MERGE-AUDIT.md) preserves the earlier audit boundary.
 
-## Combined behavior
+## Earlier integration behavior (historical protocol 11 baseline)
 
 - Protocol **11** combines lifecycle identity/order validation with persistent
   lobbies, teams, authoritative resources, continuous-weapon firing phases and
@@ -43,7 +54,7 @@ branch coverage, conflict resolutions, verification and remaining gates;
 - Fault simulation honors loss-setting changes after transport creation, so
   lobby retry checks exercise actual loss rather than a frozen setting.
 
-## Verification
+## Earlier integration verification
 
 Desktop Release and Windows x64 dedicated-server Release built with zero
 warnings/errors. Android Debug and Release built with 14 XML-documentation
