@@ -6,6 +6,10 @@ namespace MphRead.Mods.Launcher
     /// <summary>Player-facing names, shared by graphical and text launchers.</summary>
     internal static class UiText
     {
+        public const string JoinLobby = "Join Lobby", JoinMatch = "Join Match";
+        public const string ServerOffline = "Offline", ServerFull = "Full", UpdateRequired = "Update required";
+        public const string CheckingServer = "Checking…", StartingMatch = "Starting", InMatch = "In Match";
+
         public static string Mode(GameMode mode) => mode switch
         {
             GameMode.SinglePlayer => "Story",

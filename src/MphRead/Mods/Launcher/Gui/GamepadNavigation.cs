@@ -51,7 +51,8 @@ namespace MphRead.Mods.Launcher.Gui
             if (action == UiAction.Back && _keyboard != null) { _keyboard.Close(false); return; }
             if (action == UiAction.PreviousTab || action == UiAction.NextTab)
             {
-                var tabs = root.GetVisualDescendants().OfType<UiTabs>().FirstOrDefault(t => t.IsEffectivelyVisible);
+                var tabs = root.GetVisualDescendants().OfType<UiTabs>().Where(t => t.IsEffectivelyVisible && t.IsEffectivelyEnabled)
+                    .OrderByDescending(t => t.IsKeyboardFocusWithin).ThenByDescending(t => t.GetVisualAncestors().Count()).FirstOrDefault();
                 if (tabs != null) { tabs.Index += action == UiAction.NextTab ? 1 : -1; FocusNavigator.Ensure(root); }
                 return;
             }

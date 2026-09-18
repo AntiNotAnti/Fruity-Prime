@@ -116,6 +116,7 @@ namespace MphRead.Mods.Launcher.Gui
         public string ServerName => _name;
         private string _ping = "";
         private IBrush _pingBrush = GuiTheme.TextDimBrush;
+        public ServerStatus? Status { get; private set; }
         private bool _answered;
         private bool _hot;
         private bool _selected;
@@ -147,7 +148,7 @@ namespace MphRead.Mods.Launcher.Gui
             _name = name;
             _endpoint = endpoint;
             _map = "Checking…";
-            Height = 30;
+            Height = 76;
             Focusable = true;
             Cursor = new Cursor(StandardCursorType.Hand);
             // A second click joins, as it does in the map list. See UiListRow.
@@ -161,6 +162,7 @@ namespace MphRead.Mods.Launcher.Gui
         /// <summary>Fill the columns in once the server has answered.</summary>
         public void SetStatus(ServerStatus status)
         {
+            Status = status;
             _answered = status.Online;
             Latency = status.Online && status.Latency >= 0 ? status.Latency : Int32.MaxValue;
             PlayerCount = status.Players;
@@ -178,7 +180,7 @@ namespace MphRead.Mods.Launcher.Gui
             _roomKey = status.RoomKey;
             _map = UiText.Map(status.RoomKey);
             _mode = UiText.Mode(status.Mode);
-            _state = status.LobbyEnabled ? UiText.Phase(status.Phase) : "In match";
+            _state = ServerPresentation.From(status).State;
             ToolTip.SetTip(this, $"{_name} · {_endpoint}\n{_map} · {_mode} · {_state} · {UiText.Format(status.Format)}\n"
                 + (status.AllowJoinInProgress ? "Joining in progress: allowed" : "Joining in progress: disabled"));
             _players = status.MaxPlayers > 0
@@ -248,24 +250,13 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 context.FillRectangle(GuiTheme.PanelLightBrush, full, 4);
             }
-            var columns = new Columns(Bounds.Width);
-            // The name, and the address under nothing -- there is no room for a
-            // second line here, and the address is what the row does when
-            // clicked rather than something to compare servers by. It goes in
-            // the tooltip instead.
-            IBrush nameBrush = _answered ? GuiTheme.TextBrush : GuiTheme.TextDimBrush;
-            Draw(context, _name, columns.NameX, columns.NameWidth, nameBrush,
-                bold: true, rightAlign: false);
-            Draw(context, _map, columns.MapX, columns.MapWidth, GuiTheme.TextDimBrush,
-                bold: false, rightAlign: false);
-            Draw(context, _mode, columns.ModeX, columns.ModeWidth, GuiTheme.TextDimBrush,
-                bold: false, rightAlign: false);
-            Draw(context, _state, columns.StateX, columns.StateWidth, GuiTheme.TextDimBrush,
-                bold: false, rightAlign: false);
-            Draw(context, _players, columns.PlayersRight, columns.PlayersWidth,
-                GuiTheme.TextBrush, bold: false, rightAlign: true);
-            Draw(context, _ping, columns.PingRight, columns.PingWidth, _pingBrush,
-                bold: false, rightAlign: true);
+            double width = Bounds.Width - 16;
+            Draw(context, _name, 8, width, _answered ? GuiTheme.TextBrush : GuiTheme.TextDimBrush, true, false, 15);
+            using (context.PushTransform(Avalonia.Matrix.CreateTranslation(0, 24)))
+                Draw(context, _state + " · " + _players + " players · " + _ping + " ms", 8, width,
+                    Status is { } status ? UiBadge.Brush(ServerPresentation.From(status).Tone) : GuiTheme.TextDimBrush, false, false, 12);
+            using (context.PushTransform(Avalonia.Matrix.CreateTranslation(0, 44)))
+                Draw(context, _map + " · " + _mode, 8, width, GuiTheme.TextDimBrush, false, false, 12);
             UiMetrics.DrawFocus(context, this);
         }
 

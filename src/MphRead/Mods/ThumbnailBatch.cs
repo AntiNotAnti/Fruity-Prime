@@ -133,13 +133,17 @@ namespace MphRead.Mods
                 while (!abnormalExit)
                 {
                     bool allExited = true;
-                    foreach (Process proc in running)
+                    lock (_processLock)
                     {
-                        if (!proc.HasExited) { allExited = false; continue; }
-                        if (proc.ExitCode != 0)
+                        if (_exiting) { abnormalExit = true; break; }
+                        foreach (Process proc in running)
                         {
-                            ThumbnailLog.Write($"worker {proc.Id} exited with code {proc.ExitCode}");
-                            abnormalExit = true;
+                            if (!proc.HasExited) { allExited = false; continue; }
+                            if (proc.ExitCode != 0)
+                            {
+                                ThumbnailLog.Write($"worker {proc.Id} exited with code {proc.ExitCode}");
+                                abnormalExit = true;
+                            }
                         }
                     }
                     if (allExited || abnormalExit) break;
@@ -182,21 +186,23 @@ namespace MphRead.Mods
 
         private static void StopWorker(Process proc)
         {
-            try
+            // ProcessExit can race the batch's finally block. Process.Dispose is
+            // not thread-safe; claim cleanup once and serialize it with monitoring.
+            lock (_processLock)
             {
-                if (!proc.HasExited) proc.Kill(entireProcessTree: true);
-                // The asynchronous readers drain both pipes while it exits.
-                if (proc.WaitForExit(5000)) proc.WaitForExit();
-            }
-            catch (InvalidOperationException) { }
-            catch (System.ComponentModel.Win32Exception ex)
-            {
-                ThumbnailLog.Write($"could not stop preview worker: {ex.Message}");
-            }
-            finally
-            {
-                lock (_processLock) _activeWorkers.Remove(proc);
-                proc.Dispose();
+                if (!_activeWorkers.Remove(proc)) return;
+                try
+                {
+                    if (!proc.HasExited) proc.Kill(entireProcessTree: true);
+                    // The asynchronous readers drain both pipes while it exits.
+                    if (proc.WaitForExit(5000)) proc.WaitForExit();
+                }
+                catch (InvalidOperationException) { }
+                catch (System.ComponentModel.Win32Exception ex)
+                {
+                    ThumbnailLog.Write($"could not stop preview worker: {ex.Message}");
+                }
+                finally { proc.Dispose(); }
             }
         }
 

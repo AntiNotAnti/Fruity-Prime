@@ -406,7 +406,7 @@ namespace MphRead.Mods.Launcher.Gui
                 { Select(row); FocusNavigator.Focus(row); return; }
         }
 
-        private void Select(Control row)
+        internal void Select(Control row)
         {
             if (ReferenceEquals(Selected, row))
             {

@@ -2,6 +2,8 @@
 using System;
 using System.IO;
 using System.Linq;
+using MphRead.Mods.Network;
+using MphRead.Mods.Chat;
 using Avalonia;
 using Avalonia.Headless;
 using Avalonia.VisualTree;
@@ -147,7 +149,86 @@ namespace MphRead.Mods.Launcher.Gui
             Pad(0); FocusNavigator.Key(binding, Avalonia.Input.Key.Enter);
             GamepadManager.RemoveDevice("ui-test"); binding.Check();
             GamepadChecks.Check(!GamepadContexts.Capturing, "disconnect exits binding capture");
+            CheckOnlineLobby(window);
             window.Close();
+        }
+
+        private static void CheckOnlineLobby(Window window)
+        {
+            string[] rooms = { "MP3 PROVING GROUND" };
+            var browser = new PlayScreen(new MenuSettings(), rooms, captureOnly: true);
+            browser.ShowCaptureServers(new[] {
+                ("Full server", new ServerStatus { Online = true, LobbyEnabled = true, Phase = SessionPhase.Lobby, Players = 8, MaxPlayers = 8 }),
+                ("Open lobby", new ServerStatus { Online = true, LobbyEnabled = true, Phase = SessionPhase.Lobby, Players = 2, MaxPlayers = 8 }) });
+            window.Width = 800; window.Height = 400; window.Content = browser; window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            var list = browser.GetVisualDescendants().OfType<UiList>().Single();
+            var rows = browser.GetVisualDescendants().OfType<ServerRow>().ToArray();
+            var details = browser.GetVisualDescendants().OfType<ServerDetailsPanel>().Single();
+            list.Select(rows[0]);
+            GamepadChecks.Check(!details.Join.IsEnabled, "full server blocks Join with a reason");
+            list.Select(rows[1]);
+            GamepadChecks.Check(details.Join.IsEnabled && details.Join.Label == "Join Lobby", "available server enables Join Lobby");
+            list.Sort((a, b) => StringComparer.Ordinal.Compare(((ServerRow)b).ServerName, ((ServerRow)a).ServerName));
+            GamepadChecks.Check(list.Selected == rows[1], "sorting preserves selected server");
+            var filter = browser.GetVisualDescendants().OfType<TextBox>().First(box => box.Watermark == "Search servers");
+            filter.Text = "missing"; Dispatcher.UIThread.RunJobs();
+            GamepadChecks.Check(!details.Join.IsEnabled, "empty search cannot join stale selection");
+            filter.Text = ""; Dispatcher.UIThread.RunJobs();
+            window.Width = 600; window.UpdateLayout();
+            var pages = browser.GetVisualDescendants().OfType<UiTabs>().First();
+            pages.Select("Offline"); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            var optionsScroll = browser.GetVisualDescendants().OfType<ChoiceRow>().First().GetVisualAncestors().OfType<ScrollViewer>().First();
+            GamepadChecks.Check(Grid.GetColumn(optionsScroll) == 1, "leaving compact Online restores the offline options column");
+            pages.Select("Online"); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            details = browser.GetVisualDescendants().OfType<ServerDetailsPanel>().Single();
+            GamepadChecks.Check(!details.Join.IsEnabled, "returning to Online clears stale join availability");
+            window.Width = 800;
+
+            UiCapture.LobbyFixture("host-ffa", rooms);
+            var lobby = new LobbyScreen(rooms, new LobbyContext("Test lobby", "test.example:27888")); lobby.Suspend();
+            int closed = 0; lobby.Closed += (_, _) => closed++;
+            window.Content = lobby; window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            var tabs = lobby.GetVisualDescendants().OfType<UiTabs>().Single();
+            GamepadChecks.Check(tabs.IsVisible, "short lobby exposes section tabs");
+            var marks = lobby.GetVisualDescendants().OfType<UiMark>().ToArray();
+            UiMark Mark(string text) => lobby.GetVisualDescendants().OfType<UiMark>().First(m => m.Label == text);
+            var start = marks.First(m => m.Label.StartsWith("Start Match"));
+            var ready = marks.First(m => m.Label is "Ready" or "Cancel ready");
+            GamepadChecks.Check(ready.IsEffectivelyVisible && start.IsEffectivelyVisible, "short lobby keeps Ready and Start visible");
+            tabs.Select("Match"); window.UpdateLayout();
+            FocusNavigator.Key(Mark("Edit Match"), Avalonia.Input.Key.Enter); window.UpdateLayout();
+            var match = lobby.GetVisualDescendants().OfType<LobbyMatchPanel>().Single();
+            GamepadChecks.Check(match.Editing && !start.IsEnabled, "host editor blocks starting an unapplied draft");
+            var time = match.GetVisualDescendants().OfType<FieldRow>().First();
+            time.Value = "invalid"; Dispatcher.UIThread.RunJobs();
+            var apply = Mark("Apply Changes");
+            GamepadChecks.Check(!apply.IsEnabled, "invalid match draft cannot apply");
+            time.Value = "421"; Dispatcher.UIThread.RunJobs();
+            GamepadChecks.Check(apply.IsEnabled, "valid dirty draft can apply");
+            var session = NetSession.ServerSession!.Value;
+            session.Revision++; session.Match = session.Match with { PointGoal = 10 };
+            NetSession.ApplySessionState(session); lobby.RefreshForCheck();
+            GamepadChecks.Check(time.Value == "420" && !apply.IsEnabled, "stale draft reloads authoritative values");
+            FocusNavigator.Key(Mark("Cancel Changes"), Avalonia.Input.Key.Enter); window.UpdateLayout();
+            GamepadChecks.Check(!match.Editing && NetSession.ServerSession.Value.Match.PointGoal == 10, "cancel preserves server match");
+            session.OwnerSlot = 1; session.Revision++; NetSession.ApplySessionState(session); lobby.RefreshForCheck(); window.UpdateLayout();
+            GamepadChecks.Check(!Mark("Edit Match").IsVisible && !start.IsVisible, "host transfer switches to guest summary in place");
+            NetSession.SendLobbyCommand(LobbyCommandType.SetReady, ready: true); lobby.RefreshForCheck();
+            GamepadChecks.Check(!ready.IsEnabled, "pending command prevents duplicate ready");
+            tabs.Select("Chat"); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            var chat = lobby.GetVisualDescendants().OfType<LobbyChatPanel>().Single();
+            var entry = chat.GetVisualDescendants().OfType<TextBox>().Single();
+            entry.Text = "keep this draft"; FocusNavigator.Focus(entry);
+            FocusNavigator.Key(entry, Avalonia.Input.Key.Escape);
+            GamepadChecks.Check(closed == 0 && entry.Text == "keep this draft" && !entry.IsFocused, "chat Escape retains text and does not leave lobby");
+            var history = chat.GetVisualDescendants().OfType<ScrollViewer>().First(); history.Offset = new Vector(0, 0);
+            NetChat.Remember(new ChatPacket { Kind = ChatPacket.KindSystem, Text = "A player joined." });
+            chat.Refresh(true); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            GamepadChecks.Check(history.Offset.Y < 1, "new messages preserve manual chat scroll");
+            typeof(NetSession).GetProperty(nameof(NetSession.ConnectionLost))!.SetValue(null, true);
+            lobby.RefreshForCheck();
+            GamepadChecks.Check(!ready.IsEnabled && !entry.IsEnabled, "connection loss disables actions and chat");
+            NetSession.Stop();
         }
 
         private static void CheckSetup(Window window)

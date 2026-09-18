@@ -131,6 +131,17 @@ namespace MphRead.Mods.Launcher.Gui
         private FieldRow? _serverFilter;
         private UiWord? _favoriteServer;
         private int _serverRequest;
+        private readonly ServerDetailsPanel _serverDetails = new();
+        private readonly Grid _onlineList = new() { RowDefinitions = new RowDefinitions("Auto,*") };
+        private readonly StackPanel _onlineTools = new();
+        private readonly UiTabs _browserTabs = new(new[] { "Servers", "Details" });
+        private CancellationTokenSource? _joinCancel;
+        private readonly List<ServerRow> _serverRows = new();
+        private string _selectedEndpoint = "";
+        private ServerStatus? _directStatus;
+        private bool _directSelected, _captureServers, _narrowBrowser;
+        private bool? _laidOnlineNarrow;
+
         private ChoiceRow? _hunter;
         private ChoiceRow? _mode;
         private ChoiceRow? _bots;
@@ -226,6 +237,12 @@ namespace MphRead.Mods.Launcher.Gui
         {
             if (!Double.IsInfinity(availableSize.Height) && availableSize.Height > 0)
             {
+                if (Current == Face.Online)
+                {
+                    _narrowBrowser = availableSize.Width < 720 || (TopLevel.GetTopLevel(this)?.ClientSize.Width ?? availableSize.Width) < 720;
+                    LayoutOnline();
+                    return base.MeasureOverride(availableSize);
+                }
                 SetCompact(Current == Face.Clips || availableSize.Height < UiLayout.ShortBox);
                 _side.MaxHeight = Current == Face.Clips ? Math.Max(100, availableSize.Height - 190) : _compact ? Double.PositiveInfinity : 190;
             }
@@ -233,8 +250,9 @@ namespace MphRead.Mods.Launcher.Gui
         }
 
         public PlayScreen(MenuSettings settings, IReadOnlyList<string> rooms,
-            Face face = Face.Online, bool overGame = false)
+            Face face = Face.Online, bool overGame = false, bool captureOnly = false)
         {
+            _captureServers = captureOnly;
             _settings = settings;
             _rooms = new List<string>(rooms);
             _overGame = overGame;
@@ -327,6 +345,9 @@ namespace MphRead.Mods.Launcher.Gui
                 face == Face.Vote ? "vote" : "play", _tabs, body, _back, _go,
                 extra: _create);
 
+            _serverDetails.Join.Click += (_, _) => Go();
+            _serverDetails.Cancel.Click += (_, _) => _joinCancel?.Cancel();
+            _browserTabs.Changed += (_, _) => LayoutOnline();
             _list.Activated += (_, _) => Go();
             // Subscribed once, not per face: the list outlives every rebuild,
             // and a handler added each time round is a handler added twenty
@@ -335,7 +356,10 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 if (_list.Selected is ServerRow row && _address != null)
                 {
+                    _directSelected = false;
+                    _selectedEndpoint = row.Endpoint;
                     _address.Value = row.Endpoint;
+                    RefreshServerDetails();
                     if (_favoriteServer != null) _favoriteServer.Text = _bookmarks.IsFavorite(row.Endpoint)
                         ? "Remove from favorites" : "Add to favorites";
                 }
@@ -356,6 +380,7 @@ namespace MphRead.Mods.Launcher.Gui
         protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
         {
             StopPolling();
+            _joinCancel?.Cancel();
             base.OnDetachedFromVisualTree(e);
         }
 
@@ -376,12 +401,12 @@ namespace MphRead.Mods.Launcher.Gui
                 e.Handled = true;
                 return;
             }
-            if (_list.HandleKey(e.Key))
+            if (_list.IsVisible && _list.IsKeyboardFocusWithin && _list.HandleKey(e.Key))
             {
                 e.Handled = true;
                 return;
             }
-            if (_tabs != null && _tabs.HandleKey(e.Key))
+            if (_tabs != null && _tabs.IsEnabled && _tabs.IsKeyboardFocusWithin && _tabs.HandleKey(e.Key))
             {
                 e.Handled = true;
                 return;
@@ -391,6 +416,7 @@ namespace MphRead.Mods.Launcher.Gui
 
         private void Leave()
         {
+            if (_joinCancel != null) { _joinCancel.Cancel(); return; }
             if (_finished)
             {
                 return;
@@ -423,6 +449,17 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         private void Rebuild()
         {
+            _body.Children.Remove(_browserTabs); _laidOnlineNarrow = null;
+            _body.Children.Remove(_onlineList);
+            _onlineList.Children.Clear(); _onlineTools.Children.Clear();
+            if (!_body.Children.Contains(_list)) _body.Children.Add(_list);
+            _list.IsVisible = _side.IsVisible = true;
+            _go.IsEnabled = true;
+            _options.Width = 300;
+            _body.ColumnDefinitions = new ColumnDefinitions("*,Auto");
+            Grid.SetColumn(_side, 1);
+            _compact = !_compact; SetCompact(!_compact);
+
             _go.IsVisible = true;
             StopPolling();
             _serverRequest++;
@@ -491,35 +528,57 @@ namespace MphRead.Mods.Launcher.Gui
 
         // -------------------------------------------------------------- online
 
+        private void LayoutOnline()
+        {
+            _previewBox.IsVisible = false;
+            _options.Width = Double.NaN;
+            if (_laidOnlineNarrow != _narrowBrowser)
+            { _body.ColumnDefinitions = new ColumnDefinitions(_narrowBrowser ? "*,0" : "*,*"); _laidOnlineNarrow = _narrowBrowser; }
+            _side.MaxHeight = Double.PositiveInfinity;
+            _side.Margin = new Thickness(_narrowBrowser ? 0 : 14, 0, 0, 0);
+            Grid.SetRow(_onlineList, 1); Grid.SetColumn(_onlineList, 0);
+            Grid.SetRow(_list, 1); Grid.SetRowSpan(_list, 1); Grid.SetColumnSpan(_list, 1);
+            Grid.SetRow(_side, 1); Grid.SetRowSpan(_side, 1); Grid.SetColumn(_side, _narrowBrowser ? 0 : 1);
+            _browserTabs.IsVisible = _narrowBrowser;
+            _onlineList.IsVisible = !_narrowBrowser || _browserTabs.Index == 0;
+            _list.IsVisible = true;
+            _side.IsVisible = !_narrowBrowser || _browserTabs.Index == 1;
+        }
+
+        private void RefreshServerDetails()
+        {
+            if (Current != Face.Online) return;
+            ServerRow? row = _list.Selected as ServerRow;
+            string endpoint = _directSelected ? _address?.Value ?? "" : row?.Endpoint ?? "";
+            _serverDetails.Show(_directSelected ? "Direct connection" : row?.ServerName ?? "Select a server",
+                endpoint, _directSelected ? _directStatus : row?.Status, _joinCancel != null);
+            _go.IsEnabled = _joinCancel == null && _serverDetails.CanJoin;
+        }
+
         private void BuildOnline()
         {
-            _go.Label = "join";
-            _list.SetHeader(new ServerHeader());
-            _name = new FieldRow("Name", PlayerName(), boxWidth: 150);
-            _hunter = AddHunter();
-            _options.Children.Insert(0, _name);
-            _address = new FieldRow("Direct connect",
-                $"{LauncherPrefs.ServerAddress}:{LauncherPrefs.ServerPort}", boxWidth: 170);
-            _address.Box.LostFocus += (_, _) => QueryStatusSoon();
-            _options.Children.Add(_address);
-            // The same picture the map list shows. A server row says which map
-            // it is running and the map is most of what decides whether to
-            // join, so the one screen that had the name without the picture
-            // was the one where the picture would have answered the question.
-            WantPreview(true);
-            var refresh = new UiWord("Refresh", 15, colour: GuiTheme.TextDim)
-            {
-                Margin = new Thickness(4, 10, 0, 0)
-            };
-            refresh.Click += (_, _) => ReloadServers();
-            _options.Children.Add(refresh);
+            _go.IsVisible = false;
+            _directSelected = false; _directStatus = null;
+            _list.SetHeader(null);
+            _body.Children.Remove(_list);
+            _onlineList.Children.Add(_onlineTools); Grid.SetRow(_list, 1); _onlineList.Children.Add(_list);
+            Grid.SetRow(_onlineList, 1); _body.Children.Add(_onlineList);
+            Grid.SetRow(_browserTabs, 0); Grid.SetColumnSpan(_browserTabs, 2);
+            _body.Children.Add(_browserTabs);
             _serverSource = new ChoiceRow("Show", new[] { "All servers", "Favorites", "Recent servers" });
             _sortServers = new ChoiceRow("Sort by", new[] { "Server", "Ping", "Players" });
-            _serverFilter = new FieldRow("Filter", "", boxWidth: 170);
+            _serverFilter = new FieldRow("Search", "", boxWidth: 170);
+            _serverFilter.Box.Watermark = "Search servers";
             _serverSource.Changed += (_, _) => ReloadServers();
             _sortServers.Changed += (_, _) => ArrangeServers();
             _serverFilter.Box.TextChanged += (_, _) => ArrangeServers();
-            _favoriteServer = new UiWord("Add to favorites", 15);
+            var refresh = new UiMark(UiMark.Shape.Accept, "Refresh Servers");
+            refresh.Click += (_, _) => ReloadServers();
+            _onlineTools.Children.Add(_serverSource); _onlineTools.Children.Add(_sortServers);
+            _onlineTools.Children.Add(_serverFilter); _onlineTools.Children.Add(refresh);
+            _options.Children.Add(new Caption("Selected server"));
+            _options.Children.Add(_serverDetails);
+            _favoriteServer = new UiWord("Add to favorites", 15) { MinHeight = 40 };
             _favoriteServer.Click += (_, _) =>
             {
                 if (_list.Selected is not ServerRow selected) return;
@@ -532,10 +591,20 @@ namespace MphRead.Mods.Launcher.Gui
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 { _note.Text = "Could not save favorite: " + ex.Message; }
             };
-            _options.Children.Add(_serverSource); _options.Children.Add(_sortServers);
-            _options.Children.Add(_serverFilter); _options.Children.Add(_favoriteServer);
-            ReloadServers();
-            StartPolling();
+            _options.Children.Add(_favoriteServer);
+            _options.Children.Add(new Caption("Your player"));
+            _name = new FieldRow("Name", PlayerName(), boxWidth: 150);
+            _options.Children.Add(_name); _hunter = AddHunter();
+            _address = new FieldRow("Address", $"{LauncherPrefs.ServerAddress}:{LauncherPrefs.ServerPort}", boxWidth: 170);
+            var direct = new StackPanel { IsVisible = false };
+            var expand = new UiMark(UiMark.Shape.Add, "Direct Connect");
+            expand.Click += (_, _) => direct.IsVisible = !direct.IsVisible;
+            var check = new UiMark(UiMark.Shape.Accept, "Check Server");
+            check.Click += (_, _) => { if (_joinCancel != null) return; _directSelected = true; _directStatus = null; RefreshServerDetails(); QueryStatusSoon(); };
+            _address.Box.TextChanged += (_, _) => { if (_directSelected) { _directStatus = null; RefreshServerDetails(); } };
+            direct.Children.Add(_address); direct.Children.Add(check);
+            _options.Children.Add(expand); _options.Children.Add(direct);
+            LayoutOnline(); RefreshServerDetails(); ReloadServers(); StartPolling();
         }
 
         /// <summary>
@@ -547,7 +616,9 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         private void ReloadServers()
         {
-            _list.Clear();
+            if (_joinCancel != null || _captureServers) return;
+            string preserve = (_list.Selected as ServerRow)?.Endpoint ?? _selectedEndpoint;
+            _list.Clear(); _serverRows.Clear(); _selectedEndpoint = preserve;
             int request = ++_serverRequest;
             if (_serverSource?.Index is 1 or 2)
             {
@@ -591,11 +662,17 @@ namespace MphRead.Mods.Launcher.Gui
                         AddServerRow(listing);
                     }
                     ArrangeServers();
-                    _list.FocusFirst();
+                    RestoreServerSelection();
                 });
             });
         }
 
+        private void RestoreServerSelection()
+        {
+            var selected = _serverRows.FirstOrDefault(row => row.Endpoint == _selectedEndpoint && row.IsVisible);
+            if (selected != null) _list.Select(selected);
+            RefreshServerDetails();
+        }
         private void ArrangeServers()
         {
             _list.Sort((a, b) => a is ServerRow first && b is ServerRow second
@@ -610,7 +687,10 @@ namespace MphRead.Mods.Launcher.Gui
                 || server.ServerName.Contains(filter, StringComparison.OrdinalIgnoreCase)
                 || server.Endpoint.Contains(filter, StringComparison.OrdinalIgnoreCase)
                 || UiText.Map(server.RoomKey).Contains(filter, StringComparison.OrdinalIgnoreCase));
-            if (_favoriteServer != null) _favoriteServer.IsVisible = _list.Selected is ServerRow;
+            if (_favoriteServer != null) _favoriteServer.IsVisible = !_directSelected && _list.Selected is ServerRow;
+            if (filter.Length > 0) _note.Text = _serverRows.Any(row => row.IsVisible) ? "" : "No servers match your search.";
+            if (filter.Length == 0 && _note.Text == "No servers match your search.") _note.Text = $"{UiText.Count(_serverRows.Count, "server")} found.";
+            RefreshServerDetails();
             RefreshPreview();
         }
 
@@ -619,11 +699,13 @@ namespace MphRead.Mods.Launcher.Gui
             int request = _serverRequest;
             string name = listing.ServerName.Length > 0 ? listing.ServerName : listing.Endpoint;
             var row = new ServerRow(name, listing.Endpoint);
+            _serverRows.Add(row);
             ToolTip.SetTip(row, listing.Endpoint);
             // Pressing a server fills the address box in and selects it;
             // JOIN in the corner (or a second click, or Enter) is what
             // actually connects. One press used to do both, which is a player
             // dropped into a match they had only meant to read the ping of.
+            string preserveSelection = _selectedEndpoint;
             _list.Add(row, _ =>
             {
                 if (_address != null)
@@ -631,6 +713,8 @@ namespace MphRead.Mods.Launcher.Gui
                     _address.Value = $"{listing.Address}:{listing.Port}";
                 }
             });
+            _selectedEndpoint = preserveSelection;
+            RestoreServerSelection();
             Task.Run(() =>
             {
                 ServerStatus status = NetStatus.Query(listing.Address, listing.Port,
@@ -671,6 +755,7 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         private void StartPolling()
         {
+            if (_captureServers) return;
             QueryStatusSoon();
             _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
             _statusTimer.Tick += (_, _) => QueryStatusSoon();
@@ -687,10 +772,10 @@ namespace MphRead.Mods.Launcher.Gui
 
         private void QueryStatusSoon()
         {
-            if (Current != Face.Online)
-            {
-                return;
-            }
+            if (Current != Face.Online || _joinCancel != null || _captureServers) return;
+            string hostCheck = ""; int portCheck = NetConfig.DefaultPort;
+            if (_address == null || !ParseEndpoint(_address.Value, ref hostCheck, ref portCheck))
+            { _serverDetails.Feedback("Enter a valid host or host:port (1–65535)."); return; }
             _statusCancel?.Cancel();
             var cancel = new CancellationTokenSource();
             _statusCancel = cancel;
@@ -709,10 +794,9 @@ namespace MphRead.Mods.Launcher.Gui
                     {
                         return;
                     }
-                    _note.Text = status.Online
-                        ? $"{host}:{port} -- {Describe(status)}"
-                        : $"{host}:{port} -- no answer. The server did not respond. It may be offline, or UDP traffic may be blocked.";
-                    _note.Foreground = status.Online ? GuiTheme.GoodBrush : GuiTheme.WarmBrush;
+                    if (_directSelected) _directStatus = status;
+                    else if (_list.Selected is ServerRow selected && selected.Endpoint == $"{host}:{port}") selected.SetStatus(status);
+                    RefreshServerDetails();
                 });
             });
         }
@@ -730,48 +814,43 @@ namespace MphRead.Mods.Launcher.Gui
 
         private async Task Join()
         {
+            if (_joinCancel != null || !_serverDetails.CanJoin) return;
             (string host, int port) = Endpoint();
-            string name = _name != null && _name.Value.Trim().Length > 0
-                ? _name.Value.Trim() : PlayerName();
+            string name = _name != null && _name.Value.Trim().Length > 0 ? _name.Value.Trim() : PlayerName();
             var hunter = (Hunter)Enum.Parse(typeof(Hunter), _hunter!.Value);
-            StopPolling();
-            _go.IsEnabled = false;
-            _go.Label = "joining";
-            _note.Text = $"Connecting to {host}:{port}…";
-            _note.Foreground = GuiTheme.TextDimBrush;
-
-            LauncherPrefs.PlayerName = name;
-            LauncherPrefs.LastHunter = hunter;
-            LauncherPrefs.ServerAddress = host;
-            LauncherPrefs.ServerPort = port;
-            LauncherPrefs.LastKind = (int)LaunchKind.Online;
-            LauncherPrefs.Save();
-
-            // Joining blocks for up to eight seconds while it retries; on the
-            // UI thread that is eight seconds of a screen that does not redraw.
-            bool joined = await Task.Run(() => NetLaunch.Connect(host, port, name, hunter));
-            _go.IsEnabled = true;
-            _go.Label = "join";
-            if (!joined)
+            string serverName = _directSelected ? host : (_list.Selected as ServerRow)?.ServerName ?? host;
+            using var cancel = new CancellationTokenSource();
+            _joinCancel = cancel; StopPolling();
+            if (_tabs != null) _tabs.IsEnabled = false;
+            _create.IsEnabled = _list.IsEnabled = _onlineTools.IsEnabled = false;
+            _name!.IsEnabled = _hunter.IsEnabled = _address!.IsEnabled = false;
+            _back.Label = "cancel join";
+            _browserTabs.Index = 1; RefreshServerDetails();
+            LauncherPrefs.PlayerName = name; LauncherPrefs.LastHunter = hunter;
+            LauncherPrefs.ServerAddress = host; LauncherPrefs.ServerPort = port;
+            LauncherPrefs.LastKind = (int)LaunchKind.Online; LauncherPrefs.Save();
+            bool joined = false;
+            string error = "";
+            try { joined = await Task.Run(() => NetLaunch.Connect(host, port, name, hunter, cancellationToken: cancel.Token)); }
+            catch (Exception ex) { error = "Could not connect: " + ex.Message; }
+            bool cancelled = cancel.IsCancellationRequested;
+            _joinCancel = null;
+            if (_tabs != null) _tabs.IsEnabled = true;
+            _create.IsEnabled = _list.IsEnabled = _onlineTools.IsEnabled = true;
+            _name!.IsEnabled = _hunter.IsEnabled = _address!.IsEnabled = true; _back.Label = "back";
+            RefreshServerDetails();
+            if (!joined || cancelled)
             {
-                NetSession.Stop();
-                _note.Text = NetLaunch.LastJoinError;
-                _note.Foreground = GuiTheme.BadBrush;
-                StartPolling();
+                NetSession.Stop(); StartPolling();
+                _note.Text = cancelled ? "Join canceled. Select a server to try again." : error.Length > 0 ? error : NetLaunch.LastJoinError;
+                _serverDetails.Feedback(_note.Text);
                 return;
             }
             try { _bookmarks.Remember($"{host}:{port}"); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             { Console.WriteLine("[launcher] Could not save recent server: " + ex.Message); }
-            Finish(new LaunchPlan
-            {
-                Kind = LaunchKind.Online,
-                Hunter = hunter,
-                PlayerName = name,
-                RoomKey = "",
-                Mode = GameMode.Battle,
-                Port = port
-            });
+            Finish(new LaunchPlan { Kind = LaunchKind.Online, Hunter = hunter, PlayerName = name,
+                RoomKey = "", Mode = GameMode.Battle, Port = port, Lobby = new LobbyContext(serverName, $"{host}:{port}") });
         }
 
         // ------------------------------------------------------------- offline
@@ -933,12 +1012,18 @@ namespace MphRead.Mods.Launcher.Gui
         { _captureReplays = recordings; Rebuild(); }
         internal void ShowCaptureServers(IEnumerable<(string Name, ServerStatus Status)> servers)
         {
-            ++_serverRequest; StopPolling(); _list.Clear(); _note.Text = "";
+            _captureServers = true; ++_serverRequest; StopPolling(); _list.Clear(); _serverRows.Clear(); _note.Text = "";
             foreach (var (name, status) in servers)
             {
-                var row = new ServerRow(name, "192.0.2.1:27888"); row.SetStatus(status); _list.Add(row);
+                var row = new ServerRow(name, $"192.0.2.{_serverRows.Count + 1}:27888"); row.SetStatus(status); _serverRows.Add(row); _list.Add(row);
             }
             ArrangeServers(); RefreshPreview();
+        }
+
+        internal void ShowCaptureOnlineState(string state)
+        {
+            _browserTabs.Index = 1;
+            _note.Text = state == "directory-failure" ? "The directory is unavailable. Refresh or use Direct Connect." : state == "no-servers" ? "The directory is online. No servers are listed." : "";
         }
 
         private void BuildDemo()

@@ -27,8 +27,9 @@ namespace MphRead.Mods.Network
         /// roster are required; a running map and a game scene are not.
         /// </summary>
         public static bool Connect(string address, int port, string playerName, Hunter hunter,
-            int timeoutMs = 8000, int color = -1, Guid ownerToken = default)
+            int timeoutMs = 8000, int color = -1, Guid ownerToken = default, CancellationToken cancellationToken = default)
         {
+            if (cancellationToken.IsCancellationRequested) { LastJoinError = "Join cancelled."; return false; }
             NetSession.PlayerName = playerName;
             // Rolled here as well as in the launch plan, because joining
             // happens *before* the plan is built: the hunter announced in
@@ -55,6 +56,8 @@ namespace MphRead.Mods.Network
             int lastIdentify = 0;
             while (clock.ElapsedMilliseconds < timeoutMs)
             {
+                if (cancellationToken.IsCancellationRequested)
+                { NetSession.Stop(); LastJoinError = "Join cancelled."; return false; }
                 NetSession.Update(clock.Elapsed.TotalSeconds);
                 if (NetSession.Refused)
                 {
@@ -83,6 +86,8 @@ namespace MphRead.Mods.Network
                 }
                 Thread.Sleep(20);
             }
+            if (cancellationToken.IsCancellationRequested)
+            { NetSession.Stop(); LastJoinError = "Join cancelled."; return false; }
             LastJoinError = DescribeJoinFailure(address, port);
             Console.WriteLine($"[net] {LastJoinError}");
             return false;

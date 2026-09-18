@@ -82,7 +82,8 @@ if (args.Length == 2 && args[0] == "--case")
     finally { Directory.Delete(fixture, recursive: true); }
 }
 
-foreach (string mode in new[] { "success", "crash", "timeout", "concurrent", "parent-exit" })
+// Exercise the real ProcessExit/monitor race repeatedly in isolated processes.
+foreach (string mode in new[] { "success", "crash", "timeout", "concurrent", "parent-exit" }.Concat(Enumerable.Repeat("parent-exit", 9)))
 {
     var start = new ProcessStartInfo(Environment.ProcessPath!)
     { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
