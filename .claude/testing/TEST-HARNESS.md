@@ -7,7 +7,7 @@ This document explains the netcheck, maptest and the harness scripts used in `~/
 > extracted game files in `~/mph-test/`. Rebuild what you need rather than
 > assuming a missing script means a broken setup. A two-client run against a
 > real server needs nothing else: copy `~/mph-test/paths.txt` next to
-> `src/MphRead/bin/Release/net9.0/FruityPrime.dll`, then start two
+> `src/MphRead/bin/Release/net10.0/FruityPrime.dll`, then start two
 > `dotnet FruityPrime.dll -netcheck HOST -port N -name X -hunter H -seconds N`
 > processes a few seconds apart and read the two reports against each other.
 

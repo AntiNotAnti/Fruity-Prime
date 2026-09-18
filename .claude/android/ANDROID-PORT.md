@@ -690,11 +690,11 @@ when only the variable is set. `EmbedAssembliesIntoApk` is the one below under
 "Three traps" -- a Debug APK without it installs and is hollow.
 
 The SDK needs `platforms;android-35` and `build-tools;35.0.0` to match the
-`net9.0-android35.0` target; `sdkmanager --sdk_root=$HOME/android-sdk` installs
+`net10.0-android36.0` target; `sdkmanager --sdk_root=$HOME/android-sdk` installs
 them. `EnableAvaloniaXamlCompilation=false` is deliberate and explained in the
 csproj.
 
-The APK lands in `bin/Debug/net9.0-android35.0/fr.livetek.fruityprime-Signed.apk`
+The APK lands in `bin/Debug/net10.0-android36.0/fr.livetek.fruityprime-Signed.apk`
 (~20 MB; a Release publish is ~45 MB, being every ABI with the trimmer run).
 `adb install -r` it.
 

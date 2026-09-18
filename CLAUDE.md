@@ -28,7 +28,7 @@ area is the one being touched.
 | `src/MphRead.Android/` | the Android head: the same sources, an APK, a front screen and a match, over GL ES and touch controls |
 | `src/MphRead/Mods/Network/` | the whole multiplayer feature |
 | `src/MphRead/Mods/Launcher/` | the launcher: `Gui/` is every window (Avalonia, all platforms), `Portable/` is the logic and the text screen |
-| `~/mph-test/` | the extracted game files and `paths.txt`. **`paths.txt` has to sit next to the DLL** you are running, so copy it into `src/MphRead/bin/Release/net9.0/` and run `dotnet FruityPrime.dll` from there |
+| `~/mph-test/` | the extracted game files and `paths.txt`. **`paths.txt` has to sit next to the DLL** you are running, so copy it into `src/MphRead/bin/Release/net10.0/` and run `dotnet FruityPrime.dll` from there |
 | `~/mph-net-test/` | the test rig -- `bin/` (with its own `paths.txt`, game files and thumbnail cache), `run-check.sh`, `compare-reports.py`, `hard/`, and every `run-*.sh` named in the table below. It **does** exist on this box, whatever an older copy of this file said. A two-client run against a real server needs nothing more than two `-netcheck` processes and the game files |
 | `C:\Users\livetek\Desktop\MPH\MphRead-develop\` | the Windows deliverable |
 | `net.livetek.fr:27888` | the dedicated server on the user's Pi (systemd unit `mphread-server`) |

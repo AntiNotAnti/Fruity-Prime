@@ -1693,6 +1693,15 @@ namespace MphRead
             return source.Slice((int)start);
         }
 
+        // C# 14 made Span<T> to ReadOnlySpan<T> a standard implicit conversion,
+        // which put the uint overload above in the running for a Span and made
+        // every `span.Slice(someUint)` in the tree ambiguous against the long
+        // one. An exact match settles it without touching the call sites.
+        public static Span<T> Slice<T>(this Span<T> source, uint start)
+        {
+            return source.Slice((int)start);
+        }
+
         public static T Consume<T>(this ref Span<T> span)
         {
             T value = span[0];
