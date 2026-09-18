@@ -520,6 +520,9 @@ namespace MphRead.Mods.Launcher.Gui
             _shotStep = 0;
             _shotWait = 0;
             ShotMisses = 0;
+            // No modal dialog may open while the script is running; see the
+            // property, and ClickSettings for what presses one.
+            NativeFilePicker.Suppressed = true;
             // The window is the capture's for the duration, not the player's:
             // the script maximizes it half way through, and a screenshot run
             // must not be how somebody's window size changes. See
@@ -750,11 +753,15 @@ namespace MphRead.Mods.Launcher.Gui
                 Click(c => c is DeckButton button && button.Text == "SETTINGS");
                 return;
             }
-            // The setup screen's own "Use this file", with nothing typed in
-            // the box beside it: always on that screen, always on top, and it
-            // returns without doing anything when the field is empty. What is
-            // being proven is that the press arrives, not what it does.
-            Click(c => c is UiWord word && word.Text == "Use this file");
+            // The setup screen's tick, which is the only thing on it that can
+            // be pressed: the path to type beside it is gone. That used to be
+            // the target here ("Use this file"), so removing it failed the
+            // whole capture rather than the screen -- and is why
+            // NativeFilePicker.Suppressed exists. With it set the press takes
+            // the screen's own no-dialog path: nothing opens, the sentence
+            // about it goes on screen, and what is being proven -- that the
+            // press arrives at all -- is proven.
+            Click(c => c is UiMark mark && mark.Label == "choose your .nds file");
         }
 
         private static void HoverFront()

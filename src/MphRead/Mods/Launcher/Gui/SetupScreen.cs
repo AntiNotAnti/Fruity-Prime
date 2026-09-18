@@ -21,6 +21,29 @@ namespace MphRead.Mods.Launcher.Gui
     /// rather than as one entry among five that are all refused. A menu whose
     /// entries do nothing is a program that looks broken; one screen asking
     /// for one file is a program waiting for you.
+    ///
+    /// <para>
+    /// <b>One way to answer it: the platform's own file dialog.</b> There used
+    /// to be a path to type beside the button, on the reading that somebody
+    /// who knows where their dump is would rather paste it than walk a tree to
+    /// it. That is one offer too many on the one screen that has exactly one
+    /// thing to do -- a text box beside a button makes a player decide which
+    /// half of the screen the answer is in before they can give it -- and on a
+    /// phone it cannot work at all, since the picker hands back a
+    /// <c>content://</c> document with no path behind it (see
+    /// <see cref="RunSetup"/>) and the keyboard covers half the screen to ask
+    /// for one. It is gone on every platform.
+    /// </para>
+    ///
+    /// <para>
+    /// The cost is stated rather than worked around: a Linux box with neither
+    /// zenity nor kdialog has no dialog for the button to open (see
+    /// <see cref="NativeFilePicker"/>, and note the desktop heads draw these
+    /// screens with Avalonia's headless backend, so the toolkit's own
+    /// <c>StorageProvider</c> is not available to them). The button says so
+    /// and names what to install, which is a sentence a player can act on;
+    /// every other platform, including Android, has one.
+    /// </para>
     /// </summary>
     internal sealed class SetupScreen : UserControl
     {
@@ -32,17 +55,6 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly UiMark _choose;
         private readonly UiMark _back;
         private readonly UiWord _previews;
-
-        /// <summary>
-        /// The path, typed. The last resort, and on a Linux box with neither
-        /// zenity nor kdialog the only one -- see
-        /// <see cref="NativeFilePicker"/> for why the toolkit's own picker is
-        /// not available to these screens. Hidden until that is the case:
-        /// the screen has one thing to ask for and offers one way to answer.
-        /// </summary>
-        private readonly DeckField _typed = new("", widthEms: 26,
-            watermark: "C:\\path\\to\\your.nds");
-        private readonly StackPanel _typedRow;
 
         public SetupScreen()
         {
@@ -67,41 +79,6 @@ namespace MphRead.Mods.Launcher.Gui
             _previews = new UiWord("Render map previews", 15, colour: GuiTheme.TextDim);
             _previews.Click += async (_, _) => await RenderPreviews();
             body.Children.Add(_previews);
-            // The path, typed: the way in for a machine whose button opens
-            // nothing. It is built either way and shown only then -- see
-            // below.
-            var typedGo = new UiWord("Use this file", 15, colour: GuiTheme.Accent);
-            typedGo.Click += async (_, _) => await UseTypedPath();
-            _typedRow = new StackPanel { Spacing = 6 };
-            _typedRow.Children.Add(_typed);
-            _typedRow.Children.Add(typedGo);
-            // Hidden until it is the only way in, on every platform.
-            //
-            // The screen used to offer both at once on the reading that
-            // somebody who knows where the file is would rather paste it than
-            // walk a tree to it. That is one offer too many: a fresh install
-            // has exactly one thing to do, and a text box beside the button
-            // makes a player decide which half of the screen the answer is in
-            // before they can give it. On a phone it is worse than redundant
-            // -- the picker hands back a content:// document with no path
-            // behind it (see RunSetup), so a typed path cannot name what the
-            // button opens, and the keyboard covers half the screen to ask for
-            // one.
-            //
-            // It is not gone: <see cref="ShowTyped"/> brings it back on a
-            // machine with no dialog to open, which is a Linux box with
-            // neither zenity nor kdialog and is the one case the row exists
-            // for. See <see cref="NativeFilePicker"/>.
-            _typedRow.IsVisible = false;
-            _typed.Box.KeyDown += async (_, key) =>
-            {
-                if (key.Key == Key.Enter)
-                {
-                    key.Handled = true;
-                    await UseTypedPath();
-                }
-            };
-            body.Children.Add(_typedRow);
             _progress.IsVisible = false;
             body.Children.Add(_progress);
             body.Children.Add(new ScrollViewer
@@ -147,37 +124,6 @@ namespace MphRead.Mods.Launcher.Gui
             base.OnKeyDown(e);
         }
 
-        /// <summary>Put the caret in the typed path, for when it is the only way in.</summary>
-        private void ShowTyped()
-        {
-            // It is hidden until here: reaching this means the button has no
-            // dialog behind it, typing is the only thing left, and the row has
-            // to come back with the sentence that says so.
-            _typedRow.IsVisible = true;
-            Dispatcher.UIThread.Post(() => _typed.Box.Focus(), DispatcherPriority.Background);
-        }
-
-        /// <summary>
-        /// The path the player typed, checked before it is acted on: a wrong
-        /// path has to say so here rather than come back as an extractor error
-        /// about a file it could not open.
-        /// </summary>
-        private async Task UseTypedPath()
-        {
-            string path = _typed.Value.Trim().Trim('"');
-            if (path.Length == 0)
-            {
-                return;
-            }
-            path = Path.GetFullPath(path, ConsoleSetup.LaunchDirectory);
-            if (!File.Exists(path))
-            {
-                _log.Text = $"There is no file at {path}.";
-                return;
-            }
-            await RunSetup(path, null);
-        }
-
         /// <summary>
         /// Ask for the cartridge dump, however this platform can be asked.
         ///
@@ -198,9 +144,11 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 if (!NativeFilePicker.Available)
                 {
-                    _log.Text = "This desktop has no file dialog to open "
-                        + "(install zenity or kdialog). Type the path instead.";
-                    ShowTyped();
+                    // The one thing this screen cannot answer for itself.
+                    // There is no typed path to fall back on any more -- see
+                    // the class note -- so it says what to install and stops.
+                    _log.Text = "This desktop has no file dialog to open. "
+                        + "Install zenity or kdialog and press this again.";
                     return;
                 }
                 string? chosen = await NativeFilePicker.OpenFile(

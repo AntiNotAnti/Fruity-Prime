@@ -48,10 +48,23 @@ namespace MphRead.Mods.Launcher
         /// </summary>
         public static IntPtr Owner { get; set; }
 
+        /// <summary>
+        /// Answer as a machine with no dialog would, whatever this one has.
+        ///
+        /// For <c>-shellshot</c>, which presses the setup screen's tick to
+        /// prove that a press reaches the screens at all. That button opens a
+        /// modal file dialog, and a capture that stops on one waits for a
+        /// person who is not there -- on a developer's box with zenity
+        /// installed, for ever. Suppressed, the screen takes its own
+        /// no-dialog path instead, which is a real path and says so on screen.
+        /// </summary>
+        public static bool Suppressed { get; set; }
+
         /// <summary>Whether this machine has a dialog this can open.</summary>
         public static bool Available =>
-            OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-            || (OperatingSystem.IsLinux() && LinuxTool() != null);
+            !Suppressed
+            && (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+                || (OperatingSystem.IsLinux() && LinuxTool() != null));
 
         /// <summary>
         /// Ask for one existing file. Null when the player cancelled, and null

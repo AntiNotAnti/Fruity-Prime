@@ -49,16 +49,22 @@ Painting and controls
   perfect. One dispatcher turn (`DispatcherPriority.Loaded`) is the whole fix.
   Anything else that wants to open a screen as another one arrives has to do
   the same.
-- **The setup screen offers one way in.** It used to show the file dialog
-  button *and* a path to type at the same time, on the reading that somebody
-  who knows where their dump is would rather paste it. A fresh install has
-  exactly one thing to do, and two halves of a screen to do it in is a decision
-  before the action; on a phone the typed path cannot even name what the button
-  opens, since the picker hands back a `content://` document with no path
-  behind it. The row is built either way and shown only by
-  `SetupScreen.ShowTyped`, which is reached when the button has no dialog
-  behind it at all -- a Linux box with neither zenity nor kdialog, which is the
-  one case it exists for.
+- **The setup screen offers one way in: the platform's own file dialog.** It
+  used to show the button *and* a path to type at the same time, on the reading
+  that somebody who knows where their dump is would rather paste it. That is
+  one offer too many on the one screen with exactly one thing to do, and on a
+  phone it cannot work at all -- the picker hands back a `content://` document
+  with no path behind it, so a typed path cannot name what the button opens.
+  The row is gone on every platform. The cost is stated rather than worked
+  around: a Linux box with neither zenity nor kdialog has no dialog for the
+  button to open (the desktop heads draw these screens with Avalonia's headless
+  backend, so the toolkit's own `StorageProvider` is not theirs to use -- see
+  `NativeFilePicker`), and the button says so and names what to install.
+  `-shellshot` presses that screen on CI, where there are never game files, and
+  it used to aim at the typed row's word: removing the row failed the whole
+  capture. It presses the tick now, with `NativeFilePicker.Suppressed` set for
+  the length of the script so the press takes the no-dialog path rather than
+  opening a modal nobody can answer.
 - **Photographing the results: hold `Ending`, not `GameOver`.** Both satisfy
   `EndScreen.Available`, so the deck panel comes up either way -- and the HUD
   draws the *scoreboard* only on `Ending`; `GameOver` is the words GAME OVER
