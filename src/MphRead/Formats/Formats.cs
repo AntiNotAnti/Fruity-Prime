@@ -1527,9 +1527,14 @@ namespace MphRead
         /// the root absolute changes nothing for anybody it already was
         /// absolute for -- which is everybody who has never seen this -- and
         /// it fixes every call site at once, including the ones nobody has
-        /// walked yet. Against the program's own directory rather than the
-        /// working directory, because a relative root in paths.txt means "next
-        /// to the game", and the working directory is not always that.
+        /// walked yet. Against the working directory, not
+        /// <c>AppContext.BaseDirectory</c>: paths.txt itself is found by a
+        /// bare <c>File.Exists("paths.txt")</c>, so a relative root has to
+        /// resolve against whatever directory that lookup just used, and
+        /// <see cref="Launcher.GameFiles.Root"/>'s own contract is that
+        /// whoever sets it also makes it the working directory (Application
+        /// Support on macOS, the app's own directory on Android) -- which is
+        /// not always where the assembly sits.
         /// </para>
         /// </summary>
         private static string Absolute(string path)
@@ -1540,7 +1545,7 @@ namespace MphRead
             }
             try
             {
-                return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, path));
+                return Path.GetFullPath(path);
             }
             catch (Exception)
             {
