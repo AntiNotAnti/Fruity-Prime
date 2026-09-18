@@ -66,7 +66,9 @@ namespace MphRead.Mods.Launcher.Gui
             bool vertical = direction == UiAction.Up || direction == UiAction.Down;
             double sign = direction == UiAction.Up || direction == UiAction.Left ? -1 : 1;
             Control? best = null;
+            Control? wrapped = null;
             double score = double.MaxValue;
+            double wrapScore = double.MaxValue;
             foreach (var candidate in root.GetVisualDescendants().OfType<Control>())
             {
                 if (candidate == current || !Eligible(candidate, root)) continue;
@@ -74,12 +76,17 @@ namespace MphRead.Mods.Launcher.Gui
                 if (!point.HasValue) continue;
                 double dx = point.Value.X - origin.Value.X, dy = point.Value.Y - origin.Value.Y;
                 double forward = (vertical ? dy : dx) * sign, across = Math.Abs(vertical ? dx : dy);
-                if (forward <= 1) continue;
+                if (forward <= 1)
+                {
+                    double distanceBack = forward + across * 3;
+                    if (distanceBack < wrapScore) { wrapScore = distanceBack; wrapped = candidate; }
+                    continue;
+                }
                 double distance = forward + across * 3;
                 if (distance < score) { score = distance; best = candidate; }
             }
             if (best == null && root.GetValue(ControllerNav.NavWrapProperty))
-                best = root.GetVisualDescendants().OfType<Control>().FirstOrDefault(c => c != current && Eligible(c, root));
+                best = wrapped;
             Focus(best);
         }
     }

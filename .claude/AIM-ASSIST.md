@@ -94,6 +94,15 @@ haptic priorities, mapping replacement, layout identity and semantic prompts.
 Headless Avalonia checks exercise explicit navigation neighbors, modal focus
 containment, stable controller-settings focus and calibration Apply/cancel.
 
+`-gamepadaimworldcheck "MP1 SANCTORUS"` is an optional asset-backed adapter test.
+It uses the real headless engine, hunter rig and room collision to verify visible
+acquisition, dead/spectator/team rejection and an occluded target inside assist
+range. It requires the user's extracted game files; none are included in CI or
+packages. The local run passed 9 assertions. The input/UI suite passed 279 checks,
+including a 10,000-step zero-allocation check and a concurrent device-switch
+regression. Each input frame retains the runtime captured with its state even
+when Android publishes a different selected controller during that frame.
+
 Hardware tests and controller-versus-mouse balance/playtesting are explicitly
 deferred by the user (automated testing only). The numerical tuning is an initial
 profile, not certified competitive balance. Still validate close/mid/far targets,

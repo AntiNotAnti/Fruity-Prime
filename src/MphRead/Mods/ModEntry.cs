@@ -1345,6 +1345,12 @@ namespace MphRead.Mods
             }
 
             string? combatCheck = ValueAfter(args, "netcombatcheck");
+            string? aimWorldCheck = ValueAfter(args, "gamepadaimworldcheck");
+            if (aimWorldCheck != null)
+            {
+                Environment.ExitCode = Input.AimAssist.AimAssistWorldChecks.Run(aimWorldCheck);
+                return true;
+            }
             if (combatCheck != null)
             {
                 Environment.ExitCode = Network.NetCombatCheck.Run(combatCheck);

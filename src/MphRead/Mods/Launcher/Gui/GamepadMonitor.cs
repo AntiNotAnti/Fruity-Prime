@@ -27,8 +27,8 @@ namespace MphRead.Mods.Launcher.Gui
             var device = GamepadManager.ActiveDevice;
             var state = GamepadManager.Snapshot.State;
             _raw = device?.RawState ?? default;
-            string status = device == null ? "No controller detected. Connect it and press a button."
-                : device.Name + " | " + device.Mapping;
+            string status = device is { } connected ? connected.Name + " | " + connected.Mapping
+                : "No controller detected. Connect it and press a button.";
             string buttons = state.Buttons == 0 ? "Press a button to test it" : PadBindings.Describe(state.Buttons);
             string actions = state.Buttons == 0 ? "Sticks move/aim; triggers should only fill the LT/RT bars."
                 : "Assigned: " + GamepadProbe.Actions(state.Buttons);

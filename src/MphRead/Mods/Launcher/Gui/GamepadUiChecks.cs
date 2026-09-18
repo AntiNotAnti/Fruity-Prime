@@ -39,6 +39,9 @@ namespace MphRead.Mods.Launcher.Gui
             first.SetValue(ControllerNav.NavDownProperty, "fixture.choice");
             FocusNavigator.Focus(first); FocusNavigator.Move(panel, UiAction.Down);
             GamepadChecks.Check(choice.IsFocused, "explicit navigation neighbor takes precedence over geometry");
+            panel.SetValue(ControllerNav.NavWrapProperty, true);
+            FocusNavigator.Focus(first); FocusNavigator.Move(panel, UiAction.Up);
+            GamepadChecks.Check(choice.IsFocused, "upward wrapping reaches the last eligible control");
             var text = new TextBox { Text = "Player", Width = 250 };
             panel.Children.Add(text); window.UpdateLayout();
             var keyboard = new ControllerKeyboard(text, () => { });

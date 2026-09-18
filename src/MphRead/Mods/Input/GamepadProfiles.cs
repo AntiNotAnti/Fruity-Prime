@@ -18,6 +18,7 @@ namespace MphRead.Mods.Input
         public static long Revision { get; private set; }
         public static string Status { get; private set; } = "";
         public static string ActiveName { get; private set; } = "Custom settings";
+        internal static void NoteActive(string name) => ActiveName = name;
         public static IReadOnlyList<GamepadProfile> Profiles => _library.Profiles;
         private static string LibraryPath => Path.Combine(_directory, "controller-profiles.json");
 
@@ -72,9 +73,20 @@ namespace MphRead.Mods.Input
                 if (split > 0) runtime.Bindings.TryLoad(line[..split], line[(split + 1)..]);
             }
             runtime.Bindings.LoadSlots(profile.Settings);
+            foreach (string line in profile.Settings)
+            {
+                int split = line.IndexOf('='); string key = line[..split];
+                if (!key.StartsWith("pad_", StringComparison.Ordinal) || !key.EndsWith("_modifier", StringComparison.Ordinal)) continue;
+                string actionName = key[4..].Split('_')[0];
+                var action = Enum.Parse<PadAction>(actionName);
+                int slot = key.EndsWith("_primary_modifier", StringComparison.Ordinal) ? 0 : 1;
+                if (runtime.Bindings.Modifier(action, slot) != Enum.Parse<GamepadButtons>(line[(split + 1)..]))
+                    throw new InvalidDataException("A modifier requires a distinct bound button.");
+            }
             string? preset = profile.Settings.LastOrDefault(l => l.StartsWith("gamepad_preset=", StringComparison.Ordinal));
             if (preset != null && new[] { "Default", "Bumper Jumper", "Southpaw", "Classic", "Custom" }.Contains(preset[15..]))
                 runtime.Bindings.Preset = preset[15..];
+            runtime.ProfileName = profile.Name;
             return runtime;
         }
         private static void Validate(GamepadProfile profile)
@@ -120,7 +132,8 @@ namespace MphRead.Mods.Input
             ?? throw new InvalidDataException("Choose a saved controller profile.");
         public static void Save(string name)
         {
-            Initialize(); Store(Capture(name.Trim())); ActiveName = name.Trim(); Revision++;
+            Initialize(); Store(Capture(name.Trim())); ActiveName = name.Trim();
+            GamepadRuntimeConfig.Current.ProfileName = ActiveName; Revision++;
         }
         private static void Store(GamepadProfile profile)
         {

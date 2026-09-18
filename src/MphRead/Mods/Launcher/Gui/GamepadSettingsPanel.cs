@@ -15,6 +15,7 @@ namespace MphRead.Mods.Launcher.Gui
         private bool _refreshing;
         private GamepadFamily _shownFamily;
         private long _shownBindings = -1, _profileRevision;
+        private long _runtimeRevision = -1;
         private static readonly string[] Presets = { "Default", "Bumper Jumper", "Southpaw", "Classic", "Custom" };
         public GamepadSettingsPanel()
         {
@@ -22,7 +23,8 @@ namespace MphRead.Mods.Launcher.Gui
             Reload();
             _timer = new DispatcherTimer(TimeSpan.FromMilliseconds(100), DispatcherPriority.Background,
                 (_, _) => { if (IsEffectivelyVisible) {
-                    if (_profileRevision != GamepadProfiles.Revision && !GamepadContexts.Capturing) Reload();
+                    if ((_profileRevision != GamepadProfiles.Revision || _runtimeRevision != GamepadManager.Snapshot.Revision)
+                        && !GamepadContexts.Capturing) Reload();
                     RefreshDevices(); RefreshLabels(); } });
             AttachedToVisualTree += (_, _) => _timer.Start();
             DetachedFromVisualTree += (_, _) => _timer.Stop();
@@ -33,6 +35,7 @@ namespace MphRead.Mods.Launcher.Gui
             string? focusedId = focused?.GetValue(ControllerNav.NavIdProperty);
             Children.Clear(); _deviceList = ""; _devices = null; _presetRow = null;
             _profileRevision = GamepadProfiles.Revision;
+            _runtimeRevision = GamepadManager.Snapshot.Revision;
             RefreshDevices();
             Children.Add(new GamepadMonitor());
             Choice("controller.button_labels", "Button labels", new[] { "Automatic", "Xbox", "PlayStation", "Nintendo", "Generic" }, (int)GamepadOptions.GlyphStyle,

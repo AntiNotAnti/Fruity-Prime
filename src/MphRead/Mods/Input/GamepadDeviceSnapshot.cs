@@ -5,8 +5,9 @@ namespace MphRead.Mods.Input
     public readonly record struct GamepadAuxState(Vector3 Gyro, Vector3 Accelerometer,
         Vector2 Touch0, Vector2 Touch1, bool TouchpadPressed);
 
-    public sealed record GamepadDeviceSnapshot
+    public readonly record struct GamepadDeviceSnapshot
     {
+        public GamepadDeviceSnapshot() { }
         public string DeviceId { get; init; } = "";
         public string Name { get; init; } = "";
         public string ProfileKey { get; init; } = "";

@@ -15,7 +15,7 @@ namespace MphRead.Mods.Input
         public static float ActivityThreshold { get => State.ActivityThreshold; set => State.ActivityThreshold = value; }
         public static bool InvertX { get => State.InvertX; set => State.InvertX = value; }
         public static bool InvertY { get => State.InvertY; set => State.InvertY = value; }
-        public static bool Southpaw { get => State.Southpaw; set => State.Southpaw = value; }
+        public static bool Southpaw { get => State.Southpaw; set => GamepadRuntimeConfig.Current.Layout.Southpaw = value; }
         public static bool Vibration { get => State.Vibration; set => State.Vibration = value; }
         public static float VibrationStrength { get => State.VibrationStrength; set => State.VibrationStrength = value; }
         public static GamepadCurve Curve { get => State.Curve; set => State.Curve = value; }

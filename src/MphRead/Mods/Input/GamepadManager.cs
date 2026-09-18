@@ -26,7 +26,10 @@ namespace MphRead.Mods.Input
             State = State, RawState = RawState, Revision = Revision };
     }
 
-    public readonly record struct GamepadSnapshot(string? DeviceId, GamepadState State, long Revision);
+    public readonly record struct GamepadSnapshot(string? DeviceId, GamepadState State, long Revision)
+    {
+        internal GamepadRuntimeConfig? Runtime { get; init; }
+    }
 
     public static class GamepadManager
     {
@@ -64,7 +67,8 @@ namespace MphRead.Mods.Input
         private static void Publish()
         {
             GamepadRuntimeConfig.Current = _active?.Runtime ?? GamepadRuntimeConfig.Fallback;
-            _snapshot = new(_active?.DeviceId, _active?.State ?? default, _revision);
+            GamepadProfiles.NoteActive(GamepadRuntimeConfig.Current.ProfileName);
+            _snapshot = new(_active?.DeviceId, _active?.State ?? default, _revision) { Runtime = _active?.Runtime ?? GamepadRuntimeConfig.Fallback };
         }
 
         public static void UpdateDevice(string id, GamepadState state, bool mapped,
@@ -128,7 +132,7 @@ namespace MphRead.Mods.Input
                 activeChanged = oldRevision != _revision;
             }
             if (activeChanged) ActiveChanged?.Invoke();
-            if (notification != null) DeviceAdded?.Invoke(notification);
+            if (notification.HasValue) DeviceAdded?.Invoke(notification.Value);
         }
 
         internal static void ReplaceRuntime(GamepadRuntimeConfig runtime)

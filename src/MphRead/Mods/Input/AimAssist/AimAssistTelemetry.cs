@@ -14,6 +14,7 @@ namespace MphRead.Mods.Input.AimAssist
             public string Weapon { get; set; } = "";
             public string Distance { get; set; } = "";
             public int Samples { get; set; }
+            public int TargetSamples { get; set; }
             public int Shots { get; set; }
             public int HitEvents { get; set; }
             public long ObservedDamage { get; set; }
@@ -26,11 +27,12 @@ namespace MphRead.Mods.Input.AimAssist
             public double CorrectionSum { get; set; }
             public double VelocitySum { get; set; }
             public int Switches { get; set; }
-            public double MeanError => Samples == 0 ? 0 : ErrorSum / Samples;
+            public double MeanError => TargetSamples == 0 ? 0 : ErrorSum / TargetSamples;
             public double MeanFriction => Samples == 0 ? 1 : FrictionSum / Samples;
         }
         private static readonly Bucket?[,,] Buckets = new Bucket[3, 16, 4];
         private static string? _path;
+        public static bool Enabled => _path != null;
         private static int _lastTarget = -1;
         private static Bucket? _current;
         private static readonly Bucket?[] LastShot = new Bucket[16];
@@ -63,6 +65,7 @@ namespace MphRead.Mods.Input.AimAssist
             bucket.Samples++; bucket.FrictionSum += result.Friction; bucket.CorrectionSum += correction;
             if (result.TargetSlot >= 0)
             {
+                bucket.TargetSamples++;
                 bucket.SecondsOnTarget += 1d / 60; bucket.ErrorSum += target.BodyError.Length(); bucket.VelocitySum += velocity;
                 if (result.TargetSlot != _lastTarget) bucket.Switches++;
             }

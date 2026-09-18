@@ -123,6 +123,7 @@ namespace MphRead.Mods.Input
                 return;
             }
             _loaded = true;
+            MappingCapabilities.Clear();
             int files = 0;
             int lines = 0;
             foreach (string path in Paths())

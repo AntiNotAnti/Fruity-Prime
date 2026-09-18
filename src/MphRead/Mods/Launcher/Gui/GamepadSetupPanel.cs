@@ -24,20 +24,21 @@ namespace MphRead.Mods.Launcher.Gui
         public GamepadSetupPanel(Action changed, Func<long>? clock = null)
         {
             _changed = changed; _clock = clock ?? (() => Environment.TickCount64); Spacing = 8;
-            void Button(string label, Action action)
+            void Button(string id, string label, Action action)
             {
-                var button = new UiWord(label, 13); button.Click += (_, _) => action(); Children.Add(button);
+                var button = new UiWord(label, 13); ControllerNav.Identify(button, id); button.Click += (_, _) => action(); Children.Add(button);
             }
-            Button("Calibrate sticks and triggers", () => Start(false));
-            if (!OperatingSystem.IsAndroid()) Button("Map controller buttons and axes", () => Start(true));
-            if (!OperatingSystem.IsAndroid()) Button("Reset custom controller mappings", () =>
+            Button("setup.calibrate_sticks_and_triggers", "Calibrate sticks and triggers", () => Start(false));
+            if (!OperatingSystem.IsAndroid()) Button("setup.map_controller_buttons_and_axes", "Map controller buttons and axes", () => Start(true));
+            if (!OperatingSystem.IsAndroid()) Button("setup.reset_custom_controller_mappings", "Reset custom controller mappings", () =>
             {
-                try { GamepadMappings.ResetOverrides(); Stop("Custom mappings reset. Reconnect the controller to restore platform mapping."); }
+                try { GamepadMappings.ResetOverrides(); Stop("Custom mappings reset. Restart the game to restore platform mappings."); }
                 catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException) { _status.Text = ex.Message; }
             });
             _apply = new UiWord("Apply measured setup", 13) { IsEnabled = false };
+            ControllerNav.Identify(_apply, "setup.apply");
             _apply.Click += (_, _) => Apply(); Children.Add(_apply);
-            Button("Cancel setup", () => Stop("Setup canceled. Settings unchanged."));
+            Button("setup.cancel_setup", "Cancel setup", () => Stop("Setup canceled. Settings unchanged."));
             Children.Add(_status);
             _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
             _timer.Tick += (_, _) => Tick();
@@ -87,7 +88,7 @@ namespace MphRead.Mods.Launcher.Gui
                 if (device == null) return;
                 // Allow the button that opened setup to be released before measuring rest.
                 if (elapsed < 1000) return;
-                _calibration!.Sample(device.RawState, elapsed < 3500);
+                _calibration!.Sample(device.Value.RawState, elapsed < 3500);
                 _status.Text = elapsed < 3500 ? "Keep sticks and triggers released. Measuring rest… B cancels."
                     : "Rotate both sticks fully and squeeze/release both triggers. " + Math.Max(0, (10500 - elapsed) / 1000) + " seconds remaining. B cancels.";
                 if (elapsed >= 10500) { _complete = true; _status.Text = _calibration.Summary; }

@@ -38,7 +38,7 @@ namespace MphRead.Entities
         }
         private AimAssistResult ApplyControllerAssist(float x, float y)
         {
-            var snapshot = GamepadManager.Snapshot;
+            var snapshot = GamepadInput.FrameSnapshot;
             long context = GamepadContexts.Revision;
             ushort life = NetPlayerLifecycle.Get(SlotIndex);
             if (_assistDeviceRevision != snapshot.Revision || _assistContextRevision != context || _assistLife != life
@@ -62,7 +62,9 @@ namespace MphRead.Entities
             var profile = AimAssistWeaponProfile.For(weapon, EquipInfo.Zoomed);
             Span<AimAssistTarget> candidates = stackalloc AimAssistTarget[SlotCapacity];
             int count = 0;
-            if (eligible) for (int index = 0; index < Players.Count; index++)
+            bool observe = AimAssistTelemetry.Enabled && GamepadContexts.Focused && !GamepadContexts.MenuVisible
+                && GamepadContexts.Current == GamepadContext.Gameplay && Health > 0 && !Mods.SpectatorMode.IsSpectating;
+            if (eligible || observe) for (int index = 0; index < Players.Count; index++)
             {
                 var target = Players[index];
                 if (target == null || target == this || !target.ModInPlay || !target.LoadFlags.TestFlag(LoadFlags.Active)
@@ -98,7 +100,14 @@ namespace MphRead.Entities
             if (AimAssistDebug.UnassistedArm) result = result with { X = x, Y = y, Friction = 1, RotationStrength = 0, HeadBlend = 0 };
             AimAssistDebug.Result = result; AimAssistDebug.Target = chosen;
             AimAssistDebug.Raw = new(x, y); AimAssistDebug.Velocity = _controllerAssist.AngularVelocity;
-            AimAssistTelemetry.Record(CurrentWeapon, chosen, result, MathF.Sqrt((result.X-x)*(result.X-x)+(result.Y-y)*(result.Y-y)), _controllerAssist.AngularVelocity.Length());
+            var observation = result;
+            if (!eligible && observe)
+            {
+                float nearest = profile.Cone;
+                foreach (ref readonly var candidate in candidates[..count])
+                    if (candidate.BodyError.Length() < nearest) { chosen = candidate; nearest = candidate.BodyError.Length(); observation = result with { TargetSlot = candidate.Slot }; }
+            }
+            AimAssistTelemetry.Record(CurrentWeapon, chosen, observation, MathF.Sqrt((result.X-x)*(result.X-x)+(result.Y-y)*(result.Y-y)), _controllerAssist.AngularVelocity.Length());
             return result;
         }
     }

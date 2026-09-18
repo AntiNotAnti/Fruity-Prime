@@ -66,6 +66,11 @@ namespace MphRead.Mods.Input.AimAssist
             AimInputSourceTracker.Pointer(0, 1, true, 1123);
             Check(AimInputSourceTracker.Current == AimInputSource.Touch, "touch revokes immediately");
             AimInputSourceTracker.Reset();
+            state.Reset();
+            for (int i = 0; i < 1000; i++) Apply();
+            long bytes = GC.GetAllocatedBytesForCurrentThread();
+            for (int i = 0; i < 10000; i++) Apply();
+            Check(GC.GetAllocatedBytesForCurrentThread() == bytes, "steady-state assist core allocates no managed memory");
         }
     }
 }

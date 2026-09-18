@@ -26,6 +26,12 @@ namespace MphRead.Mods.Input
                 "simultaneous devices process their own calibration before selection");
             GamepadManager.SelectDevice("runtime-a");
             Check(GamepadOptions.LeftTriggerMin == .3f && GamepadManager.ActiveState.LeftX == 0, "switch publishes correct runtime immediately");
+            GamepadInput.BeginFrame();
+            Task.Run(() => GamepadManager.SelectDevice("runtime-b")).GetAwaiter().GetResult();
+            Check(GamepadOptions.LeftTriggerMin == .3f, "input frame retains its runtime during a concurrent device switch");
+            GamepadInput.BeginFrame();
+            Check(GamepadOptions.LeftTriggerMin == .1f, "next input frame adopts the newly selected runtime");
+            GamepadManager.SelectDevice("runtime-a");
             GamepadManager.UpdateDevice("runtime-a", new() { LeftX = .6f }, true);
             Check(a.State.LeftX == 0, "published snapshot is immutable after device updates");
             bool reentered = false;
@@ -36,7 +42,8 @@ namespace MphRead.Mods.Input
             GamepadManager.SelectDevice("runtime-a");
             InputSourceTracker.Note(InputSource.KeyboardMouse, long.MaxValue / 4);
             GamepadManager.UpdateDevice("runtime-b", new() { Buttons = GamepadButtons.A }, true);
-            Check(GamepadManager.Snapshot.DeviceId == "runtime-a", "inactive device cannot override explicit selection");
+            Check(GamepadManager.Snapshot.DeviceId == "runtime-a" && InputSourceTracker.Current == InputSource.KeyboardMouse,
+                "inactive device cannot override explicit selection or prompt source");
             foreach (var device in GamepadManager.Devices) GamepadManager.RemoveDevice(device.DeviceId);
             GamepadOptions.Reset(); PadBindings.Reset();
             var saved = GamepadProfiles.Capture("before");
