@@ -7,6 +7,32 @@ namespace MphRead.Mods.Network
     public enum ServerSessionPolicy : byte { Continuous, Lobby }
     public enum MatchFormat : byte { Auto, FreeForAll, OneVsOne, TwoVsTwo, ThreeVsThree, FourVsFour, TwoVsTwoVsTwoVsTwo, Custom }
 
+    /// <summary>
+    /// The wire keeps one ushort for a mode's win condition. Point-scored
+    /// modes use it directly, Survival stores spare lives, and Defender /
+    /// Prime Hunter store the required control time in seconds.
+    /// </summary>
+    public static class MatchGoalRules
+    {
+        public static bool UsesLives(GameMode mode) =>
+            mode is GameMode.Survival or GameMode.SurvivalTeams;
+
+        public static bool UsesTimeTarget(GameMode mode) =>
+            mode is GameMode.Defender or GameMode.DefenderTeams or GameMode.PrimeHunter;
+
+        public static ushort DefaultValue(GameMode mode) => mode switch
+        {
+            GameMode.Battle or GameMode.BattleTeams => 7,
+            GameMode.Survival or GameMode.SurvivalTeams => 2, // two spare lives = three total
+            GameMode.Bounty or GameMode.BountyTeams => 3,
+            GameMode.Capture => 5,
+            GameMode.Defender or GameMode.DefenderTeams => 90,
+            GameMode.Nodes or GameMode.NodesTeams => 70,
+            GameMode.PrimeHunter => 90,
+            _ => 0
+        };
+    }
+
     [Flags]
     public enum SessionRules : ushort
     {

@@ -599,7 +599,8 @@ namespace MphRead.Mods.Launcher.Gui
             var cancel = new CancellationTokenSource();
             _work = cancel;
             int port = await Task.Run(() => LocalServer.Start(name, maps,
-                maxPlayers: PlayerEntity.SlotCapacity, timeLimit: 7 * 60, pointGoal: 7,
+                maxPlayers: PlayerEntity.SlotCapacity, timeLimit: 7 * 60,
+                pointGoal: MatchGoalRules.DefaultValue(mode),
                 masterHost: LauncherPrefs.MasterHost, masterPort: LauncherPrefs.MasterPort,
                 listed: LauncherPrefs.ListHostedGame, cancel: cancel.Token, lobby: true));
             if (port < 0)
@@ -666,7 +667,8 @@ namespace MphRead.Mods.Launcher.Gui
             Say($"Asking {host} to open your lobby...",
                 GuiTheme.TextDim);
             HostedGame game = await Task.Run(() => NetMasterClient.RequestGame(host, port,
-                maps[0].RoomKey, mode, timeLimit: 7 * 60, pointGoal: 7,
+                maps[0].RoomKey, mode, timeLimit: 7 * 60,
+                pointGoal: MatchGoalRules.DefaultValue(mode),
                 maxPlayers: PlayerEntity.SlotCapacity, serverName: name,
                 rotation: maps, policy: ServerSessionPolicy.Lobby));
             if (!game.Started)

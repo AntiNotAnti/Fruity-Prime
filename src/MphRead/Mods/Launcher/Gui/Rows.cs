@@ -472,7 +472,7 @@ namespace MphRead.Mods.Launcher.Gui
             ColumnSpacing = 5;
             MinHeight = 32;
 
-            var caption = new TextBlock
+            _caption = new TextBlock
             {
                 Text = label,
                 FontFamily = GuiTheme.Display,
@@ -507,7 +507,14 @@ namespace MphRead.Mods.Launcher.Gui
     /// <summary>A label and something to type in.</summary>
     internal sealed class FieldRow : Panel
     {
+        private readonly TextBlock _caption;
         public TextBox Box { get; }
+
+        public string Label
+        {
+            get => _caption.Text ?? "";
+            set => _caption.Text = value;
+        }
 
         public string Value
         {
@@ -555,7 +562,7 @@ namespace MphRead.Mods.Launcher.Gui
                 HorizontalAlignment = compact
                     ? HorizontalAlignment.Left : HorizontalAlignment.Right
             };
-            Children.Add(caption);
+            Children.Add(_caption);
             Children.Add(Box);
         }
     }

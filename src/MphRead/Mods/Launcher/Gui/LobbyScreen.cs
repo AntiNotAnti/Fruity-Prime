@@ -49,7 +49,9 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly Control _mainPage;
         private readonly StackPanel _players = new() { Spacing = 2 };
         private readonly StackPanel _ownerControls = new() { Spacing = 2 };
-        private readonly Note _status = new(""), _chat = new("");
+        private readonly Note _status = new("");
+        private readonly Note _chat = new("", lines: 0);
+        private readonly ScrollViewer _chatHistory;
         private readonly ChoiceRow _hunter, _suit, _team, _mode, _format;
         private readonly ChoiceRow _target, _moveTeam;
         private readonly PickRow _map, _customTeams;
@@ -57,8 +59,16 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly ButtonToggleRow _lockTeams, _opponentHealth;
         private readonly Note _layoutSummary = new("");
         private readonly FieldRow _time, _goal;
-        private readonly TextBox _chatEntry = new() { Watermark = "Message", MaxLength = ChatPacket.MaxTextBytes };
-        private readonly UiMark _ready, _start, _apply;
+        private readonly TextBox _chatEntry = new()
+        {
+            Watermark = "Message",
+            MaxLength = ChatPacket.MaxTextBytes,
+            Height = 30,
+            MinHeight = 30,
+            VerticalContentAlignment = VerticalAlignment.Center
+        };
+        private readonly UiMark _ready, _start;
+        private readonly DeckButton _moveButton;
         private readonly Image _preview = new() { Height = 104, Stretch = Stretch.UniformToFill };
         private readonly string[] _rooms;
         private readonly List<byte> _targetSlots = new();
@@ -71,7 +81,8 @@ namespace MphRead.Mods.Launcher.Gui
         private SessionRules _shownRules;
         private string _draftRoom = "";
         private TeamLayout _customLayout = new(2, 2, 2);
-        private bool _syncing, _suspended, _closed;
+        private bool _syncing, _suspended, _closed, _draftDirty;
+        private double _draftChangedAt;
         private Bitmap? _bitmap;
 
         public LobbyScreen(IReadOnlyList<string> rooms, MphRead.Mods.Launcher.LobbyContext? context = null)
@@ -97,16 +108,16 @@ namespace MphRead.Mods.Launcher.Gui
             _map.Clicked += (_, _) => OpenMapPicker();
             _mode = new ChoiceRow("Game type", _gameTypes.Select(m => m.Label).ToArray());
             _format = new ChoiceRow("Matchup", _matchups.Select(m => m.Label).ToArray());
-            _mode.Changed += (_, _) => MatchChoiceChanged();
-            _format.Changed += (_, _) => MatchChoiceChanged();
+            _mode.Changed += (_, _) => MatchChoiceChanged(resetGoal: true);
+            _format.Changed += (_, _) => MatchChoiceChanged(resetGoal: false);
 
             _customTeams = new PickRow("Custom teams") { IsVisible = false };
             _customTeams.Clicked += (_, _) => OpenCustomTeams();
 
             _time = new FieldRow("Time limit (minutes)", "7", 80);
-            _goal = new FieldRow("Point goal", "7", 80);
-            _time.Box.TextChanged += (_, _) => RefreshDraft();
-            _goal.Box.TextChanged += (_, _) => RefreshDraft();
+            _goal = new FieldRow("Score goal", "7", 80);
+            _time.Box.TextChanged += (_, _) => DraftChanged();
+            _goal.Box.TextChanged += (_, _) => DraftChanged();
 
             _fire = Toggle("Friendly fire");
             _affinity = Toggle("Affinity weapons");
@@ -119,9 +130,7 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 _fire, _affinity, _freeze, _opponentHealth, _requireReady, _join, _lockTeams
             })
-                toggle.Changed += (_, _) => RefreshDraft();
-
-            _apply = ActionButton("Apply", ApplyMatch);
+                toggle.Changed += (_, _) => DraftChanged();
             _ownerControls.Children.Add(_preview);
             _ownerControls.Children.Add(_map);
             _ownerControls.Children.Add(_mode);
@@ -158,7 +167,6 @@ namespace MphRead.Mods.Launcher.Gui
             }
             _ownerControls.Children.Add(toggles);
             _ownerControls.Children.Add(_layoutSummary);
-            _ownerControls.Children.Add(_apply);
 
             var left = new StackPanel { Spacing = 2, Margin = new Thickness(0, 0, 18, 0) };
             left.Children.Add(new Caption("Players"));
@@ -180,8 +188,9 @@ namespace MphRead.Mods.Launcher.Gui
                 Spacing = 7,
                 HorizontalAlignment = HorizontalAlignment.Center
             };
-            adminButtons.Children.Add(SmallButton("Move", Deck.Face.Blue,
-                () => Admin(LobbyCommandType.SetTeam)));
+            _moveButton = SmallButton("Move", Deck.Face.Blue,
+                () => Admin(LobbyCommandType.SetTeam));
+            adminButtons.Children.Add(_moveButton);
             adminButtons.Children.Add(SmallButton("Transfer", Deck.Face.Brass,
                 () => Admin(LobbyCommandType.TransferOwner)));
             adminButtons.Children.Add(SmallButton("Kick", Deck.Face.Rust,
@@ -198,19 +207,34 @@ namespace MphRead.Mods.Launcher.Gui
             Grid.SetColumn(_ownerControls, 1);
             columns.Children.Add(_ownerControls);
 
-            _chat.MaxHeight = 48;
+            _chatHistory = new ScrollViewer
+            {
+                Content = _chat,
+                Height = 58,
+                MinHeight = 58,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+            };
             var chatPanel = new Grid
             {
-                RowDefinitions = new RowDefinitions("Auto,Auto"),
-                RowSpacing = 3
+                RowDefinitions = new RowDefinitions("Auto,58,32"),
+                RowSpacing = 3,
+                Margin = new Thickness(0, 4, 0, 2)
             };
-            chatPanel.Children.Add(_chat);
-            var chatInput = new DockPanel();
-            var send = ActionButton("Send", SendChat);
-            DockPanel.SetDock(send, Dock.Right);
-            chatInput.Children.Add(send);
+            chatPanel.Children.Add(new Caption("Chat"));
+            Grid.SetRow(_chatHistory, 1);
+            chatPanel.Children.Add(_chatHistory);
+            var chatInput = new Grid
+            {
+                ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+                ColumnSpacing = 8,
+                Height = 32
+            };
             chatInput.Children.Add(_chatEntry);
-            Grid.SetRow(chatInput, 1);
+            var send = SmallButton("Send", Deck.Face.Blue, SendChat);
+            Grid.SetColumn(send, 1);
+            chatInput.Children.Add(send);
+            Grid.SetRow(chatInput, 2);
             chatPanel.Children.Add(chatInput);
             _chatEntry.KeyDown += (_, e) =>
             {
@@ -356,6 +380,7 @@ namespace MphRead.Mods.Launcher.Gui
                 return;
             }
             Refresh();
+            TryAutoApply();
             if (NetSession.ShouldLoadMatch)
             {
                 Suspend();
@@ -395,7 +420,8 @@ namespace MphRead.Mods.Launcher.Gui
                 var names = new List<string>();
                 for (int i = 0; i < roster.Count; i++)
                 {
-                    _players.Children.Add(new LobbyPlayerRow(roster, i, session.OwnerSlot));
+                    _players.Children.Add(new LobbyPlayerRow(roster, i, session.OwnerSlot,
+                        showTeam: session.Match.Format != MatchFormat.OneVsOne));
                     if (roster.Slots[i] != NetSession.LocalSlot)
                     {
                         _targetSlots.Add(roster.Slots[i]);
@@ -415,7 +441,8 @@ namespace MphRead.Mods.Launcher.Gui
                 _mode.Index = BaseModeIndex(session.Match.Mode);
                 _format.Index = MatchupIndex(session.Match);
                 _time.Value = Minutes(session.Match.TimeLimitSeconds);
-                _goal.Value = session.Match.PointGoal.ToString(CultureInfo.InvariantCulture);
+                _goal.Label = GoalLabel(session.Match.Mode);
+                _goal.Value = GoalDisplay(session.Match.Mode, session.Match.PointGoal);
                 _fire.On = session.Match.FriendlyFire;
                 _affinity.On = session.Match.AffinityWeapons;
                 _freeze.On = session.Match.ShadowFreeze;
@@ -439,12 +466,15 @@ namespace MphRead.Mods.Launcher.Gui
 
             _ownerControls.IsEnabled = NetSession.CanEditLobby && !NetSession.LobbyCommandPending;
             TeamLayout activeLayout = LobbyRules.ResolveTeamLayout(session.Match);
-            _team.IsVisible = activeLayout.TeamCount > 0;
+            bool chooseTeams = PlayerChoosesTeam(session.Match);
+            _team.IsVisible = chooseTeams;
             if (NetSession.LocalSlot >= 0)
                 _team.Index = NetSession.SlotTeamIndex[NetSession.LocalSlot] + 1;
             _hunter.IsEnabled = _suit.IsEnabled = NetSession.IsInLobby && !NetSession.LobbyCommandPending;
-            _team.IsEnabled = _hunter.IsEnabled && (!session.LockTeams || NetSession.LocalIsLobbyOwner);
-            _moveTeam.IsVisible = _team.IsVisible;
+            _team.IsEnabled = chooseTeams && _hunter.IsEnabled
+                && (!session.LockTeams || NetSession.LocalIsLobbyOwner);
+            _moveTeam.IsVisible = chooseTeams;
+            _moveButton.IsVisible = chooseTeams;
             _ready.IsEnabled = NetSession.IsInLobby && !NetSession.LobbyCommandPending;
             _ready.Label = NetSession.LocalSlot >= 0 && NetSession.SlotLobbyReady[NetSession.LocalSlot]
                 ? "Unready" : "Ready";
@@ -466,7 +496,8 @@ namespace MphRead.Mods.Launcher.Gui
             if (_chatRevision != NetChat.Revision)
             {
                 _chatRevision = NetChat.Revision;
-                _chat.Text = String.Join("\n", NetChat.History.TakeLast(4));
+                _chat.Text = String.Join("\n", NetChat.History.TakeLast(12));
+                Dispatcher.UIThread.Post(() => _chatHistory.ScrollToEnd(), DispatcherPriority.Loaded);
             }
 
             _syncing = false;
@@ -497,7 +528,7 @@ namespace MphRead.Mods.Launcher.Gui
                     (sbyte)(_moveTeam.Index - 1));
         }
 
-        private void MatchChoiceChanged()
+        private void MatchChoiceChanged(bool resetGoal)
         {
             if (_syncing) return;
             _syncing = true;
@@ -510,8 +541,12 @@ namespace MphRead.Mods.Launcher.Gui
                 || format == MatchFormat.TwoVsTwoVsTwoVsTwo))
                 target = MatchupIndex(MatchFormat.Auto);
             if (target != _format.Index) _format.Index = target;
+            MatchDefinition draft = DraftMatch();
+            _goal.Label = GoalLabel(draft.Mode);
+            if (resetGoal)
+                _goal.Value = GoalDisplay(draft.Mode, MatchGoalRules.DefaultValue(draft.Mode));
             _syncing = false;
-            RefreshDraft();
+            DraftChanged();
         }
 
         private MatchDefinition DraftMatch()
@@ -531,60 +566,62 @@ namespace MphRead.Mods.Launcher.Gui
             };
         }
 
+        private void DraftChanged()
+        {
+            if (_syncing) return;
+            _draftDirty = true;
+            _draftChangedAt = NetSession.Clock;
+            RefreshDraft();
+        }
+
         private void RefreshDraft()
         {
-            if (_syncing || _apply == null) return;
+            if (_syncing) return;
             MatchDefinition draft = DraftMatch();
+            _goal.Label = GoalLabel(draft.Mode);
             _customTeams.IsVisible = draft.Format == MatchFormat.Custom;
             _lockTeams.IsVisible = GameState.IsTeamMode(draft.Mode);
-            TeamLayout layout = LobbyRules.ResolveTeamLayout(draft);
-            bool valid = LobbyRules.ValidateDefinition(draft, out string reason) == LobbyResultCode.Ok;
-
-            if (valid && layout.TeamCount > 0
-                && (layout.TotalPlayers < _rosterCount
-                    || (LobbyRules.ExactTeams(draft)
-                        && layout.TotalPlayers > (NetSession.ServerSession?.MaxPlayers ?? 8))))
-            {
-                valid = false;
-                reason = "The matchup must fit the connected players and server limit.";
-            }
-            if (valid && !TryTimeSeconds(out _))
-            {
-                valid = false;
-                reason = "Time must be minutes from 0 to 1092.25.";
-            }
-            if (valid && !ushort.TryParse(_goal.Value, NumberStyles.None,
-                CultureInfo.InvariantCulture, out _))
-            {
-                valid = false;
-                reason = "Point goal must be a whole number from 0 to 65535.";
-            }
+            bool valid = TryBuildMatch(out MatchDefinition configured, out string reason);
+            TeamLayout layout = LobbyRules.ResolveTeamLayout(configured);
 
             _layoutSummary.Text = !valid
                 ? reason
-                : layout.TeamCount == 0
-                    ? "Free for all"
-                    : $"Teams: {layout} · "
-                        + (LobbyRules.ExactTeams(draft)
-                            ? $"{layout.TotalPlayers} players"
-                            : "flexible roster");
+                : _draftDirty
+                    ? "Changes save automatically."
+                    : layout.TeamCount == 0
+                        ? "Free for all"
+                        : $"Teams: {layout} · "
+                            + (LobbyRules.ExactTeams(configured)
+                                ? $"{layout.TotalPlayers} players"
+                                : "flexible roster");
             _customTeams.Set(_customLayout.ToString());
-            _apply.IsEnabled = valid && NetSession.CanEditLobby && !NetSession.LobbyCommandPending;
             if (!valid) _start.IsEnabled = false;
         }
 
-        private void ApplyMatch()
+        private bool TryBuildMatch(out MatchDefinition match, out string reason)
         {
-            if (_rooms.Length == 0 || NetSession.ServerSession is not { } config) return;
-            if (!TryTimeSeconds(out ushort seconds)
-                || !ushort.TryParse(_goal.Value, NumberStyles.None,
-                    CultureInfo.InvariantCulture, out ushort goal))
-            {
-                _status.Text = "Check the time in minutes and the point goal.";
-                return;
-            }
+            match = DraftMatch();
+            if (LobbyRules.ValidateDefinition(match, out reason) != LobbyResultCode.Ok)
+                return false;
 
-            config.Match = DraftMatch() with
+            TeamLayout layout = LobbyRules.ResolveTeamLayout(match);
+            if (layout.TeamCount > 0
+                && (layout.TotalPlayers < _rosterCount
+                    || (LobbyRules.ExactTeams(match)
+                        && layout.TotalPlayers > (NetSession.ServerSession?.MaxPlayers ?? 8))))
+            {
+                reason = "The matchup must fit the connected players and server limit.";
+                return false;
+            }
+            if (!TryTimeSeconds(out ushort seconds))
+            {
+                reason = "Match time must be minutes from 0 to 1092.25.";
+                return false;
+            }
+            if (!TryGoalValue(match.Mode, out ushort goal, out reason))
+                return false;
+
+            match = match with
             {
                 TimeLimitSeconds = seconds,
                 PointGoal = goal,
@@ -593,16 +630,28 @@ namespace MphRead.Mods.Launcher.Gui
                 ShadowFreeze = _freeze.On,
                 HideOpponentHealth = !_opponentHealth.On
             };
-            config.RuleFlags = config.Match.Rules
+            return true;
+        }
+
+        private void TryAutoApply()
+        {
+            if (!_draftDirty || NetSession.LobbyCommandPending || !NetSession.CanEditLobby
+                || NetSession.Clock - _draftChangedAt < 0.25
+                || NetSession.ServerSession is not { } config)
+                return;
+            if (!TryBuildMatch(out MatchDefinition match, out _))
+                return;
+
+            config.Match = match;
+            config.RuleFlags = match.Rules
                 | (_requireReady.On ? SessionRules.RequireReady : 0)
                 | (_join.On ? SessionRules.AllowJoinInProgress : 0)
                 | (_lockTeams.On ? SessionRules.LockTeams : 0);
-            if (LobbyRules.ValidateDefinition(config.Match, out string reason) != LobbyResultCode.Ok)
+            if (NetSession.SendLobbyCommand(LobbyCommandType.UpdateMatch, configuration: config))
             {
-                _status.Text = reason;
-                return;
+                _draftDirty = false;
+                _layoutSummary.Text = "Saving changes...";
             }
-            NetSession.SendLobbyCommand(LobbyCommandType.UpdateMatch, configuration: config);
         }
 
         private void OpenMapPicker()
@@ -619,7 +668,7 @@ namespace MphRead.Mods.Launcher.Gui
                     _draftRoom = picked[0];
                     _map.Set(RoomName(_draftRoom));
                     SetPreview(_draftRoom);
-                    RefreshDraft();
+                    DraftChanged();
                 }
                 ClosePage();
             };
@@ -636,7 +685,7 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 _customLayout = layout;
                 _customTeams.Set(layout.ToString());
-                RefreshDraft();
+                DraftChanged();
                 ClosePage();
             };
             picker.Cancelled += (_, _) => ClosePage();
@@ -697,6 +746,69 @@ namespace MphRead.Mods.Launcher.Gui
                 || minutes * 60 > UInt16.MaxValue)
                 return false;
             seconds = (ushort)Math.Round(minutes * 60, MidpointRounding.AwayFromZero);
+            return true;
+        }
+
+        private static bool PlayerChoosesTeam(MatchDefinition match)
+        {
+            return GameState.IsTeamMode(match.Mode)
+                && match.Format is MatchFormat.Auto or MatchFormat.Custom;
+        }
+
+        private static string GoalLabel(GameMode mode) => mode switch
+        {
+            GameMode.Survival or GameMode.SurvivalTeams => "Lives",
+            GameMode.Bounty or GameMode.BountyTeams => "Bounty goal",
+            GameMode.Capture => "Captures",
+            GameMode.Defender or GameMode.DefenderTeams => "Hold time (minutes)",
+            GameMode.Nodes or GameMode.NodesTeams => "Node score",
+            GameMode.PrimeHunter => "Prime time (minutes)",
+            _ => "Score goal"
+        };
+
+        private static string GoalDisplay(GameMode mode, ushort value)
+        {
+            if (MatchGoalRules.UsesLives(mode))
+                return ((int)value + 1).ToString(CultureInfo.InvariantCulture);
+            if (MatchGoalRules.UsesTimeTarget(mode))
+                return Minutes(value);
+            return value.ToString(CultureInfo.InvariantCulture);
+        }
+
+        private bool TryGoalValue(GameMode mode, out ushort value, out string reason)
+        {
+            value = 0;
+            reason = "";
+            if (MatchGoalRules.UsesLives(mode))
+            {
+                if (!int.TryParse(_goal.Value, NumberStyles.None, CultureInfo.InvariantCulture,
+                        out int lives) || lives < 1 || lives > UInt16.MaxValue + 1)
+                {
+                    reason = "Lives must be a whole number from 1 to 65536.";
+                    return false;
+                }
+                value = (ushort)(lives - 1);
+                return true;
+            }
+            if (MatchGoalRules.UsesTimeTarget(mode))
+            {
+                if (!double.TryParse(_goal.Value, NumberStyles.Float, CultureInfo.InvariantCulture,
+                        out double minutes) || !Double.IsFinite(minutes) || minutes <= 0
+                    || minutes * 60 > UInt16.MaxValue)
+                {
+                    reason = $"{GoalLabel(mode)} must be greater than 0 and at most 1092.25.";
+                    return false;
+                }
+                value = (ushort)Math.Max(1,
+                    Math.Round(minutes * 60, MidpointRounding.AwayFromZero));
+                return true;
+            }
+            if (!ushort.TryParse(_goal.Value, NumberStyles.None,
+                    CultureInfo.InvariantCulture, out value))
+            {
+                reason = $"{GoalLabel(mode)} must be a whole number from 0 to 65535.";
+                return false;
+            }
             return true;
         }
 

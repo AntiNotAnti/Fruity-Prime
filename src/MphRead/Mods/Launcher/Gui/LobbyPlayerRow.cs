@@ -7,13 +7,14 @@ namespace MphRead.Mods.Launcher.Gui
 {
     internal sealed class LobbyPlayerRow : Border
     {
-        public LobbyPlayerRow(RosterPacket roster, int index, byte owner)
+        public LobbyPlayerRow(RosterPacket roster, int index, byte owner, bool showTeam = true)
         {
             int slot = roster.Slots[index];
             string team = roster.Teams[index] < 0 ? "FFA" : $"Team {(char)('A' + roster.Teams[index])}";
             string state = roster.LobbyReady[index] ? "READY" : "WAIT";
             string name = roster.Names[index] + (slot == owner ? "  [OWNER]" : "");
-            string detail = $"{(Hunter)roster.Hunters[index]} · S{roster.Colors[index] + 1} · {team} · {roster.Pings[index]} ms";
+            string teamPart = showTeam ? $" · {team}" : "";
+            string detail = $"{(Hunter)roster.Hunters[index]} · S{roster.Colors[index] + 1}{teamPart} · {roster.Pings[index]} ms";
 
             var line = new Grid
             {
