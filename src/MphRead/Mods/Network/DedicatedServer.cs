@@ -32,7 +32,7 @@ namespace MphRead.Mods.Network
     /// simulate because they live in a process that already has a simulation
     /// or is about to have several. See <see cref="RunsTheMatch"/>.
     /// </summary>
-    public sealed class DedicatedServer
+    public sealed partial class DedicatedServer
     {
         private sealed class Peer
         {
