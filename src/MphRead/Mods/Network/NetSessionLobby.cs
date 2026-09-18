@@ -34,7 +34,6 @@ namespace MphRead.Mods.Network
         private static uint _nextCommandId;
         private static ushort? _loadedMatch;
         private static double _lastLoadAck, _lastIdentity;
-        private static ushort? _rosterRevision;
         private sealed class PendingLobbyCommand
         {
             public LobbyCommandPacket Packet;
@@ -149,7 +148,7 @@ namespace MphRead.Mods.Network
         private static void ResetLobbySession()
         {
             ServerSession = null; _pendingLobby.Clear(); _loadedMatch = null;
-            _rosterRevision = null; _ownerToken = Guid.Empty;
+            _rosterRevision = 0; _ownerToken = Guid.Empty;
             LobbyMessage = ""; _lastLoadAck = _lastIdentity = 0;
             Array.Fill(SlotTeamIndex, (sbyte)-1); Array.Clear(SlotLobbyReady);
             Chat.NetChat.Clear();
@@ -158,7 +157,7 @@ namespace MphRead.Mods.Network
         public static RosterPacket LobbyRoster()
         {
             var roster = RosterPacket.Create();
-            roster.Revision = _rosterRevision ?? 0;
+            roster.Revision = _rosterRevision;
             for (int slot = 0; slot < SlotOccupied.Length; slot++)
             {
                 if (!SlotOccupied[slot]) continue;
