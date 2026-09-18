@@ -16,31 +16,6 @@ namespace MphRead.Entities
     public partial class PlayerEntity
     {
         /// <summary>
-        /// A target's health as the authority last reported it.
-        ///
-        /// Remote PlayerEntity.Health deliberately includes local hit
-        /// prediction so bodies can flinch/drop immediately instead of one RTT
-        /// later. That is useful presentation state, but it is the wrong source
-        /// for a numeric opponent health bar: rejected/retired predictions can
-        /// make that bar disagree with the server or appear to regain health.
-        /// Keep prediction for the world and hit marker, and use the latest
-        /// accepted snapshot for the HUD only.
-        /// </summary>
-        private static int ModOpponentHudHealth(PlayerEntity player)
-        {
-            if (!NetSession.Active || NetSession.IsAuthority)
-            {
-                return player.Health;
-            }
-            int slot = player.SlotIndex;
-            if ((uint)slot < (uint)NetSession.RemoteStates.Length && NetSession.RemoteStateValid[slot])
-            {
-                return NetSession.RemoteStates[slot].Health;
-            }
-            return player.Health;
-        }
-
-        /// <summary>
         /// Server-owned match rule. Null/offline sessions preserve the stock
         /// behaviour and show opponent health.
         /// </summary>
