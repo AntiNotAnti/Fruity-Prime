@@ -144,3 +144,8 @@ These tests do not render or play a real match. A visual Missile/Magmaul duel,
 void-death/respawn, death animation/kill-feed counts, and the Android gameplay
 smoke test still require extracted game assets and the existing hitrig/netcheck
 workflows. Do not describe the synthetic packet stream as a passed visual duel.
+
+The 2026-09-17 run of `--lifecycle` passed 3,687 deterministic assertions with
+seed 8128. The companion `--health-shots` run passed 2,967,742 health/input
+assertions; both suites are asset-free and are run serially when sharing the
+same build output.

@@ -163,6 +163,11 @@ import/export/automatic switching. Headless UI checks exercise direct weapon cap
 keyboard preservation, focus after wheel changes and setup cancellation. Physical
 controller validation remains separate from these deterministic fixtures.
 
+On 2026-09-17, `FruityPrime -gamepadcheck` passed 235 deterministic checks on the
+integration branch, including the headless controller settings flow and direct weapon
+capture. This validates normalized input and UI lifecycle behavior; it does not replace
+the Mac Xbox Series X/S Bluetooth retest described below.
+
 ## Labels and haptics
 
 Presentation is chosen from names, GLFW GUID vendor IDs or Android vendor IDs;

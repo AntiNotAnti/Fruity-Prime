@@ -254,7 +254,7 @@ namespace MphRead.Mods.Launcher.Gui
                 bitmap?.Save(Path.Combine(shots, "controller-live-test.png"));
             }
             GamepadOptions.BindingModifier = GamepadButtons.LeftBumper;
-            settings.ShowSection("Controls"); window.UpdateLayout();
+            settings.ShowSection(OperatingSystem.IsAndroid() ? "Touch and mouse" : "Mouse and stylus"); window.UpdateLayout();
             var imperialistKey = settings.GetVisualDescendants().OfType<KeyRow>().First(r => r.BindingName == "Imperialist");
             var weaponProperty = InputSettings.Bindings.First(p => p.Name == "Imperialist");
             string weaponKeyBefore = InputSettings.Describe(InputSettings.Bind(weaponProperty));
