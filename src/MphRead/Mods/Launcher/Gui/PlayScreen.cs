@@ -1445,16 +1445,7 @@ namespace MphRead.Mods.Launcher.Gui
             }
             foreach (string room in _rooms)
             {
-                // `.tag`'s `<b>`: the archive code alone -- "mp3", not
-                // "MP3 PROVING GROUND". The key's first token is that code,
-                // and the whole key in a tag is a tag wider than the card.
-                string code = room.Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                    is { Length: > 0 } parts ? parts[0] : room;
-                (RoomMetadata? meta, _) = Metadata.GetRoomByName(room);
-                var tile = new DeckTile(room, code)
-                {
-                    Blurb = meta?.InGameName ?? ""
-                };
+                DeckTile tile = MapCardFactory.Create(room);
                 tile.Chosen = room == _settings.RoomKey;
                 tile.Click += (_, _) =>
                 {

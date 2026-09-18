@@ -933,10 +933,11 @@ namespace MphRead.Mods.Launcher.Gui
                     + "A server can open one when its admin allows it a port range."
                 : asking ? "" :
                     CreateServerScreen.CanRunHere
-                        ? "None of these will open a new game. Dedicated server runs one on "
-                            + "your own machine instead."
-                        : "None of these will open a new game. There is nothing to pick "
-                            + "here yet.";
+                        ? "None of these hosts are configured to create lobbies. The server "
+                            + "admin can enable hosted lobbies with -hostports FIRST-LAST, "
+                            + "or Dedicated server can run one on this machine."
+                        : "None of these hosts are configured to create lobbies. The server "
+                            + "admin must enable a hosted-game port range.";
             _note.Foreground = usable > 0 ? GuiTheme.TextDimBrush : GuiTheme.WarmBrush;
             // Only the first time. This is called again for every answer that
             // lands while the page is open, and taking the keyboard back to

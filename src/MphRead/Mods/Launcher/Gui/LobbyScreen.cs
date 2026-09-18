@@ -658,19 +658,13 @@ namespace MphRead.Mods.Launcher.Gui
         private void OpenMapPicker()
         {
             if (!NetSession.CanEditLobby || NetSession.LobbyCommandPending) return;
-            IReadOnlyList<string> selected = String.IsNullOrWhiteSpace(_draftRoom)
-                ? Array.Empty<string>()
-                : new[] { _draftRoom };
-            var picker = new MapRotationPicker(_rooms, selected, single: true);
-            picker.Done += (_, picked) =>
+            var picker = new MapCardPicker(_rooms, _draftRoom);
+            picker.Done += (_, room) =>
             {
-                if (picked.Count > 0)
-                {
-                    _draftRoom = picked[0];
-                    _map.Set(RoomName(_draftRoom));
-                    SetPreview(_draftRoom);
-                    DraftChanged();
-                }
+                _draftRoom = room;
+                _map.Set(RoomName(_draftRoom));
+                SetPreview(_draftRoom);
+                DraftChanged();
                 ClosePage();
             };
             picker.Cancelled += (_, _) => ClosePage();
