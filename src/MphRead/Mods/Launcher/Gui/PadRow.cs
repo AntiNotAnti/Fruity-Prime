@@ -35,7 +35,7 @@ namespace MphRead.Mods.Launcher.Gui
         private int _slot, _choice, _pickIndex;
         private bool _picking;
         private static readonly GamepadButtons[] PickButtons = Enum.GetValues<GamepadButtons>();
-        private GamepadButtons _pending;
+        private GamepadButtons _pending, _modifier;
         private long _deviceRevision;
         private string? _conflict;
         private static readonly string[] Resolutions = { "Swap", "Replace", "Keep Both", "Cancel" };
@@ -136,6 +136,7 @@ namespace MphRead.Mods.Launcher.Gui
         {
             _listening = true;
             _message = null;
+            _modifier = GamepadOptions.BindingModifier;
             Height = 72;
             GamepadContexts.Capturing = true;
             // The host publishes input before routing UI events. Never poll GLFW
@@ -197,13 +198,14 @@ namespace MphRead.Mods.Launcher.Gui
         }
         private void Choose(GamepadButtons button)
         {
+            if (button != 0 && button == _modifier) return;
             _picking = false;
-            var conflicts = PadBindings.Conflicts(_action, button);
-            if (conflicts.Count == 0) { PadBindings.SetSlot(_action, _slot, button); Done(); }
+            var conflicts = PadBindings.Conflicts(_action, button, _modifier);
+            if (conflicts.Count == 0) { PadBindings.SetSlot(_action, _slot, button, _modifier); Done(); }
             else
             {
                 _pending = button; _choice = 0;
-                _conflict = PadBindings.ButtonName(button) + " is assigned to "
+                _conflict = (_modifier == 0 ? "" : PadBindings.ButtonName(_modifier) + " + ") + PadBindings.ButtonName(button) + " is assigned to "
                     + string.Join(" / ", conflicts.Select(PadBindings.Name));
                 Height = 108; this.BringIntoView(); InvalidateVisual();
             }
@@ -211,7 +213,7 @@ namespace MphRead.Mods.Launcher.Gui
 
         private void Resolve()
         {
-            PadBindings.Assign(_action, _slot, _pending, Resolutions[_choice]);
+            PadBindings.Assign(_action, _slot, _pending, Resolutions[_choice], _modifier);
             Done();
         }
 
@@ -257,7 +259,7 @@ namespace MphRead.Mods.Launcher.Gui
 
         protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
         {
-            // The timer outlives the view otherwise, and it polls GLFW.
+            // Stop observing input once the row leaves its host.
             _watch?.Stop();
             _watch = null;
             _listening = false;
@@ -283,9 +285,9 @@ namespace MphRead.Mods.Launcher.Gui
                 new RoundedRect(box, 4));
 
             string text = _conflict != null ? "Choose how to use " + PadBindings.Describe(_pending) : _picking ? "< " + PadBindings.Describe(PickButtons[_pickIndex]) + " >  Accept / Back" : _listening
-                ? "Press a button"
-                : _message ?? ((_slot == 0 && IsFocused ? "> " : "") + "Primary: " + PadBindings.Describe(PadBindings.Slot(_action, 0))
-                    + "    " + (_slot == 1 && IsFocused ? "> " : "") + "Secondary: " + PadBindings.Describe(PadBindings.Slot(_action, 1)));
+                ? (_modifier == 0 ? "Press a button" : "Choose a button for " + PadBindings.ButtonName(_modifier) + " + button")
+                : _message ?? ((_slot == 0 && IsFocused ? "> " : "") + "Primary: " + PadBindings.DescribeSlot(_action, 0)
+                    + "    " + (_slot == 1 && IsFocused ? "> " : "") + "Secondary: " + PadBindings.DescribeSlot(_action, 1));
             if (_listening && _conflict == null)
             {
                 var hint = TrackedText.Make($"{PadBindings.ButtonName(GamepadButtons.B)} cancel   "

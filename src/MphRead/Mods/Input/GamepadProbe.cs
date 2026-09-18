@@ -182,8 +182,10 @@ namespace MphRead.Mods.Input
         internal static string Actions(GamepadButtons buttons)
         {
             var text = new StringBuilder();
+            ulong active = PadBindings.Evaluate(buttons);
             foreach (PadAction action in PadBindings.Actions)
-                Name(text, buttons, PadBindings.Get(action), PadBindings.Name(action));
+                if ((active & (1UL << (int)action)) != 0)
+                { if (text.Length > 0) text.Append(", "); text.Append(PadBindings.Name(action)); }
             return text.Length == 0 ? "(nothing bound)" : text.ToString();
         }
 

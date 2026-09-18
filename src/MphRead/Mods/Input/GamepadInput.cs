@@ -33,8 +33,9 @@ namespace MphRead.Mods.Input
         private static GamepadContext _context;
         private static GamepadButtons _blocked;
         private static long _revision = -1, _contextRevision = -1;
-        public static bool WheelHeld => _context == GamepadContext.Gameplay
-            && (_frame.Buttons & PadBindings.Get(PadAction.WeaponWheel)) != 0;
+        private static readonly GamepadActions Actions = new();
+        private static long _bindingsRevision = -1;
+        public static bool WheelHeld => _context == GamepadContext.Gameplay && Actions.WheelOpen;
         public static (float X, float Y) AimStick => GamepadOptions.Southpaw
             ? GamepadAnalog.ApplyRadialDeadZone(_frame.LeftX, _frame.LeftY, GamepadOptions.LeftInner, GamepadOptions.LeftOuter)
             : GamepadAnalog.ApplyRadialDeadZone(_frame.RightX, _frame.RightY, GamepadOptions.RightInner, GamepadOptions.RightOuter);
@@ -112,8 +113,10 @@ namespace MphRead.Mods.Input
             var context = GamepadContexts.Current;
             _pressed = Edges.Update(snapshot);
             long contextRevision = GamepadContexts.Revision;
-            if (_context != context || _revision != snapshot.Revision || _contextRevision != contextRevision)
+            if (_context != context || _revision != snapshot.Revision || _contextRevision != contextRevision || _bindingsRevision != PadBindings.Revision)
             {
+                Actions.Reset();
+                _bindingsRevision = PadBindings.Revision;
                 _blocked = _frame.Buttons;
                 _pressed = 0;
             }
@@ -122,7 +125,9 @@ namespace MphRead.Mods.Input
             _frame.Buttons &= ~_blocked;
             AimDeltaX = AimDeltaY = 0;
             if (!GamepadContexts.Focused) { _frame = default; _pressed = 0; return; }
-            if (!_frame.Connected || context != GamepadContext.Gameplay || WheelHeld) return;
+            if (!_frame.Connected) { Actions.Reset(); return; }
+            Actions.Update(_frame.Buttons);
+            if (context != GamepadContext.Gameplay || WheelHeld) return;
             var (x, y) = AimStick;
             AimDeltaX = -GamepadAnalog.ApplyResponseCurve(x, GamepadOptions.Curve) * TurnRate * GamepadOptions.LookX
                 * (GamepadOptions.InvertX ? -1 : 1);
@@ -143,16 +148,8 @@ namespace MphRead.Mods.Input
         public static bool TakeMenuPress()
         {
             if (_context != GamepadContext.Gameplay && _context != GamepadContext.Results) return false;
-            GamepadButtons menu = PadBindings.Get(PadAction.Menu)
-                | (_context == GamepadContext.Results ? GamepadButtons.B : 0);
-            if (menu == GamepadButtons.None || (_pressed & menu) == 0)
-            {
-                return false;
-            }
-            // Cleared so a frame that is drawn twice, or a caller that asks
-            // twice, cannot open the menu and close it again in one press.
-            _pressed &= ~menu;
-            return true;
+            return Actions.Take(PadAction.Menu)
+                || (_context == GamepadContext.Results && TakePress(GamepadButtons.B));
         }
 
         /// <summary>
@@ -165,13 +162,7 @@ namespace MphRead.Mods.Input
         public static bool TakeChatPress()
         {
             if (_context != GamepadContext.Gameplay) return false;
-            GamepadButtons chat = PadBindings.Get(PadAction.Chat);
-            if (chat == GamepadButtons.None || (_pressed & chat) == 0)
-            {
-                return false;
-            }
-            _pressed &= ~chat;
-            return true;
+            return Actions.Take(PadAction.Chat);
         }
 
         /// <summary>
@@ -209,6 +200,7 @@ namespace MphRead.Mods.Input
             {
                 return;
             }
+            if (player.Health == 0 || player.IsAltForm) Actions.CloseWheel();
             PlayerControls controls = player.Controls;
             var move = GamepadOptions.Southpaw
                 ? GamepadAnalog.ApplyRadialDeadZone(_frame.RightX, _frame.RightY, GamepadOptions.RightInner, GamepadOptions.RightOuter)
@@ -235,23 +227,12 @@ namespace MphRead.Mods.Input
             // had one attack button, and the game's own defaults still bind
             // the gun and the alt form's attack to the same one), and JUMP is
             // also the ball's boost.
-            GamepadButtons shoot = PadBindings.Get(PadAction.Shoot);
-            Hold(controls.Shoot, shoot);
-            Hold(controls.AltAttack, shoot);
-            Hold(controls.Zoom, PadBindings.Get(PadAction.Zoom));
-            GamepadButtons jump = PadBindings.Get(PadAction.Jump);
-            Hold(controls.Jump, jump);
-            Hold(controls.Boost, jump);
-            Hold(controls.Morph, PadBindings.Get(PadAction.Morph));
-            Hold(controls.Scan, PadBindings.Get(PadAction.Scan));
-            Hold(controls.ScanVisor, PadBindings.Get(PadAction.ScanVisor));
-            Hold(controls.WeaponMenu, PadBindings.Get(PadAction.WeaponWheel));
-            Hold(controls.Pause, PadBindings.Get(PadAction.Scoreboard));
-
-            Hold(controls.NextWeapon, PadBindings.Get(PadAction.NextWeapon));
-            Hold(controls.PrevWeapon, PadBindings.Get(PadAction.PrevWeapon));
-            Hold(controls.Missile, PadBindings.Get(PadAction.Missile));
-            Hold(controls.PowerBeam, PadBindings.Get(PadAction.PowerBeam));
+            ApplyBindings(controls);
+            if (Actions.WasPressed(PadAction.LastWeapon) && player.PreviousWeapon != player.CurrentWeapon)
+            {
+                var last = GamepadActions.WeaponBind(controls, player.PreviousWeapon);
+                if (last is not null) Hold(last, true, true);
+            }
 
             // And say that somebody is playing. The binds above are ored on
             // after the pass that answers that question for the keyboard, so
@@ -264,11 +245,21 @@ namespace MphRead.Mods.Input
             }
         }
 
-        private static void Hold(Keybind bind, GamepadButtons buttons)
+        internal static void ApplyBindings(PlayerControls controls)
         {
-            // An unbound action is None, and None & anything is None, so this
-            // needs no case of its own: it simply never holds anything down.
-            Hold(bind, (_frame.Buttons & buttons) != 0, (_pressed & buttons) != 0);
+            void Bind(Keybind bind, PadAction action) => Hold(bind, Actions.Down(action), Actions.WasPressed(action));
+            Bind(controls.Shoot, PadAction.Shoot); Bind(controls.AltAttack, PadAction.Shoot);
+            Bind(controls.Jump, PadAction.Jump); Bind(controls.Boost, PadAction.Jump);
+            Bind(controls.Zoom, PadAction.Zoom); Bind(controls.Morph, PadAction.Morph);
+            Bind(controls.Scan, PadAction.Scan); Bind(controls.ScanVisor, PadAction.ScanVisor);
+            Hold(controls.WeaponMenu, WheelHeld, Actions.WasPressed(PadAction.WeaponWheel));
+            Bind(controls.Pause, PadAction.Scoreboard);
+            Bind(controls.NextWeapon, PadAction.NextWeapon); Bind(controls.PrevWeapon, PadAction.PrevWeapon);
+            Bind(controls.Missile, PadAction.Missile); Bind(controls.PowerBeam, PadAction.PowerBeam);
+            Bind(controls.VoltDriver, PadAction.VoltDriver); Bind(controls.Battlehammer, PadAction.Battlehammer);
+            Bind(controls.Imperialist, PadAction.Imperialist); Bind(controls.Judicator, PadAction.Judicator);
+            Bind(controls.Magmaul, PadAction.Magmaul); Bind(controls.ShockCoil, PadAction.ShockCoil);
+            Bind(controls.OmegaCannon, PadAction.OmegaCannon); Bind(controls.AffinitySlot, PadAction.AffinitySlot);
         }
 
         private static void Hold(Keybind bind, bool down)

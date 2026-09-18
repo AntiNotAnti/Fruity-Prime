@@ -14,21 +14,26 @@ namespace MphRead.Mods.Launcher.Gui
         private ChoiceRow? _devices, _presetRow;
         private bool _refreshing;
         private GamepadFamily _shownFamily;
-        private long _shownBindings = -1;
+        private long _shownBindings = -1, _profileRevision;
         private static readonly string[] Presets = { "Default", "Bumper Jumper", "Southpaw", "Classic", "Custom" };
         public GamepadSettingsPanel()
         {
             Spacing = 8;
             Reload();
             _timer = new DispatcherTimer(TimeSpan.FromMilliseconds(100), DispatcherPriority.Background,
-                (_, _) => { if (IsEffectivelyVisible) { RefreshDevices(); RefreshLabels(); } });
+                (_, _) => { if (IsEffectivelyVisible) {
+                    if (_profileRevision != GamepadProfiles.Revision && !GamepadContexts.Capturing) Reload();
+                    RefreshDevices(); RefreshLabels(); } });
             AttachedToVisualTree += (_, _) => _timer.Start();
             DetachedFromVisualTree += (_, _) => _timer.Stop();
         }
         public void Reload()
         {
-            bool presetFocused = _presetRow?.IsFocused == true;
+            var focused = FocusNavigator.Focused(this);
+            int focusIndex = focused == null ? -1 : Children.IndexOf(focused);
+            string? focusWord = (focused as UiWord)?.Text;
             Children.Clear(); _deviceList = ""; _devices = null; _presetRow = null;
+            _profileRevision = GamepadProfiles.Revision;
             RefreshDevices();
             Children.Add(new GamepadMonitor());
             Choice("Button labels", new[] { "Automatic", "Xbox", "PlayStation", "Nintendo", "Generic" }, (int)GamepadOptions.GlyphStyle,
@@ -42,6 +47,22 @@ namespace MphRead.Mods.Launcher.Gui
             });
             Number("Horizontal sensitivity", GamepadOptions.LookX, .1f, 5, v => GamepadOptions.LookX = v);
             Number("Vertical sensitivity", GamepadOptions.LookY, .1f, 5, v => GamepadOptions.LookY = v);
+            Number("Scoped horizontal multiplier", GamepadOptions.ScopedX, .1f, 3, v => GamepadOptions.ScopedX = v);
+            Number("Scoped vertical multiplier", GamepadOptions.ScopedY, .1f, 3, v => GamepadOptions.ScopedY = v);
+            Flag("Toggle weapon wheel", GamepadOptions.WheelToggle, v => GamepadOptions.WheelToggle = v);
+            Number("Wheel selection threshold", GamepadOptions.WheelThreshold, .1f, .95f, v => GamepadOptions.WheelThreshold = v);
+            var modifiers = Enum.GetValues<GamepadButtons>();
+            Choice("Modifier for new bindings", modifiers.Select(PadBindings.Describe).ToArray(),
+                Array.IndexOf(modifiers, GamepadOptions.BindingModifier), i => GamepadOptions.BindingModifier = modifiers[i]);
+            Children.Add(new Note("Choose a modifier before rebinding. Modifiers used in combinations are reserved during gameplay. Hold the modifier first, then press the action button."));
+            string[] weapons = { "Volt Driver", "Battlehammer", "Imperialist", "Judicator", "Magmaul", "Shock Coil" };
+            for (int position = 0; position < 6; position++)
+            {
+                int index = position;
+                Choice("Wheel position " + (position + 1), weapons, GamepadOptions.WheelOrder[position],
+                    slot => { GamepadOptions.SetWheelSlot(index, slot); Dispatcher.UIThread.Post(Reload); });
+            }
+            Children.Add(new Note("Wheel positions run clockwise from the top. Choosing an occupied position swaps the two weapons."));
             Number("Left inner deadzone", GamepadOptions.LeftInner, 0, .9f, v => GamepadOptions.LeftInner = v);
             Number("Left outer deadzone", GamepadOptions.LeftOuter, 0, .5f, v => GamepadOptions.LeftOuter = v);
             Number("Right inner deadzone", GamepadOptions.RightInner, 0, .9f, v => GamepadOptions.RightInner = v);
@@ -55,7 +76,11 @@ namespace MphRead.Mods.Launcher.Gui
             Flag("Vibration", GamepadOptions.Vibration, v => { GamepadOptions.Vibration = v; if (!v) GamepadHaptics.Stop(); });
             Number("Vibration strength", GamepadOptions.VibrationStrength, 0, 1,
                 v => { GamepadOptions.VibrationStrength = v; if (v <= 0) GamepadHaptics.Stop(); });
-            if (presetFocused) Dispatcher.UIThread.Post(() => FocusNavigator.Focus(_presetRow));
+            Children.Add(new GamepadSetupPanel(() => Dispatcher.UIThread.Post(Reload)));
+            Children.Add(new GamepadProfilePanel(() => Dispatcher.UIThread.Post(Reload)));
+            if (focusIndex >= 0) FocusNavigator.Focus(Children.ElementAtOrDefault(focusIndex));
+            else if (focusWord != null)
+                FocusNavigator.Focus(this.GetVisualDescendants().OfType<UiWord>().FirstOrDefault(w => w.Text == focusWord));
         }
         private void RefreshDevices()
         {

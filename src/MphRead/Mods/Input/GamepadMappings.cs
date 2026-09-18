@@ -49,6 +49,18 @@ namespace MphRead.Mods.Input
         public const string FileName = "gamecontrollerdb.txt";
 
         private static bool _loaded;
+        internal static bool ReloadRequested;
+        public static void SaveOverride(string mapping)
+        {
+            // The wizard constructs one bounded mapping, while the next host poll applies it.
+            if (mapping.Length > 4096 || mapping.Contains('\n') || mapping.Contains('\r'))
+                throw new ArgumentException("Invalid controller mapping.");
+            string path = Path.Combine(Launcher.LauncherPrefs.Directory, FileName);
+            string existing = File.Exists(path) ? File.ReadAllText(path) : "";
+            Directory.CreateDirectory(Launcher.LauncherPrefs.Directory);
+            GamepadProfiles.WriteAtomic(path, existing.TrimEnd() + "\n" + mapping + "\n");
+            _loaded = false; ReloadRequested = true;
+        }
 
         /// <summary>What was read, for <c>-gamepad</c> to print.</summary>
         public static string Summary { get; private set; } = "no extra mappings loaded";

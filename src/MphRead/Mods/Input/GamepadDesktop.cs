@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using OpenTK.Windowing.GraphicsLibraryFramework;
 
 namespace MphRead.Mods.Input
@@ -87,6 +88,11 @@ namespace MphRead.Mods.Input
         private static void PollUnsafe()
         {
             if (_unavailable) return;
+            if (GamepadMappings.ReloadRequested)
+            {
+                GamepadMappings.ReloadRequested = false;
+                for (int slot = 0; slot < Slots.Length; slot++) DeviceChanged(slot);
+            }
             GamepadMappings.EnsureLoaded();
             for (int i = 0; i < Slots.Length; i++)
             {
@@ -112,6 +118,10 @@ namespace MphRead.Mods.Input
                     slot.Layout = GamepadLayout.For(i);
                     slot.LeftFloor = slot.RightFloor = 0;
                 }
+                if (GamepadMappingWizard.RequestedDevice == slot.Id)
+                    GamepadMappingWizard.Latest = new(slot.Id, GLFW.GetJoystickGUID(i), slot.Name,
+                        GLFW.GetJoystickAxes(i).ToArray(), GLFW.GetJoystickButtons(i).ToArray().Select(b => b == JoystickInputAction.Press).ToArray(),
+                        GLFW.GetJoystickHats(i).ToArray().Select(h => (byte)h).ToArray());
                 if (!(slot.Mapped ? TryRead(i) : TryReadRaw(i)))
                 {
                     GamepadManager.RemoveDevice(slot.Id);

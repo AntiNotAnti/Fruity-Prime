@@ -13,6 +13,17 @@ namespace MphRead.Mods.Input
         public static float VibrationStrength = 0.65f;
         public static GamepadCurve Curve = GamepadCurve.Classic;
         public static GamepadFamily GlyphStyle;
+        public static float ScopedX = 1, ScopedY = 1, WheelThreshold = .45f;
+        public static bool WheelToggle;
+        public static GamepadButtons BindingModifier;
+        public static float LeftTriggerMin, RightTriggerMin, LeftTriggerMax = 1, RightTriggerMax = 1;
+        public static int[] WheelOrder { get; } = { 0, 1, 2, 3, 4, 5 };
+        public static void SetWheelSlot(int position, int slot)
+        {
+            int previous = Array.IndexOf(WheelOrder, slot);
+            if (position < 0 || position >= 6 || previous < 0) return;
+            (WheelOrder[position], WheelOrder[previous]) = (WheelOrder[previous], WheelOrder[position]);
+        }
 
         public static void Load(IEnumerable<string> lines)
         {
@@ -27,6 +38,28 @@ namespace MphRead.Mods.Input
                     CultureInfo.InvariantCulture, out var n) && float.IsFinite(n) ? Math.Clamp(n, min, max) : fallback;
             bool Flag(string key, bool fallback) => values.TryGetValue(key, out var text)
                 && bool.TryParse(text, out var b) ? b : fallback;
+            ScopedX = Number("gamepad_scoped_x", 1, .1f, 3);
+            ScopedY = Number("gamepad_scoped_y", 1, .1f, 3);
+            WheelThreshold = Number("gamepad_wheel_threshold", .45f, .1f, .95f);
+            WheelToggle = Flag("gamepad_wheel_toggle", false);
+            BindingModifier = values.TryGetValue("gamepad_binding_modifier", out var m)
+                && Enum.TryParse<GamepadButtons>(m, out var modifier) && PadBindings.Single(modifier) ? modifier : 0;
+            LeftTriggerMin = Number("gamepad_lt_min", 0, 0, .8f);
+            RightTriggerMin = Number("gamepad_rt_min", 0, 0, .8f);
+            LeftTriggerMax = Number("gamepad_lt_max", 1, LeftTriggerMin + .1f, 1);
+            RightTriggerMax = Number("gamepad_rt_max", 1, RightTriggerMin + .1f, 1);
+            for (int i = 0; i < 6; i++) WheelOrder[i] = i;
+            if (values.TryGetValue("gamepad_wheel_order", out var order))
+            {
+                var parts = order.Split(','); var parsed = new int[6]; int used = 0;
+                if (parts.Length == 6)
+                {
+                    for (int i = 0; i < 6; i++)
+                        if (int.TryParse(parts[i], out int n) && n >= 0 && n < 6 && (used & (1 << n)) == 0)
+                        { parsed[i] = n; used |= 1 << n; } else break;
+                    if (used == 63) Array.Copy(parsed, WheelOrder, 6);
+                }
+            }
             float legacyDead = Number("gamepad_deadzone", 0.2f, 0, 0.9f);
             float legacyLook = Number("gamepad_look", 1, 0.1f, 5);
             LeftInner = Number("gamepad_left_inner_deadzone", legacyDead, 0, 0.9f);
@@ -48,6 +81,14 @@ namespace MphRead.Mods.Input
         public static void Write(List<string> lines)
         {
             void Number(string key, float n) => lines.Add(key + "=" + n.ToString(CultureInfo.InvariantCulture));
+            Number("gamepad_scoped_x", ScopedX); Number("gamepad_scoped_y", ScopedY);
+            Number("gamepad_wheel_threshold", WheelThreshold);
+            Number("gamepad_lt_min", LeftTriggerMin); Number("gamepad_lt_max", LeftTriggerMax);
+            Number("gamepad_rt_min", RightTriggerMin); Number("gamepad_rt_max", RightTriggerMax);
+            lines.Add("gamepad_invert_y=" + InvertY);
+            lines.Add("gamepad_wheel_toggle=" + WheelToggle);
+            lines.Add("gamepad_binding_modifier=" + BindingModifier);
+            lines.Add("gamepad_wheel_order=" + string.Join(",", WheelOrder));
             Number("gamepad_left_inner_deadzone", LeftInner); Number("gamepad_right_inner_deadzone", RightInner);
             Number("gamepad_left_outer_deadzone", LeftOuter); Number("gamepad_right_outer_deadzone", RightOuter);
             Number("gamepad_look_x", LookX); Number("gamepad_look_y", LookY);
