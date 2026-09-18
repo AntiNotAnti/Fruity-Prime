@@ -52,16 +52,31 @@ namespace MphRead.Droid
 
         public override void OnFrameworkInitializationCompleted()
         {
-            if (ApplicationLifetime is ISingleViewApplicationLifetime single)
+            // A factory, not the view itself: this runs from MainApplication,
+            // Android's Application.OnCreate, before any activity exists, and
+            // BuildHome reaches things -- ThumbnailHost.Current's activity,
+            // MainActivity.Instance -- that are only there once one has been
+            // created. Avalonia's own activity is what calls this factory,
+            // from MainActivity.OnCreate, which is late enough.
+            if (ApplicationLifetime is IActivityApplicationLifetime activity)
             {
-                // Wrapped, not handed over bare. The screens in
-                // Mods/Launcher/Gui are authored for a box near 960x600 points
-                // and a phone in landscape is about 830x390, so without the
-                // scale host every one of them is laid out three times too
-                // large for the view it is in -- which is a front screen with
-                // its words off the edges and a server browser arranged
-                // somewhere off the side of the display. The desktop scales
-                // the same screens the same way; see UiScaleHost.
+                activity.MainViewFactory = () =>
+                {
+                    // Wrapped, not handed over bare. The screens in
+                    // Mods/Launcher/Gui are authored for a box near 960x600
+                    // points and a phone in landscape is about 830x390, so
+                    // without the scale host every one of them is laid out
+                    // three times too large for the view it is in -- which is
+                    // a front screen with its words off the edges and a
+                    // server browser arranged somewhere off the side of the
+                    // display. The desktop scales the same screens the same
+                    // way; see UiScaleHost.
+                    Home = BuildHome();
+                    return new UiScaleHost(Home);
+                };
+            }
+            else if (ApplicationLifetime is ISingleViewApplicationLifetime single)
+            {
                 Home = BuildHome();
                 single.MainView = new UiScaleHost(Home);
             }

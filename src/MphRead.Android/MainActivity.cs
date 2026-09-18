@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Threading.Tasks;
 using Android.App;
 using Android.Content.PM;
@@ -8,7 +7,6 @@ using Android.OS;
 using Android.Views;
 using Android.Views.InputMethods;
 using Android.Widget;
-using Avalonia;
 using Avalonia.Android;
 using MphRead.Mods;
 using MphRead.Mods.Launcher;
@@ -57,7 +55,7 @@ namespace MphRead.Droid
         LaunchMode = LaunchMode.SingleTop,
         ConfigurationChanges = ConfigChanges.Orientation | ConfigChanges.ScreenSize
             | ConfigChanges.UiMode | ConfigChanges.Density | ConfigChanges.KeyboardHidden)]
-    public class MainActivity : AvaloniaMainActivity<AndroidApp>,
+    public class MainActivity : AvaloniaMainActivity,
         Android.Hardware.Display.DisplayManager.IDisplayListener
     {
         internal static MainActivity? Instance { get; private set; }
@@ -89,123 +87,6 @@ namespace MphRead.Droid
         private ScreenOrientation _orientationBefore = ScreenOrientation.SensorLandscape;
 
         internal bool InMatch => _gameView != null;
-
-        protected override AppBuilder CustomizeAppBuilder(AppBuilder builder)
-        {
-            // First: everything below reports through Console, and in a
-            // release build that goes nowhere unless this is installed.
-            AndroidConsole.Install();
-            // The package's own directory is read-only on Android, so both the
-            // preferences and paths.txt move. They move to *external* files
-            // rather than internal ones because the extracted game files are
-            // hundreds of megabytes a player has to copy onto the device
-            // themselves, and this is the directory they can reach over USB
-            // without the app asking for a storage permission.
-            string root = ChooseRoot();
-            if (root.Length > 0)
-            {
-                LauncherPrefs.Directory = root;
-                GameFiles.Root = root;
-                try
-                {
-                    // Upstream's Paths reads paths.txt relative to the working
-                    // directory, so the two have to agree.
-                    Directory.SetCurrentDirectory(root);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[android] could not use {root} as the working directory: {ex.Message}");
-                }
-            }
-            // Before the front screen, which lists the rooms: the custom maps
-            // have to be out of the package and their directory named before
-            // anything reads the room tables, since that list is built once.
-            AndroidMaps.Install(Assets, root);
-            // Before base.OnCreate, which is what builds the front screen:
-            // the screen asks whether previews can be rendered while it is
-            // being constructed, and on the desktop the same seam is left empty
-            // so the batch of worker processes answers instead.
-            ThumbnailHost.Current = new AndroidThumbnailHost(this);
-            // Also before the front screen: it decides whether its update
-            // entry fetches and installs or opens a page while it is being
-            // laid out. A phone is the one platform where the browser round
-            // trip is worth removing -- no file manager can reach the app's
-            // own download directory, and the system has an installer that
-            // does the whole job. See Mods/Update/UpdateInstall.cs.
-            MphRead.Mods.Update.UpdateInstall.Current = new AndroidUpdateInstaller(this);
-            // Same shape, and for the same kind of reason: the front screen's
-            // Share button exists only where something can receive a file, and
-            // on a phone that is the whole answer to "send me your logs" --
-            // the app's own directory is one no file manager will browse.
-            MphRead.Mods.LogShare.Current = new AndroidLogShare(this);
-            ScreenCapture.PngWriter = AndroidPng.Write;
-            return base.CustomizeAppBuilder(builder).WithInterFont();
-        }
-
-        /// <summary>
-        /// The directory everything writable lives in.
-        ///
-        /// External files by preference, because the extracted game files are
-        /// hundreds of megabytes a player copies over USB and that is the
-        /// directory they can reach. But a non-null answer from
-        /// <c>GetExternalFilesDir</c> is not a promise that it can be used:
-        /// early after install it returns the path before the volume is ready,
-        /// and every write to it is refused. Taking it on trust is how one
-        /// launch put its files internally, the next one looked externally,
-        /// and the game appeared to lose the files the player had copied.
-        ///
-        /// So: whichever already holds a paths.txt wins, and otherwise the
-        /// first one that can actually be written to.
-        /// </summary>
-        private string ChooseRoot()
-        {
-            var candidates = new List<string>();
-            string? external = GetExternalFilesDir(null)?.AbsolutePath;
-            if (!String.IsNullOrEmpty(external))
-            {
-                candidates.Add(external);
-            }
-            string? internalFiles = FilesDir?.AbsolutePath;
-            if (!String.IsNullOrEmpty(internalFiles))
-            {
-                candidates.Add(internalFiles);
-            }
-            foreach (string candidate in candidates)
-            {
-                if (Writable(candidate) && File.Exists(Path.Combine(candidate, "paths.txt")))
-                {
-                    return candidate;
-                }
-            }
-            foreach (string candidate in candidates)
-            {
-                if (Writable(candidate))
-                {
-                    if (candidate != candidates[0])
-                    {
-                        Console.WriteLine($"[android] {candidates[0]} cannot be written to; using {candidate}");
-                    }
-                    return candidate;
-                }
-            }
-            return "";
-        }
-
-        private static bool Writable(string directory)
-        {
-            try
-            {
-                Directory.CreateDirectory(directory);
-                string probe = Path.Combine(directory, ".write-probe");
-                File.WriteAllBytes(probe, Array.Empty<byte>());
-                File.Delete(probe);
-                return true;
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-        }
 
         protected override void OnCreate(Bundle? savedInstanceState)
         {
