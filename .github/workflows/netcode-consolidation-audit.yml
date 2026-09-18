@@ -1,0 +1,63 @@
+name: netcode consolidation audit
+
+on:
+  push:
+    branches: [integration/netcode-lobby-upstream]
+    paths: [.github/workflows/netcode-consolidation-audit.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Capture pinned sources and merge diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/netcode-audit"
+          mkdir -p "$out"
+          git fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*'
+          git remote add upstream https://github.com/liveteklol/Fruity-Prime.git
+          git fetch --no-tags upstream '+refs/heads/master:refs/remotes/upstream/master'
+          base=a7b5185023fe6660f6ece8dead043049afb8e370
+          integration=951855e8c7b6d73555ee1ca86cb9586b6f44dacc
+          git cat-file -e "$base^{commit}"
+          git cat-file -e "$integration^{commit}"
+          git for-each-ref --format='%(refname) %(objectname)' refs/remotes > "$out/refs.txt"
+          git log --format='%H %P %s' "$base..$integration" > "$out/integration-commits.txt"
+          for ref in fix/network-lifecycle-stabilization feature/persistent-lobby feature/team-layouts feature/netcode-health-shot-consistency feature/online-lobby-ux; do
+            label="${ref//\//_}"
+            sha=$(git rev-parse "refs/remotes/origin/$ref")
+            printf '%s %s\n' "$ref" "$sha" >> "$out/source-heads.txt"
+            git log --reverse --format='%H %P %s' "$base..$sha" > "$out/$label-commits.txt"
+            git diff --name-status "$base...$sha" > "$out/$label-files.txt"
+            if git merge-base --is-ancestor "$sha" "$integration"; then
+              printf '%s is included in pinned integration\n' "$ref" >> "$out/coverage.txt"
+            else
+              printf '%s is NOT included in pinned integration\n' "$ref" >> "$out/coverage.txt"
+            fi
+            set +e
+            git merge-tree --write-tree "$base" "$sha" > "$out/$label-merge.txt" 2>&1
+            result=$?
+            set -e
+            if [ "$result" -gt 1 ]; then
+              cat "$out/$label-merge.txt"
+              exit "$result"
+            fi
+          done
+          git bundle create "$out/repositories.bundle" --all
+          git bundle verify "$out/repositories.bundle"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: netcode-consolidation-audit
+          path: ${{ runner.temp }}/netcode-audit
+          retention-days: 3
+          if-no-files-found: error
