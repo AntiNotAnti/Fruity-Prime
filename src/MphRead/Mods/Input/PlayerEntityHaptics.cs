@@ -6,6 +6,9 @@ namespace MphRead.Entities
         private void ModControllerFeedback(GamepadFeedback feedback)
         {
             if (IsMainPlayer && !IsBot && !Mods.SpectatorMode.IsSpectating
+                && feedback is GamepadFeedback.Fire or GamepadFeedback.ChargedShot)
+                Mods.Input.AimAssist.AimAssistTelemetry.Shot(CurrentWeapon);
+            if (IsMainPlayer && !IsBot && !Mods.SpectatorMode.IsSpectating
                 && GamepadContexts.Current == GamepadContext.Gameplay)
                 GamepadHaptics.Play(feedback);
         }

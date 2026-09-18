@@ -1,5 +1,13 @@
 # Known gaps — claims not yet verified
 
+- **Controller camera assistance: automated coverage only.** The controller/aim
+  branch implements deterministic selection, visibility gates, bounded rotation,
+  friction and head refinement. Physical USB/Bluetooth/Android tests and
+  controller-versus-mouse balance testing were explicitly deferred by the user.
+  Initial tuning is not evidence of competitive parity. Local combat telemetry
+  confirms damage only on an authority; client prediction is not confirmed-hit
+  telemetry. See [AIM-ASSIST.md](AIM-ASSIST.md).
+
 What's below is unproven or partially proven, not broken. Say so rather than
 claiming coverage that isn't there.
 

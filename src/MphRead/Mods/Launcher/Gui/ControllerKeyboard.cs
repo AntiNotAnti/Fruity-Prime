@@ -33,6 +33,7 @@ namespace MphRead.Mods.Launcher.Gui
                 {
                     char character = c;
                     var button = new UiWord(c.ToString(), size: 24) { MinWidth = 28 };
+                    ControllerNav.Identify(button, "keyboard.key." + (int)c, initial: c == '1');
                     button.Click += (_, _) => Append(_upper ? char.ToUpperInvariant(character).ToString() : character.ToString());
                     keys.Children.Add(button);
                 }
@@ -50,6 +51,8 @@ namespace MphRead.Mods.Launcher.Gui
             panel.Children.Add(commands);
             NavigationRoot = new Border { Background = GuiTheme.PanelBrush, BorderBrush = GuiTheme.AccentBrush,
                 BorderThickness = new Thickness(1), Child = panel };
+            NavigationRoot.SetValue(ControllerNav.NavScopeProperty, "keyboard");
+            NavigationRoot.SetValue(ControllerNav.ModalProperty, true);
             if (captureOnly)
             {
                 NavigationRoot.HorizontalAlignment = HorizontalAlignment.Center;

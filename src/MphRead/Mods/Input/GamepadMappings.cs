@@ -46,6 +46,24 @@ namespace MphRead.Mods.Input
     /// </summary>
     internal static class GamepadMappings
     {
+        private static readonly System.Collections.Generic.Dictionary<string, GamepadCapabilities> MappingCapabilities = new(StringComparer.OrdinalIgnoreCase);
+        internal static GamepadCapabilities Capabilities(string guid, GamepadCapabilities fallback)
+            => MappingCapabilities.TryGetValue(guid, out var value) ? value : fallback;
+        internal static GamepadCapabilities ParseCapabilities(string line)
+        {
+            bool lx = false, ly = false, rx = false, ry = false, lt = false, rt = false;
+            foreach (string part in line.Split(','))
+            {
+                int split = part.IndexOf(':'); if (split < 0) continue;
+                string axis = part[(split + 1)..].TrimStart('+', '-');
+                if (!axis.StartsWith('a')) continue;
+                switch (part[..split]) { case "leftx": lx = true; break; case "lefty": ly = true; break;
+                    case "rightx": rx = true; break; case "righty": ry = true; break;
+                    case "lefttrigger": lt = true; break; case "righttrigger": rt = true; break; }
+            }
+            return (lx && ly ? GamepadCapabilities.AnalogLeftStick : 0) | (rx && ry ? GamepadCapabilities.AnalogRightStick : 0)
+                | (lt && rt ? GamepadCapabilities.AnalogTriggers : 0);
+        }
         public const string FileName = "gamecontrollerdb.txt";
 
         private static bool _loaded;
@@ -58,7 +76,32 @@ namespace MphRead.Mods.Input
             string path = Path.Combine(Launcher.LauncherPrefs.Directory, FileName);
             string existing = File.Exists(path) ? File.ReadAllText(path) : "";
             Directory.CreateDirectory(Launcher.LauncherPrefs.Directory);
-            GamepadProfiles.WriteAtomic(path, existing.TrimEnd() + "\n" + mapping + "\n");
+            GamepadProfiles.WriteAtomic(path, ReplaceOverride(existing, mapping));
+            _loaded = false; ReloadRequested = true;
+        }
+
+        internal static string ReplaceOverride(string existing, string mapping)
+        {
+            static string Key(string line)
+            {
+                var parts = line.Split(',');
+                if (parts.Length < 3 || parts[0].Length != 32) return "";
+                string platform = "";
+                foreach (string part in parts) if (part.StartsWith("platform:", StringComparison.Ordinal)) platform = part;
+                return parts[0].ToLowerInvariant() + ":" + platform;
+            }
+            string key = Key(mapping);
+            if (key.Length == 0) throw new ArgumentException("Invalid controller mapping GUID.");
+            var output = new System.Text.StringBuilder();
+            foreach (string line in existing.Replace("\r", "").Split('\n'))
+                if (line.Length != 0 && Key(line) != key) output.AppendLine(line);
+            output.AppendLine(mapping);
+            return output.ToString();
+        }
+        public static void ResetOverrides()
+        {
+            string path = Path.Combine(Launcher.LauncherPrefs.Directory, FileName);
+            if (File.Exists(path)) GamepadProfiles.WriteAtomic(path, "# Custom controller mappings reset.\n");
             _loaded = false; ReloadRequested = true;
         }
 
@@ -80,6 +123,7 @@ namespace MphRead.Mods.Input
                 return;
             }
             _loaded = true;
+            MappingCapabilities.Clear();
             int files = 0;
             int lines = 0;
             foreach (string path in Paths())
@@ -146,7 +190,16 @@ namespace MphRead.Mods.Input
                 // string of newline-separated lines and skips comments itself,
                 // so there is nothing to parse here. It returns false only if
                 // it could not parse *any* of it.
-                return GLFW.UpdateGamepadMappings(text);
+                bool applied = GLFW.UpdateGamepadMappings(text);
+                if (applied) foreach (string line in text.Split('\n'))
+                {
+                    var parts = line.Trim().Split(',');
+                    if (parts.Length < 3 || parts[0].Length != 32) continue;
+                    bool compatible = true;
+                    foreach (string part in parts) if (part.StartsWith("platform:", StringComparison.Ordinal) && part != "platform:" + Platform()) compatible = false;
+                    if (compatible) MappingCapabilities[parts[0]] = ParseCapabilities(line);
+                }
+                return applied;
             }
             catch (Exception ex) when (ex is DllNotFoundException
                 || ex is EntryPointNotFoundException || ex is BadImageFormatException)

@@ -175,7 +175,12 @@ namespace MphRead.Mods.Launcher.Gui
             };
             double cy = Bounds.Height / 2;
             double half = Glyph / 2;
-            if (_shape == Shape.Accept)
+            if (Mods.Input.InputSourceTracker.Current == Mods.Input.InputSource.Gamepad && _shape is Shape.Accept or Shape.Cancel)
+            {
+                var prompt = Mods.Input.InputPrompt.For(_shape == Shape.Accept ? Mods.Input.UiAction.Accept : Mods.Input.UiAction.Back);
+                GamepadGlyph.Draw(context, new Rect(0, cy-half, Glyph, Glyph), prompt.Button, pen.Brush!);
+            }
+            else if (_shape == Shape.Accept)
             {
                 // A tick: down to the low point, then up and out past it.
                 context.DrawLine(pen, new Point(half - 7, cy + 1), new Point(half - 2, cy + 6));

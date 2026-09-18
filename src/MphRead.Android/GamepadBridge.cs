@@ -75,7 +75,9 @@ namespace MphRead.Droid
             var state = pad.Input.Snapshot;
             state.Connected = true; state.Name = pad.Name;
             GamepadManager.UpdateDevice(pad.Id, state, true, pad.Family,
-                capabilities: (pad.Profile.LeftTrigger.HasValue ? GamepadCapabilities.AnalogTriggers : 0)
+                capabilities: (pad.Profile.LeftTrigger.HasValue && pad.Profile.RightTrigger.HasValue ? GamepadCapabilities.AnalogTriggers : 0)
+                    | (pad.Profile.HasLeftStick ? GamepadCapabilities.AnalogLeftStick : 0)
+                    | (pad.Profile.RightX.HasValue && pad.Profile.RightY.HasValue ? GamepadCapabilities.AnalogRightStick : 0)
                     | (GamepadHaptics.Available(pad.Id) ? GamepadCapabilities.Rumble : 0));
         }
         private static bool IsGamepad(InputSourceType source)

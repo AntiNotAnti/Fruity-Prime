@@ -1,5 +1,12 @@
 Current netcode work uses protocol **12**; see [health and shot consistency](multiplayer/NETWORK-HEALTH-SHOTS.md) for behavior, checks and remaining acceptance gates. Historical protocol notes below describe earlier integrations.
 
+`feature/controller-aim-assist` branches from `feature/netcode-health-shot-consistency`
+at `37d8fd8`. It adds controller runtime isolation, profile safety, calibration,
+semantic navigation/prompts, spectator controls and local camera assistance. It
+does not merge the separate online-lobby UI branch or change protocol 12. It also
+retains the already verified preview-worker shutdown fix. See
+[AIM-ASSIST.md](AIM-ASSIST.md) for architecture and deferred hardware/balance gates.
+
 # All-branches integration
 
 `integration/all-branches` combines every local and fork source branch audited

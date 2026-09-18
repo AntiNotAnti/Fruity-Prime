@@ -28,6 +28,7 @@ namespace MphRead.Mods.Input
             {
                 if (_focused == value) return;
                 Volatile.Write(ref _focused, value);
+                if (!value) { GamepadHaptics.Stop(); AimInputSourceTracker.Reset(); }
                 // Polling may run while unfocused, or miss the whole focus
                 // transition. Both edges must re-arm the held-input barrier.
                 Interlocked.Increment(ref _revision);
@@ -60,10 +61,22 @@ namespace MphRead.Mods.Input
         private long _started, _next, _revision = -1, _contextRevision = -1;
         private GamepadContext _context;
         private bool _neutralRequired;
+        private bool _leftTrigger, _rightTrigger;
         public event Action<UiAction>? Action;
         public void Reset() { _direction = null; _neutralRequired = true; }
         public void Update(GamepadSnapshot snapshot, GamepadContext context, long milliseconds)
         {
+            // Menu thresholds are independent from gameplay actuation preferences.
+            var menuState = snapshot.State;
+            if (((GamepadManager.ActiveDevice?.Capabilities ?? GamepadCapabilities.None) & GamepadCapabilities.AnalogTriggers) != 0)
+            {
+                _leftTrigger = menuState.LeftTrigger >= (_leftTrigger ? .30f : .45f);
+                _rightTrigger = menuState.RightTrigger >= (_rightTrigger ? .30f : .45f);
+                menuState.Buttons &= ~(GamepadButtons.LeftTrigger | GamepadButtons.RightTrigger);
+                if (_leftTrigger) menuState.Buttons |= GamepadButtons.LeftTrigger;
+                if (_rightTrigger) menuState.Buttons |= GamepadButtons.RightTrigger;
+                snapshot = snapshot with { State = menuState };
+            }
             var pressed = _edges.Update(snapshot);
             long contextRevision = GamepadContexts.Revision;
             bool changed = _revision != snapshot.Revision || _context != context || _contextRevision != contextRevision;

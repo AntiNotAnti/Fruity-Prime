@@ -263,3 +263,40 @@ where available. For each, exercise launcher -> settings/rebinding -> host/join 
 match -> pause/settings -> map vote/results -> launcher -> quit. Disconnect while
 holding a trigger or D-pad, reconnect, connect a second pad, switch activity and
 repeat with an explicit selection. Confirm keyboard/mouse/touch remain usable.
+# Controller runtime and camera assistance
+
+The controller/aim-assist branch adds per-device `GamepadRuntimeConfig` ownership:
+options, calibration and bindings are resolved before processing that device's
+first sample. `GamepadOptions` and `PadBindings` remain compatibility views of the
+active runtime. Manager consumers receive immutable value copies; added/removed/
+active callbacks run after the manager lock is released. Explicit selection also
+prevents another device from taking over prompt ownership.
+
+Profiles are validated and built before replacement. Invalid or oversized profile
+libraries remain untouched on disk and produce a recoverable status. Control
+layout identity no longer changes when sensitivity, deadzones, curves, vibration,
+glyphs, trigger thresholds or scoped multipliers change. Settings focus restores
+by a stable navigation ID, not translated text or row index.
+
+Calibration uses median center offsets, a 99th-percentile rest radius and
+2nd/98th-percentile axis limits. Full directional coverage is required. Applying
+measurements remains explicit; focus/device changes cancel setup. Centering and
+range normalization happen before radial deadzones. The monitor shows raw and
+processed positions, deadzone rings, raw/calibrated triggers and actuation marks.
+Trigger travel that was not demonstrated retains its previous calibration.
+
+Menu triggers have independent 0.45/0.30 hysteresis. Spectator controllers use
+LB/RB for previous/next player, Y for view, Back for scoreboard, Start for the
+existing menu action, sticks for free movement/look and LT/RT for descent/ascent.
+Replay keeps its existing playback actions. UI footer prompts draw family-aware
+geometry and semantic prompts follow rebound action combinations.
+
+Haptics prioritize damage/explosion/death over charge/boost/landing over fire,
+with independent cooldowns. Focus loss, menus and active-device changes stop
+feedback. SDL override saves replace matching GUID/platform entries atomically;
+setup includes a reset action. Auxiliary gyro/touch data has a snapshot foundation
+but no backend or gyro-aim capability is advertised.
+
+See [AIM-ASSIST.md](AIM-ASSIST.md) for aiming rules, diagnostics and test limits.
+Historical implementation notes follow; the changes above supersede their global
+runtime, extrema-only calibration and settings-change preset behavior.

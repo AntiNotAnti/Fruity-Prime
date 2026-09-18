@@ -2429,7 +2429,9 @@ namespace MphRead.Entities
                 // while the player they are watching takes somebody else's
                 // input entirely.
                 Mods.SpectatorMode.NoteScoreboard(
-                    IsDown(Mods.InputSettings.Current.Pause, keyboardSnap, mouseSnap));
+                    IsDown(Mods.InputSettings.Current.Pause, keyboardSnap, mouseSnap)
+                    || (Mods.Input.GamepadContexts.Current == Mods.Input.GamepadContext.Gameplay
+                        && Mods.Input.GamepadInput.State.Down(Mods.Input.GamepadButtons.Back)));
             }
             for (int i = 0; i < Players.Count; i++)
             {

@@ -11,12 +11,12 @@ namespace MphRead.Mods.Launcher.Gui
     internal sealed class GamepadMonitor : Control
     {
         private readonly DispatcherTimer _timer;
-        private GamepadState _state;
+        private GamepadState _state, _raw;
         private string _status = "", _buttons = "", _actions = "";
         internal string Status => _status;
         public GamepadMonitor()
         {
-            Height = 156;
+            Height = 182;
             _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
             _timer.Tick += (_, _) => { if (IsEffectivelyVisible) Refresh(); };
             AttachedToVisualTree += (_, _) => { Refresh(); _timer.Start(); };
@@ -26,8 +26,9 @@ namespace MphRead.Mods.Launcher.Gui
         {
             var device = GamepadManager.ActiveDevice;
             var state = GamepadManager.Snapshot.State;
-            string status = device == null ? "No controller detected. Connect it and press a button."
-                : device.Name + " | " + device.Mapping;
+            _raw = device?.RawState ?? default;
+            string status = device is { } connected ? connected.Name + " | " + connected.Mapping
+                : "No controller detected. Connect it and press a button.";
             string buttons = state.Buttons == 0 ? "Press a button to test it" : PadBindings.Describe(state.Buttons);
             string actions = state.Buttons == 0 ? "Sticks move/aim; triggers should only fill the LT/RT bars."
                 : "Assigned: " + GamepadProbe.Actions(state.Buttons);
@@ -49,26 +50,31 @@ namespace MphRead.Mods.Launcher.Gui
                 context.DrawText(formatted, new Point(x, y));
             }
             Text(_status, 4, 3, Bounds.Width - 8);
-            void Stick(string label, double x, float axisX, float axisY)
+            void Stick(string label, double x, float axisX, float axisY, float rawX, float rawY, float dead)
             {
                 var center = new Point(x + 27, 60);
                 context.DrawEllipse(GuiTheme.PanelLightBrush, new Pen(GuiTheme.TextDimBrush, 1), center, 23, 23);
+                context.DrawEllipse(null, new Pen(GuiTheme.TextDimBrush, 1), center, 23 * dead, 23 * dead);
+                context.DrawEllipse(null, new Pen(GuiTheme.WarmBrush, 1), new Point(center.X + rawX * 19, center.Y - rawY * 19), 4, 4);
                 context.DrawEllipse(GuiTheme.AccentBrush, null, new Point(center.X + axisX * 19, center.Y - axisY * 19), 4, 4);
                 Text(label, x, 88, 75, true);
             }
-            Stick("Left stick", 10, _state.LeftX, _state.LeftY);
-            Stick("Right stick", 96, _state.RightX, _state.RightY);
+            Stick("Left stick", 10, _state.LeftX, _state.LeftY, _raw.LeftX, _raw.LeftY, GamepadOptions.LeftInner);
+            Stick("Right stick", 96, _state.RightX, _state.RightY, _raw.RightX, _raw.RightY, GamepadOptions.RightInner);
             void Trigger(string label, double y, float value)
             {
                 Text(label, 190, y - 1, 24, true);
                 double width = Math.Clamp(Bounds.Width - 274, 30, 160);
                 context.DrawRectangle(GuiTheme.PanelLightBrush, null, new Rect(218, y, width, 12));
                 context.DrawRectangle(GuiTheme.AccentBrush, null, new Rect(218, y, width * Math.Clamp(value, 0, 1), 12));
+                double threshold = 218 + width * GamepadOptions.TriggerThreshold;
+                context.DrawLine(new Pen(GuiTheme.TextBrush, 1), new Point(threshold, y), new Point(threshold, y + 12));
                 Text(value.ToString("0.00"), 224 + width, y - 1, 45, true);
             }
             Trigger("LT", 42, _state.LeftTrigger); Trigger("RT", 70, _state.RightTrigger);
             Text(_buttons, 4, 112, Bounds.Width - 8);
             Text(_actions, 4, 135, Bounds.Width - 8, true);
+            Text($"Raw LT {_raw.LeftTrigger:0.00} RT {_raw.RightTrigger:0.00} | center L {GamepadOptions.LeftCalibration.CenterX:0.00},{GamepadOptions.LeftCalibration.CenterY:0.00} R {GamepadOptions.RightCalibration.CenterX:0.00},{GamepadOptions.RightCalibration.CenterY:0.00}", 4, 158, Bounds.Width - 8, true);
         }
     }
 }

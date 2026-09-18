@@ -29,6 +29,7 @@ namespace MphRead.Mods.Input
         /// <summary>The pad as of this frame.</summary>
         public static GamepadState State => GamepadManager.ActiveState;
         private static GamepadState _frame;
+        internal static GamepadSnapshot FrameSnapshot { get; private set; }
         private static readonly GamepadEdges Edges = new();
         private static GamepadContext _context;
         private static GamepadButtons _blocked;
@@ -109,6 +110,8 @@ namespace MphRead.Mods.Input
         public static void BeginFrame()
         {
             var snapshot = GamepadManager.Snapshot;
+            FrameSnapshot = snapshot;
+            GamepadRuntimeConfig.Frame = snapshot.Runtime;
             _frame = snapshot.State;
             var context = GamepadContexts.Current;
             _pressed = Edges.Update(snapshot);
@@ -124,6 +127,9 @@ namespace MphRead.Mods.Input
             _blocked &= _frame.Buttons;
             _frame.Buttons &= ~_blocked;
             AimDeltaX = AimDeltaY = 0;
+            if (context != GamepadContext.Gameplay || !GamepadContexts.Focused || !_frame.Connected
+                || (PlayerEntity.MainPlayerIndex >= 0 && PlayerEntity.MainPlayerIndex < PlayerEntity.Players.Count
+                    && PlayerEntity.Players[PlayerEntity.MainPlayerIndex] is { Health: 0 })) AimInputSourceTracker.Reset();
             if (!GamepadContexts.Focused) { _frame = default; _pressed = 0; return; }
             if (!_frame.Connected) { Actions.Reset(); return; }
             Actions.Update(_frame.Buttons);
