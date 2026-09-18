@@ -633,7 +633,8 @@ namespace MphRead.Mods.Launcher.Gui
                 PlayerName = player,
                 RoomKey = "",
                 Mode = maps[0].Mode,
-                Port = port
+                Port = port,
+                Lobby = new LobbyContext(name, $"Local server · port {port}", CreatedLocally: true)
             });
         }
 
@@ -692,7 +693,8 @@ namespace MphRead.Mods.Launcher.Gui
                 PlayerName = player,
                 RoomKey = "",
                 Mode = mode,
-                Port = game.Port
+                Port = game.Port,
+                Lobby = new LobbyContext(name, $"{game.Host}:{game.Port}")
             });
         }
 

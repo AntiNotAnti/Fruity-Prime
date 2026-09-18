@@ -10,6 +10,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using MphRead.Mods.Network;
+using MphRead.Mods.Chat;
 #if MPHREAD_SHELL
 using Avalonia.Headless;
 using Avalonia.Input;
@@ -102,6 +103,79 @@ namespace MphRead.Mods.Launcher.Gui
             return written == 8 * MatrixSizes.Length ? 0 : 1;
         }
 
+        internal static readonly (string Name, Size Size)[] OnlineSizes = MatrixSizes.Concat(new[] {
+            ("phone-portrait", new Size(430, 860)), ("phone-landscape", new Size(860, 430)) }).ToArray();
+
+        // Test-only state injection; these fixtures never open a socket or mutate the wire protocol.
+        internal static void LobbyFixture(string sample, IReadOnlyList<string> rooms)
+        {
+            NetSession.Stop();
+            bool guest = sample.StartsWith("guest") || sample == "host-transfer";
+            typeof(NetSession).GetProperty(nameof(NetSession.Role))!.SetValue(null, NetRole.Client);
+            typeof(NetSession).GetProperty(nameof(NetSession.LocalSlot))!.SetValue(null, guest ? 1 : 0);
+            bool teams = sample.Contains("team") || sample.Contains("custom") || sample == "full-roster";
+            bool custom = sample.Contains("custom");
+            int count = sample == "single-player" ? 1 : sample == "full-roster" ? 8 : 4;
+            var state = new SessionStatePacket { AuthorityEpoch = 1, MatchId = 1, Revision = 1,
+                Policy = ServerSessionPolicy.Lobby, Phase = SessionPhase.Lobby, OwnerSlot = 0, MaxPlayers = 8,
+                RuleFlags = SessionRules.RequireReady | SessionRules.AllowJoinInProgress,
+                Match = new MatchDefinition { RoomKey = rooms[0], Mode = teams ? GameMode.BattleTeams : GameMode.Battle,
+                    Format = custom ? MatchFormat.Custom : teams ? MatchFormat.FourVsFour : MatchFormat.FreeForAll,
+                    CustomTeams = new TeamLayout(4, 1, 1, 2, 4), TimeLimitSeconds = 420, PointGoal = 7 } };
+            NetSession.ApplySessionState(state);
+            var roster = RosterPacket.Create(); roster.Count = (byte)count; roster.Revision = 1;
+            roster.MatchId = 1; roster.AuthorityEpoch = 1; roster.SessionRevision = 1;
+            for (int i = 0; i < count; i++)
+            {
+                roster.Slots[i] = (byte)i; roster.Names[i] = i == NetSession.LocalSlot ? "Your player" : $"Player {i + 1}";
+                roster.Generations[i] = 1; roster.Hunters[i] = (byte)i; roster.Colors[i] = (byte)(i % 4);
+                roster.Teams[i] = (sbyte)(teams ? i % (custom ? 4 : 2) : -1);
+                roster.Pings[i] = (ushort)(24 + i * 17);
+                roster.LobbyReady[i] = sample == "all-ready" || (sample != "not-ready" && i < 2);
+            }
+            NetSession.ApplyRoster(roster);
+            NetChat.Clear();
+            for (int i = 0; i < 24; i++) NetChat.Remember(new ChatPacket {
+                Kind = i % 6 == 0 ? ChatPacket.KindSystem : ChatPacket.KindSay, Name = "Player 2",
+                Text = i % 6 == 0 ? "A player joined the lobby." : $"Message {i + 1}: Ready for another match?" });
+            if (sample == "connection-lost") typeof(NetSession).GetProperty(nameof(NetSession.ConnectionLost))!.SetValue(null, true);
+            if (sample == "command-pending") NetSession.SendLobbyCommand(LobbyCommandType.SetReady, ready: true);
+        }
+
+        private static int RunOnlineAndLobbyStates(string directory)
+        {
+            int failures = 0, written = 0;
+            Dispatcher.UIThread.Invoke(() =>
+            {
+                var rooms = RoomList();
+                foreach (string sample in new[] { "guest-ffa", "host-ffa", "guest-team", "host-team", "guest-custom", "host-custom",
+                    "not-ready", "all-ready", "command-pending", "connection-lost", "full-roster", "single-player", "match-edit", "match-validation-error", "host-transfer" })
+                foreach (var (name, size) in OnlineSizes)
+                {
+                    LobbyFixture(sample, rooms);
+                    var lobby = new LobbyScreen(rooms, new LobbyContext("Friday night lobby", "play.example:27888"));
+                    lobby.ShowCaptureState(sample);
+                    if (Capture(lobby, Path.Combine(directory, $"lobby-state-{sample}-{name}.png"), size, surfaceScale: true, checkLayout: true)) written++; else failures++;
+                    NetSession.Stop();
+                }
+                foreach (string sample in new[] { "lobby", "starting", "in-match", "full", "offline", "wrong-protocol", "legacy", "high-ping", "no-servers", "directory-failure" })
+                foreach (var (name, size) in OnlineSizes)
+                {
+                    var status = new ServerStatus { Online = sample != "offline", LobbyEnabled = sample != "legacy", Legacy = sample == "legacy",
+                        Protocol = (byte)(sample == "wrong-protocol" ? 1 : NetConfig.ProtocolVersion),
+                        Phase = sample == "starting" ? SessionPhase.Starting : sample == "in-match" ? SessionPhase.InMatch : SessionPhase.Lobby,
+                        AllowJoinInProgress = true, Players = sample == "full" ? 8 : 3, MaxPlayers = 8,
+                        RoomKey = rooms[0], Mode = GameMode.Battle, Format = MatchFormat.FreeForAll, Latency = sample == "high-ping" ? 320 : 28 };
+                    var browser = new PlayScreen(new MenuSettings(), rooms, captureOnly: true);
+                    browser.ShowCaptureServers(sample is "no-servers" or "directory-failure" ? Array.Empty<(string, ServerStatus)>() : new[] { ("Friday night lobby", status) });
+                    browser.ShowCaptureOnlineState(sample);
+                    if (Capture(browser, Path.Combine(directory, $"online-{sample}-{name}.png"), size, surfaceScale: true, checkLayout: true)) written++; else failures++;
+                }
+            });
+            Console.WriteLine($"[online-lobby-matrix] {written} states rendered; {failures} failures.");
+            return failures;
+        }
+
         public static int RunReplay(string directory, string replay)
         {
             if (!GuiLauncher.EnsureSetup()) return 1;
@@ -171,6 +245,7 @@ namespace MphRead.Mods.Launcher.Gui
                 }
             });
             failed += RunLobby(directory);
+            failed += RunOnlineAndLobbyStates(directory);
             Console.WriteLine($"[uimatrix] {written} launcher layouts plus lobby matrix; {failed} failures.");
             return failed == 0 ? 0 : 1;
         }
@@ -540,7 +615,7 @@ namespace MphRead.Mods.Launcher.Gui
             // the word on the tick are different on each -- so one picture of
             // it would prove nothing about the other three.
             yield return ("play-online",
-                new PlayScreen(settings, rooms, PlayScreen.Face.Online), _windowSize);
+                new PlayScreen(settings, rooms, PlayScreen.Face.Online, captureOnly: true), _windowSize);
             yield return ("play-offline",
                 new PlayScreen(settings, rooms, PlayScreen.Face.Offline), _windowSize);
             yield return ("play-story",

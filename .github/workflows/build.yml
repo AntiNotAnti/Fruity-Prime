@@ -36,6 +36,8 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '9.0.x'
+      - name: online presentation and connection cancellation
+        run: dotnet run --project tools/online-ui-check/online-ui-check.csproj -c Release
       - name: persistent lobby regression without game assets
         run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -netlobbytest
   controller-checks:

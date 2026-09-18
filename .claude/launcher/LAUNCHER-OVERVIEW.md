@@ -133,3 +133,8 @@ The preference keeps the word: `LauncherPrefs.LastHunter` still stores Random,
 so the picker still shows it and the next match rolls again.
 
 See also: .claude/launcher/LAUNCHER-DESIGN.md, .claude/launcher/LAUNCHER-SETTINGS.md, .claude/launcher/LAUNCHER-FIRSTRUN.md
+# Online and lobby presentation
+
+See [ONLINE-LOBBY-UX.md](ONLINE-LOBBY-UX.md) for server state presentation,
+cancellable joining, persistent lobby panels, responsive navigation and regression
+commands. The UI retains the existing protocol and server authority.

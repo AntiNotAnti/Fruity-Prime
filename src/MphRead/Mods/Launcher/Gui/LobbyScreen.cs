@@ -20,8 +20,27 @@ namespace MphRead.Mods.Launcher.Gui
         public event EventHandler<LaunchPlan>? MatchRequested;
         public event EventHandler<string>? Closed;
         private readonly DispatcherTimer _timer;
-        private readonly StackPanel _players = new(), _ownerControls = new();
-        private readonly Note _status = new(""), _chat = new("");
+        private readonly StackPanel _ownerControls = new();
+        private readonly Note _status = new(""), _notice = new(""), _header = new("");
+        private readonly UiBadge _connection = new("Connected", UiTone.Good);
+        private readonly LobbyContext? _context;
+        private readonly LobbyRosterPanel _rosterPanel;
+        private readonly LobbyMatchPanel _matchPanel;
+        private readonly LobbyChatPanel _chatPanel = new();
+        private readonly Grid _columns;
+        private readonly ScrollViewer _rosterScroll, _matchScroll;
+        private readonly UiTabs _sections = new(new[] { "Players", "Match", "Chat" });
+        private readonly StackPanel _administration;
+        private readonly Queue<string> _notices = new();
+        private DateTime _noticeUntil;
+        private bool _compactLayout, _dirty, _pendingApply, _wasLost, _identityPending;
+        private byte? _lastOwner, _managedSlot;
+        private readonly Note _managedName = new("Select another player above to manage them.");
+        private ushort _editRevision;
+        private MatchDefinition? _submittedMatch;
+        private SessionRules _submittedRules;
+        private DateTime _applyDeadline;
+
         private readonly Note _readiness = new(""), _startReason = new("");
         private readonly ChoiceRow _hunter, _suit, _team, _map, _mode, _format;
         private readonly ChoiceRow _fire, _affinity, _freeze, _opponentHealth, _requireReady, _join;
@@ -30,8 +49,7 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly StackPanel _custom = new();
         private readonly Note _layoutSummary = new("");
         private readonly FieldRow _name, _time, _goal;
-        private readonly TextBox _chatEntry = new() { Watermark = "Message", MaxLength = ChatPacket.MaxTextBytes };
-        private readonly UiMark _ready, _start, _apply;
+        private readonly UiMark _ready, _start, _apply, _updateName;
         private readonly Image _preview = new() { Height = 110, Stretch = Stretch.UniformToFill };
         private readonly string[] _rooms;
         private readonly GameMode[] _modes = Enum.GetValues<GameMode>().Where(m => m >= GameMode.Battle && m <= GameMode.PrimeHunter).ToArray();
@@ -39,15 +57,16 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly List<byte> _targetSlots = new();
         private MatchDefinition? _shownMatch;
         private ushort? _shownRevision;
-        private int _chatRevision = -1, _rosterCount;
+        private int _rosterCount;
         private uint? _shownRosterRevision;
         private double _nextPingRefresh;
         private SessionRules _shownRules;
         private bool _syncing, _suspended, _closed;
         private Bitmap? _bitmap;
 
-        public LobbyScreen(IReadOnlyList<string> rooms)
+        public LobbyScreen(IReadOnlyList<string> rooms, LobbyContext? context = null)
         {
+            _context = context;
             _rooms = rooms.ToArray();
             Focusable = true;
             _hunter = new ChoiceRow("Hunter", Enumerable.Range(0, Hunters.Playable).Select(i => ((Hunter)i).ToString()).ToArray(), (int)NetSession.LocalHunter);
@@ -55,7 +74,10 @@ namespace MphRead.Mods.Launcher.Gui
             _team = new ChoiceRow("Team", new[] { "Auto", "Team A", "Team B" });
             _name = new FieldRow("Name", NetSession.PlayerName); _name.Box.MaxLength = RosterPacket.MaxNameBytes;
             _hunter.Changed += (_, _) => Identify(); _suit.Changed += (_, _) => Identify();
-            _team.Changed += (_, _) => { if (!_syncing) NetSession.SendLobbyCommand(LobbyCommandType.SetTeam, (byte)NetSession.LocalSlot, (sbyte)(_team.Index - 1)); };
+            _team.Changed += (_, _) => {
+                if (!_syncing && !NetSession.ConnectionLost && NetSession.IsInLobby)
+                    _identityPending = NetSession.SendLobbyCommand(LobbyCommandType.SetTeam, (byte)NetSession.LocalSlot, (sbyte)(_team.Index - 1));
+            };
 
             _map = new ChoiceRow("Map", _rooms.Select(r => Metadata.GetRoomByName(r).Item1?.InGameName ?? r).ToArray());
             _mode = new ChoiceRow("Mode", _modes.Select(UiText.Mode).ToArray());
@@ -78,55 +100,105 @@ namespace MphRead.Mods.Launcher.Gui
             _teamCount.Changed += (_, _) => RefreshDraft();
             _format.Changed += (_, _) => RefreshDraft(); _mode.Changed += (_, _) => RefreshDraft();
             _apply = ActionButton("Apply match settings", ApplyMatch);
-            foreach (Control control in new Control[] { _map, _mode, _format, _custom, _layoutSummary, _time, _goal, _fire, _affinity, _freeze, _opponentHealth, _requireReady, _join, _apply })
+            foreach (Control control in new Control[] { new Caption("Match"), _map, _mode, _format, new Caption("Teams"), _custom, _layoutSummary, new Caption("Rules"), _time, _goal, _fire, _affinity, _freeze, _opponentHealth, _requireReady, _join, _lockTeams, new Note("Use 0 for no time or score limit."), _apply })
                 _ownerControls.Children.Add(control);
 
-            var left = new StackPanel { Spacing = 4, Margin = new Thickness(0, 0, 18, 0) };
-            left.Children.Add(new Note("Players")); left.Children.Add(_players);
-            foreach (Control control in new Control[] { _name, ActionButton("Update name", Identify), _hunter, _suit, _team }) left.Children.Add(control);
-            _target = new ChoiceRow("Manage player", Array.Empty<string>());
+            _updateName = ActionButton("Update name", Identify);
+            var identity = new StackPanel { Spacing = 3 };
+            foreach (Control control in new Control[] { _name, _updateName, _hunter, _suit, _team, new Note("Changing your player or team clears Ready.") }) identity.Children.Add(control);
+            _target = new ChoiceRow("Selected player", Array.Empty<string>());
             _moveTeam = new ChoiceRow("Move to team", new[] { "Auto", "Team A", "Team B" });
-            var administration = new StackPanel();
-            administration.Children.Add(new Caption("Player administration"));
-            administration.Children.Add(_lockTeams); administration.Children.Add(_target); administration.Children.Add(_moveTeam);
-            administration.Children.Add(ActionButton("Move player", () => Admin(LobbyCommandType.SetTeam)));
-            administration.Children.Add(ActionButton("Transfer host", () => ConfirmAdmin(LobbyCommandType.TransferOwner)));
-            administration.Children.Add(ActionButton("Remove player", () => ConfirmAdmin(LobbyCommandType.KickPlayer)));
-            left.Children.Add(administration);
-
-            var right = new StackPanel { Spacing = 3 };
-            right.Children.Add(_preview); right.Children.Add(new Caption("Match settings")); right.Children.Add(_ownerControls);
-            right.Children.Add(new Note("Set the time or score limit to 0 for no limit."));
-            var columns = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*") };
-            columns.Children.Add(new ScrollViewer { Content = left });
-            var rightScroll = new ScrollViewer { Content = right }; Grid.SetColumn(rightScroll, 1); columns.Children.Add(rightScroll);
-            var chatPanel = new StackPanel();
-            chatPanel.Children.Add(new ScrollViewer { Content = _chat, Height = 62 });
-            var chatInput = new DockPanel(); var send = ActionButton("Send", SendChat);
-            DockPanel.SetDock(send, Dock.Right); chatInput.Children.Add(send); chatInput.Children.Add(_chatEntry); chatPanel.Children.Add(chatInput);
-            _chatEntry.KeyDown += (_, e) => { if (e.Key == Key.Enter) { SendChat(); e.Handled = true; } };
+            _administration = new StackPanel();
+            _administration.Children.Add(new Caption("Manage selected player"));
+            _administration.Children.Add(_managedName); _administration.Children.Add(_moveTeam);
+            _administration.Children.Add(ActionButton("Move player", () => Admin(LobbyCommandType.SetTeam)));
+            _administration.Children.Add(ActionButton("Transfer host", () => ConfirmAdmin(LobbyCommandType.TransferOwner)));
+            _administration.Children.Add(ActionButton("Remove player", () => ConfirmAdmin(LobbyCommandType.KickPlayer)));
+            _rosterPanel = new LobbyRosterPanel(identity, _administration);
+            _rosterPanel.PlayerSelected += slot => { _managedSlot = slot; int index = _targetSlots.IndexOf(slot); if (index >= 0) _target.Index = index; Refresh(); };
+            _matchPanel = new LobbyMatchPanel(_preview, _ownerControls);
+            _matchPanel.EditRequested += () => { _editRevision = NetSession.ServerSession?.Revision ?? 0; _dirty = false; Refresh(); };
+            _matchPanel.CancelRequested += () => { _shownMatch = null; _dirty = false; Refresh(); };
+            foreach (var choice in new[] { _map, _mode, _format, _fire, _affinity, _freeze, _opponentHealth, _requireReady, _join, _lockTeams, _teamCount }.Concat(_capacities))
+                choice.Changed += (_, _) => MarkDirty();
+            _time.Box.TextChanged += (_, _) => MarkDirty(); _goal.Box.TextChanged += (_, _) => MarkDirty();
+            _columns = new Grid { ColumnDefinitions = new ColumnDefinitions("2*,3*"), RowDefinitions = new RowDefinitions("*,180") };
+            _rosterScroll = new ScrollViewer { Content = _rosterPanel, Margin = new Thickness(0, 0, 12, 0) };
+            _matchScroll = new ScrollViewer { Content = _matchPanel };
+            _columns.Children.Add(_rosterScroll); Grid.SetColumn(_matchScroll, 1); _columns.Children.Add(_matchScroll);
+            Grid.SetRow(_chatPanel, 1); Grid.SetColumnSpan(_chatPanel, 2); _columns.Children.Add(_chatPanel);
+            _sections.Changed += (_, _) => LayoutSections();
             var footer = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16, HorizontalAlignment = HorizontalAlignment.Center };
-            footer.Children.Add(ActionButton("Leave", () => Leave("")));
+            footer.Children.Add(ActionButton("Leave", ConfirmLeave));
             _ready = ActionButton("Ready", () => NetSession.SendLobbyCommand(LobbyCommandType.SetReady,
                 ready: !NetSession.SlotLobbyReady[NetSession.LocalSlot]));
             _start = ActionButton("Start match", () => NetSession.SendLobbyCommand(LobbyCommandType.StartMatch));
             footer.Children.Add(_ready); footer.Children.Add(_start);
-            var body = new Grid { RowDefinitions = new RowDefinitions("*,Auto,Auto,Auto,Auto,Auto") };
-            body.Children.Add(columns); Grid.SetRow(chatPanel, 1); body.Children.Add(chatPanel);
-            Grid.SetRow(_status, 2); body.Children.Add(_status); Grid.SetRow(_readiness, 3); body.Children.Add(_readiness);
-            Grid.SetRow(_startReason, 4); body.Children.Add(_startReason);
-            Grid.SetRow(footer, 5); body.Children.Add(footer);
-            // The footer belongs inside this grid, unlike screens whose marks sit outside their well.
-            var frame = new Grid { MaxWidth = 1060, Margin = new Thickness(UiLayout.WellGutter),
-                RowDefinitions = new RowDefinitions("Auto,*") };
-            frame.Children.Add(new Note("Lobby") { FontSize = UiLayout.HeadingSize,
-                HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 12) });
-            Grid.SetRow(body, 1); frame.Children.Add(body);
+            var body = new Grid { RowDefinitions = new RowDefinitions("Auto,*,Auto,Auto,Auto,Auto,Auto") };
+            body.Children.Add(_sections);
+            Grid.SetRow(_columns, 1); body.Children.Add(_columns);
+            Grid.SetRow(_notice, 2); body.Children.Add(_notice);
+            Grid.SetRow(_status, 3); body.Children.Add(_status); Grid.SetRow(_readiness, 4); body.Children.Add(_readiness);
+            Grid.SetRow(_startReason, 5); body.Children.Add(_startReason);
+            Grid.SetRow(footer, 6); body.Children.Add(footer);
+            var frame = new Grid { MaxWidth = 1440, Margin = new Thickness(20, 12), RowDefinitions = new RowDefinitions("Auto,*") };
+            var heading = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+            _header.FontSize = 16; heading.Children.Add(_header); Grid.SetColumn(_connection, 1); heading.Children.Add(_connection);
+            frame.Children.Add(heading); Grid.SetRow(body, 1); frame.Children.Add(body);
             Panel root = UiLayout.Backdrop(wash: UiLayout.BackdropWash.Standard);
             root.Children.Add(frame); Content = root;
             _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.0 / 30) };
-            _timer.Tick += (_, _) => { Tick(); administration.IsVisible = NetSession.LocalIsLobbyOwner; };
-            Refresh();
+            _timer.Tick += (_, _) => Tick();
+            LayoutSections(); Refresh();
+        }
+
+        internal void ShowCaptureState(string sample)
+        {
+            Suspend();
+            if (sample is "match-edit" or "match-validation-error")
+            { _matchPanel.BeginEdit(); _sections.Index = 1; if (sample == "match-validation-error") _time.Value = "invalid"; }
+            if (sample == "guest-custom") _sections.Index = 2;
+            if (sample == "host-transfer" && NetSession.ServerSession is { } state)
+            { state.OwnerSlot = (byte)NetSession.LocalSlot; state.Revision++; NetSession.ApplySessionState(state); _noticeUntil = DateTime.MinValue; Refresh(); }
+        }
+        internal void RefreshForCheck() => Refresh();
+
+        private void MarkDirty() { if (!_syncing && _matchPanel.Editing) { _dirty = true; RefreshDraft(); } }
+        private void Notify(string message)
+        {
+            if (string.IsNullOrEmpty(_notice.Text))
+            { _notice.Text = message; _notice.IsVisible = true; _noticeUntil = DateTime.UtcNow.AddSeconds(4); return; }
+            if (_notices.Count == 4) _notices.Dequeue();
+            _notices.Enqueue(message);
+        }
+        private void LayoutSections()
+        {
+            _sections.IsVisible = _compactLayout;
+            _columns.ColumnDefinitions = new ColumnDefinitions(_compactLayout ? "*,0" : "2*,3*");
+            _columns.RowDefinitions = new RowDefinitions(_compactLayout ? "*,0" : "*,180");
+            Grid.SetColumn(_matchScroll, _compactLayout ? 0 : 1);
+            Grid.SetRow(_chatPanel, _compactLayout ? 0 : 1);
+            Grid.SetColumnSpan(_chatPanel, _compactLayout ? 1 : 2);
+            _rosterScroll.IsVisible = !_compactLayout || _sections.Index == 0;
+            _matchScroll.IsVisible = !_compactLayout || _sections.Index == 1;
+            _chatPanel.IsVisible = !_compactLayout || _sections.Index == 2;
+        }
+        protected override Size MeasureOverride(Size availableSize)
+        {
+            var surface = TopLevel.GetTopLevel(this)?.ClientSize ?? availableSize;
+            bool compact = availableSize.Width < 720 || availableSize.Height < 550 || surface.Width < 720 || surface.Height < 550;
+            if (_compactLayout != compact) { _compactLayout = compact; LayoutSections(); }
+            return base.MeasureOverride(availableSize);
+        }
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            if (!e.Handled && e.Key == Key.Escape) { ConfirmLeave(); e.Handled = true; }
+            base.OnKeyDown(e);
+        }
+        private void ConfirmLeave()
+        {
+            bool migrate = NetSession.LocalIsLobbyOwner && _rosterCount > 1;
+            ConfirmScreen.Show(this, migrate ? "Leave this lobby? Another player will become the host." : "Leave this lobby and disconnect?", "Leave", () => Leave(""));
         }
 
         private static ChoiceRow Toggle(string label) => new(label, new[] { "Off", "On" });
@@ -160,35 +232,49 @@ namespace MphRead.Mods.Launcher.Gui
                 Suspend();
                 var match = NetSession.ActiveMatchDefinition!.Value;
                 MatchRequested?.Invoke(this, new LaunchPlan { Kind = LaunchKind.Online,
-                    Hunter = NetSession.LocalHunter, PlayerName = NetSession.PlayerName, RoomKey = match.RoomKey, Mode = match.Mode });
+                    Hunter = NetSession.LocalHunter, PlayerName = NetSession.PlayerName, RoomKey = match.RoomKey, Mode = match.Mode, Lobby = _context });
             }
         }
         private void Refresh()
         {
             if (NetSession.ServerSession is not { } session) return;
+            bool connected = NetSession.Active && !NetSession.ConnectionLost;
+            bool owner = NetSession.LocalIsLobbyOwner;
+            if (_lastOwner.HasValue && _lastOwner != session.OwnerSlot)
+                Notify(owner ? "You are now the host." : "The host has changed.");
+            _lastOwner = session.OwnerSlot;
+            if (_wasLost && connected) Notify("Connection restored.");
+            _wasLost = !connected;
+            if (_matchPanel.Editing && _editRevision != session.Revision && !_pendingApply)
+            { _shownMatch = null; _dirty = false; _editRevision = session.Revision; Notify("The lobby changed. Match settings reloaded; review them before applying."); }
+            if (_pendingApply && !NetSession.LobbyCommandPending)
+            {
+                bool confirmed = NetSession.LobbyMessage.Length == 0 && _submittedMatch == session.Match && _submittedRules == session.RuleFlags;
+                bool failed = NetSession.LobbyMessage.Length > 0 || DateTime.UtcNow >= _applyDeadline;
+                if (confirmed || failed)
+                {
+                    _pendingApply = false; _dirty = false;
+                    if (confirmed) { _matchPanel.CloseEditor(); Notify("Match settings updated. Players must ready again."); }
+                    else { _shownMatch = null; Notify(NetSession.LobbyMessage.Length > 0 ? NetSession.LobbyMessage : "Updated match state has not arrived. Review the current settings before retrying."); }
+                    _editRevision = session.Revision;
+                }
+            }
             _syncing = true;
             _hunter.Index = (int)NetSession.LocalHunter; _suit.Index = NetSession.LocalColor;
             var roster = NetSession.LobbyRoster();
             _rosterCount = roster.Count;
+            if (_identityPending && NetSession.LocalSlot >= 0 && !NetSession.SlotLobbyReady[NetSession.LocalSlot])
+            { _identityPending = false; Notify("Your ready status is clear. Ready again when you are set."); }
             // Roster pings update without a configuration revision.
             if (_shownRevision != session.Revision || _shownRosterRevision != roster.Revision || NetSession.Clock >= _nextPingRefresh)
             {
                 _shownRevision = session.Revision; _shownRosterRevision = roster.Revision; _nextPingRefresh = NetSession.Clock + 1;
-                byte selected = _target.Index < _targetSlots.Count ? _targetSlots[_target.Index] : byte.MaxValue;
-                _players.Children.Clear(); _targetSlots.Clear();
+                byte selected = _target.Index >= 0 && _target.Index < _targetSlots.Count ? _targetSlots[_target.Index] : byte.MaxValue;
+                _rosterPanel.Refresh(roster, session);
+                _targetSlots.Clear();
                 var names = new List<string>();
-                int teams = LobbyRules.TeamCount(session.Match);
-                for (int team = -1; team < (teams == 0 ? 0 : teams); team++)
-                {
-                    if (teams > 0 && team == -1 && !Enumerable.Range(0, roster.Count).Any(i => roster.Teams[i] < 0)) continue;
-                    if (teams > 0) _players.Children.Add(new Caption(team < 0 ? "Unassigned" : UiText.Team(team)));
-                    for (int i = 0; i < roster.Count; i++)
-                    {
-                        if (teams > 0 && roster.Teams[i] != team) continue;
-                        _players.Children.Add(new LobbyPlayerRow(roster, i, session.OwnerSlot));
-                        if (roster.Slots[i] != NetSession.LocalSlot) { _targetSlots.Add(roster.Slots[i]); names.Add(roster.Names[i]); }
-                    }
-                }
+                for (int i = 0; i < roster.Count; i++)
+                    if (roster.Slots[i] != NetSession.LocalSlot) { _targetSlots.Add(roster.Slots[i]); names.Add(roster.Names[i]); }
                 _target.SetItems(names, Math.Max(0, _targetSlots.IndexOf(selected)));
             }
             if (_shownMatch != session.Match || _shownRules != session.RuleFlags)
@@ -213,57 +299,75 @@ namespace MphRead.Mods.Launcher.Gui
                 catch (Exception) { /* A preview is optional; map validation belongs to the server. */ }
                 _preview.IsVisible = _bitmap != null;
             }
-            _ownerControls.IsEnabled = NetSession.CanEditLobby && !NetSession.LobbyCommandPending;
+            _matchPanel.Refresh(session, owner, connected && NetSession.CanEditLobby, NetSession.LobbyCommandPending || _pendingApply);
+            _ownerControls.IsEnabled = connected && NetSession.CanEditLobby && !NetSession.LobbyCommandPending;
+            _administration.IsVisible = owner;
+            _administration.IsEnabled = connected && NetSession.CanEditLobby && !NetSession.LobbyCommandPending && _managedSlot.HasValue && _targetSlots.Contains(_managedSlot.Value);
+            _managedName.Text = _administration.IsEnabled ? _target.Value : "Select another player above to manage them.";
+            _name.IsEnabled = _updateName.IsEnabled = connected && NetSession.IsInLobby && !NetSession.LobbyCommandPending;
             _team.IsVisible = LobbyRules.TeamCount(session.Match) > 0;
             if (NetSession.LocalSlot >= 0) _team.Index = NetSession.SlotTeamIndex[NetSession.LocalSlot] + 1;
-            _hunter.IsEnabled = _suit.IsEnabled = NetSession.IsInLobby && !NetSession.LobbyCommandPending;
+            _hunter.IsEnabled = _suit.IsEnabled = connected && NetSession.IsInLobby && !NetSession.LobbyCommandPending;
             _team.IsEnabled = _hunter.IsEnabled && (!session.LockTeams || NetSession.LocalIsLobbyOwner);
             _moveTeam.IsVisible = _team.IsVisible;
-            _ready.IsEnabled = NetSession.IsInLobby && !NetSession.LobbyCommandPending;
+            _ready.IsEnabled = connected && NetSession.LocalSlot >= 0 && NetSession.IsInLobby && !NetSession.LobbyCommandPending;
             _ready.Label = NetSession.LocalSlot >= 0 && NetSession.SlotLobbyReady[NetSession.LocalSlot] ? "Cancel ready" : "Ready";
             var valid = LobbyRules.Validate(session.Match, roster, session.RequireReady, out string reason);
             _start.IsVisible = NetSession.LocalIsLobbyOwner;
-            _start.IsEnabled = NetSession.CanEditLobby && valid == LobbyResultCode.Ok && !NetSession.LobbyCommandPending;
+            _start.IsEnabled = connected && !_matchPanel.Editing && NetSession.CanEditLobby && valid == LobbyResultCode.Ok && !NetSession.LobbyCommandPending;
             int ready = 0;
             for (int i = 0; i < roster.Count; i++) if (roster.LobbyReady[i]) ready++;
-            _readiness.Text = $"{ready} of {UiText.Players(roster.Count)} ready";
+            _readiness.Text = $"{ready}/{roster.Count} players ready";
+            _start.Label = NetSession.LobbyCommandPending ? "Waiting for server…" : $"Start Match ({ready}/{roster.Count})";
+            int localPing = Enumerable.Range(0, roster.Count).Where(i => roster.Slots[i] == NetSession.LocalSlot).Select(i => (int)roster.Pings[i]).FirstOrDefault();
+            _header.Text = $"{_context?.ServerName ?? "Lobby"} · {roster.Count}/{session.MaxPlayers} players · {UiText.Phase(session.Phase)} · {localPing} ms\n{_context?.Endpoint ?? "Connected server"}";
+            _connection.Set(connected ? "CONNECTED" : "RECONNECTING", connected ? UiTone.Good : UiTone.Warning);
             _startReason.IsVisible = NetSession.LocalIsLobbyOwner;
             _startReason.Text = NetSession.LobbyCommandPending ? "Waiting for the server to confirm changes…"
-                : !NetSession.CanEditLobby ? "Waiting for players to finish loading…" : reason;
+                : !connected ? "Reconnecting. Actions are paused until the server responds."
+                : _matchPanel.Editing ? "Apply or cancel your match changes before starting."
+                : !NetSession.IsInLobby ? $"Loading {UiText.Map(session.Match.RoomKey)}…" : reason;
             _status.Text = NetSession.ConnectionLost ? "Connection lost, retrying…" : NetSession.LobbyMessage.Length > 0 ? NetSession.LobbyMessage
-                : NetSession.LocalIsLobbyOwner ? "" : reason;
-            if (_chatRevision != NetChat.Revision)
-            { _chatRevision = NetChat.Revision; _chat.Text = String.Join("\n", NetChat.History.TakeLast(8)); }
+                : "";
+            _status.IsVisible = _status.Text.Length > 0;
+            _startReason.IsVisible = _startReason.Text.Length > 0;
+            _chatPanel.Refresh(connected);
+            if (DateTime.UtcNow >= _noticeUntil)
+            {
+                _notice.Text = _notices.Count > 0 ? _notices.Dequeue() : "";
+                _noticeUntil = DateTime.UtcNow.AddSeconds(4);
+            }
+            _notice.IsVisible = !string.IsNullOrEmpty(_notice.Text);
             _syncing = false;
             RefreshDraft();
         }
         private void Identify()
         {
-            if (_syncing || !NetSession.IsInLobby) return;
+            if (_syncing || !NetSession.IsInLobby || NetSession.ConnectionLost || NetSession.LobbyCommandPending) return;
             NetSession.PlayerName = String.IsNullOrWhiteSpace(_name.Value) ? "Player" : _name.Value.Trim();
             NetSession.LocalHunter = (Hunter)_hunter.Index; NetSession.LocalColor = _suit.Index;
             LauncherPrefs.PlayerName = NetSession.PlayerName; LauncherPrefs.LastHunter = NetSession.LocalHunter;
-            LauncherPrefs.LastColor = NetSession.LocalColor; LauncherPrefs.Save(); NetSession.SendIdentify();
+            LauncherPrefs.LastColor = NetSession.LocalColor; LauncherPrefs.Save(); NetSession.SendIdentify(); _identityPending = true;
+
         }
-        private void SendChat() { NetChat.Send(_chatEntry.Text ?? ""); _chatEntry.Text = ""; }
         private void ConfirmAdmin(LobbyCommandType type)
         {
-            if (_target.Index < 0 || _target.Index >= _targetSlots.Count) return;
+            if (!_administration.IsEnabled || _target.Index < 0 || _target.Index >= _targetSlots.Count) return;
             byte slot = _targetSlots[_target.Index];
             uint revision = NetSession.LobbyRoster().Revision;
             string action = type == LobbyCommandType.KickPlayer ? "Remove player" : "Transfer host";
             ConfirmScreen.Show(this, type == LobbyCommandType.KickPlayer
                 ? $"Remove “{_target.Value}” from this lobby?" : $"Make “{_target.Value}” the host?", action, () =>
                 {
-                    if (NetSession.LobbyRoster().Revision != revision || !NetSession.CanEditLobby)
-                    { _status.Text = "The lobby changed. Select the player again."; return; }
+                    if (NetSession.LobbyRoster().Revision != revision || !NetSession.CanEditLobby || NetSession.ConnectionLost || NetSession.LobbyCommandPending)
+                    { Notify("The lobby changed. Select the player again."); return; }
                     NetSession.SendLobbyCommand(type, slot);
                 });
         }
 
         private void Admin(LobbyCommandType type)
         {
-            if (_target.Index < _targetSlots.Count)
+            if (_administration.IsEnabled && NetSession.CanEditLobby && !NetSession.ConnectionLost && !NetSession.LobbyCommandPending && _target.Index >= 0 && _target.Index < _targetSlots.Count)
                 NetSession.SendLobbyCommand(type, _targetSlots[_target.Index], (sbyte)(_moveTeam.Index - 1));
         }
         private MatchDefinition DraftMatch()
@@ -271,12 +375,12 @@ namespace MphRead.Mods.Launcher.Gui
             int count = _teamCount.Index + 2;
             return new MatchDefinition { RoomKey = _rooms.Length > 0 ? _rooms[Math.Clamp(_map.Index, 0, _rooms.Length - 1)] : "",
                 Mode = _modes[Math.Clamp(_mode.Index, 0, _modes.Length - 1)], Format = _formats[Math.Clamp(_format.Index, 0, _formats.Length - 1)],
-                CustomTeams = new TeamLayout((byte)count, (byte)(_capacities[0].Index + 1), (byte)(_capacities[1].Index + 1),
+                CustomTeams = _formats[Math.Clamp(_format.Index, 0, _formats.Length - 1)] != MatchFormat.Custom ? NetSession.ServerSession?.Match.CustomTeams ?? default : new TeamLayout((byte)count, (byte)(_capacities[0].Index + 1), (byte)(_capacities[1].Index + 1),
                     count > 2 ? (byte)(_capacities[2].Index + 1) : (byte)0, count > 3 ? (byte)(_capacities[3].Index + 1) : (byte)0) };
         }
         private void RefreshDraft()
         {
-            if (_syncing || _apply == null) return;
+            if (_syncing || _apply == null || _matchPanel == null || !_matchPanel.Editing) return;
             MatchDefinition draft = DraftMatch();
             _custom.IsVisible = draft.Format == MatchFormat.Custom;
             for (int team = 0; team < 4; team++) _capacities[team].IsVisible = team < _teamCount.Index + 2;
@@ -289,12 +393,24 @@ namespace MphRead.Mods.Launcher.Gui
             { valid = false; reason = "Time and goal must be whole numbers from 0 to 65535."; }
             _layoutSummary.Text = !valid ? reason : layout.TeamCount == 0 ? "Free for all"
                 : $"Layout: {layout} · Players required: {(LobbyRules.ExactTeams(draft) ? layout.TotalPlayers.ToString() : "flexible")}";
-            _apply.IsEnabled = valid && NetSession.CanEditLobby && !NetSession.LobbyCommandPending;
+            if (valid && NetSession.ServerSession is { } current)
+            {
+                var complete = draft with { TimeLimitSeconds = ushort.Parse(_time.Value), PointGoal = ushort.Parse(_goal.Value),
+                    FriendlyFire = _fire.Index == 1, AffinityWeapons = _affinity.Index == 1,
+                    ShadowFreeze = _freeze.Index == 1, HideOpponentHealth = _opponentHealth.Index == 1 };
+                var rules = complete.Rules | (_requireReady.Index == 1 ? SessionRules.RequireReady : 0)
+                    | (_join.Index == 1 ? SessionRules.AllowJoinInProgress : 0) | (_lockTeams.Index == 1 ? SessionRules.LockTeams : 0);
+                _dirty = complete != current.Match || rules != current.RuleFlags;
+            }
+            _lockTeams.IsVisible = LobbyRules.TeamCount(draft) > 0;
+            _apply.Label = _pendingApply ? "Applying…" : "Apply Changes";
+            _apply.IsEnabled = !_pendingApply && _dirty && valid && !NetSession.ConnectionLost && NetSession.CanEditLobby && !NetSession.LobbyCommandPending;
             if (!valid) { _start.IsEnabled = false; _startReason.Text = reason; }
         }
         private void ApplyMatch()
         {
-            if (_rooms.Length == 0 || NetSession.ServerSession is not { } config) return;
+            if (!_apply.IsEnabled || _rooms.Length == 0 || NetSession.ServerSession is not { } config) return;
+            if (config.Revision != _editRevision) { _shownMatch = null; _dirty = false; Notify("The lobby changed. Review the latest settings."); Refresh(); return; }
             if (!ushort.TryParse(_time.Value, out ushort seconds) || !ushort.TryParse(_goal.Value, out ushort goal))
             { _status.Text = "Time and goal must be whole numbers from 0 to 65535."; return; }
             config.Match = DraftMatch() with {
@@ -306,6 +422,9 @@ namespace MphRead.Mods.Launcher.Gui
                 | (_lockTeams.Index == 1 ? SessionRules.LockTeams : 0);
             if (LobbyRules.ValidateDefinition(config.Match, out string reason) != LobbyResultCode.Ok) { _status.Text = reason; return; }
             NetSession.SendLobbyCommand(LobbyCommandType.UpdateMatch, configuration: config);
+            _pendingApply = NetSession.LobbyCommandPending; _submittedMatch = config.Match;
+            _submittedRules = config.RuleFlags; _applyDeadline = DateTime.UtcNow.AddSeconds(10);
+            _apply.Label = "Applying…"; Refresh();
         }
     }
 }
