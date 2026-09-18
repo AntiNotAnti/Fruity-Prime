@@ -419,11 +419,6 @@ namespace MphRead.Mods.Network
 
         public void Run(CancellationToken cancel = default)
         {
-            foreach(var entry in _rotation.Entries)
-            {
-                var definition=MapGen.CustomRooms.Definitions.FirstOrDefault(d=>d.Name.Equals(entry.RoomKey,StringComparison.OrdinalIgnoreCase));
-                if(definition!=null&&MapGen.MapModeValidator.WhyUnsupported(definition,entry.Mode,_maxPlayers) is {} reason)throw new ProgramException(reason);
-            }
             _transport = new NetTransport(_port);
             _running = true;
             Log($"listening on UDP {_transport.LocalPort}, up to {_maxPlayers} players");

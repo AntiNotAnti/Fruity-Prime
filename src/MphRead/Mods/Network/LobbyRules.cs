@@ -51,7 +51,6 @@ namespace MphRead.Mods.Network
                 reason = exact ? $"{layout} requires exactly {required} players." : $"At least {required} players must join.";
                 return LobbyResultCode.NotEnoughPlayers;
             }
-            int notReady = 0;
             Span<int> counts = stackalloc int[4];
             for (int i = 0; i < roster.Count; i++)
             {
@@ -61,16 +60,15 @@ namespace MphRead.Mods.Network
                     if (team < 0 || team >= layout.TeamCount) { reason = "Every player needs a valid team."; return LobbyResultCode.InvalidTeam; }
                     counts[team]++;
                 }
-                if (!roster.LobbyReady[i]) notReady++;
+                if (requireReady && !roster.LobbyReady[i])
+                { reason = $"Waiting for {roster.Names[i]} to ready."; return LobbyResultCode.PlayersNotReady; }
             }
             for (int team = 0; team < layout.TeamCount; team++)
             {
                 int capacity = layout.Capacity(team);
                 if (counts[team] > capacity || (exact && counts[team] != capacity))
-                { reason = $"{Launcher.UiText.Team(team)} needs {Launcher.UiText.Count(Math.Abs(capacity - counts[team]), counts[team] < capacity ? "more player" : "fewer player")}."; return LobbyResultCode.InvalidTeam; }
+                { reason = $"Team {(char)('A' + team)} needs {capacity} players (currently {counts[team]})."; return LobbyResultCode.InvalidTeam; }
             }
-            if (requireReady && notReady > 0)
-            { reason = $"Waiting for {Launcher.UiText.Players(notReady)} to ready up."; return LobbyResultCode.PlayersNotReady; }
             reason = "Ready to start.";
             return LobbyResultCode.Ok;
         }

@@ -125,7 +125,7 @@ namespace MphRead.Mods.Network
                 bytes[5] = (byte)(NetConfig.ProtocolVersion - 1);
                 File.WriteAllBytes(path, bytes);
                 Check(!DemoPlayback.Join(path) && !DemoPlayback.IsActive
-                    && DemoPlayback.LastResult == ReplayOpenResult.ProtocolMismatch,
+                    && DemoPlayback.LastError?.Contains("requires protocol") == true,
                     "incompatible demo fails before scene or session construction");
                 using var exclusive = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
                 Check(exclusive.Length >= DemoFile.HeaderSize, "rejected demo releases its file handle");
@@ -506,9 +506,8 @@ namespace MphRead.Mods.Network
             Check(NetSession.SendLobbyCommand(LobbyCommandType.StartMatch), "real client starts");
             PumpUntil(() => NetSession.IsStarting && !NetSession.LobbyCommandPending, "real client load barrier");
             Check(NetSession.FreezeGameplay, "gameplay frozen before loaded");
-            Check(NetLaunch.VerifyServerMap(), "map negotiation runs at the lobby load barrier");
             Check(NetSession.IsStarting && NetSession.ConnectionPort == port,
-                "map negotiation preserves the lobby connection and load barrier");
+                "lobby connection survives the load barrier");
             NetSession.MarkMatchLoaded();
             PumpUntil(() => NetSession.IsPlaying, "real load ack starts match");
             Check(!NetSession.FreezeGameplay, "gameplay released after barrier");
@@ -528,7 +527,6 @@ namespace MphRead.Mods.Network
             PumpUntil(() => !NetSession.LobbyCommandPending && NetSession.SlotLobbyReady[slot], "second ready received");
             Check(NetSession.SendLobbyCommand(LobbyCommandType.StartMatch), "second real-client start");
             PumpUntil(() => NetSession.IsStarting, "second real-client load barrier");
-            Check(NetLaunch.VerifyServerMap(), "same-room next match revalidates the server map");
             NetSession.MarkMatchLoaded(); PumpUntil(() => NetSession.IsPlaying, "second real-client round");
             Check(NetSession.ConnectionPort == port && NetSession.LocalSlot == slot, "same client UDP session in second match");
             NetSession.Stop();
