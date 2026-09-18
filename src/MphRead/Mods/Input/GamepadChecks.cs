@@ -20,6 +20,7 @@ namespace MphRead.Mods.Input
         {
             try
             {
+                GamepadPlatformChecks.Run();
                 string install = Path.Combine(Path.GetTempPath(), "mapping fixture", "Fruity Prime.app", "Contents", "MacOS");
                 string resources = Platform.AppPaths.GetResourceDirectory(install, macOS: true);
                 string settings = Path.Combine(Path.GetTempPath(), "mapping user settings");

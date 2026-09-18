@@ -192,6 +192,9 @@ jobs:
       - name: bounded thumbnail worker regression
         run: dotnet run --project tools/thumbnail-batch-check/thumbnail-batch-check.csproj -c Release
 
+      - name: controller mapping and headless UI regressions
+        run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -gamepadcheck
+
       - name: signing gate regressions
         run: tools/test-macos-tools.sh
       - name: cook the map bundles
