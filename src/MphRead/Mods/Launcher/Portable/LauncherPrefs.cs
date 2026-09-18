@@ -26,24 +26,19 @@ namespace MphRead.Mods.Launcher
         private static string Path => System.IO.Path.Combine(Directory, "launcher.txt");
 
         /// <summary>
-        /// The project's own server, so that a fresh install can press "play
-        /// online" and be in a match without being asked for an address it has
-        /// no way to know. Typing another one over it is one field on the front
-        /// screen, and whatever was typed is what gets saved here.
-        ///
-        /// The address, not the hostname: the hostname is for the people
-        /// working on this, and a name that resolves somewhere else later
-        /// would send every copy of the launcher with it.
+        /// The project's VPS, so that a fresh install can press "play online"
+        /// and join without being asked for an address. Typing another one
+        /// over it is one field on the front screen, and whatever was typed is
+        /// what gets saved here.
         /// </summary>
-        public const string DefaultServer = "89.160.162.50";
+        public const string DefaultServer = "51.161.113.128";
 
         public static string ServerAddress { get; set; } = DefaultServer;
         public static int ServerPort { get; set; } = Network.NetConfig.DefaultPort;
 
         /// <summary>
-        /// The directory the server browser asks. A hostname on purpose --
-        /// unlike the default server address, this one is a service that has
-        /// to be able to move without a new build reaching every player.
+        /// The directory the server browser asks. It defaults to the same VPS
+        /// as the project's dedicated server, and remains editable in settings.
         /// </summary>
         public static string MasterHost { get; set; } = Network.NetMasterConfig.DefaultHost;
         public static int MasterPort { get; set; } = Network.NetMasterConfig.DefaultPort;
