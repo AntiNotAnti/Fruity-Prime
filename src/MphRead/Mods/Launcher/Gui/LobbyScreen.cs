@@ -39,13 +39,13 @@ namespace MphRead.Mods.Launcher.Gui
         private MatchDefinition? _shownMatch;
         private ushort? _shownRevision;
         private int _chatRevision = -1, _rosterCount;
-        private ushort? _shownRosterRevision;
+        private uint? _shownRosterRevision;
         private double _nextPingRefresh;
         private SessionRules _shownRules;
         private bool _syncing, _suspended, _closed;
         private Bitmap? _bitmap;
 
-        public LobbyScreen(IReadOnlyList<string> rooms)
+        public LobbyScreen(IReadOnlyList<string> rooms, MphRead.Mods.Launcher.LobbyContext? context = null)
         {
             _rooms = rooms.ToArray();
             Focusable = true;
@@ -114,7 +114,10 @@ namespace MphRead.Mods.Launcher.Gui
             // The footer belongs inside this grid, unlike screens whose marks sit outside their well.
             var frame = new Grid { MaxWidth = 1060, Margin = new Thickness(UiLayout.WellGutter),
                 RowDefinitions = new RowDefinitions("Auto,*") };
-            frame.Children.Add(new Note("LOBBY") { FontSize = UiLayout.HeadingSize,
+            string lobbyTitle = context?.ServerName is { Length: > 0 } serverName
+                ? serverName.ToUpperInvariant()
+                : "LOBBY";
+            frame.Children.Add(new Note(lobbyTitle) { FontSize = UiLayout.HeadingSize,
                 HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 12) });
             Grid.SetRow(body, 1); frame.Children.Add(body);
             Panel root = UiLayout.Backdrop(wash: UiLayout.BackdropWash.Standard);
