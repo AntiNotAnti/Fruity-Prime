@@ -1,3 +1,4 @@
+using MphRead.Mods.Multiplayer;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -1791,7 +1792,7 @@ namespace MphRead.Entities
             }
             bool ignoreDamage = false;
             if (GameState.SinglePlayer && IsBot && attacker == this || GameState.Teams && !GameState.FriendlyFire
-                && attacker != null && attacker != this && attacker.TeamIndex == TeamIndex)
+                && attacker != null && attacker != this && TeamRules.AreAllies(attacker.TeamIndex, TeamIndex))
             {
                 ignoreDamage = true;
                 damage = 0;
@@ -2283,7 +2284,7 @@ namespace MphRead.Entities
                         }
                         else
                         {
-                            if (attacker.TeamIndex == TeamIndex)
+                            if (TeamRules.AreAllies(attacker.TeamIndex, TeamIndex))
                             {
                                 GameState.FriendlyKills[attacker.SlotIndex]++;
                                 GameState.KillStreak[attacker.SlotIndex] = 0;
