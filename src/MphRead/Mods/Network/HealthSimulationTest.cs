@@ -19,14 +19,15 @@ namespace MphRead.Mods.Network
                 var session = new SessionStatePacket
                 {
                     Phase = SessionPhase.InMatch, Policy = ServerSessionPolicy.Lobby,
-                    Revision = 1, MatchId = 1, MaxPlayers = 8, OwnerSlot = 0,
+                    Revision = 1, MatchId = 1, AuthorityEpoch = 1, MaxPlayers = 8, OwnerSlot = 0,
                     Match = new MatchDefinition { RoomKey = room, Mode = GameMode.Battle,
                         Format = MatchFormat.FreeForAll, PointGoal = 999, TimeLimitSeconds = 600 },
                     WorldProfile = MatchWorldProfile.Resolve(8)
                 };
                 RosterPacket roster = RosterPacket.Create();
+                roster.MatchId = 1; roster.AuthorityEpoch = 1; roster.Revision = 1; roster.SessionRevision = 1;
                 for (byte i = 0; i < 8; i++)
-                { roster.Slots[i] = i; roster.Teams[i] = -1; roster.Names[i] = $"Health{i}"; roster.Count++; }
+                { roster.Slots[i] = i; roster.Generations[i] = 1; roster.Teams[i] = -1; roster.Names[i] = $"Health{i}"; roster.Count++; }
                 byte[] latest = [];
                 if (!sim.Start(room, GameMode.Battle, 8, payload => latest = payload.ToArray(), () => { }, roster, session))
                     throw new ProgramException("Authority could not load the room.");

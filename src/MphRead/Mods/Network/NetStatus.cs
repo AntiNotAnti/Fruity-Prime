@@ -298,17 +298,7 @@ namespace MphRead.Mods.Network
         /// <summary>"BattleTeams" -> "Battle Teams", for a screen rather than a log.</summary>
         public static string ModeName(GameMode mode)
         {
-            string name = mode.ToString();
-            var builder = new System.Text.StringBuilder(name.Length + 4);
-            for (int i = 0; i < name.Length; i++)
-            {
-                if (i > 0 && Char.IsUpper(name[i]))
-                {
-                    builder.Append(' ');
-                }
-                builder.Append(name[i]);
-            }
-            return builder.ToString();
+            return Launcher.UiText.Mode(mode);
         }
     }
 }

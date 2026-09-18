@@ -58,6 +58,7 @@ namespace MphRead.Mods.Network
         private SessionStatePacket BuildSessionState() => new()
         {
             Phase = _phase, Policy = SessionPolicy, Revision = _sessionRevision, MatchId = _matchId,
+            AuthorityEpoch = _authorityEpoch,
             OwnerSlot = _lobbyOwnerClientId == 0 ? (byte)255 : (byte)(_peers.Find(p => p.ClientId == _lobbyOwnerClientId)?.SlotIndex ?? 255),
             MaxPlayers = (byte)_maxPlayers, Match = CurrentDefinition,
             WorldProfile = SessionPolicy == ServerSessionPolicy.Lobby && _phase != SessionPhase.Lobby
@@ -179,20 +180,26 @@ namespace MphRead.Mods.Network
                     _frozenWorldProfile = LobbyRules.ResolveWorldProfile(_frozenMatch, _maxPlayers);
                     // Build before publishing Starting. A failure must not strand clients in loading.
                     double buildStarted = NetSession.Clock;
+                    ushort previousMatch = _matchId;
+                    _matchId = NetLifecycleTracker.Next(_matchId);
                     try { StartSimulation(); }
                     catch (Exception ex)
                     {
+                        _matchId = previousMatch;
                         _sim?.Stop(); _sim = null;
                         Log($"[lobby] map load failed: {ex.Message}");
                         reason = "The server could not load this map.";
                         return LobbyResultCode.MapUnavailable;
                     }
-                    _matchId++;
+                    _snapshotSeen = false;
+                    Array.Clear(_slotLives);
+                    foreach (Peer connected in _peers) connected.LastIntentFrame = 0;
                     _matchEndedAt = -1;
                     _lastSnapshot = null;
                     _expectedLoadedSlots = 0; _loadedSlots = 0;
                     foreach (Peer participant in _peers)
-                    { _expectedLoadedSlots |= (byte)(1 << participant.SlotIndex); participant.PostMatchReady = false; }
+                    { _expectedLoadedSlots |= (byte)(1 << participant.SlotIndex); participant.PostMatchReady = false;
+                        participant.MapDownloadGraceUntil = 0; }
                     _startDeadline = _now + (NetSession.Clock - buildStarted) + 15;
                     SetPhase(SessionPhase.Starting);
                     SyncSimulationState(_now);
@@ -229,7 +236,17 @@ namespace MphRead.Mods.Network
         private void CheckLoadBarrier(double now)
         {
             if (_phase != SessionPhase.Starting) return;
-            if ((_loadedSlots & _expectedLoadedSlots) != _expectedLoadedSlots && now < _startDeadline) return;
+            if ((_loadedSlots & _expectedLoadedSlots) != _expectedLoadedSlots)
+            {
+                if (now < _startDeadline) return;
+                // Downloads have a three-minute client deadline. Let active
+                // participants finish, without allowing repeated requests to
+                // hold the whole lobby indefinitely. Silent loaders retain 15s.
+                if (now < _startDeadline + 180 && _peers.Exists(peer =>
+                    (_expectedLoadedSlots & (1 << peer.SlotIndex)) != 0
+                    && (_loadedSlots & (1 << peer.SlotIndex)) == 0
+                    && peer.MapDownloadGraceUntil > now)) return;
+            }
             Log(now >= _startDeadline ? "[lobby] load timeout; late clients may join in progress" : "[lobby] all clients loaded");
             _matchStarted = now;
             SetPhase(SessionPhase.InMatch);

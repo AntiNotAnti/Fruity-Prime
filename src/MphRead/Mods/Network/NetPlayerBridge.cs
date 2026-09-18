@@ -18,53 +18,12 @@ namespace MphRead.Mods.Network
         private static readonly FormReconciliation[] _formReconciliation =
             new FormReconciliation[PlayerEntity.SlotCapacity];
 
-        /// <summary>
-        /// Whether the last snapshot had each slot standing on the map, so the
-        /// frame the authority places somebody can be told from the thousands
-        /// of frames afterwards on which it merely still has them placed.
-        /// </summary>
-        private static readonly bool[] _authoritySpawned = new bool[PlayerEntity.SlotCapacity];
-
-        /// <summary>
-        /// Placements refused because they did not belong to this room. Zero
-        /// on a healthy session; any number at all means a rotation where one
-        /// machine was still loading, which is worth seeing in the netdbg
-        /// line rather than inferring from a player's account of falling out
-        /// of the world.
-        /// </summary>
+        // Retained for older diagnostic consumers. Lifecycle drop counters now
+        // live in NetPlayerLifecycle; clients no longer choose spawn points.
         public static int PlacementsRefused;
-
-        /// <summary>
-        /// Respawns where this machine's own player was turned to face the
-        /// spawn point the authority had actually put them on, and the
-        /// largest correction any of them needed.
-        ///
-        /// Both are expected to be non-zero in a real match: the two machines
-        /// choose spawn points independently, so most respawns land on a
-        /// point this client did not pick. A worst of ~180 degrees is a
-        /// respawn that used to leave the player looking backwards, which is
-        /// what the measurement is for -- the netdbg line carries it so the
-        /// fix can be seen working rather than taken on trust.
-        /// </summary>
         public static int SpawnFacingsTurned;
         public static float WorstSpawnFacing;
-
-        /// <summary>
-        /// Snapshots ignored because they still described the life this
-        /// machine's own player had already left. Zero on a match nobody
-        /// respawned early in; a handful on any other.
-        /// </summary>
         public static int StaleDeathsIgnored;
-
-        /// <summary>
-        /// How long this machine has been waiting for the authority to
-        /// acknowledge a respawn it performed locally, in snapshots, and
-        /// whether its own player was standing in the map when the previous
-        /// one was applied. Together they find the moment the two machines
-        /// disagree about which life is being described.
-        /// </summary>
-        private static readonly int[] _localSpawnUnacked = new int[PlayerEntity.SlotCapacity];
-        private static readonly bool[] _prevInPlay = new bool[PlayerEntity.SlotCapacity];
 
         /// <summary>
         /// What the last snapshot said each slot's form was, so the netdbg
@@ -72,8 +31,6 @@ namespace MphRead.Mods.Network
         /// said, 1 biped, 2 alt.
         /// </summary>
         private static readonly byte[] _formSaid = new byte[PlayerEntity.SlotCapacity];
-        private static readonly byte[] _lastSaidSpawned = new byte[PlayerEntity.SlotCapacity];
-        private static readonly ushort[] _lastSaidHealth = new ushort[PlayerEntity.SlotCapacity];
 
         public static string FormSaidByAuthority()
         {
@@ -222,6 +179,12 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static void RecordPresses(PlayerEntity player)
         {
+            if (!player.ModIsInPlay)
+            {
+                Array.Clear(_pressHistory);
+                _hasLatch = false;
+                return;
+            }
             PlayerControls c = player.Controls;
             IntentButtons pressed = IntentButtons.None;
             if (c.MoveLeft.IsPressed) pressed |= IntentButtons.MoveLeft;
@@ -387,6 +350,9 @@ namespace MphRead.Mods.Network
             // which is what lets a puppet's charge climb with its owner's while
             // the trigger is held.
             _hasLatch = false;
+            if (NetLog.Enabled && (intent.Buttons.HasFlag(IntentButtons.Shoot) || player.Controls.Shoot.IsReleased))
+                NetShotDiagnostics.Trace("input", ShotKey.For(player.SlotIndex, intent.AckFrame), player.CurrentWeapon,
+                    $"intentFrame={intent.Frame} intentLife={intent.LifeId} inPlay={intent.Buttons.HasFlag(IntentButtons.InPlayState)} shoot={player.Controls.Shoot.IsDown} press={player.Controls.Shoot.IsPressed}");
             return intent;
         }
 
@@ -434,6 +400,10 @@ namespace MphRead.Mods.Network
         /// reaches the simulation by this same route and carries the same
         /// error.
         /// </summary>
+        private static readonly bool[] _respawnRequested = new bool[PlayerEntity.SlotCapacity];
+        public static bool RespawnRequested(int slot) => NetSession.Active && slot != NetSession.LocalSlot
+            && slot >= 0 && slot < _respawnRequested.Length && _respawnRequested[slot];
+
         public static readonly int[] ShootPressAge = new int[PlayerEntity.SlotCapacity];
 
         public static void ApplyIntent(PlayerEntity player, in IntentPacket intent)
@@ -450,6 +420,17 @@ namespace MphRead.Mods.Network
             if (player.SlotIndex >= 0 && player.SlotIndex < ShootPressAge.Length)
             {
                 ShootPressAge[player.SlotIndex] = shootAge;
+            }
+            _respawnRequested[player.SlotIndex] = !intent.Buttons.HasFlag(IntentButtons.InPlayState)
+                && intent.Buttons.HasFlag(IntentButtons.Shoot);
+            if (!intent.Buttons.HasFlag(IntentButtons.InPlayState))
+            {
+                // Consume history, but never turn a dead player's respawn button into
+                // a weapon press (or a charged-shot release) on an ahead-of-owner puppet.
+                c.ClearAll();
+                ShootPressAge[player.SlotIndex] = 0;
+                player.ModSetSpectating(intent.Buttons.HasFlag(IntentButtons.SpectatingState));
+                return;
             }
             Set(c.MoveLeft, intent.Buttons.HasFlag(IntentButtons.MoveLeft), missed.HasFlag(IntentButtons.MoveLeft));
             Set(c.MoveRight, intent.Buttons.HasFlag(IntentButtons.MoveRight), missed.HasFlag(IntentButtons.MoveRight));
@@ -749,7 +730,7 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
-            FormCorrection correction = _formReconciliation[slot].Step(NetSession.NetFrame,
+            FormCorrection correction = ReconcileForm(slot, NetSession.NetFrame,
                 altForm, player.IsAltForm, player.IsMorphing, player.IsUnmorphing,
                 NetSession.SlotPing[slot]);
             // First the real transition, because that is what creates the
@@ -767,6 +748,11 @@ namespace MphRead.Mods.Network
                 player.ModForceForm(altForm);
             }
         }
+
+        internal static FormCorrection ReconcileForm(int slot, uint frame, bool desiredAlt,
+            bool actualAlt, bool morphing, bool unmorphing, int ping)
+            => slot < 0 || slot >= _formReconciliation.Length ? FormCorrection.None
+                : _formReconciliation[slot].Step(frame, desiredAlt, actualAlt, morphing, unmorphing, ping);
 
         private static readonly int[] _divergedFrames = new int[PlayerEntity.SlotCapacity];
 
@@ -829,19 +815,16 @@ namespace MphRead.Mods.Network
         public static void NoteRoomChanged()
         {
             Array.Clear(_formReconciliation);
-            Array.Clear(_authoritySpawned);
+            Array.Clear(_lifeApplied);
             Array.Clear(_reportSeen);
             Array.Clear(_divergedFrames);
-            Array.Clear(_spawnIntentFrame);
-            Array.Clear(_wasInPlay);
-            Array.Clear(_localSpawnUnacked);
-            Array.Clear(_prevInPlay);
-            Array.Clear(_staleFrames);
         }
 
         public static void Reset()
         {
             Array.Clear(_formReconciliation);
+            Array.Clear(_appliedLifeId);
+            Array.Clear(_lifeApplied);
             Snaps = 0;
             WorstSnap = 0;
             NodeLookupsUnresolved = 0;
@@ -892,17 +875,19 @@ namespace MphRead.Mods.Network
                 return;
             }
             _formReconciliation[slot].Reset();
+            _lifeApplied[slot] = false;
+            _appliedLifeId[slot] = 0;
             _lastPressFrame[slot] = 0;
             _pressSeen[slot] = false;
             ShootPressAge[slot] = 0;
-            _pressHistory[slot] = 0;
-            _authoritySpawned[slot] = false;
+            _respawnRequested[slot] = false;
+            if (slot == NetSession.LocalSlot)
+            {
+                Array.Clear(_pressHistory);
+                _hasLatch = false;
+                _latchedCharge = _latchedBoostDamage = 0;
+            }
             _divergedFrames[slot] = 0;
-            _spawnIntentFrame[slot] = 0;
-            _wasInPlay[slot] = false;
-            _localSpawnUnacked[slot] = 0;
-            _prevInPlay[slot] = false;
-            _staleFrames[slot] = 0;
             _lastReportPosition[slot] = Vector3.Zero;
             _lastReportFrame[slot] = 0;
             _reportSeen[slot] = false;

@@ -56,9 +56,12 @@ namespace MphRead.Mods.Network
     public static partial class NetSession
     {
         private static NetTransport? _transport;
+        private static bool _playback;
         private static readonly List<RemotePeer> _peers = new();
         private static IPEndPoint? _hostEndPoint;
         private static readonly byte[] _scratch = new byte[NetConfig.MaxPacketSize];
+        internal static void SendMapRequest(byte[] payload)
+        {if(_hostEndPoint!=null)_transport?.Send(_hostEndPoint,PacketType.MapWant,payload);}
 
         public static NetRole Role { get; private set; } = NetRole.Offline;
         public static bool Active => Role != NetRole.Offline;
@@ -312,7 +315,7 @@ namespace MphRead.Mods.Network
         {
             Stop();
             _playback = true;
-            _transport = new NetTransport(0);
+            _transport = new NetTransport(0, playbackOnly: true);
             Role = NetRole.Client;
             LocalSlot = -1;
             NetFrame = 0;
@@ -336,10 +339,14 @@ namespace MphRead.Mods.Network
         public static void RewindPlayback()
         {
             ContinuousPhase.Reset();
+            NetPlayerLifecycle.ResetLives();
+            _hasRoster = false;
+            _rosterRevision = 0;
             NetUnlagged.Reset();
             NetHitPrediction.Reset();
             NetHitClaims.Reset();
             NetSmoothing.Reset();
+            _hasSnapshot = false;
             _lastSnapshotFrame = 0;
             SnapshotArrived = 0;
             AppliedSnapshotFrame = 0;
@@ -388,9 +395,12 @@ namespace MphRead.Mods.Network
         public static void Stop()
         {
             ResetLobbySession();
+            _playback = false;
+            NetMapTransfer.Reset();
             NetPlayerSetup.Reset();
             SpectatorMode.Reset();
             DemoRecorder.Stop();
+            ReplayCapture.Reset();
             NetMatchSync.Reset();
             NetSlotManager.Reset();
             NetDamage.Reset();
@@ -595,7 +605,8 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static void Update(double time)
         {
-            if (Role == NetRole.Client) time = Clock;
+            DemoClip.Tick();
+            if (Role == NetRole.Client && !DemoPlayback.IsActive) time = Clock;
             if (Role == NetRole.Server)
             {
                 // No socket here: DedicatedServer owns it, drains it on its
@@ -685,6 +696,13 @@ namespace MphRead.Mods.Network
         private const double SilenceBeforeRejoin = 5.0;
 
         private static double _lastServerPacket;
+        // Loading pauses gameplay, not the connection's monotonic clock.
+        // Refresh packet liveness without advancing any simulation frame.
+        internal static void PumpMapTransfer()
+        {
+            if(_transport==null)return;
+            foreach(var packet in _transport.Drain())Handle(packet,Clock);
+        }
 
         /// <summary>
         /// How many times this client found the server silent long enough to
@@ -730,8 +748,15 @@ namespace MphRead.Mods.Network
 
         private static void Handle(ReceivedPacket packet, double time)
         {
-            if (Role == NetRole.Client && !DemoPlayback.IsActive
+            // Reconnects/authority handovers belong to the recording client's connection,
+            // never to the spectator watching it. In particular Welcome must not assign a
+            // local player, and Bye must not destroy the final replay scene.
+            if (DemoPlayback.IsActive && packet.Type is PacketType.Welcome or PacketType.Authority
+                or PacketType.Bye or PacketType.Refused) return;
+            if (Role == NetRole.Client && !_playback
                 && (_hostEndPoint == null || !packet.Sender.Equals(_hostEndPoint))) return;
+            if(packet.Type is PacketType.MapOffer or PacketType.MapChunk
+                && (Role!=NetRole.Client||_hostEndPoint==null||!packet.Sender.Equals(_hostEndPoint)))return;
             if (Role == NetRole.Client)
             {
                 if (_lastServerPacket > 0 && time > _lastServerPacket)
@@ -753,6 +778,10 @@ namespace MphRead.Mods.Network
                     break;
                 case PacketType.LobbyCommandResult when Role == NetRole.Client:
                     if (LobbyCommandResultPacket.TryRead(packet.Payload, out var result)) ApplyLobbyResult(result);
+                    break;
+                case PacketType.MapOffer when Role == NetRole.Client:
+                case PacketType.MapChunk when Role == NetRole.Client:
+                    if(_hostEndPoint!=null&&packet.Sender.Equals(_hostEndPoint))NetMapTransfer.Receive(packet.Type,packet.Payload);
                     break;
                 case PacketType.Hello when Role == NetRole.Host:
                     HandleHello(packet, time);
@@ -1295,6 +1324,7 @@ namespace MphRead.Mods.Network
             }
             ContinuousPhase.ResetSlot(slot);
             _lastSlotIntentFrame[slot] = 0;
+            RemoteIntentArrived[slot] = 0;
             RemoteIntentValid[slot] = false;
             RemoteIntents[slot] = default;
             RemoteIntentArrived[slot] = 0;
@@ -1363,9 +1393,6 @@ namespace MphRead.Mods.Network
                 return;
             }
             if (!RosterPacket.TryRead(packet.Payload, out var roster)) return;
-            if (_rosterRevision is { } previous && roster.Revision != previous
-                && !SessionStatePacket.IsNewer(roster.Revision, previous)) return;
-            _rosterRevision = roster.Revision;
             ApplyRoster(roster);
         }
 
@@ -1380,6 +1407,34 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static void ApplyRoster(RosterPacket roster)
         {
+            if (!MatchesStream(roster.MatchId, roster.AuthorityEpoch)
+                || (_hasRoster && !NetLifecycleTracker.Newer(roster.Revision, _rosterRevision))) return;
+            if (roster.Count > SlotOccupied.Length) return;
+            int occupied = 0;
+            for (int i = 0; i < roster.Count; i++)
+            {
+                int slot = roster.Slots[i];
+                if (slot >= SlotOccupied.Length || (occupied & (1 << slot)) != 0) return;
+                occupied |= 1 << slot;
+                ushort generation = roster.Generations[i];
+                ushort previous = NetPlayerLifecycle.Generation(slot);
+                if (generation == 0 || (previous != 0 && generation != previous
+                    && !NetLifecycleTracker.Newer(generation, previous)))
+                {
+                    NetPlayerLifecycle.WrongGeneration++;
+                    return;
+                }
+            }
+            _hasRoster = true;
+            _rosterRevision = roster.Revision;
+            _rosterSessionRevision = roster.SessionRevision;
+            for (int slot = 0; slot < SlotOccupied.Length; slot++)
+            {
+                bool present = false;
+                for (int i = 0; i < roster.Count; i++) present |= roster.Slots[i] == slot;
+                if (present != SlotOccupied[slot]) ReplayCapture.Event(present
+                    ? ReplayEventType.PlayerJoined : ReplayEventType.PlayerLeft, slot);
+            }
             Array.Clear(SlotOccupied);
             Array.Clear(SlotLobbyReady);
             Array.Fill(SlotTeamIndex, (sbyte)-1);
@@ -1390,6 +1445,11 @@ namespace MphRead.Mods.Network
                 {
                     continue;
                 }
+                if (roster.Generations[i] == 0) continue;
+                ushort previousGeneration = NetPlayerLifecycle.Generation(slot);
+                if (previousGeneration != 0 && roster.Generations[i] != previousGeneration
+                    && !NetLifecycleTracker.Newer(roster.Generations[i], previousGeneration)) continue;
+                NetPlayerLifecycle.SetOccupant(slot, roster.Generations[i]);
                 SlotOccupied[slot] = true;
                 SlotTeamIndex[slot] = roster.Teams[i];
                 SlotLobbyReady[slot] = roster.LobbyReady[i];
@@ -1442,6 +1502,8 @@ namespace MphRead.Mods.Network
                     && state.MatchId == previous.Value.MatchId && previous.Value.Ending && !state.Ending) return;
             }
             bool newMatch = !previous.HasValue || state.MatchId != previous.Value.MatchId;
+            if (newMatch) ReplayCapture.Event(ReplayEventType.MatchStarted);
+            if (state.Ending && previous?.Ending != true) ReplayCapture.Event(ReplayEventType.MatchEnded);
             bool newEpoch = !previous.HasValue || state.AuthorityEpoch != previous.Value.AuthorityEpoch;
             ServerMatch = state;
             if (newMatch || newEpoch)
@@ -1515,45 +1577,24 @@ namespace MphRead.Mods.Network
             if (header.PlayerCount > PlayerEntity.SlotCapacity || healthOffset > payload.Length
                 || !NetMatchTimeSync.Validate(payload.Slice(timeOffset, NetMatchTimeSync.Size))
                 || !NetHealthSync.Validate(payload[healthOffset..])
-                || !NetHealthSync.IsCurrentMatch(payload[healthOffset..])) return;
-            // Both the intent streams already refuse an older frame; this one
-            // did not, and it is the stream that carries health, score and the
-            // damage counter. A datagram overtaken in flight therefore put a
-            // player back where they had been, undid a kill on the scoreboard,
-            // and -- worst of it -- ran the damage counter backwards, which the
-            // replay reads as two hundred and fifty-odd new hits because the
-            // counter is a byte. UDP reorders as a matter of course; a
-            // snapshot arrives sixty times a second, so throwing away a late
-            // one costs nothing at all.
-            if (_lastSnapshotFrame != 0 && header.Frame <= _lastSnapshotFrame
-                && _lastSnapshotFrame - header.Frame < SnapshotResetGap)
+                || !NetHealthSync.IsCurrentMatch(payload[healthOffset..])
+                || !MatchesStream(header.MatchId, header.AuthorityEpoch)) return;
+            int occupied = 0;
+            for (int i = 0; i < header.PlayerCount; i++)
+            {
+                int slot = payload[SnapshotHeader.Size + i * PlayerState.Size];
+                if (slot >= RemoteStates.Length || (occupied & (1 << slot)) != 0) return;
+                occupied |= 1 << slot;
+            }
+            if (_hasSnapshot && !NetLifecycleTracker.Newer(header.Frame, _lastSnapshotFrame))
             {
                 SnapshotsOutOfOrder++;
-                // A straggler is a packet; this is a stream. When the server
-                // moves the authority to another client, the snapshots start
-                // coming from a machine whose own frame counter is its own --
-                // typically a few seconds behind, because it joined a few
-                // seconds later -- and every one of them looks late. Refusing
-                // the lot freezes every puppet on every screen until the new
-                // authority's counter climbs past the old one's: 159 and 169
-                // consecutive refusals, about 2.7 s, measured on two clients
-                // in one churn run against the Pi.
-                //
-                // Genuine reordering never lasts: a late datagram arrives
-                // among packets that are not late, and each of those resets
-                // this. A fifth of a second of nothing but "older" is a new
-                // source, so take it and re-base on it.
-                if (++_lateSnapshotRun < LateSnapshotsBeforeReset)
-                {
-                    return;
-                }
-                NetLog.Event($"snapshot stream re-based: {_lateSnapshotRun} in a row "
-                    + $"older than {_lastSnapshotFrame} (now {header.Frame})");
-                SnapshotStreamResets++;
+                return;
             }
-            _lateSnapshotRun = 0;
+            _hasSnapshot = true;
             _lastSnapshotFrame = header.Frame;
             SnapshotArrived = Math.Max(NetFrame, 1);
+            ReplayCapture.Observe(packet.Data.AsSpan(0, packet.Length));
             SnapshotsReceived++;
             // Rng.cs reproduces the game's original LCG and its state is
             // global, so adopting the host's words keeps every random
@@ -1573,6 +1614,7 @@ namespace MphRead.Mods.Network
                 offset += PlayerState.Size;
                 if (state.SlotIndex < RemoteStates.Length && NetPlayerLifecycle.AcceptState(state, header.Frame))
                 {
+                    ReplayCapture.AcceptedState(state);
                     RemoteStates[state.SlotIndex] = state;
                     RemoteStateValid[state.SlotIndex] = true;
                     if (count < _snapshotScratch.Length)
@@ -1801,6 +1843,8 @@ namespace MphRead.Mods.Network
                 state.Kills = (ushort)Math.Clamp(GameState.Kills[i], 0, UInt16.MaxValue);
                 state.Deaths = (ushort)Math.Clamp(GameState.Deaths[i], 0, UInt16.MaxValue);
                 NetDamage.Write(i, ref state);
+                NetPlayerLifecycle.AcceptState(state, NetFrame);
+                ReplayCapture.AcceptedState(state);
                 state.Write(_scratch.AsSpan(offset));
                 offset += PlayerState.Size;
                 count++;
@@ -1810,6 +1854,8 @@ namespace MphRead.Mods.Network
             offset += NetHealthSync.Write(_scratch.AsSpan(offset, NetConfig.MaxPacketSize - 1 - offset));
             var header = new SnapshotHeader
             {
+                MatchId = CurrentMatchId,
+                AuthorityEpoch = AuthorityEpoch,
                 Frame = NetFrame,
                 Rng1 = Rng.Rng1,
                 Rng2 = Rng.Rng2,

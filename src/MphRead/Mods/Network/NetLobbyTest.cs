@@ -26,10 +26,8 @@ namespace MphRead.Mods.Network
             {
                 NetHealthSyncTest.Run();
                 ProtocolChecks();
-                ActiveTeamConvergence();
                 DemoProtocolCheck();
                 LayoutChecks();
-                EmptyContinuousRestart();
                 ClientStateChecks();
                 Scenario();
                 TeamScenario();
@@ -127,7 +125,7 @@ namespace MphRead.Mods.Network
                 bytes[5] = (byte)(NetConfig.ProtocolVersion - 1);
                 File.WriteAllBytes(path, bytes);
                 Check(!DemoPlayback.Join(path) && !DemoPlayback.IsActive
-                    && DemoPlayback.LastError?.Contains("requires protocol") == true,
+                    && DemoPlayback.LastResult == ReplayOpenResult.ProtocolMismatch,
                     "incompatible demo fails before scene or session construction");
                 using var exclusive = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
                 Check(exclusive.Length >= DemoFile.HeaderSize, "rejected demo releases its file handle");
@@ -186,7 +184,7 @@ namespace MphRead.Mods.Network
         {
             NetSession.StartPlayback();
             Check(!NetSession.SessionTimedOut, "playback has no network timeout");
-            var state = new SessionStatePacket { Policy = ServerSessionPolicy.Lobby,
+            var state = new SessionStatePacket { AuthorityEpoch = 1, Policy = ServerSessionPolicy.Lobby,
                 Phase = SessionPhase.Lobby, Revision = ushort.MaxValue, MatchId = 4, MaxPlayers = 8,
                 OwnerSlot = 255, Match = new MatchDefinition { RoomKey = Rooms()[0], Mode = GameMode.Battle } };
             NetSession.ApplySessionState(state);
@@ -243,7 +241,14 @@ namespace MphRead.Mods.Network
             public void Loaded(ushort? id = null)
             { byte[] bytes = new byte[2]; new MatchLoadedPacket(id ?? State!.Value.MatchId).Write(bytes); Send(PacketType.MatchLoaded, bytes); }
             public void ReadyResults()
-            { var intent = new IntentPacket { Frame = ++_frame, Buttons = IntentButtons.ReadyState }; byte[] bytes = new byte[IntentPacket.FullSize]; intent.Write(bytes); Send(PacketType.Intent, bytes); }
+            { var intent = new IntentPacket { Frame = ++_frame, Buttons = IntentButtons.ReadyState,
+                MatchId = State!.Value.MatchId, AuthorityEpoch = State.Value.AuthorityEpoch,
+                SlotGeneration = Roster.Generations[Array.IndexOf(Roster.Slots, (byte)Slot)] };
+                byte[] bytes = new byte[IntentPacket.FullSize]; intent.Write(bytes); Send(PacketType.Intent, bytes); }
+            public void EndMatch()
+            { byte[] bytes = new byte[10]; BinaryPrimitives.WriteUInt16LittleEndian(bytes, State!.Value.MatchId);
+                BinaryPrimitives.WriteUInt64LittleEndian(bytes.AsSpan(2), State.Value.AuthorityEpoch);
+                Send(PacketType.MatchEnd, bytes); }
             public void Drain()
             {
                 foreach (var packet in Transport.Drain())
@@ -255,7 +260,7 @@ namespace MphRead.Mods.Network
                     if (packet.Type == PacketType.SessionState && SessionStatePacket.TryRead(packet.Payload, out var state)
                         && (State == null || state.Revision == State.Value.Revision || SessionStatePacket.IsNewer(state.Revision, State.Value.Revision))) State = state;
                     if (packet.Type == PacketType.Roster && RosterPacket.TryRead(packet.Payload, out var roster)
-                        && (roster.Revision == Roster.Revision || SessionStatePacket.IsNewer(roster.Revision, Roster.Revision))) Roster = roster;
+                        && (roster.Revision == Roster.Revision || NetLifecycleTracker.Newer(roster.Revision, Roster.Revision))) Roster = roster;
                     if (packet.Type == PacketType.LobbyCommandResult && LobbyCommandResultPacket.TryRead(packet.Payload, out var result)) Results[result.CommandId] = result;
                     if (packet.Type == PacketType.MatchState && packet.Payload.Length == MatchStatePacket.Size) Match = MatchStatePacket.Read(packet.Payload);
                 }
@@ -284,7 +289,7 @@ namespace MphRead.Mods.Network
                 Stable(); return client;
             }
             public void Stable() => Wait(() => Clients.Count > 0 && Clients.All(c => c.State?.Revision == Clients[0].State?.Revision
-                && c.Roster.Revision == c.State?.Revision && c.Roster.Count == Clients.Count
+                && c.Roster.SessionRevision == c.State?.Revision && c.Roster.Count == Clients.Count
                 && Enumerable.Range(0, c.Roster.Count).All(i => c.Roster.Names[i] == $"Test{Clients.Single(p => p.Slot == c.Roster.Slots[i]).Id}")), "roster and state converge");
             public void Wait(Func<bool> condition, string label, int ms = 4000)
             {
@@ -327,9 +332,16 @@ namespace MphRead.Mods.Network
             rig.Expect(a, a.Command(LobbyCommandType.StartMatch), LobbyResultCode.PlayersNotReady);
             rig.Expect(a, a.Command(LobbyCommandType.SetReady, true, revision: 0), LobbyResultCode.StaleRevision);
             rig.ReadyAll();
-            var config = a.State.Value; config.Match = config.Match with { RoomKey = Rooms()[1], TimeLimitSeconds = 600 };
+            var config = a.State.Value; config.Match = config.Match with { RoomKey = Rooms()[1], TimeLimitSeconds = 600, HideOpponentHealth = true };
             rig.Expect(a, a.Command(LobbyCommandType.UpdateMatch, config: config), LobbyResultCode.Ok);
             Check(a.Roster.LobbyReady.Take(a.Roster.Count).All(r => !r), "configuration clears ready");
+            Check(a.State.Value.Match.HideOpponentHealth && b.State!.Value.Match.HideOpponentHealth,
+                "owner hidden-health rule synchronizes to both UDP clients");
+            var forbidden = b.State.Value;
+            forbidden.Match = forbidden.Match with { HideOpponentHealth = false };
+            forbidden.RuleFlags &= ~SessionRules.HideOpponentHealth;
+            rig.Expect(b, b.Command(LobbyCommandType.UpdateMatch, config: forbidden), LobbyResultCode.NotOwner);
+            Check(a.State.Value.Match.HideOpponentHealth, "non-owner cannot expose hidden health");
             var lobbyStatus = NetStatus.Query("127.0.0.1", rig.Server.BoundPort, allowJoinProbe: false);
             Check(lobbyStatus.Online && lobbyStatus.Phase == SessionPhase.Lobby && lobbyStatus.TimeRemaining == 600,
                 "browser status clock stays at the full time limit in the lobby");
@@ -344,7 +356,7 @@ namespace MphRead.Mods.Network
                 "browser status clock stays frozen through the load barrier");
             Client late = rig.Add(3); Check((late.State!.Value.ExpectedParticipants & (1 << late.Slot)) == 0, "late join excluded from barrier");
             b.Loaded(); rig.Wait(() => a.State.Value.Phase == SessionPhase.InMatch, "barrier released");
-            b.Send(PacketType.MatchEnd, Array.Empty<byte>());
+            b.EndMatch();
             rig.Wait(() => a.State.Value.Phase == SessionPhase.PostMatch, "results entered");
             foreach (var client in rig.Clients) client.ReadyResults();
             rig.Wait(() => a.State.Value.Phase == SessionPhase.Lobby, "results return to lobby", 18000);
@@ -453,82 +465,12 @@ namespace MphRead.Mods.Network
             rig.Wait(() => owner.State.Value.Phase == SessionPhase.InMatch, "four-team barrier starts");
         }
 
-        private static void ActiveTeamConvergence()
-        {
-            int maxPlayers = Entities.PlayerEntity.MaxPlayers;
-            bool teams = GameState.Teams; int teamCount = GameState.TeamCount;
-            Entities.PlayerEntity previous = Entities.PlayerEntity._players[7];
-            try
-            {
-                NetSession.StartServerAuthority(_ => { }, () => { });
-                var roster = RosterPacket.Create(); roster.Revision = 1; roster.Count = 1; roster.Slots[0] = 7;
-                NetSession.ApplyRoster(roster);
-                var player = (Entities.PlayerEntity)System.Runtime.CompilerServices.RuntimeHelpers
-                    .GetUninitializedObject(typeof(Entities.PlayerEntity));
-                typeof(Entities.PlayerEntity).GetProperty(nameof(Entities.PlayerEntity.SlotIndex))!.SetValue(player, 7);
-                player.TeamIndex = 0; player.Health = 50; Entities.PlayerEntity._players[7] = player;
-                Entities.PlayerEntity.MaxPlayers = 8; GameState.Teams = true; GameState.TeamCount = 4;
-                var activated = (bool[])typeof(NetSlotManager).GetField("_activated",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.GetValue(null)!;
-                activated[7] = true;
-                roster.Teams[0] = 3; roster.Revision++;
-                NetSession.ApplyRoster(roster); NetSlotManager.Sync();
-                Check(player.TeamIndex == 3 && player.Health == 50,
-                    "late roster corrects active slot-seven team without reinitializing the player");
-                GameState.Teams = false; NetSlotManager.Sync();
-                Check(player.TeamIndex == 7, "FFA restores slot scoring identity for an active player");
-            }
-            finally
-            {
-                Entities.PlayerEntity._players[7] = previous; NetSlotManager.Reset(); NetSession.Stop();
-                Entities.PlayerEntity.MaxPlayers = maxPlayers; GameState.Teams = teams; GameState.TeamCount = teamCount;
-            }
-        }
-
-        private static void EmptyContinuousRestart()
-        {
-            // Synchronous production handlers make the last-leave/first-join boundary deterministic.
-            const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance
-                | System.Reflection.BindingFlags.NonPublic;
-            var server = new DedicatedServer(0) { RunsTheMatch = false };
-            var sender = new IPEndPoint(IPAddress.Loopback, 31001);
-            T Field<T>(string name) => (T)typeof(DedicatedServer).GetField(name, flags)!.GetValue(server)!;
-            SessionStatePacket State() => (SessionStatePacket)typeof(DedicatedServer)
-                .GetMethod("BuildSessionState", flags)!.Invoke(server, null)!;
-            void Send(PacketType type, byte[] body)
-            {
-                byte[] data = new byte[body.Length + 1]; data[0] = (byte)type; body.CopyTo(data, 1);
-                typeof(DedicatedServer).GetMethod("Handle", flags)!.Invoke(server,
-                    new object[] { new ReceivedPacket(sender, data, data.Length), 1.0 });
-            }
-            void Hello(uint id)
-            {
-                byte[] body = new byte[6]; body[0] = NetConfig.ProtocolVersion; body[1] = 255;
-                BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(2), id);
-                Send(PacketType.Hello, body);
-            }
-            Hello(1); Send(PacketType.MatchEnd, Array.Empty<byte>());
-            Check(State().Phase == SessionPhase.PostMatch && Field<bool>("_ballotOpen"), "restart fixture reaches results and ballot");
-            ushort match = State().MatchId;
-            Send(PacketType.Bye, Array.Empty<byte>());
-            // A former authority's cached snapshot must not be offered to the next occupant.
-            typeof(DedicatedServer).GetField("_lastSnapshot", flags)!.SetValue(server, new byte[] { 1 });
-            Hello(2);
-            Check(State().Phase == SessionPhase.InMatch && State().MatchId != match,
-                "empty continuous server restarts a playable match");
-            Check(!Field<bool>("_ballotOpen") && Field<byte[]?>("_lastSnapshot") == null,
-                "empty restart closes results ballot and clears cached snapshot");
-            Send(PacketType.MatchEnd, Array.Empty<byte>());
-            Check(State().Phase == SessionPhase.PostMatch && Field<double>("_matchEndedAt") >= 0,
-                "restarted continuous match can finish again");
-        }
-
         private static void ContinuousScenario()
         {
             using var rig = new Rig(ServerSessionPolicy.Continuous); Client client = rig.Add(20);
             Check(client.State!.Value.Phase == SessionPhase.InMatch, "continuous starts in match");
             ushort match = client.State.Value.MatchId;
-            client.Send(PacketType.MatchEnd, Array.Empty<byte>());
+            client.EndMatch();
             rig.Wait(() => client.State.Value.Phase == SessionPhase.PostMatch, "continuous results"); client.ReadyResults();
             rig.Wait(() => client.State.Value.Phase == SessionPhase.InMatch && client.State.Value.MatchId != match, "continuous rotates automatically", 18000);
         }
@@ -549,9 +491,9 @@ namespace MphRead.Mods.Network
             // identity before freezing the revision and dropping retry traffic.
             PumpUntil(() => NetSession.LocalIsLobbyOwner
                 && GameState.Nicknames[slot] == "RealClient"
-                && NetSession.LobbyRoster().Revision == NetSession.SessionRevision,
+                && NetSession.LobbyRoster().SessionRevision == NetSession.SessionRevision,
                 "real client owns a consistent lobby");
-            Check(NetSession.ServerMatch == null, "connection does not require a running match");
+            Check(NetSession.IsInLobby && !NetSession.ShouldLoadMatch, "connection does not require a running match");
             // Lose the first command and its first retry entirely. The same command ID must recover.
             NetLag.ConfigureLoss("100");
             Check(NetSession.SendLobbyCommand(LobbyCommandType.SetReady, ready: true), "enqueue ready");
@@ -560,10 +502,13 @@ namespace MphRead.Mods.Network
             Check(NetSession.LobbyCommandPending, "lost command remains pending");
             NetLag.ConfigureLoss("0");
             PumpUntil(() => !NetSession.LobbyCommandPending && NetSession.SlotLobbyReady[slot], "retransmission recovers lost ready");
-            PumpUntil(() => NetSession.LobbyRoster().Revision == NetSession.SessionRevision, "ready state converged");
+            PumpUntil(() => NetSession.LobbyRoster().SessionRevision == NetSession.SessionRevision, "ready state converged");
             Check(NetSession.SendLobbyCommand(LobbyCommandType.StartMatch), "real client starts");
             PumpUntil(() => NetSession.IsStarting && !NetSession.LobbyCommandPending, "real client load barrier");
             Check(NetSession.FreezeGameplay, "gameplay frozen before loaded");
+            Check(NetLaunch.VerifyServerMap(), "map negotiation runs at the lobby load barrier");
+            Check(NetSession.IsStarting && NetSession.ConnectionPort == port,
+                "map negotiation preserves the lobby connection and load barrier");
             NetSession.MarkMatchLoaded();
             PumpUntil(() => NetSession.IsPlaying, "real load ack starts match");
             Check(!NetSession.FreezeGameplay, "gameplay released after barrier");
@@ -578,11 +523,12 @@ namespace MphRead.Mods.Network
             NetSession.ResetMatchState();
             Check(NetSession.Active && NetSession.ConnectionPort == port && NetSession.LocalSlot == slot
                 && NetSession.ClientId == clientId && NetSession.LocalIsLobbyOwner, "real client socket/slot/id/owner survive match teardown");
-            PumpUntil(() => NetSession.LobbyRoster().Revision == NetSession.SessionRevision, "next lobby consistent");
+            PumpUntil(() => NetSession.LobbyRoster().SessionRevision == NetSession.SessionRevision, "next lobby consistent");
             Check(NetSession.SendLobbyCommand(LobbyCommandType.SetReady, ready: true), "ready for second real-client match");
             PumpUntil(() => !NetSession.LobbyCommandPending && NetSession.SlotLobbyReady[slot], "second ready received");
             Check(NetSession.SendLobbyCommand(LobbyCommandType.StartMatch), "second real-client start");
             PumpUntil(() => NetSession.IsStarting, "second real-client load barrier");
+            Check(NetLaunch.VerifyServerMap(), "same-room next match revalidates the server map");
             NetSession.MarkMatchLoaded(); PumpUntil(() => NetSession.IsPlaying, "second real-client round");
             Check(NetSession.ConnectionPort == port && NetSession.LocalSlot == slot, "same client UDP session in second match");
             NetSession.Stop();

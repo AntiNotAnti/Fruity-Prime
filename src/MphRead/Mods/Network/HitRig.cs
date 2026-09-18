@@ -97,10 +97,6 @@ namespace MphRead.Mods.Network
         /// <summary>The weapon a <see cref="RigMode.Volley"/> run empties.</summary>
         public static BeamType VolleyWeapon { get; private set; } = BeamType.Missile;
 
-        /// <summary>A held stream rather than a cadence, and 15 units of reach.</summary>
-        private static bool VolleyIsContinuous => Mode == RigMode.Volley
-            && Weapons.Current[(int)VolleyWeapon].Flags.TestFlag(WeaponFlags.Continuous);
-
         public static RigMode Mode { get; private set; } = RigMode.Off;
         public static bool Active => Mode != RigMode.Off;
 
@@ -152,10 +148,6 @@ namespace MphRead.Mods.Network
                 case "powerbeam":
                     Mode = RigMode.Volley;
                     VolleyWeapon = BeamType.PowerBeam;
-                    return true;
-                case "shockcoil":
-                    Mode = RigMode.Volley;
-                    VolleyWeapon = BeamType.ShockCoil;
                     return true;
                 default:
                     return false;
@@ -394,7 +386,7 @@ namespace MphRead.Mods.Network
             RangeSum += range;
             RangeSamples++;
             HoldRange(player, c, range, Mode == RigMode.Sniper ? LongRange
-                : Mode == RigMode.Volley && !VolleyIsContinuous ? VolleyRange : CloseRange);
+                : Mode == RigMode.Volley && VolleyWeapon != BeamType.ShockCoil ? VolleyRange : CloseRange);
             // Tapped on the weapon's own cadence, and the tap is what makes
             // it fire. Holding looked right -- the Imperialist MP carries
             // WeaponFlags.RepeatFire, which repeats at `shotCooldown` 60 --

@@ -965,7 +965,7 @@ namespace MphRead.Entities
                     {
                         flags |= BeamSpawnFlags.Charged;
                     }
-                    Spawn(Owner, _ricochetEquip, colRes.Position, spawnDir, flags, NodeRef, _scene);
+                    Spawn(Owner, _ricochetEquip, colRes.Position, spawnDir, flags, NodeRef, _scene, parent: this);
                 }
             }
             if (!Flags.TestFlag(BeamFlags.Continuous))
@@ -1410,8 +1410,10 @@ namespace MphRead.Entities
         }
 
         public static BeamResultFlags Spawn(EntityBase owner, EquipInfo equip, Vector3 position, Vector3 direction,
-            BeamSpawnFlags spawnFlags, NodeRef nodeRef, Scene scene)
+            BeamSpawnFlags spawnFlags, NodeRef nodeRef, Scene scene, BeamProjectileEntity? parent = null)
         {
+            if (NetSession.Active && parent != null && !NetPlayerLifecycle.CurrentProjectile(parent))
+                return BeamResultFlags.NoSpawn;
             BeamResultFlags result = BeamResultFlags.Spawned;
             WeaponInfo weapon = equip.Weapon;
             bool charged = false;
@@ -1465,19 +1467,7 @@ namespace MphRead.Entities
                 // game's cycle for green beam (15): 0 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 0
                 //    our cycle for green beam (15): 0 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0
                 //                                   0 0 1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0 1 0 0 0 0 0
-                if (phase % 2 == 0)
-                {
-                    ulong bits = (ulong)(cost & 31);
-                    cost /= 32;
-                    if (bits != 0 && ((bits * (phase / 2)) & 31) > 32 - bits) // todo: FPS stuff
-                    {
-                        cost++;
-                    }
-                }
-                else
-                {
-                    cost = 0;
-                }
+                cost = ContinuousWeaponPhase.Amount(cost, phase, damage: false);
             }
             int ammo = equip.Ammo;
             if (ammo >= 0 && cost > ammo)
@@ -1605,19 +1595,7 @@ namespace MphRead.Entities
                 // note: previously the frame count partiy check was part of the condition below, but that assumed the base value
                 // was zero after the division by 32, which is true for Shock Coil but not e.g. platform green energy beams,
                 // so we need those to hit every other frame to match the DPS from the game
-                if (phase % 2 == 0)
-                {
-                    ulong bits = (ulong)(damage & 31);
-                    damage /= 32;
-                    if (bits != 0 && ((bits * (phase / 2)) & 31) >= 32 - bits) // todo: FPS stuff
-                    {
-                        damage++;
-                    }
-                }
-                else
-                {
-                    damage = 0;
-                }
+                damage = ContinuousWeaponPhase.Amount(damage, phase, damage: true);
             }
             if (Cheats.QuadrupleDamage)
             {
@@ -1831,6 +1809,8 @@ namespace MphRead.Entities
                         NetDamage.ShockCoilAcquired++;
                     }
                 }
+                if (NetSession.Active && weapon.Flags.TestFlag(WeaponFlags.Continuous))
+                    NetShotDiagnostics.Continuous(beam, cost);
                 beam._soundSource.Update(beam.Position, rangeIndex: 0);
                 scene.AddEntity(beam);
             }

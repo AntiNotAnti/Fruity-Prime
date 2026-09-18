@@ -57,19 +57,14 @@ namespace MphRead.Mods.Network
         MapPick = 29,       // client -> server, which of them this player wants
         HitClaim = 30,      // client -> authority, "this shot of mine landed"
         HitVerdict = 31,    // authority -> client, what it did with those claims
-        // 32-35 are reserved for handing a custom map to a client that does
-        // not have it. Reserved rather than implemented: the numbers are
-        // spent now so that the protocol 7 refusal covers the transfer as
-        // well, and a client built today cannot meet a server that speaks it
-        // and misread a chunk as something else. The shape is settled --
-        // MapOffer names the map and its hash, MapWant asks for the bytes,
-        // MapChunk carries them, MapDone closes the transfer -- and nothing
-        // in this build sends or answers any of them.
-        // See .claude/mapgen/MAP-PIPELINE.md.
+        // Map transfer is negotiated before loading a custom room. All requests
+        // are bounded and identify package hashes rather than peer filenames.
         MapOffer = 32,      // server -> client, "the next map is custom: name, hash, size"
         MapWant = 33,       // client -> server, "send it, from byte N"
         MapChunk = 34,      // server -> client, one piece of the .fpmap
-        MapDone = 35        // client -> server, "I have it and it hashes right"
+        SessionState = 36, LobbyCommand = 37, LobbyCommandResult = 38,
+        MatchLoaded = 39, MatchLoadFailed = 40,
+        MapDone = 35,        // client -> server, "I have it and it hashes right"
     }
 
     /// <summary>
@@ -95,6 +90,8 @@ namespace MphRead.Mods.Network
 
         public const byte ReasonFull = 1;
         public const byte ReasonProtocol = 2;
+        public const byte ReasonKicked = 3;
+        public const byte ReasonInMatch = 4;
 
         public byte Reason;
         public byte Players;
@@ -121,6 +118,8 @@ namespace MphRead.Mods.Network
         {
             return Reason switch
             {
+                ReasonKicked => "You were removed by the lobby owner.",
+                ReasonInMatch => "This server does not allow joining a match in progress.",
                 ReasonFull => $"{where} is full ({Players}/{MaxPlayers} players). "
                     + "Try again when somebody leaves.",
                 ReasonProtocol => $"{where} is running a different version of the game. "
@@ -188,9 +187,12 @@ namespace MphRead.Mods.Network
         public IReadOnlyList<(string RoomKey, GameMode Mode)>? Rotation;
 
         /// <summary>How many bytes this request takes, tail included.</summary>
-        public int Length => Size + (Rotation == null || Rotation.Count == 0
-            ? 0
-            : 1 + Math.Min(Rotation.Count, MaxRotation) * RotationEntrySize);
+        public ServerSessionPolicy Policy;
+        public bool AllowJoinInProgress = true;
+        public bool RequireReady = true;
+        public MatchFormat Format;
+        public HostRequestPacket() { RoomKey = ""; ServerName = ""; }
+        public int Length => Size + 1 + Math.Min(Rotation?.Count ?? 0, MaxRotation) * RotationEntrySize + 4;
 
         public void Write(Span<byte> dest)
         {
@@ -201,22 +203,27 @@ namespace MphRead.Mods.Network
             BinaryPrimitives.WriteUInt16LittleEndian(dest[5..], PointGoal);
             NetText.Write(dest.Slice(7, MaxRoomBytes), RoomKey);
             NetText.Write(dest.Slice(7 + MaxRoomBytes, MaxNameBytes), ServerName);
-            if (Rotation == null || Rotation.Count == 0)
-            {
-                return;
-            }
-            int count = Math.Min(Rotation.Count, MaxRotation);
+            int count = Math.Min(Rotation?.Count ?? 0, MaxRotation);
             dest[Size] = (byte)count;
             for (int i = 0; i < count; i++)
             {
                 int at = Size + 1 + i * RotationEntrySize;
-                NetText.Write(dest.Slice(at, MaxRoomBytes), Rotation[i].RoomKey);
-                dest[at + MaxRoomBytes] = (byte)Rotation[i].Mode;
+                NetText.Write(dest.Slice(at, MaxRoomBytes), Rotation![i].RoomKey);
+                dest[at + MaxRoomBytes] = (byte)Rotation![i].Mode;
             }
+            int tail = Size + 1 + count * RotationEntrySize;
+            dest[tail] = (byte)Policy;
+            dest[tail + 1] = AllowJoinInProgress ? (byte)1 : (byte)0;
+            dest[tail + 2] = RequireReady ? (byte)1 : (byte)0;
+            dest[tail + 3] = (byte)Format;
         }
 
         public static HostRequestPacket Read(ReadOnlySpan<byte> src)
         {
+            if (src.Length < Size + 5 || src[Size] > MaxRotation) return default;
+            int tail = Size + 1 + src[Size] * RotationEntrySize;
+            if (src.Length != tail + 4 || src[tail] > 1 || src[tail + 1] > 1
+                || src[tail + 2] > 1 || src[tail + 3] > (byte)MatchFormat.TwoVsTwoVsTwoVsTwo) return default;
             return new HostRequestPacket
             {
                 Protocol = src[0],
@@ -226,6 +233,8 @@ namespace MphRead.Mods.Network
                 PointGoal = BinaryPrimitives.ReadUInt16LittleEndian(src[5..]),
                 RoomKey = NetText.Read(src.Slice(7, MaxRoomBytes)),
                 ServerName = NetText.Read(src.Slice(7 + MaxRoomBytes, MaxNameBytes)),
+                Policy = (ServerSessionPolicy)src[tail], AllowJoinInProgress = src[tail + 1] != 0,
+                RequireReady = src[tail + 2] != 0, Format = (MatchFormat)src[tail + 3],
                 Rotation = ReadRotation(src)
             };
         }
@@ -272,8 +281,9 @@ namespace MphRead.Mods.Network
     public struct HostReplyPacket
     {
         public const int MaxReasonBytes = 96;
-        public const int Size = 1 + 2 + MaxReasonBytes;
+        public const int Size = 1 + 2 + MaxReasonBytes + 16;
 
+        public Guid OwnerToken;
         public bool Started;
         public ushort Port;
         public string Reason;
@@ -283,6 +293,7 @@ namespace MphRead.Mods.Network
             dest[0] = (byte)(Started ? 1 : 0);
             BinaryPrimitives.WriteUInt16LittleEndian(dest[1..], Port);
             NetText.Write(dest.Slice(3, MaxReasonBytes), Reason);
+            OwnerToken.TryWriteBytes(dest.Slice(3 + MaxReasonBytes, 16));
         }
 
         public static HostReplyPacket Read(ReadOnlySpan<byte> src)
@@ -290,6 +301,7 @@ namespace MphRead.Mods.Network
             return new HostReplyPacket
             {
                 Started = src[0] != 0,
+                OwnerToken = new Guid(src.Slice(3 + MaxReasonBytes, 16)),
                 Port = BinaryPrimitives.ReadUInt16LittleEndian(src[1..]),
                 Reason = NetText.Read(src.Slice(3, MaxReasonBytes))
             };
@@ -323,11 +335,14 @@ namespace MphRead.Mods.Network
         /// built before it existed never looks: the length check is what
         /// separates the two, and neither side needed a protocol bump.
         /// </summary>
-        public const int SizeWithFlags = Size + 1;
+        public const int SizeWithFlags = Size + 5;
 
         /// <summary>Bit 0: this server will open a new match on a port of its own.</summary>
         public const byte FlagCanHost = 1;
 
+        public SessionPhase Phase;
+        public MatchFormat Format;
+        public bool LobbyEnabled, AllowJoinInProgress;
         public MatchStatePacket Match;
         public byte MaxPlayers;
         public byte Protocol;
@@ -357,6 +372,9 @@ namespace MphRead.Mods.Network
             if (dest.Length >= SizeWithFlags)
             {
                 dest[Size] = Flags;
+                dest[Size + 1] = (byte)Phase; dest[Size + 2] = (byte)Format;
+                dest[Size + 3] = LobbyEnabled ? (byte)1 : (byte)0;
+                dest[Size + 4] = AllowJoinInProgress ? (byte)1 : (byte)0;
             }
         }
 
@@ -370,7 +388,11 @@ namespace MphRead.Mods.Network
                 ServerName = src.Length >= Size
                     ? NetText.Read(src.Slice(MatchStatePacket.Size + 2, MaxNameBytes))
                     : "",
-                Flags = src.Length >= SizeWithFlags ? src[Size] : (byte)0
+                Flags = src.Length > Size ? src[Size] : (byte)0,
+                Phase = src.Length >= SizeWithFlags ? (SessionPhase)src[Size + 1] : SessionPhase.InMatch,
+                Format = src.Length >= SizeWithFlags ? (MatchFormat)src[Size + 2] : MatchFormat.Auto,
+                LobbyEnabled = src.Length >= SizeWithFlags && src[Size + 3] != 0,
+                AllowJoinInProgress = src.Length < SizeWithFlags || src[Size + 4] != 0
             };
         }
     }
@@ -862,15 +884,18 @@ namespace MphRead.Mods.Network
         // rides along for the same reason: it is a property of who is in the
         // slot, the server is the only party that can measure it for
         // everybody, and it already sends this packet every second.
-        public const int EntrySize = 1 + 1 + 1 + 2 + MaxNameBytes + 2;
-        public const int HeaderSize = 15;
+        public const int EntrySize = 1 + 1 + 1 + 2 + MaxNameBytes + 4;
+        public const int HeaderSize = 17;
         public const int Size = HeaderSize + MaxSlots * EntrySize;
+        public ushort SessionRevision;
         public ushort MatchId;
         public ulong AuthorityEpoch;
         public uint Revision;
         public ushort[] Generations;
 
         public byte Count;
+        public sbyte[] Teams;
+        public bool[] LobbyReady;
         public byte[] Slots;      // slot index per entry
         public byte[] Hunters;    // Hunter enum value per entry
         public byte[] Colors;     // suit palette asked for, 0-3
@@ -884,6 +909,8 @@ namespace MphRead.Mods.Network
                 Count = 0,
                 Generations = new ushort[MaxSlots],
                 Slots = new byte[MaxSlots],
+                Teams = new sbyte[MaxSlots],
+                LobbyReady = new bool[MaxSlots],
                 Hunters = new byte[MaxSlots],
                 Colors = new byte[MaxSlots],
                 Pings = new ushort[MaxSlots],
@@ -898,6 +925,7 @@ namespace MphRead.Mods.Network
             BinaryPrimitives.WriteUInt16LittleEndian(dest[1..], MatchId);
             BinaryPrimitives.WriteUInt64LittleEndian(dest[3..], AuthorityEpoch);
             BinaryPrimitives.WriteUInt32LittleEndian(dest[11..], Revision);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[15..], SessionRevision);
             int offset = HeaderSize;
             for (int i = 0; i < Count && i < MaxSlots; i++)
             {
@@ -906,9 +934,30 @@ namespace MphRead.Mods.Network
                 dest[offset + 2] = Colors[i];
                 BinaryPrimitives.WriteUInt16LittleEndian(dest[(offset + 3)..], Pings[i]);
                 WriteName(dest.Slice(offset + 5, MaxNameBytes), Names[i]);
+                dest[offset + 7 + MaxNameBytes] = unchecked((byte)Teams[i]);
+                dest[offset + 8 + MaxNameBytes] = LobbyReady[i] ? (byte)1 : (byte)0;
                 BinaryPrimitives.WriteUInt16LittleEndian(dest[(offset + 21)..], Generations[i]);
                 offset += EntrySize;
             }
+        }
+
+        public static bool TryRead(ReadOnlySpan<byte> src, out RosterPacket roster)
+        {
+            roster = default;
+            if (src.Length != Size || src[0] > MaxSlots) return false;
+            int seen = 0;
+            for (int i = 0; i < src[0]; i++)
+            {
+                int offset = HeaderSize + i * EntrySize;
+                int slot = src[offset];
+                int team = unchecked((sbyte)src[offset + 7 + MaxNameBytes]);
+                if (slot >= MaxSlots || (seen & (1 << slot)) != 0 || src[offset + 1] >= 7
+                    || src[offset + 2] > 3 || team < -1 || team > 3 || src[offset + 8 + MaxNameBytes] > 1)
+                    return false;
+                seen |= 1 << slot;
+            }
+            roster = Read(src);
+            return true;
         }
 
         public static RosterPacket Read(ReadOnlySpan<byte> src)
@@ -918,6 +967,7 @@ namespace MphRead.Mods.Network
             roster.MatchId = BinaryPrimitives.ReadUInt16LittleEndian(src[1..]);
             roster.AuthorityEpoch = BinaryPrimitives.ReadUInt64LittleEndian(src[3..]);
             roster.Revision = BinaryPrimitives.ReadUInt32LittleEndian(src[11..]);
+            roster.SessionRevision = BinaryPrimitives.ReadUInt16LittleEndian(src[15..]);
             int offset = HeaderSize;
             for (int i = 0; i < roster.Count; i++)
             {
@@ -926,6 +976,8 @@ namespace MphRead.Mods.Network
                 roster.Colors[i] = src[offset + 2];
                 roster.Pings[i] = BinaryPrimitives.ReadUInt16LittleEndian(src[(offset + 3)..]);
                 roster.Names[i] = ReadName(src.Slice(offset + 5, MaxNameBytes));
+                roster.Teams[i] = unchecked((sbyte)src[offset + 7 + MaxNameBytes]);
+                roster.LobbyReady[i] = src[offset + 8 + MaxNameBytes] != 0;
                 roster.Generations[i] = BinaryPrimitives.ReadUInt16LittleEndian(src[(offset + 21)..]);
                 offset += EntrySize;
             }
@@ -1806,6 +1858,10 @@ namespace MphRead.Mods.Network
         /// <summary>The claim named a frame the history no longer holds.</summary>
         public const byte ResultTooOld = 5;
         public const byte ResultWrongLife = 6;
+        public const byte ResultGeometry = 7;
+        public const byte ResultDamageLimit = 8;
+        public const byte ResultInvalidLaunch = 9;
+        public const byte ResultNoDamage = 10;
 
         public ushort ClaimId;
         public byte Result;
@@ -1831,6 +1887,10 @@ namespace MphRead.Mods.Network
             return result switch
             {
                 ResultWrongLife => "wrong lifecycle",
+                ResultGeometry => "hit point outside reconciliation radius",
+                ResultDamageLimit => "damage exceeds weapon limit",
+                ResultInvalidLaunch => "launch frame follows hit frame",
+                ResultNoDamage => "authority damage rules prevented the hit",
                 ResultApplied => "applied",
                 ResultDuplicate => "already resolved",
                 ResultDeadShooter => "shooter was already dead when it fired",
@@ -1845,7 +1905,9 @@ namespace MphRead.Mods.Network
     public static class NetConfig
     {
         public const ushort DefaultPort = 27888;
-        public const int MaxPacketSize = 1440; // eight players plus four damage events each; below Ethernet UDP MTU
+        // Combined lifecycle + team clocks + health spawners can exceed a single
+        // Ethernet MTU. This is a buffer bound, not a no-fragmentation guarantee.
+        public const int MaxPacketSize = 2048;
         /// <summary>
         /// Bumped when the wire format changes in a way an older build would
         /// misread rather than notice. Version 2 added the ping to the roster:
@@ -1916,17 +1978,19 @@ namespace MphRead.Mods.Network
         ///   behind resolves 85% of a 320 ms line's shots against a world
         ///   nobody was looking at, measured.
         ///
-        /// It also spends packet numbers 32-35 on a custom-map transfer that
-        /// is **not implemented**. That is deliberate: the numbers cost
-        /// nothing now and spending them here means the refusal this version
-        /// already forces is the same refusal that will cover the transfer,
-        /// rather than a second bump a month later. See
-        /// <see cref="PacketType.MapOffer"/>.
-        ///
         /// Version 8 changes continuous-weapon damage timing. Player beams
         /// now use one per-stream firing phase on every machine. Packet layout
         /// is unchanged, but version 7 peers would simulate different ammo
         /// and damage events, so mixed builds must be refused.
+        /// Version 10 integrates lifecycle, persistent lobby, team-resource and
+        /// continuous-phase branches. Rosters retain generations, teams and ready
+        /// flags with separate roster/session revisions; SessionState has an epoch.
+        /// Snapshots retain lifecycle identities, team clocks and health spawners.
+        /// Version 11 also requires custom-map identity/hash negotiation before
+        /// loading a room. Its map-transfer packet IDs remain 32-35.
+        /// Version 12 adds the synchronized hidden-opponent-health rule (bit 6),
+        /// explicit claim refusal reasons and launch-preserving projectile behavior.
+        /// The packet sizes are unchanged; older SessionState readers reject bit 6.
         /// </summary>
         public const int ProtocolVersion = 12;
         /// <summary>
