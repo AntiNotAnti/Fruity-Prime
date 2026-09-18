@@ -13,12 +13,14 @@ namespace MphRead.Mods.Network
         public readonly IPEndPoint Sender;
         public readonly byte[] Data;
         public readonly int Length;
+        public readonly long ArrivedAt;
 
-        public ReceivedPacket(IPEndPoint sender, byte[] data, int length)
+        public ReceivedPacket(IPEndPoint sender, byte[] data, int length, long arrivedAt = 0)
         {
             Sender = sender;
             Data = data;
             Length = length;
+            ArrivedAt = arrivedAt == 0 ? Stopwatch.GetTimestamp() : arrivedAt;
         }
 
         public PacketType Type => Length > 0 ? (PacketType)Data[0] : default;
@@ -313,7 +315,7 @@ namespace MphRead.Mods.Network
                     }
                 }
                 Interlocked.Increment(ref _inboxCount);
-                _inbox.Enqueue(packet);
+                _inbox.Enqueue(new ReceivedPacket(packet.Sender, packet.Data, packet.Length));
             }
         }
 
