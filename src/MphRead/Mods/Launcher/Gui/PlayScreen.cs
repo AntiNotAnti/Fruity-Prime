@@ -126,6 +126,7 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly Note _note = new("");
         private readonly UiMark _go;
         private readonly UiMark _back;
+        private readonly UiMark _createLobby;
 
         private DispatcherTimer? _statusTimer;
         private CancellationTokenSource? _statusCancel;
@@ -379,6 +380,8 @@ namespace MphRead.Mods.Launcher.Gui
             _back.Click += (_, _) => Leave();
             _go = new UiMark(UiMark.Shape.Accept, "play");
             _go.Click += (_, _) => Go();
+            _createLobby = new UiMark(UiMark.Shape.Add, "create lobby") { IsVisible = face == Face.Online };
+            _createLobby.Click += (_, _) => CreateRequested?.Invoke(this, EventArgs.Empty);
             // One commit on the right, not two. The browser used to carry
             // both CREATE SERVER and JOIN down there, which is a foot offering
             // two acts of equal weight when only one of them is ever the one
@@ -394,7 +397,7 @@ namespace MphRead.Mods.Launcher.Gui
             }
             Panel page = UiLayout.Page(overGame, UiLayout.WellPlay,
                 face == Face.Vote ? "vote" : "play", _tabs, body, _back, _go,
-                note: _note);
+                extra: _createLobby, note: _note);
             // Over the sheet, not inside the panel: the reference's `.side` is
             // a sibling of the sheet and slides in past its right edge, which
             // is what makes it read as a drawer the panel opened rather than
@@ -736,7 +739,9 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 return;
             }
-            _go.Label = _list.Selected is ServerRow ? "join" : "create server";
+            _go.Label = "join";
+            _go.IsEnabled = _list.Selected is ServerRow;
+            _createLobby.IsVisible = true;
         }
 
         /// <summary>
@@ -865,11 +870,13 @@ namespace MphRead.Mods.Launcher.Gui
                 // Nothing is picked yet on a browser that has just been
                 // rebuilt, so the word is the one for the act that needs no
                 // selection. Picking a row changes it -- see SelectServer.
-                Face.Online => "create server",
+                Face.Online => "join",
                 Face.Clips => "watch",
                 Face.Vote => "vote",
                 _ => "start"
             };
+            _go.IsEnabled = true;
+            _createLobby.IsVisible = Current == Face.Online;
             _options.Children.Clear();
             ClearFaceExtras();
             _note.Text = "";

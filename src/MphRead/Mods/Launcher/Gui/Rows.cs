@@ -435,6 +435,75 @@ namespace MphRead.Mods.Launcher.Gui
         }
     }
 
+    /// <summary>
+    /// A labelled two-button boolean choice.
+    ///
+    /// Unlike <see cref="ToggleRow"/>, both answers are visible at once. Lobby
+    /// rules use this form because seven switches in a configuration panel are
+    /// faster to scan as explicit OFF / ON decisions than as tiny tracks.
+    /// </summary>
+    internal sealed class ButtonToggleRow : Grid
+    {
+        private readonly DeckButton _off;
+        private readonly DeckButton _onButton;
+        private bool _on;
+
+        public event EventHandler? Changed;
+
+        public bool On
+        {
+            get => _on;
+            set
+            {
+                if (_on == value)
+                {
+                    return;
+                }
+                _on = value;
+                Mark();
+                Changed?.Invoke(this, EventArgs.Empty);
+            }
+        }
+
+        public ButtonToggleRow(string label, bool on = false)
+        {
+            _on = on;
+            ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto");
+            ColumnSpacing = 5;
+            MinHeight = 32;
+
+            var caption = new TextBlock
+            {
+                Text = label,
+                FontFamily = GuiTheme.Display,
+                FontSize = 12,
+                Foreground = GuiTheme.TextDimBrush,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(4, 0, 8, 0)
+            };
+            Children.Add(caption);
+
+            _off = new DeckButton("OFF", Deck.Face.Slate,
+                sizeEms: 0.72, padXEms: 0.62, padYEms: 0.26, lip: 3);
+            _onButton = new DeckButton("ON", Deck.Face.Slate,
+                sizeEms: 0.72, padXEms: 0.72, padYEms: 0.26, lip: 3);
+            _off.Click += (_, _) => On = false;
+            _onButton.Click += (_, _) => On = true;
+
+            Grid.SetColumn(_off, 1);
+            Grid.SetColumn(_onButton, 2);
+            Children.Add(_off);
+            Children.Add(_onButton);
+            Mark();
+        }
+
+        private void Mark()
+        {
+            _off.Wear(_on ? Deck.Face.Slate : Deck.Face.Rust, selected: !_on);
+            _onButton.Wear(_on ? Deck.Face.Moss : Deck.Face.Slate, selected: _on);
+        }
+    }
+
     /// <summary>A label and something to type in.</summary>
     internal sealed class FieldRow : Panel
     {

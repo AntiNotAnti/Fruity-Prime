@@ -11,17 +11,47 @@ namespace MphRead.Mods.Launcher.Gui
         {
             int slot = roster.Slots[index];
             string team = roster.Teams[index] < 0 ? "FFA" : $"Team {(char)('A' + roster.Teams[index])}";
-            var lines = new StackPanel();
-            lines.Children.Add(new TextBlock
+            string state = roster.LobbyReady[index] ? "READY" : "WAIT";
+            string name = roster.Names[index] + (slot == owner ? "  [OWNER]" : "");
+            string detail = $"{(Hunter)roster.Hunters[index]} · S{roster.Colors[index] + 1} · {team} · {roster.Pings[index]} ms";
+
+            var line = new Grid
             {
-                Text = $"{(roster.LobbyReady[index] ? "READY" : "WAITING")}  {roster.Names[index]}"
-                    + (slot == owner ? "  [OWNER]" : ""),
-                FontFamily = GuiTheme.Display, FontSize = 14,
-                Foreground = roster.LobbyReady[index] ? GuiTheme.WarmBrush : GuiTheme.TextBrush,
-                TextTrimming = TextTrimming.CharacterEllipsis
-            });
-            lines.Children.Add(new Note($"{(Hunter)roster.Hunters[index]} · Suit {roster.Colors[index] + 1} · {team} · {roster.Pings[index]} ms"));
-            Padding = new Thickness(5); Child = lines;
+                ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"),
+                ColumnSpacing = 10
+            };
+            var ready = new TextBlock
+            {
+                Text = state,
+                FontFamily = GuiTheme.Display,
+                FontSize = 11,
+                Foreground = roster.LobbyReady[index] ? GuiTheme.GoodBrush : GuiTheme.TextDimBrush,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+            };
+            var player = new TextBlock
+            {
+                Text = name,
+                FontFamily = GuiTheme.Display,
+                FontSize = 13,
+                Foreground = GuiTheme.TextBrush,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+            };
+            var facts = new TextBlock
+            {
+                Text = detail,
+                FontFamily = Deck.Mono,
+                FontSize = 10,
+                Foreground = GuiTheme.TextDimBrush,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+            };
+            Grid.SetColumn(player, 1);
+            Grid.SetColumn(facts, 2);
+            line.Children.Add(ready);
+            line.Children.Add(player);
+            line.Children.Add(facts);
+            Padding = new Thickness(4, 3);
+            Child = line;
         }
     }
 }

@@ -79,7 +79,7 @@ namespace MphRead.Mods.Launcher.Gui
                 .Append(Hunter.Random.ToString()).ToArray();
 
         /// <summary>Hosted first: it is the one that needs nothing opening.</summary>
-        private static readonly string[] _kinds = { "Hosted", "Dedicated server" };
+        private static readonly string[] _kinds = { "Hosted lobby", "Dedicated server" };
 
         /// <summary>
         /// Whether running the server on *this* machine is an answer at all.
@@ -156,8 +156,8 @@ namespace MphRead.Mods.Launcher.Gui
             Focusable = true;
 
             string player = LauncherPrefs.PlayerName.Trim();
-            _name = new FieldRow("Server name",
-                (player.Length > 0 ? player : "Player") + "'s server", boxWidth: 230);
+            _name = new FieldRow("Lobby name",
+                (player.Length > 0 ? player : "Player") + "'s lobby", boxWidth: 230);
             _mode = new ChoiceRow("Game type", _modes.Select(m => m.Label).ToArray());
             _hunter = new ChoiceRow("Your hunter", _hunters,
                 Math.Max(0, Array.IndexOf(_hunters, LauncherPrefs.LastHunter.ToString())));
@@ -166,7 +166,7 @@ namespace MphRead.Mods.Launcher.Gui
             _host.Clicked += (_, _) => OpenHosts();
             _maps = new PickRow("Map rotation");
             _maps.Clicked += (_, _) => OpenMaps();
-            _kind = new ChoiceRow("Server type", _kinds, 0);
+            _kind = new ChoiceRow("Hosting", _kinds, 0);
             _kind.Changed += (_, _) => Refresh();
 
             _form.Children.Add(_name);
@@ -202,7 +202,7 @@ namespace MphRead.Mods.Launcher.Gui
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto
             };
             _page = UiLayout.Page(overGame: false, UiLayout.WellSettings,
-                "create server", strip: null, body: body, no: _back, yes: _go,
+                "create lobby", strip: null, body: body, no: _back, yes: _go,
                 extra: _fetch);
             _root.Children.Add(_page);
             Content = _root;
@@ -567,7 +567,7 @@ namespace MphRead.Mods.Launcher.Gui
             string name = _name.Value.Trim();
             if (name.Length == 0)
             {
-                name = "Fruity server";
+                name = "Fruity lobby";
             }
             GameMode mode = _modes[_mode.Index].Mode;
             var hunter = (Hunter)Enum.Parse(typeof(Hunter), _hunter.Value);
@@ -663,7 +663,7 @@ namespace MphRead.Mods.Launcher.Gui
             string host = _chosen.Value.Host;
             int port = _chosen.Value.Port;
             Busy(true, "starting");
-            Say($"Asking {host} to open a game with {maps.Count} map(s)...",
+            Say($"Asking {host} to open your lobby...",
                 GuiTheme.TextDim);
             HostedGame game = await Task.Run(() => NetMasterClient.RequestGame(host, port,
                 maps[0].RoomKey, mode, timeLimit: 7 * 60, pointGoal: 7,
@@ -992,17 +992,20 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly List<string> _picked;
         private readonly List<string> _rooms;
         private readonly Dictionary<string, UiListRow> _byRoom = new();
+        private readonly bool _single;
 
-        public MapRotationPicker(IReadOnlyList<string> rooms, IReadOnlyList<string> picked)
+        public MapRotationPicker(IReadOnlyList<string> rooms, IReadOnlyList<string> picked,
+            bool single = false)
         {
             _rooms = new List<string>(rooms);
             _picked = new List<string>(picked);
+            _single = single;
             Background = Brushes.Transparent;
             Focusable = true;
 
             var back = new UiMark(UiMark.Shape.Cancel, "back");
             back.Click += (_, _) => Cancelled?.Invoke(this, EventArgs.Empty);
-            var done = new UiMark(UiMark.Shape.Accept, "use these maps");
+            var done = new UiMark(UiMark.Shape.Accept, single ? "use this map" : "use these maps");
             done.Click += (_, _) => Commit();
 
             var body = new Grid { RowDefinitions = new RowDefinitions("*,Auto") };
@@ -1012,7 +1015,7 @@ namespace MphRead.Mods.Launcher.Gui
             body.Children.Add(_note);
 
             Content = UiLayout.Page(overGame: false, UiLayout.WellPlay,
-                "map rotation", strip: null, body: body, no: back, yes: done);
+                single ? "choose map" : "map rotation", strip: null, body: body, no: back, yes: done);
             Fill();
         }
 
@@ -1067,6 +1070,13 @@ namespace MphRead.Mods.Launcher.Gui
 
         private void Toggle(string room)
         {
+            if (_single)
+            {
+                _picked.Clear();
+                _picked.Add(room);
+                Mark();
+                return;
+            }
             if (!_picked.Remove(room))
             {
                 if (_picked.Count >= HostRequestPacket.MaxRotation)
@@ -1092,16 +1102,18 @@ namespace MphRead.Mods.Launcher.Gui
             }
             _note.Foreground = GuiTheme.TextDimBrush;
             _note.Text = _picked.Count == 0
-                ? "Press maps to build the cycle. They are played in the order you press them."
-                : String.Join("  >  ", _picked.Select(room =>
-                    Metadata.GetRoomByName(room).Item1?.InGameName ?? room));
+                ? (_single ? "Pick a map." : "Press maps to build the cycle. They are played in the order you press them.")
+                : _single
+                    ? $"Selected: {Metadata.GetRoomByName(_picked[0]).Item1?.InGameName ?? _picked[0]}"
+                    : String.Join("  >  ", _picked.Select(room =>
+                        Metadata.GetRoomByName(room).Item1?.InGameName ?? room));
         }
 
         private void Commit()
         {
             if (_picked.Count == 0)
             {
-                _note.Text = "Pick at least one map.";
+                _note.Text = _single ? "Pick a map." : "Pick at least one map.";
                 _note.Foreground = GuiTheme.WarmBrush;
                 return;
             }
