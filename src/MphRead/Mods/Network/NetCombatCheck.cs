@@ -36,6 +36,7 @@ namespace MphRead.Mods.Network
                 InvalidHitClaimIsRefused();
                 InvulnerableClaimIsRefused();
                 MutualKillOrdering();
+                ClaimArbitrationHasDeadline();
                 ContinuousPhaseAgreesAcrossPeers();
                 GameState.PointGoal = 1000; GameState.MatchTime = 3600;
                 Array.Clear(GameState.Points);
@@ -199,7 +200,48 @@ namespace MphRead.Mods.Network
             Check(victim.Health == 1 && NetHitClaims.AppliedHere == 0
                 && !NetHitClaims.AlreadyRescued(0, 1, claim.LaunchFrame),
                 "invulnerable target cannot be reported or prepaid as rescued damage");
+            int bucket = NetShotDiagnostics.Bucket(BeamType.Imperialist);
+            long refused = NetShotDiagnostics.Refusals[bucket], declared = NetShotDiagnostics.Claims[bucket];
+            Receive(0, claim); NetHitClaims.Tick();
+            Check(NetShotDiagnostics.Refusals[bucket] == refused && NetShotDiagnostics.Claims[bucket] == declared,
+                "repeated claim does not duplicate per-weapon outcome counters");
             PrepareClaims();
+        }
+
+        private static void ClaimArbitrationHasDeadline()
+        {
+            PrepareClaims();
+            var victim = PlayerEntity.Players[1];
+            typeof(PlayerEntity).GetField("_spawnInvulnTimer", BindingFlags.NonPublic | BindingFlags.Instance)!
+                .SetValue(victim, (ushort)1000);
+            uint firstWorld = NetSession.NetFrame - 1;
+            byte verdict = 255;
+            var previousSink = NetHitClaims.VerdictSink;
+            NetHitClaims.VerdictSink = (int slot, ReadOnlySpan<(ushort Id, byte Result)> entries) =>
+            {
+                foreach (var entry in entries) if (slot == 0 && entry.Id == 1) verdict = entry.Result;
+            };
+            try
+            {
+                Receive(0, Claim(0, firstWorld));
+                // Keep delivering earlier shots before the preceding one has
+                // finished grace. None can kill; they must not starve id 1.
+                for (uint tick = 1; tick <= 2 * NetHitClaims.MaxGraceFrames + 1; tick++)
+                {
+                    NetSession.Update(NetSession.NetFrame / 60.0);
+                    if (tick % 8 == 0)
+                    {
+                        NetUnlagged.Record(NetSession.NetFrame);
+                        var claim = Claim(0, NetSession.NetFrame);
+                        claim.ClaimId = (ushort)(tick + 1); claim.LaunchFrame = firstWorld - tick;
+                        Receive(0, claim);
+                    }
+                    NetHitClaims.Tick();
+                }
+                Check(verdict == HitVerdictPacket.ResultNoDamage,
+                    "earlier claim stream cannot starve a verdict past the arbitration deadline");
+            }
+            finally { NetHitClaims.VerdictSink = previousSink; PrepareClaims(); }
         }
 
         private static void ContinuousPhaseAgreesAcrossPeers()

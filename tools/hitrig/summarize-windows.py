@@ -55,6 +55,25 @@ for root in args.roots:
         # Shared keys can be legitimate multi-projectile/continuous events. This
         # is a correlation aid, never an automatic phantom-shot verdict.
         row["server_repeatedSpawnKeys"] = sum(count - 1 for count in counts.values())
+        if row["Mode"] == "shockcoil":
+            # A continuous firing phase identifies the owner's logical tick;
+            # its acknowledged world frame instead describes the target world.
+            def phases(text):
+                return {(key.rsplit("/", 1)[0], int(phase)): (int(damage), int(ammo))
+                    for key, phase, damage, ammo in re.findall(
+                        r"key=(\S+) stage=continuous .*?phase=(\d+) damage=(\d+) ammo=(\d+)", text)}
+            peers = {}
+            for peer in ("ALPHA", "BRAVO"):
+                files = list(folder.glob(f"netlog*{peer}*"))
+                peers[peer] = phases(files[0].read_text(errors="replace")) if files else {}
+            owner, authority, observer = peers["ALPHA"], phases(server), peers["BRAVO"]
+            common = owner.keys() & authority.keys()
+            triple = common & observer.keys()
+            row["continuous_commonTicks"] = len(common)
+            row["continuous_damageAgreed"] = sum(owner[key][0] == authority[key][0] for key in common)
+            row["continuous_ammoAgreed"] = sum(owner[key][1] == authority[key][1] for key in common)
+            row["continuous_threePeerTicks"] = len(triple)
+            row["continuous_threePeerAgreed"] = sum(owner[key] == authority[key] == observer[key] for key in triple)
         rows.append(row)
 
 args.output.parent.mkdir(parents=True, exist_ok=True)

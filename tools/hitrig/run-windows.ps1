@@ -4,6 +4,8 @@ param(
     [ValidateSet('smoke','press-age')][string]$Suite = 'smoke',
     [int]$Seconds = 30,
     [string]$Rtts = '150,250,320,400',
+    [string]$Modes = 'powerbeam,missile,sniper,magmaul,shockcoil,judicator,battlehammer,voltdriver,duel',
+    [ValidateSet('Samus','Sylux')][string]$Hunter = 'Samus',
     [int]$Port = 28981
 )
 $ErrorActionPreference = 'Stop'
@@ -21,7 +23,7 @@ if ($Suite -eq 'press-age') {
         }
     } } }
 } else {
-    foreach ($mode in 'powerbeam','missile','sniper','magmaul','shockcoil','judicator','battlehammer','voltdriver','duel') {
+    foreach ($mode in $Modes.Split(',')) {
         foreach ($rtt in 0,400) {
             $cases += [pscustomobject]@{Mode=$mode; Rtt=$rtt; Jitter=([int]($rtt -gt 0)*80); Loss=([int]($rtt -gt 0)*5); Reorder=([int]($rtt -gt 0)*3); Duplicate=([int]($rtt -gt 0)*3); PressAge=$false}
         }
@@ -34,6 +36,7 @@ foreach ($case in $cases) {
     $label = '{0:D3}-{1}-r{2}-j{3}-l{4}-age{5}' -f $index,$case.Mode,$case.Rtt,$case.Jitter,$case.Loss,[int]$case.PressAge
     $outDir = Join-Path $outputPath $label
     New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+    $case | Add-Member -NotePropertyName Hunter -NotePropertyValue $Hunter -Force
     $case | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $outDir 'profile.json')
     Set-Content -LiteralPath (Join-Path $runtimePath 'maprotation.txt') -Value 'MP1 SANCTORUS | Battle | 15 | 999'
     $started = [Collections.Generic.List[Diagnostics.Process]]::new()
@@ -52,7 +55,7 @@ foreach ($case in $cases) {
         } until ($ready)
         Start-Sleep -Milliseconds 1500
         foreach ($name in 'ALPHA','BRAVO') {
-            $clientArgs = @('-netcheck','127.0.0.1','-port',"$Port",'-name',"${label}_${name}",'-hunter','Samus','-seconds',"$Seconds",'-size','320x180','-hitrig',$case.Mode,'-netlag',"$($case.Rtt)",'-netjitter',"$($case.Jitter)",'-netloss',"$($case.Loss)%",'-netreorder',"$($case.Reorder)%",'-netduplicate',"$($case.Duplicate)%",'-netseed','8128','-noautoupdate','-debuglog')
+            $clientArgs = @('-netcheck','127.0.0.1','-port',"$Port",'-name',"${label}_${name}",'-hunter',$Hunter,'-seconds',"$Seconds",'-size','320x180','-hitrig',$case.Mode,'-netlag',"$($case.Rtt)",'-netjitter',"$($case.Jitter)",'-netloss',"$($case.Loss)%",'-netreorder',"$($case.Reorder)%",'-netduplicate',"$($case.Duplicate)%",'-netseed','8128','-noautoupdate','-debuglog')
             $client = Start-Process -FilePath $exe -ArgumentList $clientArgs -WorkingDirectory $runtimePath -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $outDir "$name.log") -RedirectStandardError (Join-Path $outDir "$name.err")
             $started.Add($client)
             Start-Sleep -Milliseconds 1000
