@@ -40,9 +40,6 @@ namespace MphRead.Mods.Network
             public IPEndPoint EndPoint = null!;
             public int SlotIndex = -1;
             public double LastSeen;
-            public double LastMapRequest;
-            public double MapDownloadGraceUntil;
-            public double MapRequestTokens=32;
             public uint LastIntentFrame;
             public string Name = "";
             public byte Hunter;
@@ -177,7 +174,6 @@ namespace MphRead.Mods.Network
         private readonly int _port;
         private readonly int _maxPlayers;
         private readonly MapRotation _rotation;
-        private readonly MapTransferServer _mapTransfer = new();
         private NetTransport? _transport;
         private Peer? _authority;
         /// <summary>
@@ -428,7 +424,6 @@ namespace MphRead.Mods.Network
                 var definition=MapGen.CustomRooms.Definitions.FirstOrDefault(d=>d.Name.Equals(entry.RoomKey,StringComparison.OrdinalIgnoreCase));
                 if(definition!=null&&MapGen.MapModeValidator.WhyUnsupported(definition,entry.Mode,_maxPlayers) is {} reason)throw new ProgramException(reason);
             }
-            _mapTransfer.Prepare();
             _transport = new NetTransport(_port);
             _running = true;
             Log($"listening on UDP {_transport.LocalPort}, up to {_maxPlayers} players");
@@ -853,22 +848,6 @@ namespace MphRead.Mods.Network
                 case PacketType.LobbyCommand: HandleLobbyCommand(packet, now); break;
                 case PacketType.MatchLoaded: HandleMatchLoaded(packet, now); break;
                 case PacketType.MatchLoadFailed: HandleMatchLoadFailed(packet); break;
-                case PacketType.MapWant:
-                    Peer? downloading=Find(packet.Sender);
-                    if(downloading!=null&&downloading.SlotIndex>=0)
-                    {
-                        downloading.MapRequestTokens=Math.Min(32,downloading.MapRequestTokens+Math.Max(0,now-downloading.LastMapRequest)*500);
-                        downloading.LastMapRequest=now;
-                        if(downloading.MapRequestTokens<1)break;
-                        downloading.MapRequestTokens--;downloading.LastSeen=now;
-                        _mapTransfer.Handle(packet.Payload,CurrentDefinition.RoomKey,(type,payload)=>
-                        {
-                            // Only a valid requested chunk extends the loading grace.
-                            if (type == PacketType.MapChunk) downloading.MapDownloadGraceUntil = now + 15;
-                            _transport?.Send(packet.Sender,type,payload);
-                        });
-                    }
-                    break;
                 case PacketType.Hello:
                     HandleHello(packet, now);
                     break;
