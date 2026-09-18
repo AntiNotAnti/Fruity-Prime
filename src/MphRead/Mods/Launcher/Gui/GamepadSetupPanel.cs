@@ -32,7 +32,7 @@ namespace MphRead.Mods.Launcher.Gui
             if (!OperatingSystem.IsAndroid()) Button("Map controller buttons and axes", () => Start(true));
             _apply = new UiWord("Apply measured setup", 13) { IsEnabled = false };
             _apply.Click += (_, _) => Apply(); Children.Add(_apply);
-            Button("Cancel setup", () => Stop("Setup cancelled. Settings unchanged."));
+            Button("Cancel setup", () => Stop("Setup canceled. Settings unchanged."));
             Children.Add(_status);
             _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
             _timer.Tick += (_, _) => Tick();
@@ -60,7 +60,7 @@ namespace MphRead.Mods.Launcher.Gui
             { Stop("Controller or focus changed. Restart setup."); return; }
             long elapsed = _clock() - _started;
             var pressed = snapshot.State.Buttons & ~_buttons; _buttons = snapshot.State.Buttons;
-            if (!_mappingMode && (pressed & GamepadButtons.B) != 0) { Stop("Calibration cancelled. Settings unchanged."); return; }
+            if (!_mappingMode && (pressed & GamepadButtons.B) != 0) { Stop("Calibration canceled. Settings unchanged."); return; }
             if (_mappingMode)
             {
                 var sample = GamepadMappingWizard.Latest;
@@ -113,7 +113,7 @@ namespace MphRead.Mods.Launcher.Gui
         }
         protected override void OnKeyDown(KeyEventArgs e)
         {
-            if (_device != null && e.Key == Key.Escape) { Stop("Setup cancelled. Settings unchanged."); e.Handled = true; }
+            if (_device != null && e.Key == Key.Escape) { Stop("Setup canceled. Settings unchanged."); e.Handled = true; }
             base.OnKeyDown(e);
         }
     }
