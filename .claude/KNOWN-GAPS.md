@@ -363,3 +363,23 @@ claiming coverage that isn't there.
   pickup is simulated from replicated positions and three clients in a 90 s
   match agreed exactly (`12`, `12`, `12`) — but "probably fine" isn't
   "measured".
+
+## A relative root in paths.txt used to break every read
+
+`AMHE0=files\AMHE0` -- a path relative to the program -- made the game report
+every room's spawns and every hunter model missing, from a folder with the
+root repeated two or three times:
+
+    ...\files\AMHE0\files\AMHE0\files\AMHE0\levels\entities\mp3_Ent.bin
+
+The files were where they should be. Several read paths combine the root in
+more than once -- `Read.GetEntities` combines it, calls `GetEntitiesFromPath`
+which combines it again, which calls `ReadBytes` which combines it a third
+time -- and that is invisible for an absolute root, since `Path.Combine(abs,
+abs)` is `abs`. Only a relative one stacks, which is why nobody had seen it:
+the launcher writes an absolute path and a hand-written relative one is rare.
+
+`Paths.Absolute` makes every root from paths.txt absolute as it is read,
+against the program's own directory. Reproduced and fixed on the same machine:
+a relative root gave 30 spawn failures and 1 missing model before, 0 and 0
+after.

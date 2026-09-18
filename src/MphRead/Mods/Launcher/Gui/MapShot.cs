@@ -28,6 +28,25 @@ namespace MphRead.Mods.Launcher.Gui
     {
         private static readonly Dictionary<string, Bitmap?> _cache = new(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>
+        /// How wide these are decoded, against the 1600x900 the thumbnail pass
+        /// writes.
+        ///
+        /// Nothing on any screen draws one bigger than a third of the frame --
+        /// a card in the offline grid is about 180 points, a server row's
+        /// ground about 400 -- and a 1600x900 source is therefore being
+        /// downscaled by four to ten every time it is drawn. Decoding at 512
+        /// costs a tenth of the memory (21 maps at full size is thirty million
+        /// pixels held for the life of the process) and it is the scale itself
+        /// that was the work: Skia resamples the *source* rectangle, so a card
+        /// was resampling 1.4 million pixels to fill thirty thousand, twenty-
+        /// one times a redraw.
+        ///
+        /// 512 rather than the card's own size because one decode has to serve
+        /// every caller, and the server rows and the results screen are wider.
+        /// </summary>
+        private const int DecodeWidth = 512;
+
         public static Bitmap? For(string? roomKey)
         {
             if (string.IsNullOrEmpty(roomKey))
@@ -47,7 +66,7 @@ namespace MphRead.Mods.Launcher.Gui
                     // Through a MemoryStream so the file is not held open: the
                     // preview generator rewrites these while the launcher is up.
                     using var stream = new MemoryStream(File.ReadAllBytes(path));
-                    shot = new Bitmap(stream);
+                    shot = Bitmap.DecodeToWidth(stream, DecodeWidth);
                 }
             }
             catch (Exception)

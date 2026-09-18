@@ -353,6 +353,28 @@ namespace MphRead.Mods.Launcher.Gui
             Grid.SetRow(_list, 1);
             body.Children.Add(_list);
 
+            // Offline's own face: every map at once, as pictures. It shares
+            // the body's second row with the list and only one of the two is
+            // ever up -- a grid of cards and a column of names are two answers
+            // to the same question, and the reference only asks it the one
+            // way.
+            _grid = new DeckGrid();
+            _gridScroll = new ScrollViewer
+            {
+                Content = _grid,
+                IsVisible = false,
+                // So the cards scrolled out of sight are clipped away rather
+                // than composited and then covered: twenty-one cards are in
+                // this grid and about nine are on screen.
+                ClipToBounds = true,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+            };
+            Grid.SetColumn(_gridScroll, 0);
+            Grid.SetColumnSpan(_gridScroll, 2);
+            Grid.SetRow(_gridScroll, 1);
+            body.Children.Add(_gridScroll);
+
             _back = new UiMark(UiMark.Shape.Cancel, "back");
             _back.Click += (_, _) => Leave();
             _go = new UiMark(UiMark.Shape.Accept, "play");
@@ -370,9 +392,16 @@ namespace MphRead.Mods.Launcher.Gui
                     (int)face);
                 _tabs.Changed += (_, _) => Rebuild();
             }
-            Content = UiLayout.Page(overGame, UiLayout.WellPlay,
+            Panel page = UiLayout.Page(overGame, UiLayout.WellPlay,
                 face == Face.Vote ? "vote" : "play", _tabs, body, _back, _go,
                 note: _note);
+            // Over the sheet, not inside the panel: the reference's `.side` is
+            // a sibling of the sheet and slides in past its right edge, which
+            // is what makes it read as a drawer the panel opened rather than
+            // as another column of it.
+            _sidePanel = BuildSidePanel();
+            page.Children.Add(_sidePanel);
+            Content = page;
 
             _list.Activated += (_, _) => Go();
             // Subscribed once, not per face: the list outlives every rebuild,
@@ -383,9 +412,312 @@ namespace MphRead.Mods.Launcher.Gui
                 RefreshPreview();
                 RefreshStory();
                 RefreshGoLabel();
+                // A server that answered opens the drawer beside the list, the
+                // way a map card does: the reference has one `.side` for both
+                // because they are the same question asked of two things.
+                if (Current == Face.Online && _list.Selected is ServerRow row)
+                {
+                    OpenServerSide(row);
+                }
             };
             Rebuild();
         }
+
+        private DeckGrid? _grid;
+        private ScrollViewer? _gridScroll;
+        private DeckSide? _sidePanel;
+        private StackPanel? _sideFacts;
+        private TextBlock? _sideNameText;
+        private TextBlock? _sideAddr;
+        private DeckChip? _sideCode;
+        private HunterStand? _sideStand;
+        private DeckButton? _sideGo;
+        private string? _picked;
+
+        /// <summary>
+        /// The drawer the reference opens when a map is picked: what it is at
+        /// the top, the hunter and the rules in the middle, Back and START
+        /// along the foot.
+        ///
+        /// Built once and refilled, not rebuilt per map: it carries a hunter
+        /// turntable and three stepper rows, and standing those up again on
+        /// every card press would throw away whatever the turntable was in the
+        /// middle of.
+        /// </summary>
+        private DeckSide BuildSidePanel()
+        {
+            // `.code`: a bare badge, no key -- see DeckChip.Label.
+            _sideCode = new DeckChip("", "");
+            _sideNameText = new TextBlock
+            {
+                FontFamily = GuiTheme.Display,
+                FontSize = 17,
+                Foreground = GuiTheme.TextBrush,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            _sideAddr = new TextBlock
+            {
+                FontFamily = GuiTheme.Display,
+                FontSize = 11,
+                Foreground = GuiTheme.TextDimBrush,
+                TextWrapping = TextWrapping.Wrap
+            };
+            var close = new DeckButton("x", Deck.Face.Slate,
+                sizeEms: 1, padXEms: 0.6, padYEms: 0.3, lip: 2);
+            close.Click += (_, _) => CloseSide();
+
+            var headLine = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
+            Grid.SetColumn(_sideCode, 0);
+            headLine.Children.Add(_sideCode);
+            _sideNameText.Margin = new Thickness(8, 0, 8, 0);
+            Grid.SetColumn(_sideNameText, 1);
+            headLine.Children.Add(_sideNameText);
+            Grid.SetColumn(close, 2);
+            headLine.Children.Add(close);
+
+            _sideStand = new HunterStand
+            {
+                Height = 150,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                Name2 = _hunters[0]
+            };
+            _sideFacts = new StackPanel { Spacing = 4 };
+
+            var bodyStack = new StackPanel { Spacing = 8 };
+            bodyStack.Children.Add(_sideStand);
+            bodyStack.Children.Add(_sideFacts);
+            var scroll = new ScrollViewer
+            {
+                Content = bodyStack,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+            };
+
+            var back = new DeckButton("Back", Deck.Face.Brass,
+                sizeEms: 1.1, padXEms: 0.9, padYEms: 0.5, lip: 5);
+            back.Click += (_, _) => CloseSide();
+            _sideGo = new DeckButton("START", Deck.Face.Moss,
+                sizeEms: 1.4, padXEms: 1, padYEms: 0.45, lip: 6);
+            // The same act the foot's own tick performs. Two buttons, one
+            // decision -- the drawer carries it because that is where the
+            // player is looking once it is open, and the foot keeps it for the
+            // keyboard.
+            _sideGo.Click += (_, _) => Go();
+            var foot = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*") };
+            Grid.SetColumn(back, 0);
+            foot.Children.Add(back);
+            _sideGo.Margin = new Thickness(6, 0, 0, 0);
+            _sideGo.HorizontalAlignment = HorizontalAlignment.Stretch;
+            Grid.SetColumn(_sideGo, 1);
+            foot.Children.Add(_sideGo);
+
+            var stack = new Grid
+            {
+                RowDefinitions = new RowDefinitions("Auto,*,Auto"),
+                RowSpacing = 8
+            };
+            var head = new StackPanel { Spacing = 3 };
+            head.Children.Add(headLine);
+            head.Children.Add(_sideAddr);
+            Grid.SetRow(head, 0);
+            stack.Children.Add(head);
+            Grid.SetRow(scroll, 1);
+            stack.Children.Add(scroll);
+            Grid.SetRow(foot, 2);
+            stack.Children.Add(foot);
+
+            var card = new DeckCard { Child = stack, MaxWidthEms = 17.5 };
+            return new DeckSide { Child = card, Margin = new Thickness(0, 14, 12, 14) };
+        }
+
+        /// <summary>
+        /// The drawer for a server: what it is running, who is on it, the
+        /// hunter you are taking in, and the one word that joins.
+        ///
+        /// The same object as the map drawer, because they are the same
+        /// question -- something chosen on the left, the hunter you take into
+        /// it, one button -- which is why the reference has one `.side` and
+        /// not two. Only the middle differs: a server's facts and roster,
+        /// against a map's rules.
+        /// </summary>
+        private void OpenServerSide(ServerRow row)
+        {
+            if (!row.IsLive)
+            {
+                return;
+            }
+            if (_sideCode != null)
+            {
+                // The reference puts the server's flag here. The mode is the
+                // shortest true thing this row can hand over without asking
+                // the directory again.
+                _sideCode.Text = row.ModeName.Length > 0 ? row.ModeName : "server";
+            }
+            if (_sideNameText != null)
+            {
+                _sideNameText.Text = row.DisplayName;
+            }
+            if (_sideAddr != null)
+            {
+                _sideAddr.Text = row.Endpoint;
+            }
+            if (_sideFacts != null)
+            {
+                _sideFacts.Children.Clear();
+                Fact(_sideFacts, "Map", row.MapName, null);
+                Fact(_sideFacts, "Mode", row.ModeName, null);
+                Fact(_sideFacts, "Players", row.PlayerCount, null);
+                Fact(_sideFacts, "Ping", row.PingText + " ms", row.PingBrush);
+                // The hunter rows come after the facts here, where on the
+                // offline face they *are* the facts: joining somebody else's
+                // server settles the map and the mode, so the only thing left
+                // to choose is who you arrive as.
+                if (_hunter != null)
+                {
+                    _sideFacts.Children.Add(_hunter);
+                }
+                if (_suit != null)
+                {
+                    _sideFacts.Children.Add(_suit);
+                }
+            }
+            if (_sideGo != null)
+            {
+                _sideGo.Text = "JOIN";
+            }
+            RefreshSideHunter();
+            if (_sidePanel != null)
+            {
+                _sidePanel.Open = true;
+            }
+        }
+
+        /// <summary>One `.fact`: a dim key on the left, the value on the right.</summary>
+        private static void Fact(Panel into, string key, string value, IBrush? tint)
+        {
+            var row = new Grid
+            {
+                ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+                Height = 26
+            };
+            var k = new TextBlock
+            {
+                Text = key.ToUpperInvariant(),
+                FontFamily = GuiTheme.Display,
+                FontSize = 10,
+                Foreground = GuiTheme.TextDimBrush,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            var v = new TextBlock
+            {
+                Text = value,
+                FontFamily = GuiTheme.Display,
+                FontSize = 12,
+                Foreground = tint ?? GuiTheme.TextBrush,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(k, 0);
+            row.Children.Add(k);
+            Grid.SetColumn(v, 1);
+            row.Children.Add(v);
+            into.Children.Add(row);
+        }
+
+        /// <summary>
+        /// Show the drawer for a map, and put the rules that belong to it in.
+        /// </summary>
+        private void OpenSide(DeckTile tile)
+        {
+            _picked = tile.RoomKey;
+            if (_grid != null)
+            {
+                foreach (Control child in _grid.Children)
+                {
+                    if (child is DeckTile other)
+                    {
+                        other.Chosen = other.RoomKey == tile.RoomKey;
+                    }
+                }
+            }
+            if (_sideCode != null)
+            {
+                _sideCode.Text = tile.Code;
+            }
+            if (_sideNameText != null)
+            {
+                (RoomMetadata? meta, _) = Metadata.GetRoomByName(tile.RoomKey);
+                _sideNameText.Text = meta?.InGameName ?? tile.RoomKey;
+            }
+            if (_sideAddr != null)
+            {
+                _sideAddr.Text = "offline \u2014 bots on this machine";
+            }
+            // The steppers move into the drawer: they are about the match this
+            // map is going to be, and the reference asks them where the map
+            // was chosen rather than on the far side of the screen.
+            if (_sideFacts != null)
+            {
+                _sideFacts.Children.Clear();
+                foreach (Control row in _offlineRows)
+                {
+                    _sideFacts.Children.Add(row);
+                }
+            }
+            if (_sideGo != null)
+            {
+                _sideGo.Text = "START";
+            }
+            if (_sidePanel != null)
+            {
+                _sidePanel.Open = true;
+            }
+            _note.Text = "";
+        }
+
+        /// <summary>
+        /// Picking a map is proposing it, picking the one already picked takes
+        /// it back. One vote each, so the previous one is given up first.
+        /// </summary>
+        private void CastVote(DeckTile tile)
+        {
+            if (_grid == null)
+            {
+                return;
+            }
+            bool taking = !tile.Chosen;
+            foreach (Control child in _grid.Children)
+            {
+                if (child is DeckTile other && other.Chosen)
+                {
+                    other.Chosen = false;
+                    other.Tally = Math.Max(0, other.Tally - 1);
+                }
+            }
+            if (taking)
+            {
+                tile.Chosen = true;
+                tile.Tally = Math.Max(0, tile.Tally) + 1;
+                _picked = tile.RoomKey;
+            }
+            else
+            {
+                _picked = null;
+            }
+            RefreshBallot();
+        }
+
+        private void CloseSide()
+        {
+            if (_sidePanel != null)
+            {
+                _sidePanel.Open = false;
+            }
+        }
+
+        /// <summary>The rows the drawer borrows, kept alive across openings.</summary>
+        private readonly List<Control> _offlineRows = new();
 
         private Face Current => _tabs == null ? _only : (Face)_tabs.Index;
 
@@ -546,6 +878,21 @@ namespace MphRead.Mods.Launcher.Gui
             _name = _address = null;
             _standWanted = false;
             WantPreview(false);
+            bool offline = Current == Face.Offline || Current == Face.Vote;
+            if (_gridScroll != null)
+            {
+                _gridScroll.IsVisible = offline;
+            }
+            _list.IsVisible = !offline;
+            if (_sidePanel != null && !offline)
+            {
+                _sidePanel.Open = false;
+            }
+            _offlineRows.Clear();
+            if (_sideFacts != null)
+            {
+                _sideFacts.Children.Clear();
+            }
 
             switch (Current)
             {
@@ -575,6 +922,30 @@ namespace MphRead.Mods.Launcher.Gui
                 _list.FocusFirst();
             }
             RefreshGoLabel();
+        }
+
+        /// <summary>
+        /// The hunter and the suit, built once for whichever face is asking.
+        ///
+        /// Both the browser and the offline grid put them in the drawer now,
+        /// and they are the same two questions on both -- so they are made
+        /// here rather than twice, and <see cref="RefreshSideHunter"/> is what
+        /// keeps the turntable in step with them.
+        /// </summary>
+        private void MakeHunterRows()
+        {
+            _hunter = new ChoiceRow("Hunter", _hunters,
+                Math.Max(0, Array.IndexOf(_hunters, LauncherPrefs.LastHunter.ToString())));
+            _suit = new ChoiceRow("Suit", new[] { "1", "2", "3", "4" },
+                Math.Clamp(LauncherPrefs.LastColor, 0, 3));
+            _suit.Preview = (context, area) =>
+            {
+                context.DrawRectangle(new SolidColorBrush(SuitColour()), null,
+                    new RoundedRect(area, 3));
+            };
+            _hunter.Changed += (_, _) => RefreshSideHunter();
+            _suit.Changed += (_, _) => RefreshSideHunter();
+            RefreshSideHunter();
         }
 
         private ChoiceRow AddHunter()
@@ -639,6 +1010,8 @@ namespace MphRead.Mods.Launcher.Gui
             // directory happened to name first, and highlighting it is the
             // screen answering its own question.
             _list.AutoSelectFirst = false;
+            // Who you arrive as, for the drawer a row opens.
+            MakeHunterRows();
 
             var refresh = new DeckButton("Refresh", Deck.Face.Slate,
                 sizeEms: 0.95, padXEms: 0.8, padYEms: 0.4, lip: 3);
@@ -978,7 +1351,11 @@ namespace MphRead.Mods.Launcher.Gui
         private void BuildOffline()
         {
             _go.Label = "start";
-            FillRooms(_settings.RoomKey);
+            // Every map at once, as pictures, and the rules in the drawer the
+            // picture opens. See DeckTile: a column of names beside one
+            // thumbnail asks the player to remember what the other twenty look
+            // like, which is the thing this face is for.
+            FillMapGrid();
             // No "Where" row. Offline is a match on this machine and nothing
             // else: the row's other answer -- have the directory run it --
             // was a *server*, sitting on the one face of this screen that is
@@ -986,17 +1363,104 @@ namespace MphRead.Mods.Launcher.Gui
             // different settings under them. Running a server is its own act
             // and it moved to Online, beside the servers it joins.
             _mode = new ChoiceRow("Match type", _modes.Select(m => m.Label).ToArray());
-            _options.Children.Add(_mode);
-            _hunter = AddHunter();
+            MakeHunterRows();
             _bots = new ChoiceRow("Bots",
                 Enumerable.Range(0, PlayerEntity.SlotCapacity)
                     .Select(i => i.ToString(CultureInfo.InvariantCulture)).ToArray(),
                 LauncherPrefs.Bots);
-            _options.Children.Add(_bots);
             _skill = new ChoiceRow("Bot skill", new[] { "Easy", "Normal", "Hard", "Insane" },
                 LauncherPrefs.BotLevel);
-            _options.Children.Add(_skill);
-            WantPreview(true);
+            // Held rather than parented: the drawer takes them when it opens,
+            // and they keep whatever the player set the last time it was up.
+            _offlineRows.Clear();
+            _offlineRows.Add(_mode);
+            _offlineRows.Add(_hunter!);
+            _offlineRows.Add(_suit!);
+            _offlineRows.Add(_bots);
+            _offlineRows.Add(_skill);
+            RefreshSideHunter();
+            WantPreview(false);
+        }
+
+        private ChoiceRow? _suit;
+
+        /// <summary>The sampled colour of the suit the rows currently name.</summary>
+        private Color SuitColour()
+        {
+            try
+            {
+                if (_hunter == null || !Enum.TryParse(_hunter.Value, ignoreCase: true,
+                    out Hunter which))
+                {
+                    return GuiTheme.Accent;
+                }
+                ColorRgba sampled = Mods.HunterSuits.Color(which, _suit?.Index ?? 0);
+                return Color.FromRgb(sampled.Red, sampled.Green, sampled.Blue);
+            }
+            catch (Exception)
+            {
+                return GuiTheme.Accent;
+            }
+        }
+
+        /// <summary>The turntable in the drawer follows the two rows under it.</summary>
+        private void RefreshSideHunter()
+        {
+            if (_sideStand != null && _hunter != null)
+            {
+                _sideStand.Name2 = _hunter.Value;
+                _sideStand.Suit = _suit?.Index ?? 0;
+            }
+            _suit?.InvalidateVisual();
+        }
+
+        /// <summary>
+        /// One card per room, in the order the room list is in.
+        ///
+        /// A map with no render still gets a card: the picture comes out of
+        /// the player's own thumbnail pass, and a machine that has not run it
+        /// would otherwise be shown an empty face rather than a grid with the
+        /// codes on it.
+        /// </summary>
+        private void FillMapGrid()
+        {
+            if (_grid == null)
+            {
+                return;
+            }
+            _grid.Children.Clear();
+            if (_rooms.Count == 0)
+            {
+                _note.Text = "No multiplayer rooms were found. Set the game files up "
+                    + "from Settings.";
+                _note.Foreground = GuiTheme.WarmBrush;
+                return;
+            }
+            foreach (string room in _rooms)
+            {
+                // `.tag`'s `<b>`: the archive code alone -- "mp3", not
+                // "MP3 PROVING GROUND". The key's first token is that code,
+                // and the whole key in a tag is a tag wider than the card.
+                string code = room.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                    is { Length: > 0 } parts ? parts[0] : room;
+                (RoomMetadata? meta, _) = Metadata.GetRoomByName(room);
+                var tile = new DeckTile(room, code)
+                {
+                    Blurb = meta?.InGameName ?? ""
+                };
+                tile.Chosen = room == _settings.RoomKey;
+                tile.Click += (_, _) =>
+                {
+                    if (Current == Face.Vote)
+                    {
+                        CastVote(tile);
+                        return;
+                    }
+                    OpenSide(tile);
+                };
+                _grid.Children.Add(tile);
+            }
+            _picked = _settings.RoomKey;
         }
 
         private void FillRooms(string? current)
@@ -1027,6 +1491,7 @@ namespace MphRead.Mods.Launcher.Gui
             var hunter = (Hunter)Enum.Parse(typeof(Hunter), _hunter!.Value);
             _settings.RoomKey = roomKey;
             LauncherPrefs.LastHunter = hunter;
+            LauncherPrefs.LastColor = _suit?.Index ?? LauncherPrefs.LastColor;
             LauncherPrefs.Bots = _bots!.Index;
             LauncherPrefs.BotLevel = _skill!.Index;
             LauncherPrefs.LastKind = (int)LaunchKind.Offline;
@@ -1045,6 +1510,15 @@ namespace MphRead.Mods.Launcher.Gui
 
         private string? SelectedRoom()
         {
+            if (Current == Face.Offline || Current == Face.Vote)
+            {
+                // Both faces pick from the card grid now, and the list they
+                // used to read is not even built. This is what made "call the
+                // vote" do nothing at all: the word was pressed, the grid knew
+                // perfectly well which map was picked, and the commit asked a
+                // list that was empty.
+                return _picked;
+            }
             return (_list.Selected as UiListRow)?.Choice as string;
         }
 
@@ -1291,8 +1765,65 @@ namespace MphRead.Mods.Launcher.Gui
         private void BuildVote()
         {
             _go.Label = "call the vote";
-            FillRooms(NetSession.ServerMatch?.RoomKey);
-            WantPreview(true);
+            // The whole map list as pictures, not a column of names beside one
+            // preview. MapPick's own note says why the ballot is every map
+            // rather than four the server drew up -- "where next" is not
+            // multiple choice -- and the reference draws that ballot as the
+            // same cards the offline face uses, with a count in the corner of
+            // each and a ring on whatever is ahead.
+            FillMapGrid();
+            _picked = NetSession.ServerMatch?.RoomKey;
+            foreach (Control child in _grid?.Children ?? (IList<Control>)Array.Empty<Control>())
+            {
+                if (child is DeckTile tile)
+                {
+                    tile.Verb = "Pick";
+                    tile.ChosenVerb = "Picked";
+                    tile.Tally = 0;
+                    tile.Chosen = false;
+                }
+            }
+            RefreshBallot();
+            WantPreview(false);
+        }
+
+        /// <summary>
+        /// `.ballotbar` and the badges under it: what is leading, and by how
+        /// much, said once above the grid rather than on every card.
+        /// </summary>
+        private void RefreshBallot()
+        {
+            if (_grid == null)
+            {
+                return;
+            }
+            int best = 0;
+            foreach (Control child in _grid.Children)
+            {
+                if (child is DeckTile tile && tile.Tally > best)
+                {
+                    best = tile.Tally;
+                }
+            }
+            string? leader = null;
+            foreach (Control child in _grid.Children)
+            {
+                if (child is not DeckTile tile)
+                {
+                    continue;
+                }
+                tile.Leader = best > 0 && tile.Tally == best;
+                if (tile.Leader && leader == null)
+                {
+                    (RoomMetadata? meta, _) = Metadata.GetRoomByName(tile.RoomKey);
+                    leader = meta?.InGameName ?? tile.RoomKey;
+                }
+                tile.InvalidateVisual();
+            }
+            _note.Foreground = GuiTheme.TextDimBrush;
+            _note.Text = leader == null
+                ? "Nobody has picked. The rotation decides."
+                : $"{leader} is leading with {best}. Most votes wins.";
         }
 
         // -------------------------------------------------------------- shared

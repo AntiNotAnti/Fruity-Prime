@@ -77,6 +77,41 @@ namespace MphRead.Mods.Launcher.Gui
         public string KeyCap { get; set; } = "";
 
         /// <summary>
+        /// Something drawn on the face instead of a word, in the box it is
+        /// given, in the colour the label would have been.
+        ///
+        /// For the support mark, which is a `.btn` in the reference like every
+        /// other -- `class="btn f-rust heart"` -- with an SVG where the word
+        /// goes. It had been its own control, so it had none of what makes
+        /// these buttons what they are: no bevel, no spring, no lean towards
+        /// the pointer, no press that travels by the lip it loses. Beside QUIT
+        /// it read as a different program's button.
+        /// </summary>
+        public Action<DrawingContext, Rect, IBrush>? Glyph { get; set; }
+
+        /// <summary>The glyph's box, in this button's own ems.</summary>
+        public Size GlyphEms { get; set; }
+
+        /// <summary>
+        /// The glyph's own colour, before the face's filter.
+        ///
+        /// `fill: currentColor` under `.btn:hover { filter: brightness(1.22)
+        /// saturate(1.15) }`: the picture is brightened with the face it sits
+        /// on rather than being repainted, which is what makes the two look
+        /// like one object. Unset means the label's ink.
+        /// </summary>
+        public Color? GlyphColour { get; set; }
+
+        /// <summary>
+        /// What this says when the pointer is on it, drawn above it.
+        ///
+        /// `data-tip` on the reference's support mark. Empty on every other
+        /// button, which is most of them: a button whose word already says
+        /// what it does needs nothing above it.
+        /// </summary>
+        public string Tip { get; set; } = "";
+
+        /// <summary>
         /// The reference's <c>.btn.idle</c>: two and a half points of bob on a
         /// 3.4 second cycle, on the one button the screen wants looked at.
         ///
@@ -107,6 +142,50 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         private const double Stiffness = 220;
         private const double Damping = 18;
+
+        // ------------------------------------------------ the word's own hop
+        //
+        // `.btn:hover .ch { animation: chhop .42s var(--spring) var(--d) 1 }`,
+        // staggered `i * .022s` down the label and leaning alternate ways.
+        // It is the one animation on these screens that happens to the *word*
+        // rather than to the object under it, and it is what a Balatro button
+        // does that a scaled rectangle does not.
+        //
+        // One shot per hover, so the clock is started when the pointer arrives
+        // and stopped when the run is over rather than left running: a button
+        // the pointer is resting on has finished animating, and a clock nobody
+        // reads is a frame nobody needs.
+
+        /// <summary>One character's run, in seconds.</summary>
+        private const double HopSeconds = 0.42;
+
+        /// <summary>How far down the label each character starts, in seconds.</summary>
+        private const double HopStagger = 0.022;
+
+        /// <summary>Where the lift peaks, as a fraction of one character's run.</summary>
+        private const double HopPeak = 0.38;
+
+        /// <summary>The lift at the peak, in ems of the label's own size.</summary>
+        private const double HopLift = 0.18;
+
+        /// <summary>The lean at the peak, in degrees, alternating down the word.</summary>
+        private const double HopTilt = 3;
+
+        private readonly Stopwatch _hop = new();
+
+        /// <summary>
+        /// Whether the ring should be drawn: the reference's
+        /// <c>:focus-visible</c>, not <c>:focus</c>.
+        ///
+        /// A browser shows that ring when the keyboard put the focus there and
+        /// hides it when a pointer did -- which is the whole point of the
+        /// pseudo-class, and why a mouse user never sees one. This drew on
+        /// <c>IsFocused</c> instead, and every control here calls
+        /// <c>Focus()</c> from its own press handler, so clicking anything
+        /// left a two-point amber ring around it until something else was
+        /// clicked. Avalonia says which way the focus arrived, so this asks.
+        /// </summary>
+        private bool _ringVisible;
 
         static DeckButton()
         {
@@ -195,6 +274,12 @@ namespace MphRead.Mods.Launcher.Gui
         protected override Size MeasureOverride(Size availableSize)
         {
             double size = Size;
+            if (Glyph != null)
+            {
+                return new Size(
+                    Math.Round(size * (GlyphEms.Width + _padXEms * 2)),
+                    Math.Round(size * (GlyphEms.Height + _padYEms * 2)));
+            }
             double width = DeckText.MeasureTracked(_text, Deck.Label(), size,
                 DeckText.LabelTracking) + size * _padXEms * 2;
             if (KeyCap.Length > 0)
@@ -215,6 +300,7 @@ namespace MphRead.Mods.Launcher.Gui
         protected override void OnPointerEntered(PointerEventArgs e)
         {
             _popTarget = 1.055;
+            StartHop();
             InvalidateVisual();
             base.OnPointerEntered(e);
         }
@@ -223,8 +309,26 @@ namespace MphRead.Mods.Launcher.Gui
         {
             _popTarget = 1;
             _tiltTarget = 0;
+            _hop.Reset();
             InvalidateVisual();
             base.OnPointerExited(e);
+        }
+
+        /// <summary>
+        /// Run the word once, from the beginning.
+        ///
+        /// Restarted rather than resumed: the reference declares one
+        /// iteration on <c>:hover</c>, so leaving and coming back plays it
+        /// again, and a pointer that crosses the same button twice should not
+        /// get half a hop the second time.
+        /// </summary>
+        private void StartHop()
+        {
+            if (Deck.Still)
+            {
+                return;
+            }
+            _hop.Restart();
         }
 
         protected override void OnPointerMoved(PointerEventArgs e)
@@ -290,16 +394,31 @@ namespace MphRead.Mods.Launcher.Gui
 
         protected override void OnGotFocus(GotFocusEventArgs e)
         {
+            // Unspecified is what a programmatic Focus() reports, and every
+            // screen here focuses something as it opens; that is the keyboard
+            // arriving as far as the player is concerned, so it rings. A
+            // pointer does not.
+            // A browser's rule, not "did something focus me": the ring
+            // follows whichever device the player is currently driving with,
+            // so a panel that focuses its Back button as it opens rings it
+            // when Tab opened the panel and does not when a click did.
+            _ringVisible = e.NavigationMethod != NavigationMethod.Pointer
+                && Deck.KeyboardDriving;
             _popTarget = 1.055;
+            // `:focus-visible` carries the same rule as `:hover` there, which
+            // is what keeps the keyboard and the mouse the same screen.
+            StartHop();
             InvalidateVisual();
             base.OnGotFocus(e);
         }
 
         protected override void OnLostFocus(RoutedEventArgs e)
         {
+            _ringVisible = false;
             if (!IsPointerOver)
             {
                 _popTarget = 1;
+                _hop.Reset();
             }
             InvalidateVisual();
             base.OnLostFocus(e);
@@ -344,10 +463,72 @@ namespace MphRead.Mods.Launcher.Gui
             return moving;
         }
 
+        /// <summary>
+        /// Where character <paramref name="index"/> is in its hop: a lift in
+        /// points and a lean in degrees.
+        ///
+        /// Two eased segments, not one curve through three points: CSS applies
+        /// the timing function <i>between each pair of keyframes</i>, so the
+        /// rise to 38% and the fall back are each a whole spring. Running one
+        /// bezier over the pair instead loses the snap at the top, which is
+        /// the part anybody actually sees.
+        /// </summary>
+        private (double Lift, double Degrees) Hop(int index, double size)
+        {
+            if (!_hop.IsRunning)
+            {
+                return (0, 0);
+            }
+            double t = _hop.Elapsed.TotalSeconds - index * HopStagger;
+            if (t <= 0)
+            {
+                return (0, 0);
+            }
+            if (t >= HopSeconds)
+            {
+                return (0, 0);
+            }
+            double phase = t / HopSeconds;
+            double amount = phase < HopPeak
+                ? Deck.Spring(phase / HopPeak)
+                : 1 - Deck.Spring((phase - HopPeak) / (1 - HopPeak));
+            double tilt = (index % 2 == 0 ? -HopTilt : HopTilt) * amount;
+            return (-size * HopLift * amount, tilt);
+        }
+
+        /// <summary>
+        /// Is any character still moving? The last one starts
+        /// <c>(characters - 1) * HopStagger</c> late and runs for
+        /// <see cref="HopSeconds"/>, and the clock is stopped at the end so a
+        /// resting button asks for no more frames.
+        /// </summary>
+        private bool Hopping()
+        {
+            if (!_hop.IsRunning)
+            {
+                return false;
+            }
+            int characters = 0;
+            foreach (char c in _text)
+            {
+                if (c != ' ')
+                {
+                    characters++;
+                }
+            }
+            double total = HopSeconds + Math.Max(0, characters - 1) * HopStagger;
+            if (_hop.Elapsed.TotalSeconds >= total)
+            {
+                _hop.Reset();
+                return false;
+            }
+            return true;
+        }
+
         /// <summary>The bob, in points. Zero unless this is the one idle button.</summary>
         private double Bob()
         {
-            if (!Idle || Deck.Still || IsPointerOver || IsFocused)
+            if (!Idle || Deck.Still || IsPointerOver || (IsFocused && _ringVisible))
             {
                 return 0;
             }
@@ -374,23 +555,42 @@ namespace MphRead.Mods.Launcher.Gui
         /// build, a GUI binary with no console, is a program that starts and
         /// shows nothing at all.
         ///
-        /// Posted at <see cref="DispatcherPriority.Render"/> instead, so the
-        /// invalidation happens between passes. One at a time: a button that
-        /// bobs would otherwise queue an operation per frame per button, and
-        /// the queue is what the renderer drains.
+        /// Handed to <see cref="UiSurface.RequestFrame"/> instead, which runs
+        /// it at the top of the next tick -- between passes, and on a surface
+        /// it has marked dirty. One at a time: a button that bobs would
+        /// otherwise queue an operation per frame per button, and the queue is
+        /// what the renderer drains.
+        ///
+        /// <b>The surface has to be told, not just the control.</b>
+        /// <c>InvalidateVisual</c> alone marks this visual dirty inside
+        /// Avalonia and says nothing to the thing that decides whether the
+        /// screens are rasterised at all: an untouched surface is redrawn only
+        /// on its backstop, which is 50 ms while something has happened
+        /// recently and 250 ms once it has been still for three seconds. A
+        /// spring stepped at four frames a second, with <see cref="Settle"/>
+        /// clamping each step to 50 ms, runs at a fifth of its real speed --
+        /// which is a fifth-of-a-second pop taking a second to arrive, and is
+        /// what "the buttons answer a second late" was. Scrolling never showed
+        /// it because a wheel event invalidates the surface itself.
         /// </summary>
-        private void RequestAnotherFrame()
+        /// <param name="idling">
+        /// True when the bob is the only thing left moving. It is the one
+        /// animation on these screens that never stops, and a redraw here is
+        /// the whole window rasterised on the CPU -- so it gets a slower
+        /// cadence of its own. See UiSurface.IdleAnimGap.
+        /// </param>
+        private void RequestAnotherFrame(bool idling = false)
         {
             if (_framePending)
             {
                 return;
             }
             _framePending = true;
-            Dispatcher.UIThread.Post(() =>
+            Deck.NextFrame(() =>
             {
                 _framePending = false;
                 InvalidateVisual();
-            }, DispatcherPriority.Render);
+            }, idling);
         }
 
         public override void Render(DrawingContext context)
@@ -421,7 +621,7 @@ namespace MphRead.Mods.Launcher.Gui
                 fill = DeckPaint.Brightness(DeckPaint.Saturate(fill, 0.3), 0.55);
                 lipColour = DeckPaint.Brightness(DeckPaint.Saturate(lipColour, 0.3), 0.55);
             }
-            else if (IsPointerOver || IsFocused)
+            else if (IsPointerOver || (IsFocused && _ringVisible))
             {
                 // `filter: brightness(1.22) saturate(1.15)`. Not a blend
                 // towards white: that washes the hue out, and the hue is what
@@ -475,10 +675,11 @@ namespace MphRead.Mods.Launcher.Gui
                     Deck.Shadow(0, lip, 0, 0, lipColour),
                     Deck.Shadow(0, lip + 4, 12, 0, Deck.Fade(0, 0.55))
                 };
-                BoxShadow first = IsFocused
+                bool ring = IsFocused && _ringVisible;
+                BoxShadow first = ring
                     ? Deck.Shadow(0, 0, 0, 2, GuiTheme.Accent)
                     : cast[0];
-                if (IsFocused)
+                if (ring)
                 {
                     context.DrawRectangle(new SolidColorBrush(fill), null, faceRect,
                         new BoxShadows(first, cast.ToArray()));
@@ -505,13 +706,43 @@ namespace MphRead.Mods.Launcher.Gui
                     new RoundedRect(new Rect(1, 1, w - 2, h * 0.4), radius - 1));
 
                 IBrush ink = on ? GuiTheme.TextBrush : GuiTheme.TextDimBrush;
+                if (Glyph != null)
+                {
+                    IBrush paint = ink;
+                    if (GlyphColour is Color own)
+                    {
+                        Color tint = own;
+                        if (!on)
+                        {
+                            tint = DeckPaint.Brightness(DeckPaint.Saturate(tint, 0.3), 0.55);
+                        }
+                        else if (IsPointerOver || (IsFocused && _ringVisible))
+                        {
+                            tint = DeckPaint.Saturate(DeckPaint.Brightness(tint, 1.22), 1.15);
+                        }
+                        paint = new SolidColorBrush(tint);
+                    }
+                    double gw = size * GlyphEms.Width, gh = size * GlyphEms.Height;
+                    Glyph(context, new Rect(Math.Round((w - gw) / 2),
+                        Math.Round((h - gh) / 2), gw, gh), paint);
+                    DrawTip(context, w, size,
+                        IsPointerOver || (IsFocused && _ringVisible));
+                    bool glyphBusy = moving || _hop.IsRunning || _tipShow > 0.001;
+                    if ((glyphBusy || Idle) && !Deck.Still)
+                    {
+                        RequestAnotherFrame(idling: !glyphBusy);
+                    }
+                    return;
+                }
                 double keyWidth = KeyWidth(size);
                 double labelWidth = DeckText.MeasureTracked(_text, Deck.Label(), size,
                     DeckText.LabelTracking);
                 double content = labelWidth + (keyWidth > 0 ? KeyGap + keyWidth : 0);
                 double x = Math.Round((w - content) / 2);
+                bool hopping = Hopping();
                 DeckText.DrawTracked(context, _text, Deck.Label(), size, ink, x, 0, h,
-                    DeckText.LabelTracking);
+                    DeckText.LabelTracking,
+                    hopping ? i => Hop(i, size) : null);
                 if (keyWidth > 0 && on)
                 {
                     DeckChip.DrawKey(context, KeyCap, size,
@@ -522,10 +753,42 @@ namespace MphRead.Mods.Launcher.Gui
             // Not while the screen is being photographed: a control that asks
             // for another frame from inside a render pass is one a
             // RenderTargetBitmap refuses to finish. See Deck.Still.
-            if ((moving || Idle) && !Deck.Still)
+            bool busy = moving || _hop.IsRunning || _tipShow > 0.001;
+            if ((busy || Idle) && !Deck.Still)
             {
-                RequestAnotherFrame();
+                RequestAnotherFrame(idling: !busy);
             }
+        }
+
+        /// <summary>How far the tip has arrived, 0 to 1.</summary>
+        private double _tipShow;
+
+        /// <summary>
+        /// Step the tip and draw it. Outside the button's own transform, so a
+        /// hovered button's lean does not tip the label above it over with it.
+        /// </summary>
+        private void DrawTip(DrawingContext context, double w, double size, bool hot)
+        {
+            if (Tip.Length == 0)
+            {
+                return;
+            }
+            double target = hot ? 1 : 0;
+            if (Deck.Still)
+            {
+                _tipShow = target;
+            }
+            else
+            {
+                // `.16s` to fade, on the settle curve; near enough at this
+                // size to move a sixth of the way a frame.
+                _tipShow += (target - _tipShow) * 0.25;
+                if (Math.Abs(target - _tipShow) < 0.004)
+                {
+                    _tipShow = target;
+                }
+            }
+            DeckHeart.DrawTip(context, Tip, w, size, _tipShow, _tipShow);
         }
     }
 

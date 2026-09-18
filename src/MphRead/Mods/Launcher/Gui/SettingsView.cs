@@ -272,7 +272,7 @@ namespace MphRead.Mods.Launcher.Gui
         /// For <c>-uishot</c>, which is the only way any of these can be
         /// looked at from a machine with no display.
         /// </summary>
-        internal void ShowSection(string name)
+        internal void ShowSection(string name, int sub = 0)
         {
             for (int i = 0; i < _sections.Count; i++)
             {
@@ -280,6 +280,11 @@ namespace MphRead.Mods.Launcher.Gui
                 {
                     _tabs.Index = i;
                     ShowPage(i);
+                    if (sub != 0 && _controlTabs != null
+                        && String.Equals(name, "Controls", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _controlTabs.Index = sub;
+                    }
                     return;
                 }
             }
@@ -542,6 +547,7 @@ namespace MphRead.Mods.Launcher.Gui
             var gamepad = new StackPanel { Spacing = 2, IsVisible = false };
             var stylus = new StackPanel { Spacing = 2, IsVisible = false };
             var subs = new UiTabs(new[] { "Keyboard", "Gamepad", "Stylus" });
+            _controlTabs = subs;
             subs.Margin = new Thickness(0, 0, 0, 8);
             subs.Changed += (_, _) =>
             {
@@ -557,6 +563,14 @@ namespace MphRead.Mods.Launcher.Gui
             BuildGamepad(gamepad);
             BuildStylus(stylus);
         }
+
+        /// <summary>
+        /// The Controls page's own strip, so <see cref="ShowSection"/> can
+        /// open one of its three sub-pages. The rows under Gamepad are the
+        /// ones that have never been arranged until it is opened, which is
+        /// where the crash was.
+        /// </summary>
+        private UiTabs? _controlTabs;
 
         private void BuildKeyboard(StackPanel page)
         {
@@ -580,7 +594,43 @@ namespace MphRead.Mods.Launcher.Gui
             // also the gate for everything below it -- the bottom-screen
             // zone means nothing to a mouse. See Mods.Input.PointerInput.
             BuildTouchControls(page);
+
+            // The keys, on the keyboard page.
+            //
+            // They were built inside BuildGamepad, under a "Keys" heading
+            // after the pad's own buttons, so the Keyboard tab offered four
+            // mouse rows and nothing else and every key in the game was two
+            // clicks away behind a tab called Gamepad. The reference has never
+            // had them anywhere but here: `Controls > Keyboard` is Mouse and
+            // then Keys, and `Controls > Gamepad` is Sticks and then Buttons.
+            Heading(page, "Keys");
+            var rows = new List<KeyRow>();
+            // Chat first, and by hand. It is the one key this project added
+            // rather than inherited, so it is not a Keybind on PlayerControls
+            // and the reflection below cannot find it -- which is why it was
+            // the one key in the game with no row, settable only by editing
+            // the file.
+            rows.Add(Add(page, new KeyRow("Chat",
+                () => InputSettings.ChatKey, k => InputSettings.ChatKey = k)));
+            // The clip button and how much it saves, together: the length is
+            // the only thing anybody wants to know about that key, and putting
+            // it on the far side of the settings from the bind would make them
+            // two unrelated questions.
+            rows.Add(Add(page, new KeyRow("Save clip",
+                () => InputSettings.ClipKey, k => InputSettings.ClipKey = k)));
+            _clipSecondsRow = Add(page, new ChoiceRow("Clip length",
+                Array.ConvertAll(Mods.Network.DemoClip.Lengths, n => $"{n} seconds"),
+                Math.Max(0, Array.IndexOf(Mods.Network.DemoClip.Lengths,
+                    Mods.Network.DemoClip.Seconds))));
+            foreach (PropertyInfo property in InputSettings.Bindings)
+            {
+                rows.Add(Add(page, new KeyRow(property)));
+            }
+            _keyRows = rows;
         }
+
+        /// <summary>Every key row, so Reset can redraw them from whichever page it is on.</summary>
+        private List<KeyRow> _keyRows = new();
 
         /// <summary>The pen tablet's page: the guard, and the zone it gates.</summary>
         private void BuildStylus(StackPanel page)
@@ -623,30 +673,6 @@ namespace MphRead.Mods.Launcher.Gui
                 padRows.Add(Add(page, new PadRow(action)));
             }
 
-            Heading(page, "Keys");
-            var rows = new List<KeyRow>();
-            // Chat first, and by hand. It is the one key this project added
-            // rather than inherited, so it is not a Keybind on PlayerControls
-            // and the reflection below cannot find it -- which is why it was
-            // the one key in the game with no row, settable only by editing
-            // the file.
-            KeyRow chatRow = Add(page, new KeyRow("Chat",
-                () => InputSettings.ChatKey, k => InputSettings.ChatKey = k));
-            rows.Add(chatRow);
-            // The clip button and how much it saves, together: the length is
-            // the only thing anybody wants to know about that key, and putting
-            // it on the far side of the settings from the bind would make them
-            // two unrelated questions.
-            rows.Add(Add(page, new KeyRow("Save clip",
-                () => InputSettings.ClipKey, k => InputSettings.ClipKey = k)));
-            _clipSecondsRow = Add(page, new ChoiceRow("Clip length",
-                Array.ConvertAll(Mods.Network.DemoClip.Lengths, n => $"{n} seconds"),
-                Math.Max(0, Array.IndexOf(Mods.Network.DemoClip.Lengths,
-                    Mods.Network.DemoClip.Seconds))));
-            foreach (PropertyInfo property in InputSettings.Bindings)
-            {
-                rows.Add(Add(page, new KeyRow(property)));
-            }
             var reset = new UiWord("Reset to defaults", 15, colour: GuiTheme.Warm)
             {
                 Margin = new Thickness(0, 10, 0, 0)
@@ -674,7 +700,7 @@ namespace MphRead.Mods.Launcher.Gui
                 {
                     row.InvalidateVisual();
                 }
-                foreach (KeyRow row in rows)
+                foreach (KeyRow row in _keyRows)
                 {
                     row.InvalidateVisual();
                 }

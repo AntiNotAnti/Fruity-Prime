@@ -267,7 +267,22 @@ namespace MphRead.Mods.Launcher.Gui
     /// </summary>
     internal sealed class UiList : Decorator
     {
-        private readonly StackPanel _rows = new() { Spacing = 1 };
+        /// <summary>
+        /// The rows, with room either side for the ring a selected one wears.
+        ///
+        /// `box-shadow: 0 0 0 2px` spreads *outward* from the box, and the
+        /// scroller above clips to its own width (it has to: horizontal
+        /// scrolling is disabled). A row stretched to that width therefore had
+        /// the left and right of its accent ring cut off while the top and
+        /// bottom survived in the gap between rows -- which is exactly what
+        /// "le surlignage jaune est croppé sur les côtés" was. Three points is
+        /// the two the ring spreads plus one for the rounding.
+        /// </summary>
+        private readonly StackPanel _rows = new()
+        {
+            Spacing = 1,
+            Margin = new Thickness(3, 0, 3, 0)
+        };
         private readonly Panel _header = new();
         private readonly ScrollViewer _scroll;
         private readonly List<Control> _focusable = new();

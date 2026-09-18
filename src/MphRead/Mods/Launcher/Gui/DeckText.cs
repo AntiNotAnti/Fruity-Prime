@@ -129,8 +129,21 @@ namespace MphRead.Mods.Launcher.Gui
         /// of <paramref name="height"/>. Whole pixels in both directions: a
         /// pixel face landed on a half pixel is a blurred pixel face.
         /// </summary>
+        /// <param name="hop">
+        /// Where character <i>n</i> currently is, relative to where it sits at
+        /// rest: a lift in points and a lean in degrees, about the character's
+        /// own centre. This is the reference's <c>chhop</c> -- Balatro's
+        /// DynaText, which is the one animation on these screens that happens
+        /// to the *word* rather than to the object under it.
+        ///
+        /// The index counts drawn characters, spaces excluded, exactly as the
+        /// reference's own splitter does: it only advances <c>i</c> for a
+        /// character it wraps, so a two-word label staggers as though it were
+        /// one. Null means the resting pose and costs nothing.
+        /// </param>
         public static double DrawTracked(DrawingContext context, string text, Typeface face,
-            double size, IBrush brush, double x, double top, double height, double trackingEms)
+            double size, IBrush brush, double x, double top, double height, double trackingEms,
+            Func<int, (double Lift, double Degrees)>? hop = null)
         {
             if (text.Length == 0)
             {
@@ -138,6 +151,7 @@ namespace MphRead.Mods.Launcher.Gui
             }
             double tracking = size * trackingEms;
             double pen = x;
+            int index = 0;
             foreach (char c in text)
             {
                 if (c == ' ')
@@ -146,8 +160,29 @@ namespace MphRead.Mods.Launcher.Gui
                     continue;
                 }
                 FormattedText glyph = Lay(c.ToString(), face, size, brush, true, 0);
-                context.DrawText(glyph, new Point(Math.Round(pen),
-                    Math.Round(top + (height - glyph.Height) / 2)));
+                double gx = Math.Round(pen);
+                double gy = Math.Round(top + (height - glyph.Height) / 2);
+                (double lift, double degrees) = hop == null ? (0d, 0d) : hop(index);
+                index++;
+                if (lift == 0 && degrees == 0)
+                {
+                    context.DrawText(glyph, new Point(gx, gy));
+                    pen += glyph.Width + tracking;
+                    continue;
+                }
+                // Rotated about the character's own middle, which is where a
+                // CSS transform's origin is by default -- about the baseline
+                // instead and a three-degree lean throws the glyph sideways
+                // by more than it lifts it.
+                double cx = gx + glyph.Width / 2;
+                double cy = gy + glyph.Height / 2;
+                using (context.PushTransform(
+                    Avalonia.Matrix.CreateTranslation(-cx, -cy)
+                    * Avalonia.Matrix.CreateRotation(degrees * Math.PI / 180)
+                    * Avalonia.Matrix.CreateTranslation(cx, cy + lift)))
+                {
+                    context.DrawText(glyph, new Point(gx, gy));
+                }
                 pen += glyph.Width + tracking;
             }
             return pen - x;

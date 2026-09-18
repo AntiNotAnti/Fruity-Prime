@@ -75,6 +75,91 @@ namespace MphRead.Mods.Render
         private static bool _tried;
 
         /// <summary>
+        /// The program that lays <see cref="LauncherNoise"/> over the picture.
+        /// Zero once it has been tried and could not be had, and the draw then
+        /// falls back to the fixed-function quad below it.
+        /// </summary>
+        private static int _program;
+        private static bool _programTried;
+        private static int _photoUniform = -1, _noiseUniform = -1, _strengthUniform = -1;
+
+        /// <summary>`#backdrop { opacity: .62 }`.</summary>
+        private const float Strength = 0.62f;
+
+        /// <summary>
+        /// Build the overlay program, once, and never again if it will not
+        /// build.
+        ///
+        /// Soft, unlike the engine's own shader setup, which throws. A driver
+        /// that will not compile this should cost the player a still backdrop,
+        /// not a launcher that does not open -- and on Windows the binary is a
+        /// GUI one with no console, so "does not open" is all they would get.
+        /// </summary>
+        private static bool EnsureProgram()
+        {
+            if (_programTried)
+            {
+                return _program != 0;
+            }
+            _programTried = true;
+            int vertex = 0, fragment = 0;
+            try
+            {
+                vertex = GL.CreateShader(ShaderType.VertexShader);
+                GL.ShaderSource(vertex, Shaders.BackdropVertexShader);
+                GL.CompileShader(vertex);
+                GL.GetShader(vertex, ShaderParameter.CompileStatus, out int vertexOk);
+                fragment = GL.CreateShader(ShaderType.FragmentShader);
+                GL.ShaderSource(fragment, Shaders.BackdropFragmentShader);
+                GL.CompileShader(fragment);
+                GL.GetShader(fragment, ShaderParameter.CompileStatus, out int fragmentOk);
+                if (vertexOk == 0 || fragmentOk == 0)
+                {
+                    Mods.DebugLog.Line("ui", "the moving backdrop's shaders would not compile: "
+                        + GL.GetShaderInfoLog(vertex) + " " + GL.GetShaderInfoLog(fragment));
+                    return false;
+                }
+                int program = GL.CreateProgram();
+                GL.AttachShader(program, vertex);
+                GL.AttachShader(program, fragment);
+                GL.LinkProgram(program);
+                GL.DetachShader(program, vertex);
+                GL.DetachShader(program, fragment);
+                GL.GetProgram(program, GetProgramParameterName.LinkStatus, out int linked);
+                if (linked == 0)
+                {
+                    Mods.DebugLog.Line("ui", "the moving backdrop would not link: "
+                        + GL.GetProgramInfoLog(program));
+                    GL.DeleteProgram(program);
+                    return false;
+                }
+                _program = program;
+                _photoUniform = GL.GetUniformLocation(program, "photo");
+                _noiseUniform = GL.GetUniformLocation(program, "noise");
+                _strengthUniform = GL.GetUniformLocation(program, "strength");
+                Mods.DebugLog.Line("ui", "the moving backdrop is on");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Mods.DebugLog.Line("ui", $"the moving backdrop could not be set up: {ex.Message}");
+                _program = 0;
+                return false;
+            }
+            finally
+            {
+                if (fragment != 0)
+                {
+                    GL.DeleteShader(fragment);
+                }
+                if (vertex != 0)
+                {
+                    GL.DeleteShader(vertex);
+                }
+            }
+        }
+
+        /// <summary>
         /// Put it on the screen, cropped to fill the window the way
         /// <c>Stretch.UniformToFill</c> filled it -- centred, and losing
         /// whichever axis has the spare picture on it, so the framing is what
@@ -111,7 +196,12 @@ namespace MphRead.Mods.Render
             float u1 = u0 + u;
             float v0 = (1 - v) / 2;
             float v1 = v0 + v;
-            GL.UseProgram(0);
+            // The moving field over the photograph. Both have to be there:
+            // no program, or no field yet, and this is the still picture it
+            // has always been.
+            bool moving = LauncherNoise.Step(width, height)
+                && LauncherNoise.Texture != 0 && EnsureProgram();
+            GL.UseProgram(moving ? _program : 0);
             GL.Disable(EnableCap.DepthTest);
             GL.Disable(EnableCap.CullFace);
             GL.Disable(EnableCap.AlphaTest);
@@ -123,14 +213,28 @@ namespace MphRead.Mods.Render
             // for the same reason: the scene leaves the active unit wherever
             // its last shader wanted it.
             GL.ActiveTexture(TextureUnit.Texture1);
-            GL.BindTexture(TextureTarget.Texture2D, 0);
-            GL.Disable(EnableCap.Texture2D);
+            if (moving)
+            {
+                GL.Enable(EnableCap.Texture2D);
+                GL.BindTexture(TextureTarget.Texture2D, LauncherNoise.Texture);
+            }
+            else
+            {
+                GL.BindTexture(TextureTarget.Texture2D, 0);
+                GL.Disable(EnableCap.Texture2D);
+            }
             GL.ActiveTexture(TextureUnit.Texture0);
             GL.Enable(EnableCap.Texture2D);
             GL.BindTexture(TextureTarget.Texture2D, _texture);
             GL.TexEnv(TextureEnvTarget.TextureEnv, TextureEnvParameter.TextureEnvMode,
                 (int)TextureEnvMode.Replace);
             GL.Color4(1f, 1f, 1f, 1f);
+            if (moving)
+            {
+                GL.Uniform1(_photoUniform, 0);
+                GL.Uniform1(_noiseUniform, 1);
+                GL.Uniform1(_strengthUniform, Strength);
+            }
             GL.MatrixMode(MatrixMode.Projection);
             GL.PushMatrix();
             GL.LoadIdentity();
@@ -139,14 +243,23 @@ namespace MphRead.Mods.Render
             GL.LoadIdentity();
             // Flipped in T, like the overlay: the decoder's first row is the
             // top of the picture and GL's is the bottom.
+            // Unit 1 carries the field's own framing: edge to edge, like the
+            // canvas this is a port of, which is `inset: 0` over the whole
+            // screen rather than cropped with the picture. Flipped in T for
+            // the same reason unit 0 is -- the first row of both buffers is
+            // the top of the image and GL's is the bottom.
             GL.Begin(PrimitiveType.TriangleStrip);
-            GL.TexCoord2(u1, v0);
+            GL.MultiTexCoord2(TextureUnit.Texture0, u1, v0);
+            GL.MultiTexCoord2(TextureUnit.Texture1, 1f, 0f);
             GL.Vertex3(1f, 1f, 0f);
-            GL.TexCoord2(u0, v0);
+            GL.MultiTexCoord2(TextureUnit.Texture0, u0, v0);
+            GL.MultiTexCoord2(TextureUnit.Texture1, 0f, 0f);
             GL.Vertex3(-1f, 1f, 0f);
-            GL.TexCoord2(u1, v1);
+            GL.MultiTexCoord2(TextureUnit.Texture0, u1, v1);
+            GL.MultiTexCoord2(TextureUnit.Texture1, 1f, 1f);
             GL.Vertex3(1f, -1f, 0f);
-            GL.TexCoord2(u0, v1);
+            GL.MultiTexCoord2(TextureUnit.Texture0, u0, v1);
+            GL.MultiTexCoord2(TextureUnit.Texture1, 0f, 1f);
             GL.Vertex3(-1f, -1f, 0f);
             GL.End();
             GL.PopMatrix();
@@ -156,6 +269,17 @@ namespace MphRead.Mods.Render
             GL.TexEnv(TextureEnvTarget.TextureEnv, TextureEnvParameter.TextureEnvMode,
                 (int)TextureEnvMode.Modulate);
             GL.BindTexture(TextureTarget.Texture2D, 0);
+            if (moving)
+            {
+                // Put the units back the way everything after this expects
+                // them: the overlay and the scene both assume unit 1 is off
+                // and unit 0 is the active one.
+                GL.ActiveTexture(TextureUnit.Texture1);
+                GL.BindTexture(TextureTarget.Texture2D, 0);
+                GL.Disable(EnableCap.Texture2D);
+                GL.ActiveTexture(TextureUnit.Texture0);
+                GL.UseProgram(0);
+            }
             GL.Enable(EnableCap.Blend);
             GL.Enable(EnableCap.DepthTest);
         }

@@ -186,6 +186,78 @@ namespace MphRead.Mods.Launcher.Gui
         /// shadowing it here would be a bug that only shows on a machine that
         /// happens to go looking.
         /// </summary>
+        /// <summary>
+        /// Which of the hunter's four suits this is wearing, 0-3.
+        ///
+        /// The colours are not written down anywhere and must not be: a suit
+        /// is <c>pal_01</c> to <c>pal_04</c> on that hunter's own model, and
+        /// what those palettes hold is a fact about the player's extracted
+        /// files rather than something this repository carries. See
+        /// <see cref="Mods.HunterSuits"/>, which samples them.
+        ///
+        /// The boxes keep their own light and shade: each is recoloured by
+        /// the ratio it already stands at against the hunter's base tint, so
+        /// swapping a suit swaps the palette and not the modelling -- which
+        /// is what a recolor is.
+        /// </summary>
+        public int Suit
+        {
+            get => _suit;
+            set
+            {
+                int clamped = Math.Clamp(value, 0, 3);
+                if (_suit == clamped)
+                {
+                    return;
+                }
+                _suit = clamped;
+                InvalidateVisual();
+            }
+        }
+
+        private int _suit;
+
+        /// <summary>The suit's sampled colour, or the hunter's own when there is none.</summary>
+        private Color SuitTint(Color baseTint)
+        {
+            try
+            {
+                if (!Enum.TryParse(Name2, ignoreCase: true, out MphRead.Hunter which))
+                {
+                    return baseTint;
+                }
+                ColorRgba sampled = Mods.HunterSuits.Color(which, _suit);
+                return Color.FromRgb(sampled.Red, sampled.Green, sampled.Blue);
+            }
+            catch (Exception)
+            {
+                // A model that will not load is the hunter's own colour, not a
+                // dead screen. HunterSuits says the same.
+                return baseTint;
+            }
+        }
+
+        /// <summary>
+        /// One box's colour under the chosen suit: the ratio it sits at
+        /// against the hunter's base tint, applied to the suit's.
+        /// </summary>
+        private Color Wear(Color box, Color baseTint, Color suit)
+        {
+            if (suit == baseTint)
+            {
+                return box;
+            }
+            static byte Mix(byte value, byte from, byte to)
+            {
+                double ratio = from == 0 ? 1 : value / (double)from;
+                return (byte)Math.Clamp(to * ratio, 0, 255);
+            }
+            return Color.FromRgb(
+                Mix(box.R, baseTint.R, suit.R),
+                Mix(box.G, baseTint.G, suit.G),
+                Mix(box.B, baseTint.B, suit.B));
+        }
+
         public string Name2
         {
             get => _who;
@@ -218,7 +290,7 @@ namespace MphRead.Mods.Launcher.Gui
             // whatever rate it will go, forever, in the game window as well as
             // here -- and it never lets a capture settle on a frame.
             _turn = new DispatcherTimer(TimeSpan.FromMilliseconds(33),
-                DispatcherPriority.Background, (_, _) => InvalidateVisual());
+                DispatcherPriority.Background, (_, _) => Beat());
         }
 
         protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -227,9 +299,100 @@ namespace MphRead.Mods.Launcher.Gui
             _turn.Start();
         }
 
+        /// <summary>
+        /// Once every thirty-three milliseconds while this is in the tree:
+        /// tell the engine where the box is, and redraw the boxes if the
+        /// engine is not the one filling it.
+        ///
+        /// <b>The heartbeat, not <c>Render</c>, is what publishes.</b> A
+        /// control that is not visible is never rendered, so a rectangle
+        /// published from the drawing would go on being true after the drawer
+        /// had slid shut -- and the model would be left painted over a panel
+        /// that is no longer there. A timer can ask whether it is visible;
+        /// a draw that never happens cannot.
+        /// </summary>
+        private void Beat()
+        {
+#if MPHREAD_SHELL
+            if (!IsEffectivelyVisible)
+            {
+                Mods.Render.LauncherHunter.Wanted = false;
+                return;
+            }
+            Publish();
+#endif
+            InvalidateVisual();
+        }
+
+#if MPHREAD_SHELL
+        /// <summary>
+        /// Where this box is in the window, and whether the engine drew a
+        /// hunter in it.
+        ///
+        /// The rectangle has to be published every frame rather than once:
+        /// this stand lives in a drawer that slides in, so it is somewhere
+        /// different on each of the frames that matter most.
+        ///
+        /// Two coordinate systems meet here. A control's bounds are in the
+        /// surface's points, and the surface is laid out at a scale and then
+        /// rasterised at another (see UiSurface); the engine wants fractions
+        /// of the window. Going through the top level's own transform is what
+        /// keeps those two from having to know about each other.
+        /// </summary>
+        private bool Publish()
+        {
+            UiSurface? surface = UiSurface.Current;
+            if (surface == null)
+            {
+                return false;
+            }
+            // Both corners translated, rather than one corner and a scale.
+            // The layout transform that scales the screens lives *inside* the
+            // top level, so a point translated into it has already been
+            // scaled -- multiplying by the factor as well put the rectangle a
+            // third of a window off the right-hand edge, where the scissor
+            // clipped it away to nothing.
+            Point origin = this.TranslatePoint(new Point(0, 0), surface.Root) ?? new Point(0, 0);
+            Point far = this.TranslatePoint(new Point(Bounds.Width, Bounds.Height), surface.Root)
+                ?? origin;
+            double windowWidth = surface.WindowWidth;
+            double windowHeight = surface.WindowHeight;
+            if (windowWidth <= 0 || windowHeight <= 0 || far.X <= origin.X || far.Y <= origin.Y)
+            {
+                return false;
+            }
+            double left = origin.X;
+            double top = origin.Y;
+            Mods.Render.LauncherHunter.Wanted = true;
+            Mods.Render.LauncherHunter.Hunter =
+                Enum.TryParse(_who, ignoreCase: true, out MphRead.Hunter which)
+                    ? which : MphRead.Hunter.Samus;
+            Mods.Render.LauncherHunter.Suit = _suit;
+            Mods.Render.LauncherHunter.Left = (float)(left / windowWidth);
+            Mods.Render.LauncherHunter.Top = (float)(top / windowHeight);
+            Mods.Render.LauncherHunter.Right = (float)(far.X / windowWidth);
+            Mods.Render.LauncherHunter.Bottom = (float)(far.Y / windowHeight);
+            // And the scene's own copy, for the frame that *has* a match in
+            // it: the results screen's pass reads these and used to be handed
+            // them by the HUD panel this replaced. LauncherHunter copies the
+            // same four across on the frame with no match, where there is no
+            // scene to have read them.
+            Scene.PreviewWanted = true;
+            Scene.PreviewLeft = Mods.Render.LauncherHunter.Left;
+            Scene.PreviewTop = Mods.Render.LauncherHunter.Top;
+            Scene.PreviewRight = Mods.Render.LauncherHunter.Right;
+            Scene.PreviewBottom = Mods.Render.LauncherHunter.Bottom;
+            return Scene.PreviewDrawnLastFrame;
+        }
+#endif
+
         protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
         {
             _turn.Stop();
+#if MPHREAD_SHELL
+            // The stand has gone; nothing should be drawn under where it was.
+            Mods.Render.LauncherHunter.Reset();
+#endif
             base.OnDetachedFromVisualTree(e);
         }
 
@@ -282,6 +445,17 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 return;
             }
+#if MPHREAD_SHELL
+            // Did the engine manage the real model last frame? If it did,
+            // draw nothing at all -- what goes in this box is painted over
+            // the screens afterwards, by LauncherHunter. A model that will
+            // not load, or the frames before it has, fall through to the
+            // boxes below.
+            if (Scene.PreviewDrawnLastFrame)
+            {
+                return;
+            }
+#endif
             Hunter hunter = _hunters.TryGetValue(_who, out Hunter found)
                 ? found : _hunters["Samus"];
 
@@ -310,9 +484,11 @@ namespace MphRead.Mods.Launcher.Gui
             double focal = h * 1.02;
             double cx = w / 2, cy = h * 0.63;
 
+            Color suit = SuitTint(hunter.Tint);
             var quads = new List<(double Z, Point[] P, Color C)>(hunter.Boxes.Length * 6);
             foreach (Box b in hunter.Boxes)
             {
+                Color worn = Wear(b.Colour, hunter.Tint, suit);
                 double hw = b.W / 2, hh = b.H / 2, hd = b.D / 2;
                 var pts = new Point[8];
                 var depth = new double[8];
@@ -343,7 +519,7 @@ namespace MphRead.Mods.Launcher.Gui
                     quads.Add((
                         (depth[q[0]] + depth[q[1]] + depth[q[2]] + depth[q[3]]) / 4,
                         new[] { pts[q[0]], pts[q[1]], pts[q[2]], pts[q[3]] },
-                        Shade(b.Colour, 0.42 + lit * 0.78)));
+                        Shade(worn, 0.42 + lit * 0.78)));
                 }
             }
             quads.Sort((a, b) => b.Z.CompareTo(a.Z));

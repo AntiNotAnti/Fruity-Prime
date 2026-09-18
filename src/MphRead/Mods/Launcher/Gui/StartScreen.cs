@@ -88,14 +88,18 @@ namespace MphRead.Mods.Launcher.Gui
             // is the one thing on this screen drawn by a different hand from
             // the pixel-type row under it. The mark itself is untouched --
             // it is still the window icon and still the release art.
-            _wordmark = new DeckWordmark(64)
+            _wordmark = new DeckWordmark()
             {
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 0, 30)
             };
             _menu.Children.Add(_wordmark);
-            _menu.Children.Add(new TextBlock
+            // `.wordmark .sub`: `.82em` of the frame, not eleven points of
+            // nothing in particular. It sat beside a mark that has just
+            // stopped being a fixed size, and a fixed caption under a mark
+            // that grows is a caption that shrinks.
+            _sub = new TextBlock
             {
                 Text = "METROID PRIME HUNTERS  \u00b7  REBORN",
                 FontFamily = GuiTheme.Display,
@@ -103,7 +107,8 @@ namespace MphRead.Mods.Launcher.Gui
                 Foreground = GuiTheme.TextDimBrush,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 Margin = new Thickness(0, -18, 0, 0)
-            });
+            };
+            _menu.Children.Add(_sub);
             // A row of faces rather than a column of words. Three of them,
             // which is what the screen has always offered; what changed is
             // that each is now an object you press rather than a word that
@@ -141,22 +146,19 @@ namespace MphRead.Mods.Launcher.Gui
                 VerticalAlignment = VerticalAlignment.Bottom
             };
             DeckChip chip = _chip;
-            var heart = new DeckHeart { VerticalAlignment = VerticalAlignment.Bottom };
-            heart.Click += (_, _) => Updater.OpenLink(Mods.Credits.SupportUrl);
+            DeckButton heart = SupportMark();
+            heart.VerticalAlignment = VerticalAlignment.Bottom;
             _heart = heart;
 
             // Upright there is no room beside a column of full-width faces, so
             // the mark goes to the corner the way it does on a phone. Its own
             // layer, because the foot is a three-column row and this is not in
             // it any more once the row has turned.
-            _heartCorner = new DeckHeart
-            {
-                HorizontalAlignment = HorizontalAlignment.Left,
-                VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(14, 14, 0, 0),
-                IsVisible = false
-            };
-            _heartCorner.Click += (_, _) => Updater.OpenLink(Mods.Credits.SupportUrl);
+            _heartCorner = SupportMark();
+            _heartCorner.HorizontalAlignment = HorizontalAlignment.Left;
+            _heartCorner.VerticalAlignment = VerticalAlignment.Top;
+            _heartCorner.Margin = new Thickness(14, 14, 0, 0);
+            _heartCorner.IsVisible = false;
             root.Children.Add(_heartCorner);
 
             var foot = new Grid
@@ -180,7 +182,11 @@ namespace MphRead.Mods.Launcher.Gui
             // entry lose their ends off the edges of the screen. There is no
             // media query here, so the row watches its own width and turns.
             _bar = bar;
-            root.SizeChanged += (_, e) => LayOutBar(e.NewSize.Width);
+            root.SizeChanged += (_, e) =>
+            {
+                LayOutBar(e.NewSize.Width);
+                LayOutWordmark(e.NewSize);
+            };
             LayOutBar(_windowWidthGuess);
 
             _version = new TextBlock
@@ -235,10 +241,36 @@ namespace MphRead.Mods.Launcher.Gui
         private const double _windowWidthGuess = 940;
         private StackPanel? _bar;
         private DeckWordmark? _wordmark;
+        private TextBlock? _sub;
         private Grid? _foot;
         private DeckChip? _chip;
-        private DeckHeart? _heart;
-        private DeckHeart? _heartCorner;
+        private DeckButton? _heart;
+        private DeckButton? _heartCorner;
+
+        /// <summary>
+        /// The support mark: a button like every other, with a heart where the
+        /// word goes.
+        ///
+        /// `class="btn f-rust heart"` in the reference -- the same object as
+        /// QUIT beside it, with `--lip: 5px`, `padding: .7em .9em` and a
+        /// `1.9em` by `1.27em` picture. It used to be a control of its own and
+        /// had none of what makes these buttons what they are: no bevel, no
+        /// spring, no lean towards the pointer, no press that travels by the
+        /// lip it loses.
+        /// </summary>
+        private static DeckButton SupportMark()
+        {
+            var mark = new DeckButton("", Deck.Face.Rust,
+                sizeEms: 1.55, padXEms: 0.9, padYEms: 0.7, lip: 5)
+            {
+                Glyph = DeckHeart.DrawHeart,
+                GlyphEms = new Size(1.9, 1.27),
+                GlyphColour = Color.FromRgb(0xe8, 0xa0, 0xa0),
+                Tip = "Support this project <3"
+            };
+            mark.Click += (_, _) => Updater.OpenLink(Mods.Credits.SupportUrl);
+            return mark;
+        }
 
         private static string PlayerNameOrDefault()
         {
@@ -290,6 +322,44 @@ namespace MphRead.Mods.Launcher.Gui
                 child.HorizontalAlignment = column
                     ? HorizontalAlignment.Stretch
                     : HorizontalAlignment.Center;
+            }
+        }
+
+        /// <summary>
+        /// The mark's size, and the caption under it, for the box the screen
+        /// has actually been handed.
+        ///
+        /// Three numbers, and they are the reference's three:
+        /// <c>7.6em</c> on a 16:9 desktop, <c>5.2em</c> on a phone held
+        /// upright and <c>4.4em</c> on the same phone turned -- a phone in
+        /// landscape has the height of a letterbox and a mark sized for a
+        /// monitor would leave no room under it for the row it introduces.
+        ///
+        /// <see cref="DeckStage"/> is the root here, so the size it reports is
+        /// the one it measured its em from and <see cref="Deck.EmFor"/> hands
+        /// back that same number rather than a guess at it.
+        /// </summary>
+        private void LayOutWordmark(Size frame)
+        {
+            if (frame.Width <= 0 || frame.Height <= 0)
+            {
+                return;
+            }
+            bool landscape = frame.Width > frame.Height;
+            double ems = !Deck.Phone ? 7.6 : landscape ? 4.4 : 5.2;
+            if (_wordmark != null)
+            {
+                _wordmark.SizeEms = ems;
+                // The gap under the mark is the caption's `margin-top: 1.4em`
+                // of its own size, less the drop shadow the mark already
+                // carries inside its own box.
+                _wordmark.Margin = new Thickness(0, 0, 0, 0);
+            }
+            double em = Deck.EmFor(frame.Width, frame.Height);
+            if (_sub != null)
+            {
+                _sub.FontSize = Math.Max(8, Math.Round(em * 0.82));
+                _sub.Margin = new Thickness(0, Math.Round(em * 0.82 * 1.4) - 10, 0, 0);
             }
         }
 

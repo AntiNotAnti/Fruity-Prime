@@ -159,6 +159,110 @@ namespace MphRead.Mods.Launcher.Gui
         /// end or a toy at the other. The ceiling is lower on a phone (13
         /// against 15) for the same reason.
         /// </summary>
+        /// <summary>
+        /// The reference's <c>--spring</c>, <c>cubic-bezier(.18, 1.55, .35,
+        /// 1)</c>, solved for a progress in 0..1.
+        ///
+        /// A real cubic Bezier rather than something that overshoots by about
+        /// the right amount: the overshoot past 1 is the whole character of
+        /// this curve -- it is what makes a hovered button *pop* instead of
+        /// growing -- and it happens at a particular moment, which an
+        /// approximation gets wrong in a way that reads as a different
+        /// animation beside the page it is a port of.
+        ///
+        /// Newton on x(t) for the parameter, then y(t). Four iterations is
+        /// inside a thousandth over the whole span; the bisection after it is
+        /// the guard for the one region where the derivative goes flat.
+        /// </summary>
+        /// <summary>
+        /// Run something on the UI thread before the next frame these screens
+        /// are drawn in, and mark that frame as wanted.
+        ///
+        /// The one hook every self-driving animation here goes through. Two
+        /// things have to happen and neither is <c>InvalidateVisual</c> on its
+        /// own: the step must land *between* render passes (Avalonia refuses
+        /// to have a visual invalidated during one, and the exception comes
+        /// out of the dispatcher rather than out of the caller), and the
+        /// surface has to be told the picture changed, or the step runs and is
+        /// then not drawn until the backstop comes round.
+        /// </summary>
+        public static void NextFrame(Action step, bool idling = false)
+        {
+#if MPHREAD_SHELL
+            UiSurface.RequestFrame(step, idling);
+#else
+            // The Android head's screens are in a real window with a real
+            // compositor behind them; there is no surface to invalidate and
+            // the dispatcher is the frame.
+            Avalonia.Threading.Dispatcher.UIThread.Post(step,
+                Avalonia.Threading.DispatcherPriority.Render);
+#endif
+        }
+
+        /// <summary>
+        /// Whether the keyboard, rather than a pointer, is what the player is
+        /// currently driving these screens with.
+        ///
+        /// This is the state a browser keeps behind <c>:focus-visible</c>, and
+        /// it is why a mouse user never sees a focus ring and somebody on Tab
+        /// always does. The pseudo-class is not "has focus" -- the ring
+        /// follows the *input*, so a panel that focuses its Back button as it
+        /// opens rings it when Tab opened the panel and does not when a click
+        /// did. A control that asked <c>IsFocused</c> instead put a two-point
+        /// amber ring around everything anybody clicked, which is what
+        /// "un outerline jaune s'affiche quand on click dessus" was.
+        ///
+        /// Set from the input entry points rather than worked out per control,
+        /// because it is one fact about the session and not a property of any
+        /// one button.
+        /// </summary>
+        public static bool KeyboardDriving { get; private set; }
+
+        /// <summary>A key arrived: rings from here on.</summary>
+        public static void DrivingByKeyboard() => KeyboardDriving = true;
+
+        /// <summary>A pointer or a finger arrived: no rings from here on.</summary>
+        public static void DrivingByPointer() => KeyboardDriving = false;
+
+        public static double Spring(double progress) => Bezier(progress, 0.18, 1.55, 0.35, 1);
+
+        public static double Bezier(double progress, double x1, double y1, double x2, double y2)
+        {
+            if (progress <= 0)
+            {
+                return 0;
+            }
+            if (progress >= 1)
+            {
+                return 1;
+            }
+            double t = progress;
+            for (int i = 0; i < 4; i++)
+            {
+                double slope = Slope(t, x1, x2);
+                if (Math.Abs(slope) < 1e-6)
+                {
+                    break;
+                }
+                t -= (Curve(t, x1, x2) - progress) / slope;
+                t = Math.Clamp(t, 0, 1);
+            }
+            return Curve(t, y1, y2);
+        }
+
+        /// <summary>One axis of a unit cubic Bezier, the two ends pinned at 0 and 1.</summary>
+        private static double Curve(double t, double a, double b)
+        {
+            double u = 1 - t;
+            return 3 * u * u * t * a + 3 * u * t * t * b + t * t * t;
+        }
+
+        private static double Slope(double t, double a, double b)
+        {
+            double u = 1 - t;
+            return 3 * u * u * a + 6 * u * t * (b - a) + 3 * t * t * (1 - b);
+        }
+
         public static double EmFor(double width, double height)
         {
             if (width <= 0)

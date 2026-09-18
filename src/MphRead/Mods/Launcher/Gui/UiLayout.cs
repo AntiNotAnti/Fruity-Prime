@@ -154,6 +154,45 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         public static Border LightWash() => Wash(core: 140, edge: 55);
 
+        /// <summary>`--void` at an alpha: #05070a, the reference's own ground colour.</summary>
+        private static Color Void(double alpha) =>
+            Color.FromArgb((byte)Math.Round(Math.Clamp(alpha, 0, 1) * 255), 5, 7, 10);
+
+        /// <summary>
+        /// One of `#ground`'s two gradients.
+        ///
+        /// The vertical one is the picture's: dark at the top so the build
+        /// line reads, almost nothing across the third where the photograph is
+        /// worth looking at, and back down to nearly opaque at the foot where
+        /// the bar of buttons sits. The sideways one is a shorter fall from
+        /// the left edge, which is where the front screen's profile chip and
+        /// the support mark are.
+        /// </summary>
+        private static Border Ground(bool horizontal)
+        {
+            var brush = new LinearGradientBrush
+            {
+                StartPoint = new RelativePoint(horizontal ? 0 : 0.5, horizontal ? 0.5 : 0,
+                    RelativeUnit.Relative),
+                EndPoint = new RelativePoint(horizontal ? 1 : 0.5, horizontal ? 0.5 : 1,
+                    RelativeUnit.Relative)
+            };
+            if (horizontal)
+            {
+                brush.GradientStops.Add(new GradientStop(Void(0.55), 0));
+                brush.GradientStops.Add(new GradientStop(Void(0), 0.38));
+                brush.GradientStops.Add(new GradientStop(Void(0), 1));
+            }
+            else
+            {
+                brush.GradientStops.Add(new GradientStop(Void(0.72), 0));
+                brush.GradientStops.Add(new GradientStop(Void(0.10), 0.30));
+                brush.GradientStops.Add(new GradientStop(Void(0.35), 0.62));
+                brush.GradientStops.Add(new GradientStop(Void(0.90), 1));
+            }
+            return new Border { Background = brush };
+        }
+
         /// <summary>
         /// Which wash a backdrop carries, so that it can be baked into the
         /// same bitmap as the photograph under it.
@@ -380,6 +419,16 @@ namespace MphRead.Mods.Launcher.Gui
         /// still visible through it, which is the point: these screens sit on
         /// a table rather than replacing it.
         /// </summary>
+        /// <summary>
+        /// `.sheet`'s ground, <c>rgba(5,7,10,.72)</c>.
+        ///
+        /// It is now drawn inside the bake rather than as a live layer over
+        /// it (see <see cref="BackdropLayers"/>): it is a flat rectangle the
+        /// size of the window, it never changes while a screen is up, and
+        /// rasterising it again on every redraw bought nothing. Kept as a
+        /// brush because the value is the reference's and belongs somewhere
+        /// nameable.
+        /// </summary>
         public static readonly IBrush SheetBrush =
             new SolidColorBrush(Color.FromArgb(184, 5, 7, 10));
 
@@ -431,8 +480,6 @@ namespace MphRead.Mods.Launcher.Gui
             // rasterisations. See BakedBackdrop for what that was costing.
             Panel root = Backdrop(overGame,
                 overGame ? BackdropWash.None : BackdropWash.Standard);
-            root.Children.Add(new Border { Background = SheetBrush });
-
             bool hasMarks = no != null || yes != null || extra != null;
 
             // The heading, for the screens with no strip -- where it is the
@@ -488,7 +535,15 @@ namespace MphRead.Mods.Launcher.Gui
                 Child = inside,
                 MaxWidthEms = widthEms
             };
-            var sheet = new SheetPad { Child = card };
+            // `.sheet`: the scrim and the panel on it, fading in together,
+            // with the panel springing up out of `scale(.9) translateY(14px)`
+            // underneath that. Both halves are one object here for the same
+            // reason they are one element there -- darkening the frame
+            // instantly and then floating a panel onto it is two events where
+            // the reference has one.
+            var sheet = new DeckSheet();
+            sheet.Children.Add(new Border { Background = SheetBrush });
+            sheet.Children.Add(new SheetPad { Child = card });
             root.Children.Add(sheet);
             return root;
         }
@@ -603,41 +658,25 @@ namespace MphRead.Mods.Launcher.Gui
                     Stretch = Stretch.UniformToFill
                 });
             }
-            root.Children.Add(new Border
-            {
-                Background = new LinearGradientBrush
-                {
-                    GradientStops =
-                    {
-                        new GradientStop(Color.FromArgb(215, 0, 0, 0), 0),
-                        new GradientStop(Color.FromArgb(110, 0, 0, 0), 0.38),
-                        new GradientStop(Color.FromArgb(0, 0, 0, 0), 0.68)
-                    }
-                }
-            });
-            root.Children.Add(new Border
-            {
-                Background = new RadialGradientBrush
-                {
-                    Center = new RelativePoint(1, 1, RelativeUnit.Relative),
-                    GradientOrigin = new RelativePoint(1, 1, RelativeUnit.Relative),
-                    RadiusX = new RelativeScalar(0.5, RelativeUnit.Relative),
-                    RadiusY = new RelativeScalar(0.7, RelativeUnit.Relative),
-                    GradientStops =
-                    {
-                        new GradientStop(Color.FromArgb(150, 0, 0, 0), 0),
-                        new GradientStop(Color.FromArgb(0, 0, 0, 0), 1)
-                    }
-                }
-            });
-            if (wash == BackdropWash.Standard)
-            {
-                root.Children.Add(Wash());
-            }
-            else if (wash == BackdropWash.Light)
-            {
-                root.Children.Add(LightWash());
-            }
+            // `#ground`, both gradients, in the order CSS paints them -- a
+            // background list is drawn last-first, so the sideways one goes
+            // down before the vertical one.
+            //
+            // These were a 215-to-0 fall from the top, a vignette in the
+            // bottom-right corner and a full-window wash over both, and
+            // together they put about sixty per cent of black over the middle
+            // of the photograph against the reference's twenty-six. That is
+            // the whole of "the backdrop is too dark": not one layer too
+            // strong, three layers where there are two, and neither of them
+            // shaped like these. It is `--void` as well, not black -- #05070a
+            // has a blue in it that plain black does not, and over a picture
+            // that is mostly lava it is the difference between shade and soot.
+            root.Children.Add(Ground(horizontal: true));
+            root.Children.Add(Ground(horizontal: false));
+            // `.sheet`'s own `rgba(5,7,10,.72)` is *not* here, even though it
+            // is a flat rectangle that would bake for nothing: it fades in
+            // with the panel it belongs to (see DeckSheet), and a layer inside
+            // the bake cannot fade on its own.
             return root;
         }
 

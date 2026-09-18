@@ -174,6 +174,23 @@ namespace MphRead.Mods.Launcher.Gui
             var credits = new SettingsView(settings);
             credits.ShowSection("Profile");
             yield return ("settings-player", credits, _windowSize);
+            var controls = new SettingsView(settings);
+            controls.ShowSection("Controls");
+            yield return ("settings-controls", controls, _windowSize);
+            // The pad's own sub-page, photographed on purpose: its rows are
+            // built with the page hidden and are the ones that used to take
+            // the process down when Controls was opened. A shot of the
+            // Keyboard sub-page alone proves nothing about them.
+            var pad = new SettingsView(settings);
+            pad.ShowSection("Controls", sub: 1);
+            yield return ("settings-gamepad", pad, _windowSize);
+            // The results panel, on its own. The scoreboard beside it in a
+            // real match is the engine's and is not drawn here -- this is the
+            // half the theme owns.
+            yield return ("end-panel", new EndPanelView(), _windowSize);
+            var endHunter = new EndPanelView();
+            endHunter.ShowHunter();
+            yield return ("end-panel-hunter", endHunter, _windowSize);
             yield return ("setup", new SetupScreen(), _windowSize);
             yield return ("confirm",
                 new ConfirmScreen($"Quit {Mods.Branding.Name}?"), _windowSize);

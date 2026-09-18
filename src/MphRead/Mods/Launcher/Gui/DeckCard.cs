@@ -53,6 +53,17 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         public double MaxWidthEms { get; set; } = 44;
 
+        /// <summary>
+        /// Take the height offered rather than the height the content wants.
+        ///
+        /// Off, because a panel that always filled its box put the two rows of
+        /// the Story face in the middle of a card the height of the screen.
+        /// On for the results panel, which is pinned top and bottom in the
+        /// reference (`top: .9em; bottom: .9em`) and whose ballot is a list
+        /// that has to have somewhere to scroll.
+        /// </summary>
+        public bool Fill { get; set; }
+
         /// <summary><c>padding: 1em</c>, inside the face.</summary>
         public const double PadEms = 1;
 
@@ -62,6 +73,7 @@ namespace MphRead.Mods.Launcher.Gui
         {
             HorizontalAlignment = HorizontalAlignment.Stretch;
             VerticalAlignment = VerticalAlignment.Center;
+            // Fill sets Stretch instead; see the property.
             // Antialiased, alone among these controls: the panel's corner is
             // eight points of radius and a stepped shadow around it, and both
             // read as a staircase drawn aliased.
@@ -92,6 +104,10 @@ namespace MphRead.Mods.Launcher.Gui
             // sheet's own bottom padding -- so it is not part of the height
             // asked for. Counting it took ten points off every panel's inside
             // and put the line under the foot ten points high.
+            if (Fill && !Double.IsInfinity(availableSize.Height))
+            {
+                return new Size(cap, availableSize.Height);
+            }
             return new Size(cap, Math.Min(availableSize.Height,
                 child.Height + pad * 2));
         }

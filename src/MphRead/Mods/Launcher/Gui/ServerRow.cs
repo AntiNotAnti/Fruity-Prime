@@ -596,6 +596,27 @@ namespace MphRead.Mods.Launcher.Gui
         /// answered. What the preview beside the list is drawn from.
         /// </summary>
         public string RoomKey => _answered ? _roomKey : "";
+
+        /// <summary>
+        /// What the drawer beside the list puts in its facts: the same five
+        /// the reference's `.side` shows.
+        ///
+        /// Read off the row rather than asked of the directory a second time,
+        /// because the row already holds the answer the server gave and a
+        /// second query would be a different one -- the panel would show a
+        /// ping and a count from a moment the list is not displaying.
+        /// </summary>
+        public string DisplayName => _name;
+
+        public string MapName => _map;
+
+        public string ModeName => _mode;
+
+        public string PlayerCount => _players;
+
+        public string PingText => _ping;
+
+        public IBrush PingBrush => _pingBrush;
     }
 }
 #endif

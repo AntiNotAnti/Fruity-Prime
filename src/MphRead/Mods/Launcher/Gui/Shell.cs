@@ -212,6 +212,52 @@ namespace MphRead.Mods.Launcher.Gui
             surface.Tick();
         }
 
+        private static EndPanelView? _endPanel;
+
+        /// <summary>
+        /// Whether the deck panel is up over the results, so the HUD's own
+        /// picker knows to leave the right-hand side alone.
+        ///
+        /// Read by <c>ModDrawEndScreen</c>, which draws the ballot and the
+        /// hunter as arrows and swatches beside a 32x32 sprite. Only that
+        /// panel steps aside -- the scoreboard beside it is the engine's own
+        /// screen and stays exactly as it is.
+        /// </summary>
+        public static bool EndPanelUp => _endPanel != null;
+
+        /// <summary>
+        /// Put the results panel up while the results are up, and take it down
+        /// after.
+        ///
+        /// Driven from the frame rather than from whatever ends a match: the
+        /// results screen arrives because the server said the match is over,
+        /// and there is no one place on this machine that hears it. The state
+        /// is already published -- EndScreen.Available is the same question
+        /// the HUD asks -- so this watches it.
+        ///
+        /// Never over the pause menu. Escape during the results is a thing a
+        /// player can still do, and two panels over one match is one too many.
+        /// </summary>
+        internal static void TickEndPanel()
+        {
+            UiSurface? surface = UiSurface.Current;
+            bool want = Mods.EndScreen.Available && _menu == null && surface != null;
+            if (want == EndPanelUp)
+            {
+                _endPanel?.Refresh();
+                return;
+            }
+            if (want)
+            {
+                var panel = new EndPanelView();
+                _endPanel = panel;
+                surface!.Show(panel);
+                return;
+            }
+            _endPanel = null;
+            UiSurface.Current?.Hide();
+        }
+
         // -------------------------------------------------------- the screens
 
         private static void ShowFrontScreen()
@@ -559,19 +605,58 @@ namespace MphRead.Mods.Launcher.Gui
                 Wait(25);
             },
             w => { Shot(w, "shell-windowed"); Wait(5); },
+            // F11 on the front screen. The shell takes the whole keyboard
+            // while a screen is up, so this is the one gesture that has to be
+            // handled before it does -- and it was not, which made fullscreen
+            // the one thing the launcher could not do.
+            w => { WindowKey(w, Keys.F11); Wait(20); },
+            w =>
+            {
+                Shot(w, "shell-launcher-fullscreen");
+                if (!Mods.WindowMode.IsFullscreen)
+                {
+                    ShotMisses++;
+                    Console.WriteLine("[shellshot] F11 did not reach the window on the front screen");
+                }
+                WindowKey(w, Keys.F11);
+                Wait(20);
+            },
             // Through the screens rather than by handing the shell a plan:
             // picking a map is two presses now -- one to select the row, one
             // on the tick -- and the picture after the first of them has to be
             // the play screen and not a match.
             _ => { ClickIfReady(c => c is DeckButton button && button.Text == "PLAY"); Wait(20); },
-            w => { Shot(w, "shell-play"); Key(Keys.Right); Wait(15); },
-            w => { Shot(w, "shell-play-offline"); ClickIfReady(c => c is UiListRow); Wait(15); },
+            // A server that answered, and the drawer it opens beside the list.
+            // The browser is the one face where the picture after the click is
+            // not the same screen plus a highlight.
             w =>
             {
-                // Still the play screen: a click on a row selects it and
-                // starts nothing. A picture of a room here is the regression.
+                Shot(w, "shell-play");
+                ClickIfReady(c => c is ServerRow row && row.IsLive);
+                Wait(25);
+            },
+            w => { Shot(w, "shell-server-side"); Key(Keys.Right); Wait(15); },
+            // A card, not a row: the offline face is every map at once now.
+            // See DeckTile.
+            // Land the pointer in the middle of the grid, then scroll it for
+            // two seconds: this is the one step that measures a steady state
+            // rather than photographing a moment. See Scroll.
+            w =>
+            {
+                Shot(w, "shell-play-offline");
+                UiSurface.Current?.PointerMoved(w.ClientSize.X / 2.0, w.ClientSize.Y / 2.0);
+                Scroll(60);
+                Scroll(60, 1);
+                Wait(10);
+            },
+            w => { ClickIfReady(c => c is DeckTile); Wait(25); },
+            w =>
+            {
+                // Still the play screen, with the drawer open beside it: a
+                // press on a card picks it and starts nothing. A picture of a
+                // room here is the regression.
                 Shot(w, "shell-play-selected");
-                ClickIfReady(c => c is UiMark mark && mark.Label == "start");
+                ClickIfReady(c => c is DeckButton go && go.Text == "START");
                 Wait(40);
             },
             w =>
@@ -622,6 +707,20 @@ namespace MphRead.Mods.Launcher.Gui
             // again in the launcher when the game finishes" was about this
             // frame and not about the one Leave match produces.
             w => { Escape(); Mods.WindowMode.Toggle(w); Wait(30); },
+            // The results, held rather than allowed to run their clock: the
+            // engine's own scoreboard on the left and the deck panel on the
+            // right, which is the one picture that shows the two halves
+            // together. The real screen runs for ten seconds and then
+            // rotates, and a capture that has to be caught inside ten seconds
+            // is a capture that fails on a slow machine.
+            _ => { HoldResults(); Wait(60); },
+            w =>
+            {
+                Shot(w, "shell-endgame");
+                Click(c => c is DeckButton tab && tab.Text == "Change hunter");
+                Wait(30);
+            },
+            w => { Shot(w, "shell-endgame-hunter"); ReleaseResults(); Wait(20); },
             _ => { EndShotMatch(); Wait(90); },
             w => { Shot(w, "shell-back-fullscreen"); Mods.WindowMode.Toggle(w); Wait(25); },
             w => { Shot(w, "shell-back"); Wait(5); }
@@ -707,6 +806,46 @@ namespace MphRead.Mods.Launcher.Gui
             surface?.KeyUp(key, Avalonia.Input.RawInputModifiers.None);
         }
 
+        /// <summary>
+        /// Scroll whatever is under the pointer, a notch at a time, for a
+        /// number of frames.
+        ///
+        /// Here because "the grid does not scroll smoothly" is a report about
+        /// a *steady state* and every other step in this harness is a single
+        /// act. A notch a frame across a screenful of cards is what the
+        /// player is doing when they say it is slow, and the debug log's
+        /// per-second `ui` line is what answers it -- which is why this is a
+        /// step rather than something measured by hand.
+        /// </summary>
+        private static void Scroll(int frames, double notches = -1)
+        {
+            UiSurface? surface = UiSurface.Current;
+            if (surface == null)
+            {
+                return;
+            }
+            for (int i = 0; i < frames; i++)
+            {
+                surface.PointerWheel(0, notches);
+                Wait(1);
+            }
+        }
+
+        /// <summary>
+        /// A key put through the *window's* handler rather than handed to the
+        /// surface.
+        ///
+        /// <see cref="Key"/> is for testing a screen and goes straight to
+        /// UiSurface; that skips everything the window claims first, so it can
+        /// never catch a key the window was supposed to take and did not.
+        /// </summary>
+        private static void WindowKey(RenderWindow window, Keys key)
+        {
+            window.FeedKey(new OpenTK.Windowing.Common.KeyboardKeyEventArgs(
+                key, scanCode: 0, 0,
+                isRepeat: false));
+        }
+
         private static void Escape()
         {
             UiSurface? surface = UiSurface.Current;
@@ -741,6 +880,45 @@ namespace MphRead.Mods.Launcher.Gui
         /// fifth of a second of results, since the capture is about what comes
         /// after it.
         /// </summary>
+        /// <summary>
+        /// Put the match at its results and keep it there.
+        ///
+        /// <see cref="EndShotMatch"/> shortens the results to a fifth of a
+        /// second because the capture it belongs to is about what comes
+        /// *after* them. This one is about the results themselves, so the
+        /// clock is given thirty seconds instead -- the screen it photographs
+        /// is the engine's scoreboard and the deck panel beside it, and both
+        /// have to be settled before the shutter.
+        ///
+        /// The ballot is begun by hand as well: on a server it arrives in a
+        /// packet, and there is no server here.
+        /// </summary>
+        private static void HoldResults()
+        {
+            // `Ending`, not `GameOver`. Both satisfy EndScreen.Available, so
+            // the deck panel comes up either way -- but the HUD draws the
+            // scoreboard on `Ending` and only the words GAME OVER on
+            // `GameOver`, and the scoreboard is the half of this picture the
+            // theme does not touch. A capture without it is a capture of half
+            // the screen.
+            GameState.MatchState = MatchState.Ending;
+            GameState.MatchTime = 30;
+            try
+            {
+                MapPick.Begin(_settings.RoomKey ?? "", open: true);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[shellshot] no ballot to show: {ex.Message}");
+            }
+        }
+
+        /// <summary>Let the clock run again, so the sequence can leave.</summary>
+        private static void ReleaseResults()
+        {
+            GameState.MatchTime = 0.2f;
+        }
+
         private static void EndShotMatch()
         {
             GameState.MatchState = MatchState.Ending;

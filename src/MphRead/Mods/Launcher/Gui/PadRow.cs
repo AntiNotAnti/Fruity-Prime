@@ -213,6 +213,17 @@ namespace MphRead.Mods.Launcher.Gui
 
         public override void Render(DrawingContext context)
         {
+            // A row on a sub-page that is not showing is attached to the tree
+            // and rendered once all the same, and a control that has never
+            // been arranged has zero Bounds -- which makes Box four points
+            // *negative* and MaxTextHeight below throw. That exception comes
+            // out of the compositor's own pass, so nothing here catches it and
+            // the process goes down the moment Controls is opened. There is
+            // nothing to draw at this size anyway.
+            if (Bounds.Width <= 0 || Bounds.Height <= 0)
+            {
+                return;
+            }
             // See UiWord.Render: hit testing follows the drawing.
             context.FillRectangle(Brushes.Transparent,
                 new Rect(0, 0, Bounds.Width, Bounds.Height));

@@ -1473,7 +1473,7 @@ namespace MphRead
             {
                 UpdatePaths();
             }
-            _allPaths[key] = path;
+            _allPaths[key] = Absolute(path);
         }
 
         public static void UpdatePaths()
@@ -1499,9 +1499,54 @@ namespace MphRead
                     string key = split[0].Trim();
                     if (split.Length == 2 && _allPaths.ContainsKey(key))
                     {
-                        _allPaths[key] = split[1].Trim();
+                        _allPaths[key] = Absolute(split[1].Trim());
                     }
                 }
+            }
+        }
+
+        /// <summary>
+        /// A root written in paths.txt, made absolute.
+        ///
+        /// <para>
+        /// <b>Why this is not cosmetic.</b> Several read paths combine the
+        /// root in more than once: <c>Read.GetEntities</c> combines it, then
+        /// calls <c>GetEntitiesFromPath</c> which combines it again, which
+        /// calls <c>ReadBytes</c> which combines it a third time. That is
+        /// invisible for an absolute root -- <c>Path.Combine(abs, abs)</c> is
+        /// <c>abs</c>, so the second and third do nothing -- and it stacks for
+        /// a relative one. A player whose paths.txt read
+        /// <c>AMHE0=files\AMHE0</c> was therefore told, at startup, that every
+        /// room's spawns were missing from
+        /// <c>...\files\AMHE0\files\AMHE0\files\AMHE0\levels\entities\</c>,
+        /// and every hunter model from the same folder doubled. The files were
+        /// exactly where they should be.
+        /// </para>
+        /// <para>
+        /// Fixed here rather than by unpicking the three call sites: making
+        /// the root absolute changes nothing for anybody it already was
+        /// absolute for -- which is everybody who has never seen this -- and
+        /// it fixes every call site at once, including the ones nobody has
+        /// walked yet. Against the program's own directory rather than the
+        /// working directory, because a relative root in paths.txt means "next
+        /// to the game", and the working directory is not always that.
+        /// </para>
+        /// </summary>
+        private static string Absolute(string path)
+        {
+            if (path.Length == 0 || Path.IsPathRooted(path))
+            {
+                return path;
+            }
+            try
+            {
+                return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, path));
+            }
+            catch (Exception)
+            {
+                // A path with something in it the platform will not take is
+                // the path the player wrote, not a crash at startup.
+                return path;
             }
         }
 

@@ -157,6 +157,22 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         public double Scale => _factor;
 
+        /// <summary>
+        /// The surface's own pixels, which are stretched over the whole
+        /// window by the GL blit.
+        ///
+        /// A rectangle expressed as a fraction of these is therefore the same
+        /// fraction of the window, whatever the raster cap did -- which is
+        /// what anything drawing *under* the screens needs, and why this is
+        /// published rather than the window's own size.
+        /// </summary>
+        public int WindowWidth => _pixelWidth;
+
+        public int WindowHeight => _pixelHeight;
+
+        /// <summary>The top level a control measures its position against.</summary>
+        public Visual Root => _window;
+
         /// <summary>Put a screen up, or replace the one that is up.</summary>
         public void Show(Control view)
         {
@@ -383,8 +399,25 @@ namespace MphRead.Mods.Launcher.Gui
         /// One-shot, like the thing it replaces: whatever still has somewhere
         /// to go asks again.
         /// </summary>
-        public static void RequestFrame(Action step)
+        /// <param name="idling">
+        /// True when the only thing moving is something that never stops --
+        /// see <see cref="IdleAnimGap"/>. A spring, a slide or a hop must not
+        /// pass this: they are short, and they are what the player is looking
+        /// at while they run.
+        /// </param>
+        public static void RequestFrame(Action step, bool idling = false)
         {
+            UiSurface? surface = _current;
+            if (surface == null)
+            {
+                // No surface to be drawn into -- -uishot renders one frame and
+                // stops, and the harness screens are built before Ensure. The
+                // dispatcher is the only clock there is then, and a step left
+                // on the list below would never run at all: whatever asked for
+                // the frame would wait for it forever.
+                Dispatcher.UIThread.Post(step, DispatcherPriority.Render);
+                return;
+            }
             lock (_pending)
             {
                 _pending.Add(step);
@@ -392,7 +425,7 @@ namespace MphRead.Mods.Launcher.Gui
             // Whatever it is, it is moving something: the glide would
             // otherwise step the scroller and then wait up to IdleGap to be
             // drawn, which is a 20 fps animation.
-            _current?.Invalidate();
+            surface.Invalidate(animation: true, idling: idling);
         }
 
         private static readonly List<Action> _pending = new();
@@ -465,19 +498,62 @@ namespace MphRead.Mods.Launcher.Gui
 
         /// <summary>
         /// The fastest the screens are redrawn when something *is* happening:
-        /// as fast as the window draws.
+        /// sixty a second.
         ///
-        /// This was 60 Hz on the reasoning that a menu at 60 and a menu at 144
-        /// are the same menu. They are not, and the thing that shows it is the
-        /// one place in the launcher where a lot of pixels move at once: a
-        /// list being scrolled. Capped at 60 on a 144 Hz screen, a glide that
-        /// covers three rows in a tenth of a second does it in six steps of
-        /// fifteen pixels, and six steps is something you can count. The cost
-        /// is only ever paid while something is actually changing, which is
-        /// exactly when it is worth paying -- a still menu still costs
-        /// nothing, which is what the dirty flag is for.
+        /// This was uncapped -- as fast as the window draws -- on the
+        /// reasoning that a glide capped at 60 on a 144 Hz screen covers three
+        /// rows in six steps of fifteen pixels, and six steps is something you
+        /// can count. That reasoning was about a *glide*, an animation this
+        /// surface drives itself, and it is now capped separately by
+        /// <see cref="AnimGap"/>. What was left uncapped by it was every
+        /// redraw of every kind, and a redraw here is the whole window
+        /// rasterised by Skia on the CPU: on a 144 Hz monitor that is 144 of
+        /// them a second for a menu that cannot look different at 60.
+        ///
+        /// Sixty, and no lower, because this is also the path a wheel notch
+        /// and a keystroke take and those must not feel delayed. On a 60 Hz
+        /// window nothing here changes at all.
+        ///
+        /// The springs keep sixty too, and that is deliberate: they run for a
+        /// fifth of a second at a time and they are what the player is looking
+        /// at while they run. Dropping them to thirty to save frames was tried
+        /// and put back -- it buys almost nothing (a spring is not on for long
+        /// enough to matter to the average) and it is exactly the sluggishness
+        /// that was reported in the first place. What costs is the animation
+        /// that never stops; see <see cref="IdleAnimGap"/>.
         /// </summary>
-        private const double BusyGap = 0;
+        private const double BusyGap = 16;
+
+        /// <summary>
+        /// The fastest an animation that drives *itself* is redrawn: sixty a
+        /// second.
+        ///
+        /// Not <see cref="BusyGap"/>, and the difference is the whole reason
+        /// there are two numbers. A wheel notch or a keystroke is a redraw
+        /// because something outside asked for one, and there are only as many
+        /// of those as the player makes; a spring or a bob asks again every
+        /// frame it is still moving, for as long as it moves -- and the front
+        /// screen's one idle button never stops. Uncapped on a 144 Hz monitor
+        /// that is 144 full-surface rasterisations a second for a two-and-a-
+        /// half point bob, which is most of a core spent on a menu nobody is
+        /// touching. Sixty is past the point where a spring looks any smoother
+        /// and is less than half the work.
+        /// </summary>
+        private const double AnimGap = 16;
+
+        /// <summary>
+        /// The gap for an animation that is only *idling*: the front screen's
+        /// bob, and nothing else so far.
+        ///
+        /// It moves one button two and a half points over three and a half
+        /// seconds. At fifteen frames a second that is a sixth of a point
+        /// between frames, which nobody can see -- and the difference matters
+        /// because this is the one animation that never stops: the front
+        /// screen would otherwise pay a full-window rasterisation thirty times
+        /// a second for ever, which measured at about a third of a core doing
+        /// nothing.
+        /// </summary>
+        private const double IdleAnimGap = 66;
 
         private bool _dirty = true;
         private double _drawnAt = -1000;
@@ -526,11 +602,45 @@ namespace MphRead.Mods.Launcher.Gui
         /// Something happened; draw on the next tick. Every input entry point
         /// calls this, and so does anything waiting on a frame.
         /// </summary>
-        public void Invalidate()
+        public void Invalidate(bool animation = false, bool idling = false)
         {
             _dirty = true;
-            _touchedAt = _frameClock.Elapsed.TotalMilliseconds;
+            if (animation && _animOnly && !idling)
+            {
+                // Anything that is actually moving outranks the bob: one
+                // button idling must not hold the whole surface down to
+                // fifteen frames while a spring is running beside it.
+                _animIdle = false;
+            }
+            if (!animation)
+            {
+                // An animation is not a touch. Counting it as one would hold
+                // the short backstop open for ever on the front screen, whose
+                // idle button asks for a frame three times a second even when
+                // the spring is asleep.
+                _touchedAt = _frameClock.Elapsed.TotalMilliseconds;
+                _animOnly = false;
+                return;
+            }
+            if (!_animOnly)
+            {
+                _animOnly = true;
+                _animIdle = idling;
+            }
+            else if (!idling)
+            {
+                _animIdle = false;
+            }
         }
+
+        /// <summary>True when every animation asking for this frame is an idle one.</summary>
+        private bool _animIdle;
+
+        /// <summary>
+        /// True when the only thing that has asked for this frame is something
+        /// animating itself. Cleared by anything that arrives from outside.
+        /// </summary>
+        private bool _animOnly;
 
         public void Tick()
         {
@@ -541,21 +651,26 @@ namespace MphRead.Mods.Launcher.Gui
             }
             RunPending();
             ApplyScale();
+            // Always running, not only while the debug log is: the calibration
+            // below reads it, and a launcher that only kept up for the people
+            // who had switched logging on would be the strangest bug in here.
+            // It is one Stopwatch a frame against a redraw measured in
+            // milliseconds.
             bool measuring = Mods.DebugLog.Active;
-            var clock = measuring ? System.Diagnostics.Stopwatch.StartNew() : null;
+            var clock = System.Diagnostics.Stopwatch.StartNew();
             // Always, and cheap: this is what makes everything posted between
             // frames actually happen -- a click's handler, a preview that has
             // finished loading, the update check answering. Skipping it would
             // not save a redraw, it would stop the screen changing at all.
             Dispatcher.UIThread.RunJobs();
-            if (clock != null)
+            if (measuring)
             {
                 _jobs += clock.Elapsed.TotalMilliseconds;
                 _ticks++;
             }
             double now = _frameClock.Elapsed.TotalMilliseconds;
             double since = now - _drawnAt;
-            double gap = _dirty ? BusyGap
+            double gap = _dirty ? (_animOnly ? (_animIdle ? IdleAnimGap : AnimGap) : BusyGap)
                 : now - _touchedAt < SettleMs ? IdleGap : RestingGap;
             if (since < gap)
             {
@@ -565,17 +680,16 @@ namespace MphRead.Mods.Launcher.Gui
                 return;
             }
             _dirty = false;
+            _animOnly = false;
+            _animIdle = false;
             _drawnAt = now;
             _redraws++;
             Report(now);
-            clock?.Restart();
+            clock.Restart();
             AvaloniaHeadlessPlatform.ForceRenderTimerTick();
             WriteableBitmap? frame = _window.GetLastRenderedFrame();
-            if (clock != null)
-            {
-                _drawMs += clock.Elapsed.TotalMilliseconds;
-                clock.Restart();
-            }
+            _drawMs += clock.Elapsed.TotalMilliseconds;
+            clock.Restart();
             if (frame == null)
             {
                 return;
@@ -584,10 +698,7 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 UiOverlay.Upload(buffer.Address, buffer.Size.Width, buffer.Size.Height);
             }
-            if (clock != null)
-            {
-                _uploadMs += clock.Elapsed.TotalMilliseconds;
-            }
+            _uploadMs += clock.Elapsed.TotalMilliseconds;
             UiOverlay.Visible = true;
         }
 
@@ -609,6 +720,7 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         public void PointerMoved(double x, double y)
         {
+            Deck.DrivingByPointer();
             Invalidate();
             if (_view == null)
             {
@@ -624,6 +736,7 @@ namespace MphRead.Mods.Launcher.Gui
 
         public void PointerButton(MouseButton button, bool down)
         {
+            Deck.DrivingByPointer();
             Invalidate();
             if (_view == null)
             {
@@ -762,6 +875,7 @@ namespace MphRead.Mods.Launcher.Gui
 
         public void PointerWheel(double deltaX, double deltaY)
         {
+            Deck.DrivingByPointer();
             Invalidate();
             if (_view == null)
             {
@@ -772,6 +886,7 @@ namespace MphRead.Mods.Launcher.Gui
 
         public void KeyDown(Keys key, RawInputModifiers modifiers)
         {
+            Deck.DrivingByKeyboard();
             Invalidate();
             if (_view == null)
             {

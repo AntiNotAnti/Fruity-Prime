@@ -156,9 +156,17 @@ namespace MphRead.Mods.Launcher.Gui
         {
             get
             {
+                // The label keeps 110 points where there are 110 to spare and
+                // a little under half the row where there are not. A flat
+                // floor is what put the arrows 138 points apart inside the
+                // play screen's drawer, which left the value about thirty
+                // points of column -- and a value that does not fit does not
+                // ellipsize, it *wraps*, so "Normal" came out as three
+                // stacked syllables.
+                double floor = Math.Min(110, Bounds.Width * 0.42);
                 double x = Bounds.Width - PreviewRoom - ArrowWidth - ValueColumn - ArrowWidth;
                 // Never over the label, on a card too narrow for the column.
-                return new Rect(Math.Max(110, x), 0, ArrowWidth, Bounds.Height);
+                return new Rect(Math.Max(floor, x), 0, ArrowWidth, Bounds.Height);
             }
         }
 
@@ -270,6 +278,12 @@ namespace MphRead.Mods.Launcher.Gui
             if (value.Width > room)
             {
                 value.MaxTextWidth = Math.Max(20, room);
+                // One line, whatever the trimming decides. Without a height
+                // limit Avalonia wraps at the first space rather than
+                // ellipsizing -- see the same note in DeckText.Lay -- and a
+                // wrapped value in a fixed-height row draws over the rows
+                // either side of it.
+                value.MaxTextHeight = 13 * 1.9;
                 value.Trimming = TextTrimming.CharacterEllipsis;
             }
             double centre = (left.Right + RightArrow.X) / 2;
