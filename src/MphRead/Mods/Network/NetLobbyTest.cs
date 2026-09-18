@@ -1,8 +1,10 @@
 using System;
+using MphRead.Mods.Multiplayer;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.IO;
 using System.Net;
 using System.Threading;
 
@@ -22,13 +24,20 @@ namespace MphRead.Mods.Network
         {
             try
             {
+                NetHealthSyncTest.Run();
                 ProtocolChecks();
+                ActiveTeamConvergence();
+                DemoProtocolCheck();
+                LayoutChecks();
                 EmptyContinuousRestart();
                 ClientStateChecks();
                 Scenario();
                 TeamScenario();
+                CustomScenario();
+                FourTeamScenario();
                 ContinuousScenario();
                 ClientSessionScenario();
+                TeamGameplayTest.Run(Check);
                 Console.WriteLine($"[netlobbytest] PASS: {_checks} assertions; protocol, UDP lifecycle, two rounds, owner migration, teams, rebind and continuous rotation.");
                 return 0;
             }
@@ -42,11 +51,12 @@ namespace MphRead.Mods.Network
 
         private static void ProtocolChecks()
         {
-            Check(NetConfig.ProtocolVersion == 8 && (byte)PacketType.SessionState == 36
+            Check(NetConfig.ProtocolVersion == 9 && (byte)PacketType.SessionState == 36
                 && (byte)PacketType.MapDone == 35, "protocol and reserved IDs");
             var state = new SessionStatePacket { Phase = SessionPhase.Starting, Policy = ServerSessionPolicy.Lobby,
                 OwnerSlot = 7, MaxPlayers = 8, Revision = ushort.MaxValue, MatchId = 19,
-                RuleFlags = SessionRules.RequireReady | SessionRules.AllowJoinInProgress,
+                RuleFlags = SessionRules.RequireReady | SessionRules.AllowJoinInProgress | SessionRules.LockTeams,
+                WorldProfile = MatchWorldProfile.Resolve(8),
                 ExpectedParticipants = 255, LoadedParticipants = 3,
                 Match = new MatchDefinition { RoomKey = new string('X', 40), Mode = GameMode.BattleTeams,
                     Format = MatchFormat.FourVsFour, TimeLimitSeconds = 600, PointGoal = 20,
@@ -58,6 +68,13 @@ namespace MphRead.Mods.Network
                 Check(!SessionStatePacket.TryRead(data.AsSpan(0, length), out _), "truncated session");
             foreach (int offset in new[] { 0, 1, 8, 9 })
             { byte saved = data[offset]; data[offset] = 254; Check(!SessionStatePacket.TryRead(data, out _), "invalid enum"); data[offset] = saved; }
+            byte savedExpected = data[16], savedLoaded = data[17];
+            data[16] = 1; data[17] = 2;
+            Check(!SessionStatePacket.TryRead(data, out _), "loaded participant must belong to frozen barrier");
+            data[16] = savedExpected; data[17] = savedLoaded;
+            byte savedMax = data[7], savedOwner = data[6]; data[7] = 2; data[6] = 0;
+            Check(!SessionStatePacket.TryRead(data, out _), "participant mask bounded by server slots");
+            data[7] = savedMax; data[6] = savedOwner;
             Check(SessionStatePacket.IsNewer(0, ushort.MaxValue) && !SessionStatePacket.IsNewer(ushort.MaxValue, 0), "revision wrap ordering");
             foreach (LobbyCommandType type in Enum.GetValues<LobbyCommandType>())
             {
@@ -89,13 +106,79 @@ namespace MphRead.Mods.Network
             Check(RosterPacket.TryRead(rosterBytes, out var rr) && rr.Teams.SequenceEqual(roster.Teams)
                 && rr.LobbyReady.SequenceEqual(roster.LobbyReady) && rr.Revision == 123, "roster team/ready/revision round trip");
             for (int length = 0; length < rosterBytes.Length; length++) Check(!RosterPacket.TryRead(rosterBytes.AsSpan(0, length), out _), "truncated roster");
-            var host = new HostRequestPacket { Protocol = 8, MaxPlayers = 8, RoomKey = "room", ServerName = "test",
+            var host = new HostRequestPacket { Protocol = NetConfig.ProtocolVersion, MaxPlayers = 8, RoomKey = "room", ServerName = "test",
                 Policy = ServerSessionPolicy.Lobby, RequireReady = true, AllowJoinInProgress = true, Format = MatchFormat.FourVsFour };
             byte[] hostBytes = new byte[host.Length]; host.Write(hostBytes); var hr = HostRequestPacket.Read(hostBytes);
             Check(hr.Policy == host.Policy && hr.Format == host.Format && hr.RequireReady && hr.AllowJoinInProgress, "host options appended without rotation");
             var reply = new HostReplyPacket { Started = true, Port = 123, OwnerToken = Guid.NewGuid() };
             byte[] replyBytes = new byte[HostReplyPacket.Size]; reply.Write(replyBytes);
             Check(HostReplyPacket.Read(replyBytes).OwnerToken == reply.OwnerToken, "owner token round trip");
+        }
+
+        private static void DemoProtocolCheck()
+        {
+            string path = Path.Combine(Path.GetTempPath(), $"team-protocol-{Guid.NewGuid():N}{DemoFile.Extension}");
+            try
+            {
+                // A valid demo container with an incompatible packet protocol.
+                using (var writer = new DemoWriter(path)) { }
+                byte[] bytes = File.ReadAllBytes(path);
+                bytes[5] = (byte)(NetConfig.ProtocolVersion - 1);
+                File.WriteAllBytes(path, bytes);
+                Check(!DemoPlayback.Join(path) && !DemoPlayback.IsActive
+                    && DemoPlayback.LastError?.Contains("requires protocol") == true,
+                    "incompatible demo fails before scene or session construction");
+                using var exclusive = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+                Check(exclusive.Length >= DemoFile.HeaderSize, "rejected demo releases its file handle");
+            }
+            finally { DemoPlayback.Stop(); File.Delete(path); }
+        }
+
+        private static void LayoutChecks()
+        {
+            var match = new MatchDefinition { RoomKey = Rooms()[0], Mode = GameMode.BattleTeams };
+            foreach (var (format, layout) in new[] {
+                (MatchFormat.OneVsOne, new TeamLayout(2, 1, 1)), (MatchFormat.TwoVsTwo, new TeamLayout(2, 2, 2)),
+                (MatchFormat.ThreeVsThree, new TeamLayout(2, 3, 3)), (MatchFormat.FourVsFour, new TeamLayout(2, 4, 4)),
+                (MatchFormat.TwoVsTwoVsTwoVsTwo, new TeamLayout(4, 2, 2, 2, 2)) })
+            {
+                MatchDefinition preset = match with { Format = format };
+                Check(LobbyRules.ResolveTeamLayout(preset) == layout, $"resolve {format}");
+                Check(LobbyRules.ValidateDefinition(preset, out _) == LobbyResultCode.Ok, $"validate {format}");
+            }
+            foreach (TeamLayout layout in new[] { new TeamLayout(2, 1, 2), new(2, 4, 2), new(2, 2, 3),
+                new(3, 1, 1, 1), new(3, 1, 2, 2), new(3, 2, 2, 2), new(4, 1, 1, 2, 4) })
+            {
+                MatchDefinition custom = match with { Format = MatchFormat.Custom, CustomTeams = layout };
+                Check(LobbyRules.ValidateDefinition(custom, out _) == LobbyResultCode.Ok, $"valid custom {layout}");
+                var state = new SessionStatePacket { MaxPlayers = 8, Match = custom, WorldProfile = MatchWorldProfile.Resolve(layout.TotalPlayers) };
+                byte[] bytes = new byte[SessionStatePacket.Size]; state.Write(bytes);
+                Check(SessionStatePacket.TryRead(bytes, out var read) && read.Match == custom && read.WorldProfile == state.WorldProfile, "custom/world wire roundtrip");
+                int[] counts = new int[4];
+                for (int player = 0; player < layout.TotalPlayers; player++)
+                {
+                    int team = TeamRules.ChooseTeam(layout, counts);
+                    Check(team >= 0 && counts[team] < layout.Capacity(team), "normalized assignment stays within capacity");
+                    for (int candidate = 0; candidate < layout.TeamCount; candidate++)
+                        if (counts[candidate] < layout.Capacity(candidate))
+                            Check(counts[team] * layout.Capacity(candidate) <= counts[candidate] * layout.Capacity(team), "lowest normalized occupancy");
+                    counts[team]++;
+                }
+                Check(TeamRules.ChooseTeam(layout, counts) == -1, "full layout refuses admission");
+                for (int team = 0; team < layout.TeamCount; team++) Check(counts[team] == layout.Capacity(team), "fills exact asymmetric layout");
+            }
+            foreach (TeamLayout invalid in new[] { new TeamLayout(2, 0, 2), new(5, 1, 1, 1, 1), new(3, 4, 4, 1), new(4, 2, 2), new(2, 2, 2, 1) })
+                Check(LobbyRules.ValidateDefinition(match with { Format = MatchFormat.Custom, CustomTeams = invalid }, out _) == LobbyResultCode.InvalidConfiguration, "reject invalid layout");
+            Check(LobbyRules.ValidateDefinition(match with { Mode = GameMode.Capture, Format = MatchFormat.TwoVsTwoVsTwoVsTwo }, out _) == LobbyResultCode.InvalidConfiguration, "capture rejects four teams");
+            Check(LobbyRules.ValidateDefinition(match with { Mode = GameMode.PrimeHunter, Format = MatchFormat.OneVsOne }, out _) == LobbyResultCode.InvalidConfiguration, "prime hunter stays FFA");
+            var single = RosterPacket.Create(); single.Count = 1;
+            Check(LobbyRules.Validate(match with { Mode = GameMode.Battle, Format = MatchFormat.FreeForAll }, single, false, out _) == LobbyResultCode.NotEnoughPlayers, "explicit FFA minimum two");
+            for (int players = 2; players <= 8; players++)
+            {
+                MatchWorldProfile world = MatchWorldProfile.Resolve(players);
+                Check(world.IsValid && world.EntityLayerPlayers == Math.Min(players, 4), "native entity layer bounded 2/3/4");
+                Check(world.Resources == (players == 2 ? ResourceSpawnProfile.Low : players <= 4 ? ResourceSpawnProfile.Standard : ResourceSpawnProfile.High), "resource tier");
+            }
         }
 
         private static void ClientStateChecks()
@@ -129,7 +212,8 @@ namespace MphRead.Mods.Network
             public SessionStatePacket? State;
             public RosterPacket Roster = RosterPacket.Create();
             public MatchStatePacket Match;
-            public bool Authority;
+            public bool Authority, Refused;
+            public readonly List<ChatPacket> Chats = new();
             public readonly Dictionary<uint, LobbyCommandResultPacket> Results = new();
             private uint _command, _frame;
             public Client(int port, uint id, Guid token = default)
@@ -139,7 +223,7 @@ namespace MphRead.Mods.Network
             }
             public void Hello(Guid token = default)
             {
-                byte[] bytes = new byte[22]; bytes[0] = 8; bytes[1] = Slot < 0 ? (byte)255 : (byte)Slot;
+                byte[] bytes = new byte[22]; bytes[0] = NetConfig.ProtocolVersion; bytes[1] = Slot < 0 ? (byte)255 : (byte)Slot;
                 BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(2), Id); token.TryWriteBytes(bytes.AsSpan(6));
                 Send(PacketType.Hello, bytes);
             }
@@ -165,6 +249,8 @@ namespace MphRead.Mods.Network
                 {
                     if (packet.Type == PacketType.Welcome) Slot = packet.Payload[0];
                     if (packet.Type == PacketType.Authority) Authority = true;
+                    if (packet.Type == PacketType.Refused) Refused = true;
+                    if (packet.Type == PacketType.Chat && packet.Payload.Length == ChatPacket.Size) Chats.Add(ChatPacket.Read(packet.Payload));
                     if (packet.Type == PacketType.SessionState && SessionStatePacket.TryRead(packet.Payload, out var state)
                         && (State == null || state.Revision == State.Value.Revision || SessionStatePacket.IsNewer(state.Revision, State.Value.Revision))) State = state;
                     if (packet.Type == PacketType.Roster && RosterPacket.TryRead(packet.Payload, out var roster)
@@ -294,9 +380,108 @@ namespace MphRead.Mods.Network
             for (uint id = 14; rig.Clients.Count < 8; id++) rig.Add(id);
             Check(owner.Roster.Teams.Take(8).Count(t => t == 0) == 4 && owner.Roster.Teams.Take(8).Count(t => t == 1) == 4, "4v4 assignment");
             config = owner.State.Value; config.Match = config.Match with { Format = MatchFormat.TwoVsTwoVsTwoVsTwo };
-            rig.Expect(owner, owner.Command(LobbyCommandType.UpdateMatch, config: config), LobbyResultCode.InvalidConfiguration);
+            rig.Expect(owner, owner.Command(LobbyCommandType.UpdateMatch, config: config), LobbyResultCode.Ok);
             rig.Expect(owner, owner.Command(LobbyCommandType.StartMatch), LobbyResultCode.Ok);
             rig.Wait(() => owner.State.Value.Phase == SessionPhase.InMatch, "load timeout releases barrier", 18000);
+        }
+
+        private static void CustomScenario()
+        {
+            using var rig = new Rig(); Client owner = rig.Add(50); Client other = rig.Add(51);
+            var config = owner.State!.Value;
+            config.Match = config.Match with { Mode = GameMode.BattleTeams, Format = MatchFormat.Custom, CustomTeams = new TeamLayout(2, 4, 2) };
+            config.RuleFlags &= ~SessionRules.RequireReady;
+            rig.Expect(owner, owner.Command(LobbyCommandType.UpdateMatch, config: config), LobbyResultCode.Ok);
+            rig.Expect(other, other.Command(LobbyCommandType.SetTeam, target: (byte)owner.Slot, team: 1), LobbyResultCode.NotOwner);
+            rig.Expect(other, other.Command(LobbyCommandType.SetTeam, target: (byte)other.Slot, team: 0), LobbyResultCode.Ok);
+            rig.Expect(other, other.Command(LobbyCommandType.SetReady, ready: true), LobbyResultCode.Ok);
+            rig.Expect(owner, owner.Command(LobbyCommandType.SetTeam, target: (byte)other.Slot, team: -1), LobbyResultCode.Ok);
+            Check(!owner.Roster.LobbyReady[other.Slot], "team move clears target ready");
+            config = owner.State.Value; config.RuleFlags |= SessionRules.LockTeams;
+            rig.Expect(owner, owner.Command(LobbyCommandType.UpdateMatch, config: config), LobbyResultCode.Ok);
+            rig.Expect(other, other.Command(LobbyCommandType.SetTeam, target: (byte)other.Slot, team: 0), LobbyResultCode.NotOwner);
+            rig.Expect(owner, owner.Command(LobbyCommandType.SetTeam, target: (byte)other.Slot, team: -1), LobbyResultCode.Ok);
+            rig.Expect(owner, owner.Command(LobbyCommandType.SetTeam, target: (byte)other.Slot, team: 3), LobbyResultCode.InvalidTeam);
+            for (uint id = 52; rig.Clients.Count < 6; id++) rig.Add(id);
+            Check(owner.Roster.Teams.Take(6).Count(t => t == 0) == 4 && owner.Roster.Teams.Take(6).Count(t => t == 1) == 2, "custom 4v2 fills asymmetrically");
+            config = owner.State.Value; config.Match = config.Match with { CustomTeams = new TeamLayout(2, 2, 2) };
+            rig.Expect(owner, owner.Command(LobbyCommandType.UpdateMatch, config: config), LobbyResultCode.InvalidConfiguration);
+            rig.Expect(owner, owner.Command(LobbyCommandType.StartMatch), LobbyResultCode.Ok);
+            Check(owner.State.Value.WorldProfile == MatchWorldProfile.Resolve(6), "world profile frozen with exact layout");
+            Client leaving = rig.Clients[^1]; leaving.Dispose(); rig.Clients.Remove(leaving);
+            rig.Wait(() => owner.State.Value.Phase == SessionPhase.Lobby, "4v2 disconnect cancels load barrier");
+            Check(owner.Roster.LobbyReady.Take(owner.Roster.Count).All(ready => !ready), "cancelled barrier clears readiness");
+            rig.Add(60); rig.Expect(owner, owner.Command(LobbyCommandType.StartMatch), LobbyResultCode.Ok);
+            foreach (Client client in rig.Clients) client.Loaded();
+            rig.Wait(() => owner.State.Value.Phase == SessionPhase.InMatch, "4v2 starts after load");
+            leaving = rig.Clients.First(c => c != owner && owner.Roster.Teams[c.Slot] == 0);
+            leaving.Dispose(); rig.Clients.Remove(leaving); rig.Stable();
+            Client late = rig.Add(61);
+            Check(owner.Roster.Teams[Array.IndexOf(owner.Roster.Slots, (byte)late.Slot, 0, owner.Roster.Count)] == 0, "JIP fills only A vacancy");
+            Check(late.State!.Value.WorldProfile == MatchWorldProfile.Resolve(6), "JIP retains frozen world");
+            using var overflow = new Client(rig.Server.BoundPort, 62);
+            rig.Wait(() => { overflow.Drain(); return overflow.Refused; }, "full custom layout rejects late join below physical player cap");
+            Check(overflow.Slot < 0, "overflow never activated");
+        }
+
+        private static void FourTeamScenario()
+        {
+            using var rig = new Rig(); Client owner = rig.Add(70);
+            var config = owner.State!.Value;
+            config.Match = config.Match with { Mode = GameMode.BattleTeams, Format = MatchFormat.TwoVsTwoVsTwoVsTwo };
+            config.RuleFlags &= ~SessionRules.RequireReady;
+            rig.Expect(owner, owner.Command(LobbyCommandType.UpdateMatch, config: config), LobbyResultCode.Ok);
+            for (int slot = 1; slot < 8; slot++)
+            {
+                Client added = rig.Add((uint)(70 + slot));
+                if (slot >= 4 && slot <= 6)
+                    rig.Expect(owner, owner.Command(LobbyCommandType.SetTeam, target: (byte)added.Slot, team: (sbyte)(7 - slot)), LobbyResultCode.Ok);
+            }
+            Check(owner.Roster.Teams.Take(8).SequenceEqual(new sbyte[] { 0, 1, 2, 3, 3, 2, 1, 0 }), "non-parity four-team roster");
+            foreach (Client client in rig.Clients) client.Chats.Clear();
+            byte[] chat = new byte[ChatPacket.Size];
+            new ChatPacket { Kind = ChatPacket.KindTeam, Text = "A only", Name = "untrusted" }.Write(chat);
+            owner.Send(PacketType.Chat, chat);
+            rig.Wait(() => rig.Clients[7].Chats.Any(c => c.Text == "A only"), "team chat reaches non-parity ally");
+            Check(rig.Clients.Skip(1).Take(6).All(c => c.Chats.All(chat => chat.Text != "A only")), "team chat excluded opposing teams");
+            Client rebound = rig.Clients[5]; ushort beforeRebind = owner.State!.Value.Revision; rebound.Rebind();
+            rig.Wait(() => owner.State!.Value.Revision != beforeRebind, "rebind advances roster revision"); rig.Stable();
+            Check(owner.Roster.Teams[5] == 2, "reconnect preserves explicit team");
+            rig.Expect(owner, owner.Command(LobbyCommandType.StartMatch), LobbyResultCode.Ok);
+            foreach (Client client in rig.Clients) client.Loaded();
+            rig.Wait(() => owner.State.Value.Phase == SessionPhase.InMatch, "four-team barrier starts");
+        }
+
+        private static void ActiveTeamConvergence()
+        {
+            int maxPlayers = Entities.PlayerEntity.MaxPlayers;
+            bool teams = GameState.Teams; int teamCount = GameState.TeamCount;
+            Entities.PlayerEntity previous = Entities.PlayerEntity._players[7];
+            try
+            {
+                NetSession.StartServerAuthority(_ => { }, () => { });
+                var roster = RosterPacket.Create(); roster.Revision = 1; roster.Count = 1; roster.Slots[0] = 7;
+                NetSession.ApplyRoster(roster);
+                var player = (Entities.PlayerEntity)System.Runtime.CompilerServices.RuntimeHelpers
+                    .GetUninitializedObject(typeof(Entities.PlayerEntity));
+                typeof(Entities.PlayerEntity).GetProperty(nameof(Entities.PlayerEntity.SlotIndex))!.SetValue(player, 7);
+                player.TeamIndex = 0; player.Health = 50; Entities.PlayerEntity._players[7] = player;
+                Entities.PlayerEntity.MaxPlayers = 8; GameState.Teams = true; GameState.TeamCount = 4;
+                var activated = (bool[])typeof(NetSlotManager).GetField("_activated",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.GetValue(null)!;
+                activated[7] = true;
+                roster.Teams[0] = 3; roster.Revision++;
+                NetSession.ApplyRoster(roster); NetSlotManager.Sync();
+                Check(player.TeamIndex == 3 && player.Health == 50,
+                    "late roster corrects active slot-seven team without reinitializing the player");
+                GameState.Teams = false; NetSlotManager.Sync();
+                Check(player.TeamIndex == 7, "FFA restores slot scoring identity for an active player");
+            }
+            finally
+            {
+                Entities.PlayerEntity._players[7] = previous; NetSlotManager.Reset(); NetSession.Stop();
+                Entities.PlayerEntity.MaxPlayers = maxPlayers; GameState.Teams = teams; GameState.TeamCount = teamCount;
+            }
         }
 
         private static void EmptyContinuousRestart()
