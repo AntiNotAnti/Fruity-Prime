@@ -586,7 +586,7 @@ namespace MphRead.Mods.Launcher.Gui
                 return;
             }
             _framePending = true;
-            Deck.NextFrame(() =>
+            Deck.NextFrame(this, () =>
             {
                 _framePending = false;
                 InvalidateVisual();
