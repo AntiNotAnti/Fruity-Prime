@@ -450,7 +450,7 @@ namespace MphRead.Mods.Launcher.Gui
                 _opponentHealth.On = !session.Match.HideOpponentHealth;
                 _requireReady.On = session.RequireReady;
                 _join.On = session.AllowJoinInProgress;
-                _lockTeams.On = session.LockTeams;
+                _lockTeams.On = PlayerChoosesTeam(session.Match) && session.LockTeams;
 
                 TeamLayout layout = LobbyRules.ResolveTeamLayout(session.Match);
                 _customLayout = session.Match.CustomTeams.IsValid
@@ -581,7 +581,9 @@ namespace MphRead.Mods.Launcher.Gui
             MatchDefinition draft = DraftMatch();
             _goal.Label = GoalLabel(draft.Mode);
             _customTeams.IsVisible = draft.Format == MatchFormat.Custom;
-            _lockTeams.IsVisible = GameState.IsTeamMode(draft.Mode);
+            bool chooseTeams = PlayerChoosesTeam(draft);
+            _lockTeams.IsVisible = chooseTeams;
+            _layoutSummary.IsVisible = draft.Format != MatchFormat.OneVsOne;
             bool valid = TryBuildMatch(out MatchDefinition configured, out string reason);
             TeamLayout layout = LobbyRules.ResolveTeamLayout(configured);
 
@@ -647,7 +649,7 @@ namespace MphRead.Mods.Launcher.Gui
             config.RuleFlags = match.Rules
                 | (_requireReady.On ? SessionRules.RequireReady : 0)
                 | (_join.On ? SessionRules.AllowJoinInProgress : 0)
-                | (_lockTeams.On ? SessionRules.LockTeams : 0);
+                | (PlayerChoosesTeam(match) && _lockTeams.On ? SessionRules.LockTeams : 0);
             if (NetSession.SendLobbyCommand(LobbyCommandType.UpdateMatch, configuration: config))
             {
                 _draftDirty = false;
@@ -746,8 +748,11 @@ namespace MphRead.Mods.Launcher.Gui
 
         private static bool PlayerChoosesTeam(MatchDefinition match)
         {
+            // 1v1 has one player per side, so choosing or locking teams adds no
+            // decision. Every other team matchup benefits from explicit team
+            // choice, including fixed 2v2/3v3/4v4 and four-team layouts.
             return GameState.IsTeamMode(match.Mode)
-                && match.Format is MatchFormat.Auto or MatchFormat.Custom;
+                && match.Format != MatchFormat.OneVsOne;
         }
 
         private static string GoalLabel(GameMode mode) => mode switch
