@@ -29,11 +29,10 @@ namespace MphRead.Mods.Input
     ///
     /// <list type="bullet">
     /// <item><c>gamecontrollerdb.txt</c> beside the executable -- what a
-    /// release would ship if one were ever bundled, and where a player who
+    /// release ships, and where a player who
     /// unzipped the game will naturally drop a file.</item>
     /// <item><c>gamecontrollerdb.txt</c> in the settings directory, beside
-    /// <c>controls.txt</c> -- the one that survives reinstalling, and on
-    /// Android the only one the app can read at all.</item>
+    /// <c>controls.txt</c> -- the one that survives reinstalling.</item>
     /// <item><c>SDL_GAMECONTROLLERCONFIG</c>, SDL's own environment variable,
     /// because somebody who has already made their pad work in another game
     /// most likely did it there.</item>
@@ -174,6 +173,29 @@ namespace MphRead.Mods.Input
             string guid = GLFW.GetJoystickGUID(slot) ?? "00000000000000000000000000000000";
             string name = (GLFW.GetJoystickName(slot) ?? "gamepad").Replace(',', ' ');
             GamepadLayout layout = GamepadLayout.For(slot);
+            return DescribeLayout(guid, name, layout, Platform());
+        }
+
+        // Apply only when GLFW has no mapping. Exact bundled/user/environment mappings
+        // keep priority. Limit firmware compatibility to the known macOS Series HID shape.
+        internal static string? CompatibleMacXboxMapping(string guid, string name, int axes, int buttons, int hats, bool macOS)
+        {
+            if (!GamepadLayout.IsMacXboxBluetooth(guid, axes, buttons, hats, macOS)) return null;
+            return DescribeLayout(guid, name.Replace(',', ' '),
+                GamepadLayout.Select(guid, axes, buttons, hats, macOS), "Mac OS X");
+        }
+
+        internal static bool TryMapMacXbox(int slot)
+        {
+            if (!OperatingSystem.IsMacOS() || GLFW.JoystickIsGamepad(slot)) return false;
+            string? mapping = CompatibleMacXboxMapping(GLFW.GetJoystickGUID(slot) ?? "",
+                GLFW.GetJoystickName(slot) ?? "Xbox controller", GLFW.GetJoystickAxes(slot).Length,
+                GLFW.GetJoystickButtons(slot).Length, GLFW.GetJoystickHats(slot).Length, macOS: true);
+            return mapping != null && Apply(mapping) && GLFW.JoystickIsGamepad(slot);
+        }
+
+        private static string DescribeLayout(string guid, string name, GamepadLayout layout, string platform)
+        {
             var text = new System.Text.StringBuilder();
             text.Append(guid).Append(',').Append(name).Append(',');
             text.Append($"a:b{layout.ButtonA},b:b{layout.ButtonB},");
@@ -192,7 +214,7 @@ namespace MphRead.Mods.Input
                 ? $"righttrigger:a{layout.AxisRightTrigger},"
                 : $"righttrigger:b{layout.ButtonRightTrigger},");
             text.Append("dpup:h0.1,dpright:h0.2,dpdown:h0.4,dpleft:h0.8,");
-            text.Append("platform:").Append(Platform()).Append(',');
+            text.Append("platform:").Append(platform).Append(',');
             return text.ToString();
         }
 
