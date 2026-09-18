@@ -750,7 +750,7 @@ namespace MphRead.Mods.Launcher.Gui
             for (int team = 0; team < 4; team++)
             {
                 int initial = current.IsValid && team < current.TeamCount
-                    ? Math.Max(1, current.Capacity(team)) - 1
+                    ? Math.Max(1, (int)current.Capacity(team)) - 1
                     : 1;
                 _sizes[team] = new ChoiceRow($"Team {(char)('A' + team)} size",
                     Enumerable.Range(1, 8).Select(n => n.ToString()).ToArray(), initial);
