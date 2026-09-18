@@ -6,18 +6,47 @@ using MphRead.Hud;
 namespace MphRead.Entities
 {
     /// <summary>
-    /// The scoreboard's ping column.
+    /// Network-specific HUD helpers.
     ///
-    /// A partial of PlayerEntity for the same reason the aim injection is:
-    /// the HUD's text drawing is private, and reaching it from here costs
-    /// upstream two call sites instead of opening up the whole HUD.
-    ///
-    /// The numbers come from the server, which is the only party that can
-    /// measure them for everybody -- clients never exchange packets with each
-    /// other -- and travel in the roster it already sends every second.
+    /// Kept on a PlayerEntity partial because the stock HUD drawing methods
+    /// are private. This keeps network presentation policy out of the core
+    /// player simulation while still letting the HUD consume authoritative
+    /// state where prediction would otherwise be misleading.
     /// </summary>
     public partial class PlayerEntity
     {
+        /// <summary>
+        /// A target's health as the authority last reported it.
+        ///
+        /// Remote PlayerEntity.Health deliberately includes local hit
+        /// prediction so bodies can flinch/drop immediately instead of one RTT
+        /// later. That is useful presentation state, but it is the wrong source
+        /// for a numeric opponent health bar: rejected/retired predictions can
+        /// make that bar disagree with the server or appear to regain health.
+        /// Keep prediction for the world and hit marker, and use the latest
+        /// accepted snapshot for the HUD only.
+        /// </summary>
+        private static int ModOpponentHudHealth(PlayerEntity player)
+        {
+            if (!NetSession.Active || NetSession.IsAuthority)
+            {
+                return player.Health;
+            }
+            int slot = player.SlotIndex;
+            if ((uint)slot < (uint)NetSession.RemoteStates.Length && NetSession.RemoteStateValid[slot])
+            {
+                return NetSession.RemoteStates[slot].Health;
+            }
+            return player.Health;
+        }
+
+        /// <summary>
+        /// Server-owned match rule. Null/offline sessions preserve the stock
+        /// behaviour and show opponent health.
+        /// </summary>
+        private static bool ModHideOpponentHealth =>
+            NetSession.ActiveMatchDefinition?.HideOpponentHealth == true;
+
         /// <summary>
         /// Column centres in the HUD's 256-wide space. The stock two sit at
         /// 160 and 215, which leaves no room for a third: "deaths" is six
