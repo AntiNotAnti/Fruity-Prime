@@ -1,3 +1,5 @@
+Current netcode work uses protocol **12**; see [health and shot consistency](multiplayer/NETWORK-HEALTH-SHOTS.md) for behavior, checks and remaining acceptance gates. Historical protocol notes below describe earlier integrations.
+
 # All-branches integration
 
 `integration/all-branches` combines every local and fork source branch audited

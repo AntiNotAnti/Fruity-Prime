@@ -1295,6 +1295,9 @@ namespace MphRead.Mods.Network
             RemoteIntentValid[slot] = true;
             RemoteIntentArrived[slot] = Math.Max(NetFrame, 1);
             IntentsReceived++;
+            if (NetLog.Enabled && intent.Buttons.HasFlag(IntentButtons.Shoot))
+                NetShotDiagnostics.Trace("intent", ShotKey.For(slot, intent.AckFrame), (BeamType)intent.WeaponSelect,
+                    $"intentFrame={intent.Frame} intentLife={intent.LifeId} inPlay={intent.Buttons.HasFlag(IntentButtons.InPlayState)} shoot=true");
         }
 
         private static readonly uint[] _lastSlotIntentFrame = new uint[PlayerEntity.SlotCapacity];
@@ -1627,6 +1630,7 @@ namespace MphRead.Mods.Network
             // also what its own rewind history holds under this number, and
             // the whole of why an interpolated position can still be shot at.
             // NetSmoothing.
+            NetTimingDiagnostics.Snapshot(packet.ArrivedAt);
             NetSmoothing.Record(header.Frame, _snapshotScratch.AsSpan(0, count));
             NetMatchTimeSync.Receive(payload.Slice(timeOffset, NetMatchTimeSync.Size));
             NetHealthSync.Receive(payload[healthOffset..]);

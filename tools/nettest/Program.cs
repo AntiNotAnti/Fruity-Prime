@@ -26,6 +26,7 @@ namespace MphRead.NetTest
 
         private static int Main(string[] args)
         {
+            if (args.Length > 0 && args[0] == "--health-shots") return HealthShotTests.Run();
             if (args.Length > 0 && args[0] == "--lifecycle") return LifecycleTests.Run();
             string host = args.Length > 0 ? args[0] : "127.0.0.1";
             int port = args.Length > 1 && Int32.TryParse(args[1], out int p)

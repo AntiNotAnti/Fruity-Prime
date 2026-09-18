@@ -179,6 +179,12 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static void RecordPresses(PlayerEntity player)
         {
+            if (!player.ModIsInPlay)
+            {
+                Array.Clear(_pressHistory);
+                _hasLatch = false;
+                return;
+            }
             PlayerControls c = player.Controls;
             IntentButtons pressed = IntentButtons.None;
             if (c.MoveLeft.IsPressed) pressed |= IntentButtons.MoveLeft;
@@ -344,6 +350,9 @@ namespace MphRead.Mods.Network
             // which is what lets a puppet's charge climb with its owner's while
             // the trigger is held.
             _hasLatch = false;
+            if (NetLog.Enabled && (intent.Buttons.HasFlag(IntentButtons.Shoot) || player.Controls.Shoot.IsReleased))
+                NetShotDiagnostics.Trace("input", ShotKey.For(player.SlotIndex, intent.AckFrame), player.CurrentWeapon,
+                    $"intentFrame={intent.Frame} intentLife={intent.LifeId} inPlay={intent.Buttons.HasFlag(IntentButtons.InPlayState)} shoot={player.Controls.Shoot.IsDown} press={player.Controls.Shoot.IsPressed}");
             return intent;
         }
 
@@ -391,6 +400,10 @@ namespace MphRead.Mods.Network
         /// reaches the simulation by this same route and carries the same
         /// error.
         /// </summary>
+        private static readonly bool[] _respawnRequested = new bool[PlayerEntity.SlotCapacity];
+        public static bool RespawnRequested(int slot) => NetSession.Active && slot != NetSession.LocalSlot
+            && slot >= 0 && slot < _respawnRequested.Length && _respawnRequested[slot];
+
         public static readonly int[] ShootPressAge = new int[PlayerEntity.SlotCapacity];
 
         public static void ApplyIntent(PlayerEntity player, in IntentPacket intent)
@@ -407,6 +420,17 @@ namespace MphRead.Mods.Network
             if (player.SlotIndex >= 0 && player.SlotIndex < ShootPressAge.Length)
             {
                 ShootPressAge[player.SlotIndex] = shootAge;
+            }
+            _respawnRequested[player.SlotIndex] = !intent.Buttons.HasFlag(IntentButtons.InPlayState)
+                && intent.Buttons.HasFlag(IntentButtons.Shoot);
+            if (!intent.Buttons.HasFlag(IntentButtons.InPlayState))
+            {
+                // Consume history, but never turn a dead player's respawn button into
+                // a weapon press (or a charged-shot release) on an ahead-of-owner puppet.
+                c.ClearAll();
+                ShootPressAge[player.SlotIndex] = 0;
+                player.ModSetSpectating(intent.Buttons.HasFlag(IntentButtons.SpectatingState));
+                return;
             }
             Set(c.MoveLeft, intent.Buttons.HasFlag(IntentButtons.MoveLeft), missed.HasFlag(IntentButtons.MoveLeft));
             Set(c.MoveRight, intent.Buttons.HasFlag(IntentButtons.MoveRight), missed.HasFlag(IntentButtons.MoveRight));
@@ -856,6 +880,7 @@ namespace MphRead.Mods.Network
             _lastPressFrame[slot] = 0;
             _pressSeen[slot] = false;
             ShootPressAge[slot] = 0;
+            _respawnRequested[slot] = false;
             if (slot == NetSession.LocalSlot)
             {
                 Array.Clear(_pressHistory);

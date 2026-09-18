@@ -6,23 +6,12 @@ Wrapped tabs remain above the page; Cancel and Save remain below its scroller.
 
 | Section | Controls |
 |---|---|
-| Display | Window mode, field of view, graphics preset, render scale, FPS limit, lighting, fog, filtering, FXAA, sub-native upscaling, enhanced color, FPS counter, cel shading |
-| HUD and accessibility | HUD/UI/text scale, safe zone, opacity, crosshair color and outline, high contrast, reduced flashes/shake, team palette, Pro HUD, radar, player skin styles and outlines |
-| Audio | Sound effects, music, language |
-| Mouse and stylus | Mouse sensitivity/inversion, wheel behavior, stylus zone, keyboard bindings; Android shows Touch and mouse |
-| Controller | Connected controller/profile, live input test, sensitivity, dead zones, curves, inversion, vibration, bindings and presets |
-| Replay | Save replay clip binding, clip length, post-roll duration |
-| Profile | Player name, hunter, suit color, default server and server directory |
-| Advanced / Support | Game files, updates, debug logging, platform log sharing and credits |
-
-Device-only sections retain their platform guards. The controller panel retains
-its existing live calibration behavior. Other new visual controls are drafts
-until Save; FOV retains its existing live preview and Cancel restoration.
-Graphics presets set coherent individual controls; editing one changes the
-selector to Custom. Debug-key changes are detected when Settings is reopened.
-Graphics and accessibility preferences live in `visuals.json` beside
-`launcher.txt`; existing `settings.json` options and bindings retain their keys.
-See [graphics quality](../render/GRAPHICS-QUALITY.md) for defaults and ranges.
+| Display | window mode; performance (render scale, lighting, fog, filtering, FPS counter, **frame rate**); cel shading; **Pro mode HUD**, which is the whole of the HUD question now, plus the two crosshair rows that appear under it |
+| Audio | sound-effect and music volume; the game's text language |
+| Controls | Mouse and keyboard settings; controller selection, live stick/trigger/button test, family labels, independent stick calibration/sensitivity, curves, inversion, southpaw, trigger actuation, vibration, primary/secondary bindings, conflicts, modifier combinations, direct/last weapon shortcuts, scoped sensitivity, wheel setup, profiles and guided calibration/mapping. See `.claude/GAMEPAD.md`. |
+| Match rules | point goal, time limit, damage level, team play, friendly fire, hunter radar, affinity weapons, **shadow freeze**. The last is the Judicator ice wave's cone: on is the cartridge, glitch and all, and off makes it a cone rather than a column of infinite height. Server-decided in a networked match, like friendly fire, and broadcast in the match state -- what is set here is what a *hosted* game hands its own server |
+| Launcher | your name, hunter and **suit colour**, the default server, the server directory, and whether to check for updates. These live in `launcher.txt`, not `settings.json`. The suit is 1-4 (the last two of a hunter's six palettes are the team suits) and is announced with the hunter; two players who pick the same one on the same hunter are moved apart by `PlayerColors`. Answering either of those two rows during a match takes effect at the next respawn, exactly like the pause menu's own pair |
+| Features / Cheats / Bugfixes | every `public static bool` on those three classes, by reflection, so the list cannot drift |
 
 Controller presets retain focus and refresh binding labels while preserving aim
 calibration. Manual binding edits select Custom. Controller input on a supported

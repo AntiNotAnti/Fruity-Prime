@@ -1,3 +1,5 @@
+Protocol-12 updates: [authoritative HUD health, hidden HP, shot identity, lifecycle and claim validation](NETWORK-HEALTH-SHOTS.md). This section supersedes conflicting historical behavior below.
+
 # Lag compensation
 
 > Protocol 8: see [NETWORK-LIFECYCLE.md](NETWORK-LIFECYCLE.md) for current

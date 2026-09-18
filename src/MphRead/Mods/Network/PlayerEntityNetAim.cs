@@ -1418,8 +1418,8 @@ namespace MphRead.Entities
             {
                 return;
             }
-            float x = Mods.Input.GamepadInput.AimDeltaX;
-            float y = Mods.Input.GamepadInput.AimDeltaY;
+            float x = Mods.Input.GamepadInput.AimDeltaX * (EquipInfo.Zoomed ? Mods.Input.GamepadOptions.ScopedX : 1);
+            float y = Mods.Input.GamepadInput.AimDeltaY * (EquipInfo.Zoomed ? Mods.Input.GamepadOptions.ScopedY : 1);
             if (x == 0 && y == 0)
             {
                 return;

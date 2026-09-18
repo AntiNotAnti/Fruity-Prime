@@ -1,3 +1,5 @@
+Protocol-12 updates: [authoritative HUD health, hidden HP, shot identity, lifecycle and claim validation](NETWORK-HEALTH-SHOTS.md). This section supersedes conflicting historical behavior below.
+
 # Persistent multiplayer lobbies (protocol 9)
 
 Integration note: the combined build uses protocol 10, authority epochs and

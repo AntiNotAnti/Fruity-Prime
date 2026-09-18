@@ -207,7 +207,11 @@ namespace MphRead.Mods.Launcher.Gui
                 "ScanVisor" => PadAction.ScanVisor, "WeaponMenu" => PadAction.WeaponWheel,
                 "Pause" => PadAction.Scoreboard, "NextWeapon" => PadAction.NextWeapon,
                 "PrevWeapon" => PadAction.PrevWeapon, "Missile" => PadAction.Missile,
-                "PowerBeam" => PadAction.PowerBeam, "Chat" => PadAction.Chat, _ => null
+                "PowerBeam" => PadAction.PowerBeam, "Chat" => PadAction.Chat,
+                "VoltDriver" => PadAction.VoltDriver, "Battlehammer" => PadAction.Battlehammer,
+                "Imperialist" => PadAction.Imperialist, "Judicator" => PadAction.Judicator,
+                "Magmaul" => PadAction.Magmaul, "ShockCoil" => PadAction.ShockCoil,
+                "OmegaCannon" => PadAction.OmegaCannon, "AffinitySlot" => PadAction.AffinitySlot, _ => null
             };
             var settings = this.GetVisualAncestors().OfType<SettingsView>().FirstOrDefault();
             _listening = false;

@@ -523,6 +523,14 @@ namespace MphRead.Mods.Network
         public static string LifecycleDetails(int slot) => $"pending={_pendingCount[slot]} "
             + $"debit={Debit(slot)} authorityHealth={_lastAuthorityHealth[slot]} heldDead={HeldDead(slot)}";
 
+        public static string HealthDetails(int slot)
+        {
+            if (slot < 0 || slot >= Slots) return "invalid slot";
+            if (!NetPlayerLifecycle.Matches(slot, _generation[slot], _life[slot]))
+                return "predictedDebit=0 shownFloor=0 pending=0 lastAuthorityHP=0";
+            return $"predictedDebit={Debit(slot)} shownFloor={_shownHealth[slot]} pending={_pendingCount[slot]} lastAuthorityHP={_lastAuthorityHealth[slot]}";
+        }
+
         private static int _markerTimer;
 
         /// <summary>
@@ -769,6 +777,13 @@ namespace MphRead.Mods.Network
                     && (damage >= (uint)victim.Health || flags.TestFlag(DamageFlags.Death));
                 // Keep feedback immediate while reserving remote death for authority.
                 uint claimedDamage = damage;
+                int weapon = NetShotDiagnostics.Bucket(beam);
+                NetShotDiagnostics.LocalHits[weapon]++;
+                NetShotDiagnostics.Predictions[weapon]++;
+                NetShotDiagnostics.PredictedDamage[weapon] += damage;
+                if (flags.TestFlag(DamageFlags.Headshot)) NetShotDiagnostics.LocalHeadshots[weapon]++;
+                if (attacker != null && NetLog.Enabled) NetShotDiagnostics.Trace("prediction",
+                    ShotKey.For(attacker.SlotIndex, launchFrame), beam, $"victim={victim.SlotIndex} damage={damage}");
                 bool claimedLethal = lethal;
                 if (lethal && !self)
                 {
@@ -1124,6 +1139,7 @@ namespace MphRead.Mods.Network
             _healAmount[tail] = amount;
             _healCount++;
             DrainPredicted += amount;
+            NetShotDiagnostics.DrainCredit[NetShotDiagnostics.Bucket(BeamType.ShockCoil)] += amount;
         }
 
         /// <summary>

@@ -106,7 +106,7 @@ namespace MphRead.Entities
                 float y = home.Y;
                 if (GamepadInput.WheelHeld)
                 {
-                    float angle = (i + .5f) * MathF.PI / 3;
+                    float angle = (Array.IndexOf(GamepadOptions.WheelOrder, i) + .5f) * MathF.PI / 3;
                     x = .5f + MathF.Sin(angle) * .23f * _scene.Size.Y / Math.Max(1, _scene.Size.X);
                     y = .5f - MathF.Cos(angle) * .23f;
                 }

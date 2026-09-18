@@ -105,6 +105,69 @@ regardless of file ordering. Primary/secondary slots round-trip with empty slots
 intact, and legacy flag sets are still written. Unknown controls.txt keys survive
 saving. New values reject non-finite numbers and invalid enum/button values.
 
+## Weapon shortcuts, profiles and setup
+
+All weapon actions have controller rows: Power Beam, Missile, Volt Driver,
+Battlehammer, Imperialist, Judicator, Magmaul, Shock Coil, Omega Cannon and the
+existing affinity slot. Last equipped weapon returns to `PreviousWeapon` through
+its normal gameplay keybind. It preserves inventory, ammo and existing cheat
+rules. New actions start unassigned. Cycle previous weapon remains a separate action.
+
+Choose **Modifier for new bindings** before capturing a slot to create a combination
+such as LB + X. This choice affects subsequent edits, not existing bindings. A
+modifier used by any saved combination is reserved during gameplay, so its ordinary
+action is suppressed even when pressed alone. Hold the modifier first, then press
+the action button. Completing a combination suppresses both component actions;
+releasing its modifier first cannot leak the still-held action button. Primary and
+Secondary each keep their own modifier, and conflicts compare complete combinations.
+Menu navigation always uses the fixed physical layout. Capture commands remain B
+cancel, Back clear and Start picker; use the picker to bind those buttons themselves.
+
+`GamepadActions` resolves held/pressed action bits once per frame without allocations.
+Device, focus, context and binding revisions reset its edge state and close a toggled
+wheel. The optional wheel toggle opens on one press and equips on the next; hold is
+the default. Six configurable positions swap in place, keeping a valid permutation
+shared by selection and icon placement. The adjustable selection threshold controls
+how far to push the aim stick. Scoped X/Y multipliers affect controller input only,
+on top of the game's existing zoom/FOV scaling; both default to 1.
+
+Named profiles contain only controller option/binding lines. `controller-profiles.json`
+in the settings directory stores up to 32 profiles and their automatic assignments.
+Save overwrites the same name; import creates a unique name without applying it.
+Load applies a saved profile. The profile file field supplies the import/export path.
+Writes use a temporary sibling file followed by replacement. Bounded JSON input
+rejects unsupported versions and non-controller settings before modifying state.
+Keyboard/mouse bindings are excluded. Profile loading is cached at startup; device
+activation applies cached settings without disk access. Switching to an unassigned
+device restores the prior manual settings. Desktop identity is platform + firmware
+GUID, so identical controllers share an assignment; Android uses its descriptor.
+
+Guided calibration measures 2.5 seconds of rest after a release delay, then seven
+seconds of full stick/trigger travel. It proposes drift dead zones, outer reach and
+trigger min/max; Apply is required. Incomplete or heavily deflected rest samples are
+rejected. Digital-only or unsqueezed triggers retain their previous ranges. B, Escape
+or Cancel stops calibration without applying it. Save settings or a named profile
+after applying calibration to retain it.
+
+The desktop mapping wizard records 20 physical controls using raw samples supplied
+only while requested by the GLFW host. It captures buttons, hats, signed stick axes
+and analog or digital triggers, waits for release between steps, and aborts on device
+or focus changes. Escape/Cancel stops mapping. Apply saves a GUID-specific SDL mapping
+in the user mapping file; the next host poll reloads it. Existing environment mappings
+retain their documented precedence. Android uses the platform's device mapping and
+shares the calibration/profile tools. Neither setup tool polls GLFW from a UI event.
+
+`GamepadEnhancementChecks` covers new weapon keybinds, chord precedence/release order,
+swaps, wheel toggling/reordering, calibration ranges, raw mapping generation and profile
+import/export/automatic switching. Headless UI checks exercise direct weapon capture,
+keyboard preservation, focus after wheel changes and setup cancellation. Physical
+controller validation remains separate from these deterministic fixtures.
+
+On 2026-09-17, `FruityPrime -gamepadcheck` passed 235 deterministic checks on the
+integration branch, including the headless controller settings flow and direct weapon
+capture. This validates normalized input and UI lifecycle behavior; it does not replace
+the Mac Xbox Series X/S Bluetooth retest described below.
+
 ## Labels and haptics
 
 Presentation is chosen from names, GLFW GUID vendor IDs or Android vendor IDs;

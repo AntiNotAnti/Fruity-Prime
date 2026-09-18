@@ -95,6 +95,7 @@ namespace MphRead.Mods.Launcher.Gui
                 calibration?.Save(Path.Combine(shots, "controller-settings.png"));
             }
             CheckControllerSettings(window, settings, shots);
+            CheckSetup(window);
             var pause = new PauseMenuView(false);
             window.Content = pause; window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
             GamepadChecks.Check(FocusNavigator.Ensure(pause) != null, "pause menu is controller focusable");
@@ -147,6 +148,38 @@ namespace MphRead.Mods.Launcher.Gui
             GamepadManager.RemoveDevice("ui-test"); binding.Check();
             GamepadChecks.Check(!GamepadContexts.Capturing, "disconnect exits binding capture");
             window.Close();
+        }
+
+        private static void CheckSetup(Window window)
+        {
+            long now = 0; int applied = 0;
+            var setup = new GamepadSetupPanel(() => applied++, () => now);
+            window.Content = setup; window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            void Pad(float x = 0, float y = 0, float trigger = 0, GamepadButtons buttons = 0)
+                => GamepadManager.UpdateDevice("setup-check", new GamepadState
+                    { LeftX = x, RightY = y, LeftTrigger = trigger, RightTrigger = trigger, Buttons = buttons }, true);
+            void Click(string label)
+            {
+                var button = setup.Children.OfType<UiWord>().First(w => w.Text == label);
+                FocusNavigator.Focus(button); FocusNavigator.Key(button, Avalonia.Input.Key.Enter);
+            }
+            Pad(); Click("Calibrate sticks and triggers");
+            GamepadChecks.Check(GamepadContexts.Capturing, "calibration blocks menu and gameplay navigation");
+            float previous = GamepadOptions.LeftInner;
+            for (now = 1100; now < 3500; now += 100) { Pad(.02f, .03f); setup.Tick(); }
+            for (now = 3600; now <= 10500; now += 100) { Pad(1, 1, 1); setup.Tick(); }
+            GamepadChecks.Check(!GamepadContexts.Capturing && GamepadOptions.LeftInner == previous
+                && setup.Children.OfType<UiWord>().First(w => w.Text == "Apply measured setup").IsEnabled,
+                "completed calibration previews measurements without applying them");
+            Click("Apply measured setup");
+            GamepadChecks.Check(applied == 1 && Math.Abs(GamepadOptions.LeftInner - .06f) < .001f,
+                "calibration Apply commits the measured values");
+            Pad(); Click("Calibrate sticks and triggers"); now += 100; Pad(buttons: GamepadButtons.B); setup.Tick();
+            GamepadChecks.Check(!GamepadContexts.Capturing && applied == 1, "controller Back cancels calibration without applying");
+            Pad(); Click("Calibrate sticks and triggers");
+            GamepadManager.RemoveDevice("setup-check"); setup.Tick();
+            GamepadChecks.Check(!GamepadContexts.Capturing && applied == 1, "disconnect cancels calibration without applying");
+            GamepadOptions.Reset(); PadBindings.Reset();
         }
 
         private static void CheckControllerSettings(Window window, SettingsView settings, string? shots)
@@ -219,6 +252,40 @@ namespace MphRead.Mods.Launcher.Gui
                 Dispatcher.UIThread.RunJobs();
                 using var bitmap = window.CaptureRenderedFrame();
                 bitmap?.Save(Path.Combine(shots, "controller-live-test.png"));
+            }
+            GamepadOptions.BindingModifier = GamepadButtons.LeftBumper;
+            settings.ShowSection(OperatingSystem.IsAndroid() ? "Touch and mouse" : "Mouse and stylus"); window.UpdateLayout();
+            var imperialistKey = settings.GetVisualDescendants().OfType<KeyRow>().First(r => r.BindingName == "Imperialist");
+            var weaponProperty = InputSettings.Bindings.First(p => p.Name == "Imperialist");
+            string weaponKeyBefore = InputSettings.Describe(InputSettings.Bind(weaponProperty));
+            FocusNavigator.Focus(imperialistKey); FocusNavigator.Key(imperialistKey, Avalonia.Input.Key.Enter);
+            Pad(); navigation.Update(settings); Pad(GamepadButtons.X); navigation.Update(settings);
+            GamepadChecks.Check(PadBindings.Slot(PadAction.Imperialist, 0) == GamepadButtons.X
+                && PadBindings.Modifier(PadAction.Imperialist, 0) == GamepadButtons.LeftBumper
+                && !GamepadContexts.Capturing, "keyboard weapon row captures a modifier binding directly");
+            GamepadChecks.Check(InputSettings.Describe(InputSettings.Bind(weaponProperty)) == weaponKeyBefore,
+                "weapon controller capture preserves keyboard weapon key");
+            panel.Reload(); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            var wheelRow = panel.Children.OfType<ChoiceRow>().First(r => r.Value == "Volt Driver");
+            FocusNavigator.Focus(wheelRow); FocusNavigator.Key(wheelRow, Avalonia.Input.Key.Right);
+            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            GamepadChecks.Check(FocusNavigator.Focused(panel) is ChoiceRow wheel && wheel.Value == "Battlehammer"
+                && GamepadOptions.WheelOrder[0] == 1 && GamepadOptions.WheelOrder[1] == 0,
+                "wheel reorder retains focus and swaps its displayed weapon");
+            GamepadChecks.Check(panel.Children.OfType<GamepadSetupPanel>().Count() == 1
+                && panel.Children.OfType<GamepadProfilePanel>().Count() == 1,
+                "controller setup and profile tools are reachable in settings");
+            if (shots != null)
+            {
+                var imperialistPad = settings.GetVisualDescendants().OfType<PadRow>().First(r => r.Action == PadAction.Imperialist);
+                FocusNavigator.Focus(imperialistPad); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick(3); Dispatcher.UIThread.RunJobs();
+                using var bitmap = window.CaptureRenderedFrame();
+                bitmap?.Save(Path.Combine(shots, "controller-weapons.png"));
+                FocusNavigator.Focus(panel.GetVisualDescendants().OfType<UiWord>().First(w => w.Text == "Save current as named profile"));
+                window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); AvaloniaHeadlessPlatform.ForceRenderTimerTick(3);
+                Dispatcher.UIThread.RunJobs(); using var profiles = window.CaptureRenderedFrame();
+                profiles?.Save(Path.Combine(shots, "controller-profiles.png"));
             }
             GamepadManager.RemoveDevice("settings-xbox"); PadBindings.Reset(); GamepadOptions.Reset();
         }

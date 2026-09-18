@@ -12,8 +12,7 @@ namespace MphRead.Entities
         private int ModControllerWeaponSelection()
         {
             var stick = GamepadInput.AimStick;
-            var direction = WeaponSelectionDirection.FromStick(stick.X, stick.Y);
-            int slot = WeaponSelectionDirection.Resolve(direction.X, direction.Y);
+            int slot = WeaponSelectionDirection.ControllerSlot(stick.X, stick.Y);
             return ModResolveWeaponSlot(slot);
         }
         private int ModResolveWeaponSlot(int slot)

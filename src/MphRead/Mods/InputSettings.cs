@@ -332,6 +332,7 @@ namespace MphRead.Mods
 
         public static void Load()
         {
+            Input.GamepadProfiles.Initialize();
             if (!File.Exists(Path))
             {
                 return;
@@ -567,13 +568,7 @@ namespace MphRead.Mods
                     "gamepad_look=" + GamepadLookSensitivity.ToString(CultureInfo.InvariantCulture),
                     $"gamepad_invert_y={GamepadInvertY.ToString().ToLowerInvariant()}"
                 };
-                foreach (Input.PadAction action in Input.PadBindings.Actions)
-                {
-                    lines.Add($"{Input.PadBindings.SettingKey(action)}="
-                        + Input.PadBindings.Get(action));
-                    lines.Add($"{Input.PadBindings.SettingKey(action)}_primary={Input.PadBindings.Slot(action, 0)}");
-                    lines.Add($"{Input.PadBindings.SettingKey(action)}_secondary={Input.PadBindings.Slot(action, 1)}");
-                }
+                Input.PadBindings.Write(lines);
                 Input.TouchSettings.WriteSettings(lines);
                 foreach (PropertyInfo property in Bindings)
                 {

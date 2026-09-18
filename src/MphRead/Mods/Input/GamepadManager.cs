@@ -11,11 +11,13 @@ namespace MphRead.Mods.Input
     {
         public string DeviceId { get; init; } = "";
         public string Name { get; internal set; } = "";
+        public string ProfileKey { get; init; } = "";
         public GamepadFamily Family { get; internal set; }
         public GamepadCapabilities Capabilities { get; internal set; }
         public bool IsMapped { get; internal set; }
         public string Mapping { get; internal set; } = "";
         public GamepadState State { get; internal set; }
+        public GamepadState RawState { get; internal set; }
         internal bool LeftTriggerHeld, RightTriggerHeld;
     }
 
@@ -54,7 +56,11 @@ namespace MphRead.Mods.Input
             Publish();
             ActiveChanged?.Invoke();
         }
-        private static void Publish() => _snapshot = new(_active?.DeviceId, _active?.State ?? default, _revision);
+        private static void Publish()
+        {
+            GamepadProfiles.Activate(_active);
+            _snapshot = new(_active?.DeviceId, _active?.State ?? default, _revision);
+        }
 
         public static void UpdateDevice(string id, GamepadState state, bool mapped,
             GamepadFamily family = GamepadFamily.Unknown,
@@ -66,7 +72,7 @@ namespace MphRead.Mods.Input
                 bool added = device == null;
                 if (device == null)
                 {
-                    device = new GamepadDevice { DeviceId = id };
+                    device = new GamepadDevice { DeviceId = id, ProfileKey = GamepadProfiles.DeviceKey(id) };
                     Known.Add(device);
                 }
                 var previous = device.State;
@@ -76,6 +82,10 @@ namespace MphRead.Mods.Input
                 state.RightY = GamepadAnalog.Finite(state.RightY);
                 state.LeftTrigger = GamepadAnalog.Finite(state.LeftTrigger, 0, 1);
                 state.RightTrigger = GamepadAnalog.Finite(state.RightTrigger, 0, 1);
+                state.Connected = true;
+                device.RawState = state;
+                state.LeftTrigger = GamepadCalibration.Trigger(state.LeftTrigger, GamepadOptions.LeftTriggerMin, GamepadOptions.LeftTriggerMax);
+                state.RightTrigger = GamepadCalibration.Trigger(state.RightTrigger, GamepadOptions.RightTriggerMin, GamepadOptions.RightTriggerMax);
                 device.LeftTriggerHeld = GamepadAnalog.Trigger(state.LeftTrigger, device.LeftTriggerHeld, GamepadOptions.TriggerThreshold);
                 device.RightTriggerHeld = GamepadAnalog.Trigger(state.RightTrigger, device.RightTriggerHeld, GamepadOptions.TriggerThreshold);
                 if (device.LeftTriggerHeld) state.Buttons |= GamepadButtons.LeftTrigger;

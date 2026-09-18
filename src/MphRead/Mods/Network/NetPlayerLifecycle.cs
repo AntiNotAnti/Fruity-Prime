@@ -26,13 +26,28 @@ namespace MphRead.Mods.Network
         public static bool Matches(int slot, ushort generation, ushort life) => generation != 0
             && Generation(slot) == generation && Get(slot) == life;
 
-        public static void StampProjectile(BeamProjectileEntity beam)
+        public static void StampProjectile(BeamProjectileEntity beam, BeamProjectileEntity? parent = null)
         {
             PlayerEntity? owner = beam.Owner as PlayerEntity ?? (beam.Owner as HalfturretEntity)?.Owner;
+            if (parent != null && NetSession.Active && CurrentProjectile(parent)
+                && owner?.SlotIndex == parent.ModLaunchKey.ShooterSlot)
+            {
+                // A ricochet is the original shot, even if its shooter respawned.
+                beam.ModLaunchKey = parent.ModLaunchKey;
+                beam.ModLaunchMatch = parent.ModLaunchMatch;
+                beam.ModLaunchAuthority = parent.ModLaunchAuthority;
+                beam.ModLaunchGeneration = parent.ModLaunchGeneration;
+                beam.ModLaunchLife = parent.ModLaunchLife;
+                beam.ModLaunchFrame = parent.ModLaunchFrame;
+                return;
+            }
             beam.ModLaunchMatch = NetSession.CurrentMatchId;
             beam.ModLaunchAuthority = NetSession.AuthorityEpoch;
             beam.ModLaunchGeneration = owner == null ? (ushort)0 : Generation(owner.SlotIndex);
             beam.ModLaunchLife = owner == null ? (ushort)0 : Get(owner.SlotIndex);
+            beam.ModLaunchFrame = owner == null ? 0 : NetUnlagged.LaunchFrameFor(owner);
+            beam.ModLaunchKey = new ShotKey(beam.ModLaunchAuthority, beam.ModLaunchMatch,
+                owner?.SlotIndex ?? -1, beam.ModLaunchGeneration, beam.ModLaunchLife, beam.ModLaunchFrame);
         }
 
         public static bool CurrentProjectile(BeamProjectileEntity beam)
@@ -41,7 +56,9 @@ namespace MphRead.Mods.Network
             return owner == null || (beam.ModLaunchMatch == NetSession.CurrentMatchId
                 && beam.ModLaunchAuthority == NetSession.AuthorityEpoch
                 && beam.ModLaunchLife != 0
-                && Matches(owner.SlotIndex, beam.ModLaunchGeneration, beam.ModLaunchLife));
+                && Generation(owner.SlotIndex) == beam.ModLaunchGeneration
+                && beam.ModLaunchKey == new ShotKey(beam.ModLaunchAuthority, beam.ModLaunchMatch,
+                    owner.SlotIndex, beam.ModLaunchGeneration, beam.ModLaunchLife, beam.ModLaunchFrame));
         }
 
         public static void SetOccupant(int slot, ushort generation)
@@ -62,6 +79,7 @@ namespace MphRead.Mods.Network
             NetUnlagged.ResetSlot(slot);
             NetSession.ForgetSlot(slot);
             NetScoreboard.ForgetSlot(slot);
+            NetTimingDiagnostics.ForgetSlot(slot);
         }
 
         public static void OnSpawn(PlayerEntity player)
@@ -73,7 +91,7 @@ namespace MphRead.Mods.Network
             NetPlayerBridge.ForgetSlot(slot);
             NetDamage.ForgetSlot(slot);
             NetHitPrediction.NoteRespawn(slot);
-            NetHitClaims.ForgetSlot(slot);
+            NetHitClaims.ForgetSlot(slot, preserveFlights: true);
             NetSmoothing.ResetSlot(slot);
             NetUnlagged.ResetSlot(slot);
             NetSession.ForgetSlot(slot);

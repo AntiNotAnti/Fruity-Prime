@@ -40,6 +40,12 @@ namespace MphRead.Mods.Network
         public const byte NoSlot = 0xFF;
         public const byte NoBeam = 0xFF;
 
+        static NetDamage()
+        {
+            Array.Fill(_attacker, NoSlot);
+            Array.Fill(_beam, NoBeam);
+        }
+
         /// <summary>
         /// Flags worth sending. The rest either describe how the damage was
         /// delivered locally (invulnerability handling) or would change the
@@ -208,6 +214,8 @@ namespace MphRead.Mods.Network
             Array.Clear(Resolved);
             Array.Clear(Replayed);
             Array.Clear(Fired);
+            NetShotDiagnostics.Reset();
+            NetTimingDiagnostics.Reset();
             Array.Clear(PlayerChecks);
             Array.Clear(PlayerOverlaps);
             Array.Clear(PlayerAccepted);
@@ -252,8 +260,8 @@ namespace MphRead.Mods.Network
             }
             for (int i = 0; i < PlayerState.DamageHistory; i++) _history[slot, i] = default;
             _sequence[slot] = 0;
-            _attacker[slot] = 0;
-            _beam[slot] = 0;
+            _attacker[slot] = NoSlot;
+            _beam[slot] = NoBeam;
             _flags[slot] = 0;
             _direction[slot] = Vector3.Zero;
             _lastSeen[slot] = 0;
@@ -266,8 +274,8 @@ namespace MphRead.Mods.Network
         {
             Array.Clear(_history);
             Array.Clear(_sequence);
-            Array.Clear(_attacker);
-            Array.Clear(_beam);
+            Array.Fill(_attacker, NoSlot);
+            Array.Fill(_beam, NoBeam);
             Array.Clear(_flags);
             Array.Clear(_direction);
             Array.Clear(_lastSeen);
@@ -275,6 +283,8 @@ namespace MphRead.Mods.Network
             Array.Clear(Resolved);
             Array.Clear(Replayed);
             Array.Clear(Fired);
+            NetShotDiagnostics.Reset();
+            NetTimingDiagnostics.Reset();
             Array.Clear(PlayerChecks);
             Array.Clear(PlayerOverlaps);
             Array.Clear(PlayerAccepted);
@@ -330,7 +340,7 @@ namespace MphRead.Mods.Network
                     PlayerEntity? owner = rescued.Owner as PlayerEntity
                         ?? (rescued.Owner as HalfturretEntity)?.Owner;
                     if (owner != null && NetHitClaims.AlreadyRescued(
-                        owner.SlotIndex, victim.SlotIndex, rescued.ModLaunchFrame))
+                        owner.SlotIndex, victim.SlotIndex, rescued.ModLaunchFrame, rescued.ModLaunchKey))
                     {
                         return true;
                     }
@@ -340,6 +350,11 @@ namespace MphRead.Mods.Network
             // Except for this machine's own shots on somebody else, which are
             // resolved here and now and reconciled against the authority's
             // answer when it arrives. NetHitPrediction.
+            // Old-life flights remain authoritative. Clients must not re-declare one
+            // under their new life; the claim protocol deliberately requires current life.
+            if (source is BeamProjectileEntity flight && flight.ModLaunchKey.ShooterSlot >= 0
+                && !NetPlayerLifecycle.Matches(flight.ModLaunchKey.ShooterSlot,
+                    flight.ModLaunchKey.Generation, flight.ModLaunchKey.LifeId)) return true;
             return !NetHitPrediction.Predicts(victim, source, flags);
         }
 
@@ -401,12 +416,13 @@ namespace MphRead.Mods.Network
         /// <summary>Called by the authority for every hit it resolves.</summary>
         public static void Note(PlayerEntity victim, PlayerEntity? attacker, BeamType beam,
             DamageFlags flags, Vector3? direction, uint amount = 0, bool fromBomb = false,
-            uint launchFrame = 0)
+            uint launchFrame = 0, ShotKey? launchKey = null)
         {
             if (beam == BeamType.None && _claimedBeam != BeamType.None)
             {
                 beam = _claimedBeam;
             }
+            if (ApplyingClaim) launchFrame = NetHitClaims.CurrentClaimLaunch;
             if (!NetSession.Active || Replaying || NetHitPrediction.Predicting)
             {
                 // A predicted hit is not a resolution. Letting it through here
@@ -433,7 +449,14 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
+            int weapon = NetShotDiagnostics.Bucket(beam);
+            NetShotDiagnostics.AuthorityHits[weapon]++;
+            NetShotDiagnostics.AuthorityDamage[weapon] += amount;
+            if (flags.TestFlag(DamageFlags.Headshot)) NetShotDiagnostics.AuthorityHeadshots[weapon]++;
+            if (attacker != null && NetLog.Enabled) NetShotDiagnostics.Trace("authority-hit",
+                launchKey ?? ShotKey.For(attacker.SlotIndex, launchFrame), beam, $"victim={slot} damage={amount}");
             _sequence[slot] = NetLifecycleTracker.Next(_sequence[slot]);
+            if (NetLog.Enabled) NetLog.Event($"[damage-publish] epoch={NetSession.AuthorityEpoch} match={NetSession.CurrentMatchId} victim={slot}/{NetPlayerLifecycle.Generation(slot)}/{NetPlayerLifecycle.Get(slot)} event={_sequence[slot]} shooter={attacker?.SlotIndex} launch={launchFrame}");
             Resolved[slot]++;
             if (NetLog.Enabled)
             {
@@ -483,8 +506,8 @@ namespace MphRead.Mods.Network
                 EventId = _sequence[slot], VictimSlot = (byte)slot,
                 VictimLifeId = NetPlayerLifecycle.Get(slot),
                 AttackerSlot = _attacker[slot],
-                AttackerLifeId = attacker != null ? NetPlayerLifecycle.Get(attacker.SlotIndex) : (ushort)0,
-                AttackerGeneration = attacker != null ? NetPlayerLifecycle.Generation(attacker.SlotIndex) : (ushort)0,
+                AttackerLifeId = launchKey?.LifeId ?? (attacker != null ? NetPlayerLifecycle.Get(attacker.SlotIndex) : (ushort)0),
+                AttackerGeneration = launchKey?.Generation ?? (attacker != null ? NetPlayerLifecycle.Generation(attacker.SlotIndex) : (ushort)0),
                 Damage = (ushort)Math.Min(amount, ushort.MaxValue), Beam = _beam[slot],
                 Flags = _flags[slot], Direction = _direction[slot]
             };
@@ -648,13 +671,17 @@ namespace MphRead.Mods.Network
                 // rather than replaying the last attacker's hit N times.
                 _lastSeen[slot] = hit.EventId;
                 PlayerState feedback = state;
-                feedback.AttackerSlot = NetPlayerLifecycle.Matches(hit.AttackerSlot, hit.AttackerGeneration, hit.AttackerLifeId)
+                // An authority event can legitimately name an earlier firing life.
+                // Keep its attribution only while the same occupant still owns the slot.
+                feedback.AttackerSlot = hit.AttackerGeneration != 0
+                    && NetPlayerLifecycle.Generation(hit.AttackerSlot) == hit.AttackerGeneration
                     ? hit.AttackerSlot : NoSlot;
                 feedback.DamageBeam = hit.Beam;
                 feedback.DamageFlags = hit.Flags;
                 feedback.HitDirection = hit.Direction;
                 feedback.Health = hit.EventId == state.DamageEventId ? state.Health
                     : (ushort)Math.Max(1, player.Health - hit.Damage);
+                if (NetLog.Enabled) NetLog.Event($"[damage-replay] epoch={NetSession.AuthorityEpoch} match={NetSession.CurrentMatchId} victim={slot}/{state.SlotGeneration}/{hit.VictimLifeId} event={hit.EventId} shooter={hit.AttackerSlot}/{hit.AttackerGeneration}/{hit.AttackerLifeId}");
                 ReplayEvent(player, feedback);
             }
         }
