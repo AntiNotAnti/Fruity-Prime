@@ -538,7 +538,7 @@ namespace MphRead.Mods.Launcher.Gui
         {
             if (NetSession.Active && NetSession.PersistentLobby)
             {
-                _lobby = new LobbyScreen(_rooms);
+                _lobby = new LobbyScreen(_rooms, plan.Lobby);
                 _lobby.MatchRequested += (_, match) => MatchRequested?.Invoke(this, match);
                 _lobby.Closed += (_, reason) =>
                 {
