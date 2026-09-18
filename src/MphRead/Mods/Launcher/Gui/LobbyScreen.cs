@@ -222,7 +222,14 @@ namespace MphRead.Mods.Launcher.Gui
                 RowSpacing = 3,
                 Margin = new Thickness(0, 4, 0, 2)
             };
-            chatPanel.Children.Add(new Caption("Chat"));
+            chatPanel.Children.Add(new TextBlock
+            {
+                Text = "CHAT",
+                FontFamily = GuiTheme.Display,
+                FontSize = 11,
+                Foreground = GuiTheme.TextDimBrush,
+                Margin = new Thickness(0, 0, 0, 2)
+            });
             Grid.SetRow(_chatHistory, 1);
             chatPanel.Children.Add(_chatHistory);
             var chatInput = new Grid
