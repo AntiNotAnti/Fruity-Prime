@@ -22,6 +22,10 @@ namespace MphRead.Mods.Network
     public static class NetRoomChange
     {
         private static string _requested = "";
+        private static bool _loadPending;
+        private static ushort _requestedMatch;
+        public static bool GameplayReady => !_loadPending
+            && (_loadedMatch == 0 || _loadedMatch == NetSession.CurrentMatchId);
         private static uint _requestedFrame;
         /// <summary>
         /// The server's match number this client has loaded a room for.
@@ -35,28 +39,6 @@ namespace MphRead.Mods.Network
         /// slot rebuilt, every score back to zero.
         /// </summary>
         private static ushort _loadedMatch;
-        private static uint _loadedFrame;
-
-        /// <summary>
-        /// Frames after a room load during which a peer's reported position is
-        /// ignored.
-        ///
-        /// Clients do not finish loading at the same instant, so for about a
-        /// second after a rotation some peers are still standing in the room
-        /// this one has just left. Following those positions puts their
-        /// puppets wherever the old room's coordinates happen to land in the
-        /// new one -- which is what turned every rotation into a burst of
-        /// visible teleports, over a hundred of them across three maps. The
-        /// authority's snapshot still places everybody, so nothing is lost by
-        /// waiting: it is the peer-reported position, and only that, which is
-        /// meaningless across a room change.
-        /// </summary>
-        private const uint SettleFrames = 60;
-
-        /// <summary>True for about a second after this client changed rooms.</summary>
-        public static bool Settling => _loadedFrame != 0
-            && NetSession.NetFrame - _loadedFrame < SettleFrames;
-
         /// <summary>
         /// Player count the room layout is built from during a transition.
         /// Fixed for the same reason it is fixed at first load: the layout
@@ -70,10 +52,11 @@ namespace MphRead.Mods.Network
 
         public static void Reset()
         {
+            _loadPending = false;
             _requested = "";
             _requestedFrame = 0;
+            _requestedMatch = 0;
             _loadedMatch = 0;
-            _loadedFrame = 0;
         }
 
         /// <summary>
@@ -93,6 +76,7 @@ namespace MphRead.Mods.Network
                 return;
             }
             ushort match = state!.Value.MatchId;
+            if (_loadPending) return;
             string current = Metadata.GetRoomById(scene.RoomId, noThrow: true)?.Name ?? "";
             // A joiner arrives already on the server's map and must not
             // immediately reload it, so the first match number seen is adopted
@@ -112,6 +96,13 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
+            if(!NetMapTransfer.Ensure(wanted,force:true))
+            {
+                if (NetLaunch.LoadReturnedToLobby) return;
+                Console.WriteLine("[net] map rotation refused: "+NetMapTransfer.LastError);
+                NetSession.Stop();
+                return;
+            }
             (RoomMetadata? meta, _) = Metadata.GetRoomByName(wanted);
             if (meta == null)
             {
@@ -123,7 +114,8 @@ namespace MphRead.Mods.Network
             }
             _requested = wanted;
             _requestedFrame = NetSession.NetFrame;
-            _loadedMatch = match;
+            _loadPending = true;
+            _requestedMatch = match;
             Console.WriteLine(current == wanted
                 ? $"[net] server started a new match on {wanted}; loading it"
                 : $"[net] server rotated to {wanted}; loading it");
@@ -144,7 +136,15 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static PlayerEntity RebuildPlayers(Scene scene, Hunter hunter, int recolor)
         {
+            // Loading is synchronous from here through AfterRebuild. Allow the
+            // authority's initial Spawn while constructing the requested room.
+            _loadedMatch = _requestedMatch;
+            _loadPending = false;
             int localSlot = Math.Max(NetSession.LocalSlot, 0);
+            bool teams = GameState.IsTeamMode(NetSession.ActiveMatchDefinition?.Mode
+                ?? (GameMode)(NetSession.ServerMatch?.Mode ?? (byte)GameState.Mode));
+            GameState.TeamCount = teams && NetSession.ActiveMatchDefinition is { } match
+                ? LobbyRules.TeamCount(match) : teams ? 2 : 0;
             for (int slot = 0; slot < PlayerEntity.MaxPlayers; slot++)
             {
                 Hunter slotHunter = slot == localSlot ? hunter : NetSession.SlotHunter[slot];
@@ -153,6 +153,7 @@ namespace MphRead.Mods.Network
                 {
                     continue;
                 }
+                created.TeamIndex = teams ? Math.Max(0, (int)NetSession.SlotTeamIndex[slot]) : slot;
                 created.LoadFlags |= LoadFlags.SlotActive;
                 created.LoadFlags |= LoadFlags.Active;
                 created.LoadFlags |= LoadFlags.Initial;
@@ -214,7 +215,9 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static void AfterRebuild(Scene scene)
         {
-            _loadedFrame = Math.Max(NetSession.NetFrame, 1);
+            _loadedMatch = _requestedMatch;
+            _loadPending = false;
+            _requested = "";
             // Everything the bridge remembered about where players were
             // standing was about the room that has just been left.
             NetPlayerBridge.NoteRoomChanged();

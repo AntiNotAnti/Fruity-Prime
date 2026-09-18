@@ -1,5 +1,22 @@
 # Testing — test harness
 
+For protocol-10 integration results and limits, see [INTEGRATION.md](../INTEGRATION.md).
+Protocol numbers and counts below also describe historical branch-specific runs.
+The integrated Spire pose diagnostic stamps its synthetic roster and intents with
+current lifecycle identities. Its asset-free identity regression is included in
+`tools/nettest --lifecycle`; actual collision movement still requires game files.
+
+For protocol 9 persistent lobby regression, run `-netlobbytest`. It uses real
+local UDP without cartridge assets and includes the actual NetSession client,
+control-command loss/retry and two-round connection persistence. `-lobbyshot DIR`
+renders desktop/phone lobby layouts. Scope and remaining rendered acceptance
+checks are documented in [NETWORK-LOBBY.md](../multiplayer/NETWORK-LOBBY.md).
+Protocol-8 lifecycle regression: `dotnet run --project tools/nettest/nettest.csproj
+-c Release -- --lifecycle` (one command). It runs production code and seeded
+packet faults without game assets. See [NETWORK-LIFECYCLE.md](../multiplayer/NETWORK-LIFECYCLE.md)
+for coverage and the separate live gameplay acceptance checks.
+
+
 This document explains the netcheck, maptest and the harness scripts used in `~/mph-net-test`.
 
 > **`~/mph-net-test` is not on this box any more.** Every `run-*.sh` and
@@ -35,6 +52,16 @@ What the harness records
 
 Map sweeps and probes
 
+- `-spireposecheck "MP1 SANCTORUS"` uses the headless server simulation and
+  real extracted game files to drive Spire through morph and alt attack via
+  relayed intents. It checks that both rock collision positions advance across
+  attack frames with no draw pass. It requires `paths.txt` beside the binary.
+  This probes the collision pose, not whether a target takes damage on a
+  specific frame.
+- `powershell -File tools/check-spire-alt-pose.ps1` is an asset-free source probe for
+  Spire's alt attack collision pose: it checks the simulation update order,
+  both animated rock positions, draw ownership, and attack startup positions.
+  It cannot establish actual rock motion or hit timing.
 - `-maptest "ROOM" -players 8 -seconds 22` loads a room with eight players (a
   different hunter per slot), drives them through the tour, and prints an
   inventory: spawns, jump pads, teleporters, doors, afflictions, deaths.
@@ -175,3 +202,40 @@ and the swap). Only valid on a visible window -- a hidden one has no usable
 back buffer under Mesa, which is the whole reason the offscreen target exists.
 The window is bigger because the HUD is authored for 256x192 and scaled to it:
 at 320x180 a weapon icon is a few pixels and a capture of it says nothing.
+
+## Alt-form deterministic regressions
+
+Run `dotnet src/MphRead/bin/Release/net9.0/FruityPrime.dll -altformcheck` after a
+Release build. This command needs no extracted assets or display. It checks
+camera basis preservation/recovery, shared mouse/touch gesture routing, Spire's
+canonical press through packet serialization and duplicate suppression, the
+8/30/12-frame reconciliation boundaries, lifecycle resets and allocation-free
+reconciliation. Failures produce a nonzero exit code. Real animation, boost
+physics, Weavel turret creation, hitbox convergence and Android touch hardware
+still require the gameplay harness/device checks described above.
+
+Validation for this change: desktop and Windows dedicated-server Release builds
+passed with zero warnings; Android Release APK built with the installed SDK/JDK
+(14 existing documentation warnings). All 104 `-altformcheck` assertions passed
+in desktop and server builds. The existing dedicated-server startup/directory
+checks passed on isolated local ports. Asset-backed gameplay and Android touch
+hardware validation were not run because extracted game files were unavailable.
+Replay regression commands are documented in
+[multiplayer/NETWORK-REPLAYS.md](../multiplayer/NETWORK-REPLAYS.md). Run
+`-replaycontrolcheck` and `-replayformatcheck` without cartridge assets, then
+`-replaydeterminism FILE` against a recorded match with game assets available.
+Add `-replayhashout OUTPUT.fpdemo` to create a separately named v3 copy with
+versioned expected gameplay hashes after verification passes. The every-frame
+comparison reports the first differing gameplay frame and uses a temporary disk
+trace to bound memory; stored references are checked only by a matching build/schema.
+The latter verifies replay-vs-replay state equivalence, not live-client or
+full-world checkpoint equivalence. Keep `.fpdemo` fixtures and extracted assets
+out of Git; record local `-netcheck ... -recorddemo` sessions to regenerate them.
+
+## Map Studio implementation verification (2026-09-16)
+
+Desktop Release and dedicated-server builds completed without warnings. Android Release completed with the existing 14 XML-documentation warnings. The mapcheck console suite passed 82 checks, including synthetic custom-texture runtime packing and collision/entity readback and hot-reload cache invalidation. Native TEST ARENA/TEST PADS and imported DUST2 packages passed the release dependency checker. Static editor captures were inspected at 1440x900 and 960x600.
+
+Twenty-two-second, eight-player bot audits for TEST ARENA, DUST2 and STUDIO REGRESSION exited 0. TEST PADS completed its report with 8/8 spawns and stable rendering, then intermittently exited with Windows native fast-fail 0xC0000409. The unchanged baseline also reproduced that exit failure. Treat the TEST PADS process result as unresolved, rather than calling its report a passing process-level test. A separate earlier scripted TEST PADS run exercised all four pads successfully. Custom audio playback and public-Internet transfers still need device/network testing.
+
+A private loopback client starting without DUST2 downloaded the dedicated server's package, verified archive/content hashes and identity, compiled in staging, installed and joined. The final run also used 5% simulated loss and 40 ms delay with 10 ms jitter. This tests retries and reordering on loopback, not real-Internet behavior.

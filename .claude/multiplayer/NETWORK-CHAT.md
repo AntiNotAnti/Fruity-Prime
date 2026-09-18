@@ -57,6 +57,9 @@ anything could be kept out of.
 
 ## The protocol
 
+Current sessions use protocol 9 for the revised team/world session packets.
+The following describes the original additive chat packet deployment.
+
 **No version bump.** `PacketType.Chat` is 23, additive and ignorable in both
 directions -- the same argument `RefusedPacket` makes. A server built before
 this drops the type on the floor: the sender still sees its own line, nobody
@@ -110,10 +113,10 @@ a match that says who came and went; and it is the answer to *"is chat working
 at all on this server?"*, which otherwise looks exactly like nobody talking --
 see the deployment trap under The protocol.
 
-Kinds are `Say`, `Team` and `System`. **Team is reserved and relayed as Say**:
-nothing yet asks the server which side a slot is on, and delivering a line to
-everybody while telling the reader it went to one team is worse than not
-having the channel.
+Kinds are `Say`, `Team` and `System`. With protocol 9, `/team message`
+uses the authoritative roster TeamIndex (A–D) to restrict delivery to allies.
+FFA treats the command as normal chat. The server stamps sender identity and
+never trusts client-provided team or name fields.
 
 **24 and 25 are left free for voice.** Speech is a stream of frames, not a
 line of text: it wants its own packet type, its own cadence and its own "who
@@ -235,7 +238,7 @@ mismatches elsewhere.
   (`chat_key=T`, or `none` to give the key back), but the launcher's controls
   page lists `PlayerControls` properties and this is deliberately not one of
   them -- see the comment on `InputSettings.ChatKey`.
-- **No team channel and no voice**, per the protocol section above.
+- **No voice channel**; team text uses `/team message`.
 - **The Android CHAT button hides offline.** A local match against bots does
   have chat on the desktop (see "Where it is not"), and on a phone with no
   keyboard attached there is no way to reach it. Nobody would read it either

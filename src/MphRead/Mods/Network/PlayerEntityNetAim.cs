@@ -1,4 +1,5 @@
 using System;
+using MphRead.Formats;
 using MphRead.Mods.Network;
 using OpenTK.Mathematics;
 
@@ -23,6 +24,8 @@ namespace MphRead.Entities
         private readonly Vector3[] _networkPositionHistory = new Vector3[NetworkHistoryLength];
         private readonly uint[] _networkPositionFrames = new uint[NetworkHistoryLength];
         private int _networkPositionHistoryCount;
+
+        internal void ModResetNetworkHistory() => _networkPositionHistoryCount = 0;
 
         internal void ModRecordNetworkPosition(uint frame)
         {
@@ -649,6 +652,8 @@ namespace MphRead.Entities
             }
         }
 
+        internal bool ModFormTransitionActive => IsMorphing || IsUnmorphing;
+
         /// <summary>
         /// Put a remote player into or out of alt form to match the authority.
         ///
@@ -668,10 +673,14 @@ namespace MphRead.Entities
         /// The owner's relayed input normally does this by itself; this is
         /// for the case where the two machines have ended up disagreeing.
         /// </summary>
-        internal void ModStartFormSwitch()
+        internal bool ModStartFormSwitch()
         {
             bool switched = TrySwitchForms(force: true);
-            NetLog.Event($"slot {SlotIndex} form switch requested -> {switched}, now {ModFormState()}");
+            if (NetLog.Enabled)
+            {
+                NetLog.Event($"slot {SlotIndex} form switch requested -> {switched}, now {ModFormState()}");
+            }
+            return switched;
         }
 
         /// <summary>
@@ -688,6 +697,43 @@ namespace MphRead.Entities
         {
             if (altForm == IsAltForm)
             {
+                // Unmorph changes the form bit before its animation ends. If
+                // that animation stalls, UpdateForm must not run a second time:
+                // it would shift the position by the collision-centre offset.
+                // A stalled morph being cancelled back to biped also needs
+                // ExitAltForm to remove Weavel's halfturret and other effects.
+                if (IsMorphing && !altForm)
+                {
+                    ExitAltForm();
+                }
+                if (IsUnmorphing && !altForm)
+                {
+                    NetLog.Event($"slot {SlotIndex} stalled unmorph completed from {ModFormState()}");
+                    if (IsMainPlayer && CameraSequence.Current != null)
+                    {
+                        CameraSequence.Current.InitialCamInfo.NodeRef = NodeRef;
+                    }
+                    else
+                    {
+                        CameraInfo.NodeRef = NodeRef;
+                    }
+                    Flags1 &= ~PlayerFlags1.Unmorphing;
+                    SetBipedAnimation(PlayerAnimation.Idle, AnimFlags.None);
+                    if (_burnTimer > 0)
+                    {
+                        CreateBurnEffect();
+                    }
+                    if (CameraType != CameraType.First)
+                    {
+                        SwitchCamera(CameraType.First, _facingVector);
+                    }
+                }
+                else if (IsMorphing)
+                {
+                    // The form was already applied; only the stale animation
+                    // flag remains. Preserve the alt model and camera.
+                    Flags1 &= ~PlayerFlags1.Morphing;
+                }
                 return;
             }
             NetLog.Event($"slot {SlotIndex} form forced to {(altForm ? "alt" : "biped")} "
@@ -1282,7 +1328,7 @@ namespace MphRead.Entities
         /// </summary>
         internal void ModNetDie()
         {
-            TakeDamage(1, DamageFlags.Death | DamageFlags.NoDmgInvuln, null, null);
+            NetDamage.ReplayDeath(this);
         }
 
         /// <summary>
@@ -1370,10 +1416,13 @@ namespace MphRead.Entities
                 || Mods.SpectatorMode.IsSpectating
                 || Flags1.TestFlag(PlayerFlags1.NoAimInput))
             {
+                _controllerAssist.Reset();
                 return;
             }
-            float x = Mods.Input.GamepadInput.AimDeltaX;
-            float y = Mods.Input.GamepadInput.AimDeltaY;
+            float x = Mods.Input.GamepadInput.AimDeltaX * (EquipInfo.Zoomed ? Mods.Input.GamepadOptions.ScopedX : 1);
+            float y = Mods.Input.GamepadInput.AimDeltaY * (EquipInfo.Zoomed ? Mods.Input.GamepadOptions.ScopedY : 1);
+            var assisted = ApplyControllerAssist(x, y);
+            x = assisted.X; y = assisted.Y;
             if (x == 0 && y == 0)
             {
                 return;

@@ -1082,7 +1082,7 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 var menu = new StackPanel { Spacing = 13 };
                 foreach (string entry in new[]
-                    { "Resume", "Vote map", "Spectate", "Fullscreen", "Record demo" })
+                    { "Resume", "Vote map", "Spectate", "Fullscreen", "Record replay" })
                 {
                     menu.Children.Add(Word(entry));
                 }
@@ -1270,13 +1270,13 @@ namespace MphRead.Mods.Launcher.Gui
         // the content every style has to carry
         // =====================================================================
 
-        private static readonly string[] _playTabs = { "Online", "Offline", "Story", "Clips" };
+        private static readonly string[] _playTabs = { "Online", "Offline", "Story", "Replays" };
         private static readonly string[] _settingsTabs = { "Game", "Controls", "Player" };
 
         private static readonly string[] _pause =
         {
             "Resume", "Vote map", "Spectate", "Fullscreen",
-            "Record demo", "Settings", "Leave match", "Quit"
+            "Record replay", "Settings", "Leave match", "Quit"
         };
 
         private const string _match = "online match -- MP3 PROVING GROUND";

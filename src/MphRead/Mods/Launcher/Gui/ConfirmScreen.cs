@@ -24,9 +24,30 @@ namespace MphRead.Mods.Launcher.Gui
 
         private readonly UiMark _no;
 
+        /// <summary>Reuse the same confirmation surface inside a screen's existing host.</summary>
+        public static void Show(ContentControl host, string question, string action, Action confirmed,
+            bool overGame = false)
+        {
+            object? previous = host.Content;
+            var focus = TopLevel.GetTopLevel(host)?.FocusManager?.GetFocusedElement();
+            var confirmation = new ConfirmScreen(question, action, "Cancel", overGame);
+            bool answered = false;
+            confirmation.Answered += (_, yes) =>
+            {
+                if (answered) return;
+                answered = true;
+                host.Content = previous;
+                focus?.Focus();
+                if (yes) confirmed();
+            };
+            host.Content = confirmation;
+        }
+
         public ConfirmScreen(string question, string yes = "yes", string no = "no",
             bool overGame = false)
         {
+            this.SetValue(ControllerNav.NavScopeProperty, "confirmation");
+            this.SetValue(ControllerNav.ModalProperty, true);
             Background = Brushes.Transparent;
             Focusable = true;
 
@@ -42,6 +63,7 @@ namespace MphRead.Mods.Launcher.Gui
             };
 
             _no = new UiMark(UiMark.Shape.Cancel, no);
+            ControllerNav.Identify(_no, "confirmation.cancel", initial: true);
             _no.Click += (_, _) => Answered?.Invoke(this, false);
             var ok = new UiMark(UiMark.Shape.Accept, yes);
             ok.Click += (_, _) => Answered?.Invoke(this, true);

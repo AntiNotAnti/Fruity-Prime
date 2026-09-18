@@ -13,25 +13,37 @@ loading everything.
 - launcher/LAUNCHER-SETTINGS.md — settings window layout and toggles
 - launcher/LAUNCHER-FIRSTRUN.md — extraction flow and progress bar
 - DEBUG-LOGS.md — the launcher's corner switch: what it writes, where, and why it exists
+- STYLUS-INPUT.md � desktop pen ownership, Windows pointer backend, settings migration and regression checks
 - GAMEPAD.md — controllers on the desktop and Android: the layout, the feel, and how to test one without owning one
 - multiplayer/NETWORK-BROWSER.md — server discovery, directory, hosting
+- multiplayer/NETWORK-LOBBY.md — persistent sessions, lobby authority, protocol 9, load barrier, shared UI and regression commands
+- multiplayer/TEAM-GAMEPLAY.md — 2–4 teams, standings, objectives, visuals and rendered gameplay probes
+- multiplayer/TEAM-RESOURCES.md — frozen world profiles, map health corrections, authoritative pickups and all-map audit
 - multiplayer/NETWORK-CHAT.md — the in-game chat line: the packet, the relay's rules, the input traps
-- multiplayer/NETWORK-DEMOS.md — recording and replaying a match: format, clocking, the gaps
+- multiplayer/NETWORK-REPLAYS.md — recording and replaying a match: format, clocking, the gaps
 - multiplayer/NETWORK-MATCHEND.md — match end, rotation, the double-counted-kill bug
 - multiplayer/NETWORK-DIAGNOSTICS.md — the full damage-bug postmortem, traps, diagnostics
 - multiplayer/NETWORK-SERVERAUTH.md — the server as the simulation authority: the headless engine, what moved, what did not, and what a room costs a server
 - multiplayer/NETWORK-UNLAGGED.md — lag compensation: the rewind, the projectile catch-up, what was not ported from Q-Zandronum, how it is measured
+- multiplayer/NETWORK-HEALTH-SHOTS.md � authoritative HP display, hidden-health match rule, shot diagnostics, flight/claim lifecycle and regression matrix
+- multiplayer/NETWORK-LIFECYCLE.md — protocol 8 identity, authority-owned death/spawn, reset boundaries, damage events and fault regression suite
 - multiplayer/NETWORK-PREDICTION.md — instant hit registration: a client resolving its own shots the frame it fires them, the three rules that keep a prediction from becoming a lie, and how it is measured
 - multiplayer/NETWORK-HITCLAIMS.md — a client declaring which of its own shots landed and the authority arbitrating them: the five checks, the grace window, and the rule that decides who dies when two people kill each other
 - multiplayer/NETWORK-SMOOTHING.md — remote players read off a playout clock instead of snapped to whichever snapshot arrived last, and the sub-frame ack that keeps hit registration exact through it
 - render/CEL-SHADING.md — flat colours in place of textures, and the depth-kink ink pass
+- render/RENDER-STABILITY.md — explicit GL pass boundaries, respawn diagnostics and the rendered stress check
+- render/GRAPHICS-QUALITY.md - filtering, FXAA, scaling, presets and accessibility
+- testing/UI-GRAPHICS-ACCEPTANCE.md - integration UI and graphics validation gates
+- render/BRIGHT-SKINS.md — local high-contrast multiplayer bodies, status precedence and checks
 - render/FRAME-PACING.md — 60 Hz of simulation under a picture drawn at the display's rate: the split, why interpolation was taken back out, and how both halves are tested without a 144 Hz monitor
 - mapgen/MAP-PIPELINE.md — custom maps: the generator, the Quake 3 importer, the format traps
+- mapgen/MAP-STUDIO.md — v2 authoring, editor, validation, packages, map transfer and verification
 - testing/HITRIG.md — the headshot rig: the geometry a headshot turns on, why the feature tour cannot measure it, and how an A/B arm is run
 - testing/TEST-HARNESS.md — netcheck/maptest, map sweeps, the world and affliction probes
 - testing/TEST-HARD-CASES.md — disconnects, blackouts, latency, loss, capacity, spectators, the Pi's ceiling
 - testing/TEST-METRICS.md — reading results, common traps, last verified status
 - build-deploy/BUILD-WORKFLOW.md — CI workflows, tagging and the bump, release notes, binaries, asset guard
+- build-deploy/MACOS.md — native builds, signing, bundles, smoke tests and user-data paths
 - build-deploy/DEPLOY-SERVERS.md — deploy script and publish commands
 
 Usage: these are the token-optimised detail store for CLAUDE.md. Keep them

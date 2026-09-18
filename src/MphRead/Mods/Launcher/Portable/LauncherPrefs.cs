@@ -17,13 +17,11 @@ namespace MphRead.Mods.Launcher
     public static class LauncherPrefs
     {
         /// <summary>
-        /// Where launcher.txt lives. Beside the executable, which is where the
-        /// rest of a portable install keeps its files -- except where the
-        /// program does not own that folder. An Android package's own
-        /// directory is read-only, so the head there points this at the app's
-        /// data directory before anything reads.
+        /// Where launcher.txt lives: Application Support on macOS and beside
+        /// the executable in portable Windows/Linux installs. Android's head
+        /// points this at the app's writable data directory before any reads.
         /// </summary>
-        public static string Directory { get; set; } = AppContext.BaseDirectory;
+        public static string Directory { get; set; } = Platform.AppPaths.UserDataDirectory;
 
         private static string Path => System.IO.Path.Combine(Directory, "launcher.txt");
 
@@ -71,6 +69,9 @@ namespace MphRead.Mods.Launcher
         /// <summary>0 easy, 1 normal, 2 hard, 3 insane -- PlayerEntity.BotLevel.</summary>
         public static int BotLevel { get; set; } = 1;
         public static int HostPort { get; set; } = Network.NetConfig.DefaultPort;
+
+        /// <summary>The folder containing the last desktop ROM the player selected.</summary>
+        public static string LastRomDirectory { get; set; } = "";
 
         /// <summary>
         /// Whether a hosted game announces itself to the directory.
@@ -188,6 +189,32 @@ namespace MphRead.Mods.Launcher
                     string value = line[(split + 1)..].Trim();
                     switch (key)
                     {
+                        case "bright_skins":
+                            if (Boolean.TryParse(value, out bool brightSkins))
+                            {
+                                RenderOptions.BrightSkins = brightSkins;
+                            }
+                            break;
+                        case "bright_skin_style":
+                            if (Enum.TryParse(value, ignoreCase: true, out PlayerSkinStyle skinStyle)
+                                && Enum.IsDefined(skinStyle))
+                            {
+                                RenderOptions.BrightSkinStyle = skinStyle;
+                            }
+                            break;
+                        case "player_outline":
+                            if (Enum.TryParse(value, ignoreCase: true, out PlayerOutlineStyle outlineStyle)
+                                && Enum.IsDefined(outlineStyle))
+                            {
+                                RenderOptions.PlayerOutline = outlineStyle;
+                            }
+                            break;
+                        case "player_outline_width":
+                            if (Int32.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int outlineWidth))
+                            {
+                                RenderOptions.PlayerOutlineWidth = outlineWidth;
+                            }
+                            break;
                         case "server_address":
                             ServerAddress = value;
                             break;
@@ -309,6 +336,9 @@ namespace MphRead.Mods.Launcher
                                 LastKind = kind;
                             }
                             break;
+                        case "rom_directory":
+                            LastRomDirectory = value;
+                            break;
                     }
                 }
             }
@@ -365,8 +395,13 @@ namespace MphRead.Mods.Launcher
                     $"list_hosted={ListHostedGame.ToString().ToLowerInvariant()}",
                     $"host_on_master={HostOnMaster.ToString().ToLowerInvariant()}",
                     $"last_kind={LastKind.ToString(CultureInfo.InvariantCulture)}",
+                    $"rom_directory={LastRomDirectory}",
                     $"auto_update={AutoUpdate.ToString().ToLowerInvariant()}",
                     $"debug_logs={DebugLogs.ToString().ToLowerInvariant()}",
+                    $"bright_skins={RenderOptions.BrightSkins.ToString().ToLowerInvariant()}",
+                    $"bright_skin_style={RenderOptions.BrightSkinStyle.ToString().ToLowerInvariant()}",
+                    $"player_outline={RenderOptions.PlayerOutline.ToString().ToLowerInvariant()}",
+                    $"player_outline_width={RenderOptions.PlayerOutlineWidth.ToString(CultureInfo.InvariantCulture)}",
                     $"window_mode={(WindowMode == WindowStartMode.BorderlessFullscreen ? "borderless" : "windowed")}",
                     $"window_size={WindowWidth.ToString(CultureInfo.InvariantCulture)}x"
                         + WindowHeight.ToString(CultureInfo.InvariantCulture),

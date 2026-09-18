@@ -1,4 +1,12 @@
+Protocol-12 updates: [authoritative HUD health, hidden HP, shot identity, lifecycle and claim validation](NETWORK-HEALTH-SHOTS.md). This section supersedes conflicting historical behavior below.
+
 # Instant hit registration
+
+> Protocol 8: see [NETWORK-LIFECYCLE.md](NETWORK-LIFECYCLE.md) for current
+> lifecycle, identity, wire and reset rules. The protocol-7 measurements below
+> are historical. Remote death prediction is now always disabled, including
+> with `-deathprediction`; only a new authoritative LifeId permits respawn.
+> Older protocol demos are refused.
 
 Code: `Mods/Network/NetHitPrediction.cs`. The other half of
 [lag compensation](NETWORK-UNLAGGED.md), and it only works because that
@@ -636,12 +644,18 @@ prediction per snapshot left the rest to time out looking like misses, and
 `landed` is how many actually landed. Do not read the drop in `denied` as a
 change in how often a prediction is *right*.
 
-`unpredicted` is high on Sylux and that is the Shock Coil, not a fault. It is a
-`Continuous` weapon whose damage is divided by 32 and dithered off
-`scene.FrameCount`, so the frame parity that produces a damaging hit is not the
-same frame parity on two machines: the authority landed 131 hits where this
-client resolved 28. Nothing is lost by it -- an unpredicted hit is shown when
-it arrives, which is what every hit used to do.
+`unpredicted` was high on Sylux in this run: the authority landed 131 Shock Coil
+hits where this client resolved 28. The `Continuous` damage dither then used
+each machine's `scene.FrameCount`, so their damaging frames could differ. It now
+uses a per-slot firing clock seeded from the owner's fresh intent and advanced
+once per simulation frame, shared by ammo, base damage, ramp and the beam's
+enemy hit gate. Later intents do not re-anchor a held stream. Offline and
+stale/invalid intents keep scene timing. A new network run is needed to measure hit agreement after
+this change; an unpredicted hit still appears when the authority reports it.
+Protocol 8 refuses mixed builds with the previous timing; packet layout is unchanged.
+`dotnet run --project tools/continuous-phase-check/continuous-phase-check.csproj`
+checks the shared phase sequence, stale/invalid fallback, full dither cycle and
+counter rollover without game assets. It does not measure network hit agreement.
 
 The one `RESULT: FAIL` on these runs is `their form stayed wrong for 69 frames
 in a row`, which is the open question in `.claude/KNOWN-GAPS.md` about form

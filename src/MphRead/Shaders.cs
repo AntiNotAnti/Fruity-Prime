@@ -103,6 +103,9 @@ uniform float fog_min;
 uniform float fog_max;
 uniform sampler2D tex;
 uniform bool use_override;
+uniform int textured_player_skin;
+uniform bool player_outline_mask;
+uniform vec3 player_outline_color;
 uniform vec4 override_color;
 uniform bool use_pal_override;
 uniform vec4 pal_override_color;
@@ -169,7 +172,7 @@ void main()
         // rubble only ever produces banded rubble; what makes a picture read
         // as drawn is that the surface is one colour and the line around it
         // carries the shape.
-        if (use_flat && !use_pal_override) {
+        if (use_flat && !use_pal_override && textured_player_skin == 0) {
             texcolor.rgb = flat_color;
         }
         if (mat_mode == 1) {
@@ -188,9 +191,21 @@ void main()
             col = color * vec4(texcolor.rgb, mat_alpha * texcolor.a);
         }
         if (use_override) {
-            col.r = override_color.r;
-            col.g = override_color.g;
-            col.b = override_color.b;
+            if (textured_player_skin > 0) {
+                // Keep the real suit texture and cutouts; lift dark lighting without flattening detail.
+                if (textured_player_skin == 2) {
+                    // Strong suit/team identity, with contrast driven by the original texture.
+                    float detail = smoothstep(0.05, 0.85, dot(texcolor.rgb, vec3(0.2126, 0.7152, 0.0722)));
+                    vec3 tinted = override_color.rgb * (0.25 + 0.75 * detail);
+                    col.rgb = mix(tinted, pow(texcolor.rgb, vec3(0.7)), 0.25);
+                }
+                else {
+                    col.rgb = clamp(mix(col.rgb, texcolor.rgb, 0.8) * 1.25, 0.0, 1.0);
+                }
+            }
+            else {
+                col.rgb = override_color.rgb;
+            }
             col.a *= override_color.a;
         }
     }
@@ -200,6 +215,10 @@ void main()
     else {
         col = mat_mode == 2 ? toon_color(color) : color;
         col.a *= mat_alpha;
+    }
+    if (player_outline_mask) {
+        if (col.a <= 0.01) discard;
+        col.rgb = player_outline_color;
     }
     // Cel shading, on the finished surface colour -- the texture, the vertex
     // colours and the lighting together, which is the only place all three
@@ -232,9 +251,11 @@ void main()
 
 varying vec2 texcoord;
 
+uniform float hud_scale;
+
 void main()
 {
-    gl_Position = vec4(gl_Vertex.xy, 0, 1);
+    gl_Position = vec4(gl_Vertex.xy * hud_scale, 0, 1);
     texcoord = gl_MultiTexCoord0.xy;
 }
 ";
@@ -243,6 +264,7 @@ void main()
 #version 120
 
 uniform float alpha;
+uniform float hud_opacity;
 uniform bool use_mask;
 uniform float view_width;
 uniform float view_height;
@@ -252,13 +274,63 @@ uniform sampler2D mask;
 varying vec2 texcoord;
 varying vec4 color;
 
+
+uniform vec4 quality_flags;
+uniform float quality_texel_w;
+uniform float quality_texel_h;
+
+vec4 quality_sample(vec2 uv)
+{
+    vec2 px = vec2(quality_texel_w, quality_texel_h);
+    vec4 center = texture2D(tex, uv);
+    vec3 result = center.rgb;
+    if (quality_flags.x > 0.5) {
+        vec3 nw = texture2D(tex, uv + vec2(-1.0, -1.0) * px).rgb;
+        vec3 ne = texture2D(tex, uv + vec2(1.0, -1.0) * px).rgb;
+        vec3 sw = texture2D(tex, uv + vec2(-1.0, 1.0) * px).rgb;
+        vec3 se = texture2D(tex, uv + vec2(1.0, 1.0) * px).rgb;
+        vec3 luma = vec3(0.299, 0.587, 0.114);
+        float m = dot(center.rgb, luma);
+        float a = dot(nw, luma), b = dot(ne, luma), c = dot(sw, luma), d = dot(se, luma);
+        float lo = min(m, min(min(a, b), min(c, d)));
+        float hi = max(m, max(max(a, b), max(c, d)));
+        if (hi - lo > max(0.0312, hi * 0.125)) {
+            vec2 direction = vec2(-((a + b) - (c + d)), (a + c) - (b + d));
+            float reduce = max((a + b + c + d) * 0.03125, 0.0078125);
+            direction = clamp(direction / (min(abs(direction.x), abs(direction.y)) + reduce), vec2(-8.0), vec2(8.0)) * px;
+            vec3 first = 0.5 * (texture2D(tex, uv + direction * (-1.0 / 6.0)).rgb
+                + texture2D(tex, uv + direction * (1.0 / 6.0)).rgb);
+            vec3 second = first * 0.5 + 0.25 * (texture2D(tex, uv - direction * 0.5).rgb
+                + texture2D(tex, uv + direction * 0.5).rgb);
+            float brightness = dot(second, luma);
+            result = brightness < lo || brightness > hi ? first : second;
+        }
+    }
+    if (quality_flags.y > 0.5) {
+        vec3 n = texture2D(tex, uv + vec2(0.0, -px.y)).rgb;
+        vec3 s = texture2D(tex, uv + vec2(0.0, px.y)).rgb;
+        vec3 e = texture2D(tex, uv + vec2(px.x, 0.0)).rgb;
+        vec3 w = texture2D(tex, uv + vec2(-px.x, 0.0)).rgb;
+        vec3 lo = min(result, min(min(n, s), min(e, w)));
+        vec3 hi = max(result, max(max(n, s), max(e, w)));
+        // Contrast-adaptive, clamped unsharp mask; no halos beyond the local range.
+        vec3 strength = 0.18 * (vec3(1.0) - (hi - lo));
+        result = clamp(result + strength * (4.0 * result - n - s - e - w), lo, hi);
+    }
+    if (quality_flags.z > 0.5) {
+        float luminance = dot(result, vec3(0.299, 0.587, 0.114));
+        result = clamp(mix(vec3(luminance), result, 1.08), 0.0, 1.0);
+    }
+    return vec4(result, center.a);
+}
+
 void main()
 {
     if (fade_color.a > 0) {
         gl_FragColor = fade_color;
     }
     else {
-        gl_FragColor = texture2D(tex, texcoord);
+        gl_FragColor = quality_sample(texcoord);
         if (use_mask) {
             float maskY = gl_FragCoord.y + (view_width - view_height) / 2;
             vec2 maskTexcoord = vec2(gl_FragCoord.x / view_width, 1 - maskY / view_width);
@@ -269,6 +341,7 @@ void main()
         }
         gl_FragColor.a *= alpha;
     }
+    gl_FragColor.a *= hud_opacity;
 }
 ";
 
@@ -452,6 +525,56 @@ uniform sampler2D tex;
 varying vec2 texcoord;
 varying vec4 color;
 
+
+uniform vec4 quality_flags;
+uniform float quality_texel_w;
+uniform float quality_texel_h;
+
+vec4 quality_sample(vec2 uv)
+{
+    vec2 px = vec2(quality_texel_w, quality_texel_h);
+    vec4 center = texture2D(tex, uv);
+    vec3 result = center.rgb;
+    if (quality_flags.x > 0.5) {
+        vec3 nw = texture2D(tex, uv + vec2(-1.0, -1.0) * px).rgb;
+        vec3 ne = texture2D(tex, uv + vec2(1.0, -1.0) * px).rgb;
+        vec3 sw = texture2D(tex, uv + vec2(-1.0, 1.0) * px).rgb;
+        vec3 se = texture2D(tex, uv + vec2(1.0, 1.0) * px).rgb;
+        vec3 luma = vec3(0.299, 0.587, 0.114);
+        float m = dot(center.rgb, luma);
+        float a = dot(nw, luma), b = dot(ne, luma), c = dot(sw, luma), d = dot(se, luma);
+        float lo = min(m, min(min(a, b), min(c, d)));
+        float hi = max(m, max(max(a, b), max(c, d)));
+        if (hi - lo > max(0.0312, hi * 0.125)) {
+            vec2 direction = vec2(-((a + b) - (c + d)), (a + c) - (b + d));
+            float reduce = max((a + b + c + d) * 0.03125, 0.0078125);
+            direction = clamp(direction / (min(abs(direction.x), abs(direction.y)) + reduce), vec2(-8.0), vec2(8.0)) * px;
+            vec3 first = 0.5 * (texture2D(tex, uv + direction * (-1.0 / 6.0)).rgb
+                + texture2D(tex, uv + direction * (1.0 / 6.0)).rgb);
+            vec3 second = first * 0.5 + 0.25 * (texture2D(tex, uv - direction * 0.5).rgb
+                + texture2D(tex, uv + direction * 0.5).rgb);
+            float brightness = dot(second, luma);
+            result = brightness < lo || brightness > hi ? first : second;
+        }
+    }
+    if (quality_flags.y > 0.5) {
+        vec3 n = texture2D(tex, uv + vec2(0.0, -px.y)).rgb;
+        vec3 s = texture2D(tex, uv + vec2(0.0, px.y)).rgb;
+        vec3 e = texture2D(tex, uv + vec2(px.x, 0.0)).rgb;
+        vec3 w = texture2D(tex, uv + vec2(-px.x, 0.0)).rgb;
+        vec3 lo = min(result, min(min(n, s), min(e, w)));
+        vec3 hi = max(result, max(max(n, s), max(e, w)));
+        // Contrast-adaptive, clamped unsharp mask; no halos beyond the local range.
+        vec3 strength = 0.18 * (vec3(1.0) - (hi - lo));
+        result = clamp(result + strength * (4.0 * result - n - s - e - w), lo, hi);
+    }
+    if (quality_flags.z > 0.5) {
+        float luminance = dot(result, vec3(0.299, 0.587, 0.114));
+        result = clamp(mix(vec3(luminance), result, 1.08), 0.0, 1.0);
+    }
+    return vec4(result, center.a);
+}
+
 void main()
 {
     int band = int((1.0 - texcoord.y) * 192.0);
@@ -464,7 +587,7 @@ void main()
         gl_FragColor = vec4(0, 0, 0, 1);
     }
     else {
-        gl_FragColor = texture2D(tex, shifted);
+        gl_FragColor = quality_sample(shifted);
     }
     if (white_fac != 0) {
         float factor = white_table[band];
@@ -488,6 +611,7 @@ void main()
             }
         }
     }
+    if (quality_flags.w > 0.5 && white_fac != 0.0) gl_FragColor.rgb = min(gl_FragColor.rgb, vec3(0.55));
 }
 ";
     }

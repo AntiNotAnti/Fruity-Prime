@@ -3,6 +3,20 @@ using System.Globalization;
 
 namespace MphRead.Mods
 {
+    public enum PlayerSkinStyle
+    {
+        Solid,
+        Textured,
+        HighContrastTextured
+    }
+
+    public enum PlayerOutlineStyle
+    {
+        Off,
+        Team,
+        Red
+    }
+
     /// <summary>
     /// The knobs that trade picture for frame rate.
     ///
@@ -23,18 +37,19 @@ namespace MphRead.Mods
     public static class RenderOptions
     {
         /// <summary>
-        /// Percent of the window the 3D scene is rendered at, 25 to 100.
+        /// Percent of the window the 3D scene is rendered at, 25 to 200.
         /// Halving it quarters the pixels.
         /// </summary>
         public static int ResolutionScale
         {
             get => _resolutionScale;
-            set => _resolutionScale = Math.Clamp(value, MinScale, 100);
+            set => _resolutionScale = Math.Clamp(value, MinScale, MaxScale);
         }
 
         private static int _resolutionScale = 100;
 
         public const int MinScale = 25;
+        public const int MaxScale = 200;
 
         /// <summary>
         /// How wide the view is, in degrees, measured the way the game
@@ -81,6 +96,24 @@ namespace MphRead.Mods
 
         /// <summary>Per-vertex lighting. Off is flatter and cheaper.</summary>
         public static bool Lighting { get; set; } = true;
+
+        /// <summary>High-contrast multiplayer body colors, local to this client.</summary>
+        public static bool BrightSkins { get; set; }
+
+        /// <summary>Solid retains the original bright-skins preference behavior.</summary>
+        public static PlayerSkinStyle BrightSkinStyle { get; set; } = PlayerSkinStyle.Solid;
+
+        /// <summary>Independent of skin highlighting; off by default.</summary>
+        public static PlayerOutlineStyle PlayerOutline { get; set; } = PlayerOutlineStyle.Off;
+
+        /// <summary>Player outline thickness in screen pixels.</summary>
+        public static int PlayerOutlineWidth
+        {
+            get => _playerOutlineWidth;
+            set => _playerOutlineWidth = Math.Clamp(value, 1, 8);
+        }
+
+        private static int _playerOutlineWidth = 4;
 
         /// <summary>
         /// Cel shading: every surface goes to flat colour and the shapes in
@@ -144,16 +177,17 @@ namespace MphRead.Mods
         /// Linear texture filtering. The DS had none, so off is both faster and
         /// what the game looked like.
         /// </summary>
-        public static bool TextureFiltering { get; set; }
+        public static bool TextureFiltering
+        {
+            get => Render.VisualOptions.Current.Filtering != Render.TextureQuality.Pixel;
+            set => Render.VisualOptions.Current = Render.VisualOptions.Current with
+            { Filtering = value ? Render.TextureQuality.Bilinear : Render.TextureQuality.Pixel, Preset = Render.GraphicsPreset.Custom };
+        }
 
         /// <summary>Apply a scale to one dimension, never below one pixel.</summary>
         public static int Scaled(int pixels)
         {
-            if (_resolutionScale >= 100)
-            {
-                return pixels;
-            }
-            return Math.Max(1, pixels * _resolutionScale / 100);
+            return (int)Math.Clamp((long)pixels * _resolutionScale / 100, 1, Int32.MaxValue);
         }
 
         public static bool ParseOnOff(string? value, bool fallback)
@@ -181,7 +215,7 @@ namespace MphRead.Mods
             if (value != null && Int32.TryParse(value.Trim().TrimEnd('%'),
                 NumberStyles.Integer, CultureInfo.InvariantCulture, out int percent))
             {
-                return Math.Clamp(percent, MinScale, 100);
+                return Math.Clamp(percent, MinScale, MaxScale);
             }
             return fallback;
         }

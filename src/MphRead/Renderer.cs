@@ -121,6 +121,7 @@ namespace MphRead
         public FrustumInfo FrustumInfo { get; } = new FrustumInfo();
 
         private bool _showTextures = true;
+        internal bool ShowTextures => _showTextures;
         private bool _showColors = true;
         // 0 is fill; 1..MaxWireframeLevel is wireframe, line width = level
         private int _wireframeLevel = 0;
@@ -163,6 +164,8 @@ namespace MphRead
         private bool _outputCameraPos = false;
 
         // map each model's texture ID/palette ID combinations to the bound OpenGL texture ID and "onlyOpaque" boolean
+        // Texture names handed out by BindTexture/BindGetTexture, not a live-object count.
+        // Never decrement: a freed name can precede another target that is still alive.
         private int _textureCount = 0;
         private readonly Dictionary<int, TextureMap> _texPalMap = new Dictionary<int, TextureMap>();
 
@@ -456,7 +459,7 @@ namespace MphRead
                     player.LoadFlags |= LoadFlags.Initial;
                     if (team != -1)
                     {
-                        Debug.Assert(team == 0 || team == 1);
+                        Debug.Assert((uint)team < 4);
                         player.TeamIndex = team;
                     }
                     player.IsBot = PlayerEntity.PlayerCount >= 1;
@@ -570,7 +573,7 @@ namespace MphRead
                     InitEntity(player.Halfturret);
                 }
             }
-            if (!Mods.Headless.Active)
+            if (!Mods.Headless.Active && ConsoleOutputEnabled)
             {
                 // The console prompt, which is a question put to a person.
                 OutputStart();
@@ -612,38 +615,58 @@ namespace MphRead
 
         public void OnResize()
         {
-            if (_screenTexture != 0)
+            if (_screenTexture != 0 && Size.X > 0 && Size.Y > 0)
             {
                 Vector2i target = RenderSize;
-                _targetSize = target;
-                GL.BindTexture(TextureTarget.Texture2D, _screenTexture);
-                GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgb, target.X, target.Y, 0,
-                    PixelFormat.Rgb, PixelType.UnsignedByte, IntPtr.Zero);
-                // Nearest is the DS look and is right at full size; a stretched
-                // target needs linear or every edge stair-steps.
-                bool upscaling = Mods.RenderOptions.ResolutionScale < 100;
-                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter,
-                    (int)(upscaling ? TextureMinFilter.Linear : TextureMinFilter.Nearest));
-                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter,
-                    (int)(upscaling ? TextureMagFilter.Linear : TextureMagFilter.Nearest));
-                GL.BindTexture(TextureTarget.Texture2D, 0);
-                if (_celTexture != 0)
+                int previousFramebuffer = GL.GetInteger(GetPName.DrawFramebufferBinding);
+                int previousReadFramebuffer = GL.GetInteger(GetPName.ReadFramebufferBinding);
+                GL.ActiveTexture(TextureUnit.Texture0);
+                try
                 {
-                    GL.BindTexture(TextureTarget.Texture2D, _celTexture);
+                    GL.BindTexture(TextureTarget.Texture2D, _screenTexture);
                     GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgb, target.X, target.Y, 0,
                         PixelFormat.Rgb, PixelType.UnsignedByte, IntPtr.Zero);
+                    // Nearest is the DS look; stretched targets need linear.
+                    bool upscaling = Mods.RenderOptions.ResolutionScale < 100;
+                    GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter,
+                        (int)(upscaling ? TextureMinFilter.Linear : TextureMinFilter.Nearest));
+                    GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter,
+                        (int)(upscaling ? TextureMagFilter.Linear : TextureMagFilter.Nearest));
                     GL.BindTexture(TextureTarget.Texture2D, 0);
+                    if (_celTexture != 0)
+                    {
+                        GL.BindTexture(TextureTarget.Texture2D, _celTexture);
+                        GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgb, target.X, target.Y, 0,
+                            PixelFormat.Rgb, PixelType.UnsignedByte, IntPtr.Zero);
+                        GL.BindTexture(TextureTarget.Texture2D, 0);
+                    }
+                    Debug.Assert(_renderBuffer != 0);
+                    GL.BindRenderbuffer(RenderbufferTarget.Renderbuffer, _renderBuffer);
+                    GL.RenderbufferStorage(RenderbufferTarget.Renderbuffer, RenderbufferStorage.Depth24Stencil8, target.X, target.Y);
+                    GL.BindRenderbuffer(RenderbufferTarget.Renderbuffer, 0);
+                    if (_depthTexture != 0)
+                    {
+                        GL.BindTexture(TextureTarget.Texture2D, _depthTexture);
+                        GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Depth24Stencil8,
+                            target.X, target.Y, 0, PixelFormat.DepthStencil, PixelType.UnsignedInt248, IntPtr.Zero);
+                        GL.BindTexture(TextureTarget.Texture2D, 0);
+                    }
+                    GL.BindFramebuffer(FramebufferTarget.Framebuffer, _frameBuffer);
+                    ValidateFramebuffer("Scene after resize");
+                    if (_celFrameBuffer != 0)
+                    {
+                        GL.BindFramebuffer(FramebufferTarget.Framebuffer, _celFrameBuffer);
+                        ValidateFramebuffer("Cel after resize");
+                    }
+                    // Publish only after all attachments agree on the new size.
+                    _targetSize = target;
                 }
-                Debug.Assert(_renderBuffer != 0);
-                GL.BindRenderbuffer(RenderbufferTarget.Renderbuffer, _renderBuffer);
-                GL.RenderbufferStorage(RenderbufferTarget.Renderbuffer, RenderbufferStorage.Depth24Stencil8, target.X, target.Y);
-                GL.BindRenderbuffer(RenderbufferTarget.Renderbuffer, 0);
-                if (_depthTexture != 0)
+                finally
                 {
-                    GL.BindTexture(TextureTarget.Texture2D, _depthTexture);
-                    GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Depth24Stencil8,
-                        target.X, target.Y, 0, PixelFormat.DepthStencil, PixelType.UnsignedInt248, IntPtr.Zero);
                     GL.BindTexture(TextureTarget.Texture2D, 0);
+                    GL.BindRenderbuffer(RenderbufferTarget.Renderbuffer, 0);
+                    GL.BindFramebuffer(FramebufferTarget.DrawFramebuffer, previousFramebuffer);
+                    GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, previousReadFramebuffer);
                 }
             }
         }
@@ -763,9 +786,9 @@ namespace MphRead
             _frameBuffer = GL.GenFramebuffer();
             GL.BindFramebuffer(FramebufferTarget.Framebuffer, _frameBuffer);
             _screenTexture = GL.GenTexture();
-            _textureCount++;
+            _textureCount = Math.Max(_textureCount, _screenTexture);
             Vector2i renderTarget = RenderSize;
-            _targetSize = renderTarget;
+            GL.ActiveTexture(TextureUnit.Texture0);
             GL.BindTexture(TextureTarget.Texture2D, _screenTexture);
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgb, renderTarget.X, renderTarget.Y, 0,
                 PixelFormat.Rgb, PixelType.UnsignedByte, IntPtr.Zero);
@@ -784,7 +807,7 @@ namespace MphRead
             // The ink pass's copy of the scene. Same size and same filtering;
             // it is only ever sampled texel for texel.
             _celTexture = GL.GenTexture();
-            _textureCount++;
+            _textureCount = Math.Max(_textureCount, _celTexture);
             GL.BindTexture(TextureTarget.Texture2D, _celTexture);
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgb, renderTarget.X, renderTarget.Y, 0,
                 PixelFormat.Rgb, PixelType.UnsignedByte, IntPtr.Zero);
@@ -803,16 +826,8 @@ namespace MphRead
 
             FramebufferErrorCode status = GL.CheckFramebufferStatus(FramebufferTarget.Framebuffer);
             FramebufferStatus = status;
-            if (status != FramebufferErrorCode.FramebufferComplete)
-            {
-                // Was a Debugger.Break, which is silence in a release build --
-                // and an incomplete framebuffer is exactly the fault that
-                // renders nothing while every other signal says the context
-                // is fine. Say it out loud.
-                Console.WriteLine($"[render] the offscreen target is not usable: {status}. "
-                    + $"Nothing drawn into it will appear. Size {Size.X}x{Size.Y}.");
-                Debugger.Break();
-            }
+            ValidateFramebuffer("Scene initialization");
+            _targetSize = renderTarget;
 
             GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
 
@@ -835,6 +850,9 @@ namespace MphRead
             _shaderLocations.FogMinDistance = GL.GetUniformLocation(_shaderProgramId, "fog_min");
             _shaderLocations.FogMaxDistance = GL.GetUniformLocation(_shaderProgramId, "fog_max");
             _shaderLocations.UseOverride = GL.GetUniformLocation(_shaderProgramId, "use_override");
+            _texturedPlayerSkinUniform = GL.GetUniformLocation(_shaderProgramId, "textured_player_skin");
+            _playerOutlineMaskUniform = GL.GetUniformLocation(_shaderProgramId, "player_outline_mask");
+            _playerOutlineColorUniform = GL.GetUniformLocation(_shaderProgramId, "player_outline_color");
             _shaderLocations.OverrideColor = GL.GetUniformLocation(_shaderProgramId, "override_color");
             _shaderLocations.UsePaletteOverride = GL.GetUniformLocation(_shaderProgramId, "use_pal_override");
             _shaderLocations.PaletteOverrideColor = GL.GetUniformLocation(_shaderProgramId, "pal_override_color");
@@ -877,6 +895,7 @@ namespace MphRead
             _shaderLocations.LerpFactor = GL.GetUniformLocation(_shiftShaderProgramId, "lerp_fac");
             _shaderLocations.WhiteoutTable = GL.GetUniformLocation(_shiftShaderProgramId, "white_table");
             _shaderLocations.WhiteoutFactor = GL.GetUniformLocation(_shiftShaderProgramId, "white_fac");
+            InitRenderPassState();
 
             GL.UseProgram(_shiftShaderProgramId);
 
@@ -1323,6 +1342,7 @@ namespace MphRead
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba, texture.Width, texture.Height, 0,
                 PixelFormat.Rgba, PixelType.UnsignedByte, pixels.ToArray());
             GL.BindTexture(TextureTarget.Texture2D, 0);
+            _mipmappedTextures.Remove(_textureCount);
             _flatColors[_textureCount] = average.Result;
             return onlyOpaque;
         }
@@ -1407,6 +1427,7 @@ namespace MphRead
                 PixelFormat.Rgba, PixelType.UnsignedByte, data.ToArray());
             GL.BindTexture(TextureTarget.Texture2D, 0);
             // this binding may already have had a different picture in it
+            _mipmappedTextures.Remove(bindingId);
             _flatColors[bindingId] = AverageOf(data);
         }
 
@@ -1490,6 +1511,67 @@ namespace MphRead
         /// </summary>
         public void OnSimulationFrame()
         {
+            if (!Mods.Network.DemoPlayback.IsActive) { RunSimulationFrame(); return; }
+            // Input and free camera remain on the presentation clock while paused.
+            _frameTime = 1 / 60f;
+            if (!Mods.Headless.Active) Mods.Input.GamepadDesktop.Poll();
+            Mods.Replay.ReplayInput.BeginFrame();
+            Mods.Replay.ReplayInput.PollGamepad();
+            Mods.SpectatorMode.NoteScoreboard(_keyboardState.IsKeyDown(Keys.Tab)
+                || Mods.Input.GamepadInput.State.Down(Mods.Input.GamepadButtons.Back));
+            bool? camera = Mods.SpectatorMode.TakeCameraRequest();
+            if (camera.HasValue) SetFreeCamera(camera.Value);
+            if (!Mods.PauseMenu.Open)
+            {
+                OnKeyHeld();
+                if (_freeCam && Mods.Input.GamepadInput.Active)
+                {
+                    var pad = Mods.Input.GamepadInput.State;
+                    if (Math.Abs(pad.LeftY) > 0.2f) _cameraPosition += _cameraFacing * pad.LeftY * 0.15f;
+                    if (Math.Abs(pad.LeftX) > 0.2f) _cameraPosition += _cameraRight * pad.LeftX * 0.15f;
+                    _cameraPosition.Y += (pad.RightTrigger - pad.LeftTrigger) * .15f;
+                    UpdateCameraRotation(MathHelper.DegreesToRadians(Mods.Input.GamepadInput.AimDeltaX),
+                        MathHelper.DegreesToRadians(Mods.Input.GamepadInput.AimDeltaY));
+                }
+            }
+            int frames = Mods.Network.ReplayController.FramesDue();
+            float volume = Sound.Sfx.Volume;
+            float musicVolume = Music.UserVolume;
+            bool mute = Mods.Network.ReplayController.IsSeeking && !Mods.Headless.Active;
+            if (mute) { Sound.Sfx.Volume = 0; Music.SetUserVolume(0); }
+            try
+            {
+                for (int i = 0; i < frames && !Mods.Network.DemoPlayback.AtEnd; i++)
+                {
+                    bool seeking = Mods.Network.ReplayController.IsSeeking;
+                    RunSimulationFrame();
+                    Mods.Network.ReplayVerification.AfterFrame(this);
+                    Mods.Network.ReplayController.AfterFrame();
+                    if (seeking && !Mods.Network.ReplayController.IsSeeking) break;
+                }
+            }
+            finally
+            {
+                if (mute)
+                {
+                    Sound.Sfx.Instance.StopAllSound();
+                    Sound.Sfx.Volume = volume;
+                    Music.SetUserVolume(musicVolume);
+                }
+            }
+        }
+
+        private void RunSimulationFrame()
+        {
+            if (Mods.Network.NetSession.FreezeGameplay)
+            {
+                // The recorded session packet that releases the load barrier must
+                // still arrive while gameplay is frozen. Playback has no socket.
+                Mods.Network.DemoPlayback.PumpFrame();
+                if (Mods.Network.NetSession.IsStarting) Mods.Network.NetSession.MarkMatchLoaded();
+                Mods.Network.NetSession.Pump();
+                return;
+            }
             // The effect clock, before anything can spawn an effect. See
             // _effectFrame: it has to be the same value for the spawn and for
             // the ProcessEffects call that belongs to this step, and the
@@ -1525,7 +1607,8 @@ namespace MphRead
                 }
                 Mods.Network.DemoPlayback.PumpFrame();
                 Mods.Network.NetSession.Update(_globalElapsedTime);
-                if (Mods.Network.DemoPlayback.IsActive && !Mods.SpectatorMode.IsSpectating)
+                if (Mods.Network.NetSession.FreezeGameplay) return;
+                if (Mods.Network.DemoPlayback.IsActive && !Mods.Headless.Active && !Mods.SpectatorMode.IsSpectating)
                 {
                     // No local player to spawn as during playback -- watch
                     // as soon as anyone recorded becomes available, rather
@@ -1550,8 +1633,25 @@ namespace MphRead
                 // binds ProcessInput has just filled in. Suppressed by exactly
                 // the things that suppress a keyboard, and by spectating,
                 // where PlayerEntity.Main is somebody else's hunter.
-                Mods.Input.GamepadDesktop.Poll();
-                Mods.Input.GamepadInput.BeginFrame();
+                if (!Mods.Network.DemoPlayback.IsActive)
+                {
+                    Mods.Input.GamepadDesktop.Poll();
+                    Mods.Input.GamepadContexts.Current = Mods.Input.GamepadContexts.Resolve(
+                        Mods.Chat.ChatBox.Composing, Mods.EndScreen.Available);
+                    Mods.Input.GamepadInput.BeginFrame();
+                    if (Mods.SpectatorMode.IsSpectating && !Mods.PauseMenu.Open)
+                    {
+                        var spectator = Mods.Input.SpectatorInput.ReadController();
+                        spectator.ApplyView();
+                        Mods.SpectatorMode.NoteScoreboard(_keyboardState.IsKeyDown(Keys.Tab) || spectator.Scoreboard);
+                        if (_freeCam)
+                        {
+                            _cameraPosition += _cameraFacing * spectator.MoveY * .15f + _cameraRight * spectator.MoveX * .15f;
+                            _cameraPosition.Y += (spectator.Ascend - spectator.Descend) * .15f;
+                            UpdateCameraRotation(MathHelper.DegreesToRadians(spectator.LookX), MathHelper.DegreesToRadians(spectator.LookY));
+                        }
+                    }
+                }
                 // Straight after the edges are worked out and before anything
                 // consumes them. A pad has no key events to hook, so the
                 // results screen's picker has to be polled, and it takes the
@@ -1567,7 +1667,7 @@ namespace MphRead
                 Mods.Network.NetHooks.AfterInput(this);
                 _room?.UpdateTransition();
             }
-            OnKeyHeld();
+            if (!Mods.Network.DemoPlayback.IsActive) OnKeyHeld();
             if (ProcessFrame && _room != null)
             {
                 GameState.ProcessFrame(this);
@@ -1637,7 +1737,7 @@ namespace MphRead
                 Mods.Render.FrameTiming.MaxCatchUpSteps);
             _pendingFadeSteps = Math.Min(_pendingFadeSteps + 1,
                 Mods.Render.FrameTiming.MaxCatchUpSteps);
-            if (Mods.Headless.Active)
+            if (Mods.Headless.Active || Mods.Network.DemoPlayback.IsActive)
             {
                 ModStepDrawPassTimers();
             }
@@ -1701,6 +1801,11 @@ namespace MphRead
         /// </summary>
         public void OnDrawFrame()
         {
+            if (Size.X <= 0 || Size.Y <= 0)
+            {
+                return;
+            }
+            BeginRenderDiagnostics();
             // The results screen coming up and going away, which the map
             // ballot and the previews on it hang off. In the scene's own draw
             // rather than in the window's frame: every harness client drives
@@ -1710,6 +1815,7 @@ namespace MphRead
             // -netcheck while the ballot beside them was correct.
             Mods.EndScreen.Tick(_room?.Meta.Name ?? "", _globalElapsedTime);
             Mods.Render.MapThumbnail.BeginFrame();
+            GL.ActiveTexture(TextureUnit.Texture0);
             GL.BindFramebuffer(FramebufferTarget.Framebuffer, _frameBuffer);
             // The scene's own target, which the resolution scale may have made
             // smaller than the window. Reallocated here rather than only on a
@@ -1749,6 +1855,7 @@ namespace MphRead
             _singleParticleCount = 0;
             if (ProcessFrame || CameraMode != CameraMode.Player)
             {
+                ModReplayCamera();
                 TransformCamera();
                 UpdateCameraPosition();
             }
@@ -1968,18 +2075,21 @@ namespace MphRead
             {
                 return;
             }
+            // A deleted depth texture can remain attached to the mask while its numeric
+            // name is recycled. Force reattachment after any scene depth lifecycle change.
+            _playerOutlineDepth = -1;
             if (!want)
             {
                 GL.FramebufferRenderbuffer(FramebufferTarget.Framebuffer,
                     FramebufferAttachment.DepthStencilAttachment, RenderbufferTarget.Renderbuffer,
                     _renderBuffer);
                 GL.DeleteTexture(_depthTexture);
-                _textureCount--;
                 _depthTexture = 0;
+                ValidateFramebuffer("Scene renderbuffer depth");
                 return;
             }
             _depthTexture = GL.GenTexture();
-            _textureCount++;
+            _textureCount = Math.Max(_textureCount, _depthTexture);
             GL.BindTexture(TextureTarget.Texture2D, _depthTexture);
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Depth24Stencil8,
                 target.X, target.Y, 0, PixelFormat.DepthStencil, PixelType.UnsignedInt248, IntPtr.Zero);
@@ -1990,10 +2100,6 @@ namespace MphRead
             GL.BindTexture(TextureTarget.Texture2D, 0);
             GL.FramebufferTexture2D(FramebufferTarget.Framebuffer,
                 FramebufferAttachment.DepthStencilAttachment, TextureTarget.Texture2D, _depthTexture, 0);
-            _claimedQuantum = MeasureDepthQuantum();
-            // Until a frame has been looked at, the driver's own answer is the
-            // best there is.
-            _depthQuantum = _claimedQuantum;
             FramebufferErrorCode status = GL.CheckFramebufferStatus(FramebufferTarget.Framebuffer);
             if (status != FramebufferErrorCode.FramebufferComplete)
             {
@@ -2004,9 +2110,12 @@ namespace MphRead
                     FramebufferAttachment.DepthStencilAttachment, RenderbufferTarget.Renderbuffer,
                     _renderBuffer);
                 GL.DeleteTexture(_depthTexture);
-                _textureCount--;
                 _depthTexture = 0;
             }
+            ValidateFramebuffer("Scene depth attachment");
+            CheckGlError("Scene depth attachment");
+            _claimedQuantum = MeasureDepthQuantum();
+            _depthQuantum = _claimedQuantum;
         }
 
         /// <summary>
@@ -2102,6 +2211,7 @@ namespace MphRead
                 return;
             }
             Vector2i target = _targetSize;
+            BeginPostProcessPass();
             // The scene, kept where the pass can read it. First, because
             // everything below draws over the target -- including the probe,
             // which is why it can afford to.
@@ -2113,6 +2223,8 @@ namespace MphRead
                 CalibrateInk(target);
             }
             DrawCelQuad(target, probe: false);
+            RenderPostProcessCount++;
+            CheckGlError("EndPostProcessPass");
         }
 
         /// <summary>
@@ -2137,6 +2249,7 @@ namespace MphRead
                 GL.FramebufferTexture2D(FramebufferTarget.Framebuffer,
                     FramebufferAttachment.ColorAttachment0, TextureTarget.Texture2D,
                     _screenTexture, 0);
+                ValidateFramebuffer("Cel color attachment");
                 _celFrameBufferColor = _screenTexture;
             }
             return _celFrameBuffer;
@@ -2153,6 +2266,8 @@ namespace MphRead
             GL.ActiveTexture(TextureUnit.Texture0);
             GL.BindTexture(TextureTarget.Texture2D, _celTexture);
             GL.UseProgram(_celShaderProgramId);
+            GL.Uniform1(_celSampler, 0);
+            GL.Uniform1(_celDepthSampler, 1);
             GL.Uniform1(_shaderLocations.CelTexelWidth, 1f / target.X);
             GL.Uniform1(_shaderLocations.CelTexelHeight, 1f / target.Y);
             GL.Uniform1(_shaderLocations.CelOutline, Mods.RenderOptions.CelEdge);
@@ -2380,6 +2495,24 @@ namespace MphRead
 
         public bool OnRenderFrame()
         {
+            if (Size.X <= 0 || Size.Y <= 0)
+            {
+                return !_exiting;
+            }
+            BeginWorldPass();
+            try
+            {
+                return RenderFrameContent();
+            }
+            finally
+            {
+                EndHudPass();
+                EndRenderDiagnostics();
+            }
+        }
+
+        private bool RenderFrameContent()
+        {
             CountFrame();
             GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit | ClearBufferMask.StencilBufferBit);
             GL.ClearStencil(0);
@@ -2467,6 +2600,8 @@ namespace MphRead
             GL.Disable(EnableCap.StencilTest);
             GL.PolygonMode(TriangleFace.FrontAndBack, OpenTK.Graphics.OpenGL.PolygonMode.Fill);
 
+            DrawWorldOutlines();
+
             // After the world and before the window: the preview is a corner
             // of the scene target with its own camera in it, so the HUD's own
             // panel is drawn over it afterwards with a hole where this lands.
@@ -2486,41 +2621,13 @@ namespace MphRead
                 UnsetHudLayerUniforms();
             }
 
-            // After the weapon, so it is drawn around too, and before the
-            // target is put on screen, so the helmet and the HUD are not.
-            DrawCelOutline();
-
-            GL.Disable(EnableCap.CullFace);
-            GL.UseProgram(_rttShaderProgramId);
-            GL.Uniform1(_shaderLocations.LayerAlpha, 1f);
-            GL.Uniform4(_shaderLocations.FadeColor, Vector4.Zero);
-
-            if (PlayerEntity.Main.HudDisruptedState != 0 || PlayerEntity.Main.HudWhiteoutState != -1)
-            {
-                float div = _elapsedTime / (1 / 30f);
-                int index = (int)div;
-                float factor = div % 1;
-                GL.UseProgram(_shiftShaderProgramId);
-                GL.Uniform1(_shaderLocations.ShiftFactor, PlayerEntity.Main.HudDisruptionFactor);
-                GL.Uniform1(_shaderLocations.ShiftIndex, index);
-                GL.Uniform1(_shaderLocations.LerpFactor, factor);
-                GL.Uniform1(_shaderLocations.WhiteoutFactor, PlayerEntity.Main.HudWhiteoutFactor);
-                if (PlayerEntity.Main.HudWhiteoutFactor != 0)
-                {
-                    GL.Uniform1(_shaderLocations.WhiteoutTable, 192, PlayerEntity.HudWhiteoutTable);
-                }
-            }
-
-            GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+            CheckGlError("EndWorldPass");
+            BeginCompositePass();
             // Back to the window: everything from here down -- the quad, the
             // helmet, the HUD and the fade -- is drawn at full size through
             // the RTT program, not the one the scene was drawn with, so cel
             // shading is already behind us and there is nothing to turn off.
-            GL.Viewport(0, 0, Size.X, Size.Y);
             GL.Clear(ClearBufferMask.ColorBufferBit);
-            GL.Disable(EnableCap.DepthTest);
-            GL.Enable(EnableCap.Blend);
-            GL.BindTexture(TextureTarget.Texture2D, _screenTexture);
 
             GL.Begin(PrimitiveType.TriangleStrip);
             // top right
@@ -2539,10 +2646,7 @@ namespace MphRead
 
             GL.BindTexture(TextureTarget.Texture2D, 0);
 
-            if (PlayerEntity.Main.HudDisruptedState != 0 || PlayerEntity.Main.HudWhiteoutState != -1)
-            {
-                GL.UseProgram(_rttShaderProgramId);
-            }
+            BeginHudPass();
             GL.Uniform4(_shaderLocations.FadeColor, _fadeColor, _fadeColor, _fadeColor, 0);
             if (PlayerEntity.Main.LoadFlags.TestFlag(LoadFlags.Active) && CameraMode == CameraMode.Player)
             {
@@ -2555,21 +2659,16 @@ namespace MphRead
                 DrawHudLayer(Layer1Info); // visor
                 DrawHudLayer(Layer2Info); // helmet front
                 DrawHudLayer(Layer5Info); // dialog overlay
-                if (Layer1Info.MaskId != -1)
+                BeginHudMask(Layer1Info.MaskId);
+                try
                 {
-                    GL.ActiveTexture(TextureUnit.Texture1);
-                    GL.BindTexture(TextureTarget.Texture2D, Layer1Info.MaskId);
-                    GL.ActiveTexture(TextureUnit.Texture0);
-                    GL.Uniform1(_shaderLocations.ViewWidth, (float)Size.X);
-                    GL.Uniform1(_shaderLocations.ViewHeight, (float)Size.Y);
+                    SetHudAccessibility(true);
+                    PlayerEntity.Main.DrawHudObjects();
                 }
-                PlayerEntity.Main.DrawHudObjects();
-                GL.Uniform1(_shaderLocations.UseMask, 0);
-                if (Layer1Info.MaskId != -1)
+                finally
                 {
-                    GL.ActiveTexture(TextureUnit.Texture1);
-                    GL.BindTexture(TextureTarget.Texture2D, 0);
-                    GL.ActiveTexture(TextureUnit.Texture0);
+                    SetHudAccessibility(false);
+                    EndHudMask();
                 }
                 if (GameState.MenuPause)
                 {
@@ -2585,6 +2684,8 @@ namespace MphRead
                 // the camera is not a player's.
                 PlayerEntity.Main.DrawHudObjects();
             }
+            Mods.Replay.ReplayHud.Draw(this);
+            Mods.Input.AimAssist.AimAssistDebug.Draw(this);
             if (_movieFrameIndex != -1)
             {
                 DrawMovieFrame();
@@ -2614,13 +2715,6 @@ namespace MphRead
                     GL.Vertex3(-1f, -1f, 0f);
                     GL.End();
                 }
-            }
-            GL.Enable(EnableCap.DepthTest);
-            GL.Disable(EnableCap.Blend);
-            if (_faceCulling)
-            {
-                GL.Enable(EnableCap.CullFace);
-                GL.CullFace(TriangleFace.Back);
             }
             return true;
         }
@@ -3609,11 +3703,10 @@ namespace MphRead
 
         private RenderItem GetRenderItem()
         {
-            if (_freeRenderItems.Count > 0)
-            {
-                return _freeRenderItems.Dequeue();
-            }
-            return new RenderItem();
+            RenderItem item = _freeRenderItems.Count > 0 ? _freeRenderItems.Dequeue() : new RenderItem();
+            item.TexturedPlayerSkin = false;
+            item.PlayerOutlineColor = null;
+            return item;
         }
 
         private readonly float[] _scaleFactors = new float[16];
@@ -3621,7 +3714,8 @@ namespace MphRead
         // for meshes
         public void AddRenderItem(Material material, int polygonId, float alphaScale, Vector3 emission, LightInfo lightInfo, Matrix4 texcoordMatrix,
             Matrix4 transform, int listId, int matrixStackCount, IReadOnlyList<float> matrixStack, Vector4? overrideColor, Vector4? paletteOverride,
-            SelectionType selectionType, BillboardMode billboardMode, float scaleFactor = 1, int? bindingOverride = null)
+            SelectionType selectionType, BillboardMode billboardMode, float scaleFactor = 1, int? bindingOverride = null,
+            bool texturedPlayerSkin = false, Vector4? playerOutlineColor = null)
         {
             transform.Row0.X *= scaleFactor;
             transform.Row0.Y *= scaleFactor;
@@ -3692,6 +3786,8 @@ namespace MphRead
                 item.MatrixStack[i] = value * _scaleFactors[i - (i / 16) * 16];
             }
             item.OverrideColor = overrideColor;
+            item.TexturedPlayerSkin = texturedPlayerSkin;
+            item.PlayerOutlineColor = playerOutlineColor;
             item.PaletteOverride = paletteOverride;
             item.Points = Array.Empty<Vector3>();
             item.ScaleS = 1;
@@ -4249,6 +4345,15 @@ namespace MphRead
                 }
             }
             Read.ClearCache();
+            // The cel target also owns a reference to _screenTexture. Release
+            // it before deleting that texture in the shell's persistent context.
+            if (_celFrameBuffer != 0)
+            {
+                GL.DeleteFramebuffer(_celFrameBuffer);
+                _celFrameBuffer = 0;
+            }
+            _celFrameBufferColor = 0;
+            DisposePlayerOutlines();
             if (_frameBuffer != 0)
             {
                 GL.DeleteFramebuffer(_frameBuffer);
@@ -4713,6 +4818,8 @@ namespace MphRead
 
         private void SetHudLayerUniforms()
         {
+            GL.Uniform1(_texturedPlayerSkinUniform, 0);
+            GL.Uniform1(_playerOutlineMaskUniform, 0);
             GL.Disable(EnableCap.DepthTest);
             GL.Enable(EnableCap.Blend);
             Matrix4 identity = Matrix4.Identity;
@@ -4828,6 +4935,7 @@ namespace MphRead
         /// </param>
         public void DrawCustomCrosshair(Vector3 color, float posX = 0.5f, float posY = 0.5f)
         {
+            color = Mods.Render.Crosshair.Color(color);
             float halfW = Size.X / 2f;
             float halfH = Size.Y / 2f;
             // The offset is applied in the same normalised space the bars are
@@ -4843,6 +4951,17 @@ namespace MphRead
             {
                 (float left, float right, float bottom, float top) =
                     Mods.Render.Crosshair.EdgesOf(bars[i]);
+                if (Mods.Render.VisualOptions.Current.CrosshairOutline)
+                {
+                    GL.Uniform4(_shaderLocations.FadeColor, 0f, 0f, 0f, 1f);
+                    GL.Begin(PrimitiveType.TriangleStrip);
+                    GL.Vertex3(offX + (right + 1) / halfW, offY + (top + 1) / halfH, 0f);
+                    GL.Vertex3(offX + (left - 1) / halfW, offY + (top + 1) / halfH, 0f);
+                    GL.Vertex3(offX + (right + 1) / halfW, offY + (bottom - 1) / halfH, 0f);
+                    GL.Vertex3(offX + (left - 1) / halfW, offY + (bottom - 1) / halfH, 0f);
+                    GL.End();
+                    GL.Uniform4(_shaderLocations.FadeColor, color.X, color.Y, color.Z, 1f);
+                }
                 GL.Begin(PrimitiveType.TriangleStrip);
                 GL.Vertex3(offX + right / halfW, offY + top / halfH, 0f);
                 GL.Vertex3(offX + left / halfW, offY + top / halfH, 0f);
@@ -4860,16 +4979,21 @@ namespace MphRead
                 const int segments = 40;
                 float inner = radius - thickness / 2;
                 float outer = radius + thickness / 2;
-                GL.Begin(PrimitiveType.TriangleStrip);
-                for (int i = 0; i <= segments; i++)
+                for (int pass = Mods.Render.VisualOptions.Current.CrosshairOutline ? 0 : 1; pass < 2; pass++)
                 {
-                    float angle = MathHelper.TwoPi * i / segments;
-                    float cos = MathF.Cos(angle);
-                    float sin = MathF.Sin(angle);
-                    GL.Vertex3(offX + outer * cos / halfW, offY + outer * sin / halfH, 0f);
-                    GL.Vertex3(offX + inner * cos / halfW, offY + inner * sin / halfH, 0f);
+                    float edge = pass == 0 ? 1 : 0;
+                    GL.Uniform4(_shaderLocations.FadeColor, pass == 0 ? 0 : color.X, pass == 0 ? 0 : color.Y, pass == 0 ? 0 : color.Z, 1f);
+                    GL.Begin(PrimitiveType.TriangleStrip);
+                    for (int i = 0; i <= segments; i++)
+                    {
+                        float angle = MathHelper.TwoPi * i / segments;
+                        float cos = MathF.Cos(angle);
+                        float sin = MathF.Sin(angle);
+                        GL.Vertex3(offX + (outer + edge) * cos / halfW, offY + (outer + edge) * sin / halfH, 0f);
+                        GL.Vertex3(offX + (inner - edge) * cos / halfW, offY + (inner - edge) * sin / halfH, 0f);
+                    }
+                    GL.End();
                 }
-                GL.End();
             }
             GL.Uniform4(_shaderLocations.FadeColor, Vector4.Zero);
         }
@@ -5161,7 +5285,7 @@ namespace MphRead
             float height = inst.Height;
             bool center = inst.Center;
             GL.Uniform1(_shaderLocations.LayerAlpha, inst.Alpha);
-            GL.Uniform1(_shaderLocations.UseMask, inst.UseMask ? 1 : 0);
+            GL.Uniform1(_shaderLocations.UseMask, inst.UseMask && _hudMaskActive ? 1 : 0);
             GL.BindTexture(TextureTarget.Texture2D, inst.BindingId);
             // Nearest, which is what the DS did and what every sprite in this
             // game is drawn for -- except the supersampled ones, whose texture
@@ -5375,10 +5499,7 @@ namespace MphRead
             if (item.HasTexture)
             {
                 GL.BindTexture(TextureTarget.Texture2D, item.TextureBindingId);
-                int minParameter = FilteringOn ? (int)TextureMinFilter.Linear : (int)TextureMinFilter.Nearest;
-                int magParameter = FilteringOn ? (int)TextureMagFilter.Linear : (int)TextureMagFilter.Nearest;
-                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, minParameter);
-                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, magParameter);
+                ApplyWorldFiltering(item.TextureBindingId);
                 switch (item.XRepeat)
                 {
                 case RepeatMode.Clamp:
@@ -5415,7 +5536,9 @@ namespace MphRead
             }
             GL.Uniform1(_shaderLocations.UseTexture, item.HasTexture && _showTextures ? 1 : 0);
             SetFlatColor(item.HasTexture && _showTextures ? item.TextureBindingId : -1);
-            Vector4? overrideColor = item.OverrideColor;
+            GL.Uniform1(_texturedPlayerSkinUniform, !_drawingPlayerOutlineMask && item.TexturedPlayerSkin
+                ? (Mods.RenderOptions.BrightSkinStyle == Mods.PlayerSkinStyle.HighContrastTextured ? 2 : 1) : 0);
+            Vector4? overrideColor = _drawingPlayerOutlineMask ? null : item.OverrideColor;
             if (overrideColor != null)
             {
                 Vector4 overrideColorValue = overrideColor.Value;
@@ -6073,7 +6196,7 @@ namespace MphRead
         {
             if (_keyboardState.IsKeyDown(Keys.LeftAlt) || _keyboardState.IsKeyDown(Keys.RightAlt))
             {
-                Selection.OnKeyHeld(_keyboardState);
+                if (!Mods.Network.DemoPlayback.IsActive) Selection.OnKeyHeld(_keyboardState);
                 return;
             }
             if (!AllowCameraMovement || _inputMode == InputMode.PlayerOnly)
@@ -6093,7 +6216,7 @@ namespace MphRead
                 {
                     _cameraPosition -= _cameraFacing * moveStep;
                 }
-                if (_keyboardState.IsKeyDown(Keys.Space)) // move up
+                if (_keyboardState.IsKeyDown(Mods.Network.DemoPlayback.IsActive ? Keys.E : Keys.Space)) // move up
                 {
                     _cameraPosition = _cameraPosition.WithY(_cameraPosition.Y + moveStep);
                 }
@@ -6716,15 +6839,7 @@ namespace MphRead
             UpdateFrequency = 0
         };
 
-        private static readonly NativeWindowSettings _nativeWindowSettings = new NativeWindowSettings()
-        {
-            ClientSize = new Vector2i(1280, 768),
-            Title = Mods.Branding.Name,
-            Profile = ContextProfile.Compatability,
-            Flags = ContextFlags.Default,
-            APIVersion = new Version(3, 2),
-            StartVisible = false
-        };
+        private static readonly NativeWindowSettings _nativeWindowSettings = Mods.Render.DesktopGlContext.Settings();
 
         /// <summary>
         /// The match, while there is one.
@@ -7075,6 +7190,7 @@ namespace MphRead
                     Mods.DebugLog.Line("window", $"glfw feature unavailable, ignored: {description}");
                     return;
                 }
+                Console.Error.WriteLine($"[window] GLFW {code}: {description}");
                 throw new GLFWException(description, code);
             };
             GLFW.SetErrorCallback(_glfwErrorCallback);
@@ -7161,6 +7277,7 @@ namespace MphRead
 
         protected override void OnLoad()
         {
+            Mods.Input.WindowsPenInput.Attach(this);
             // Not in the shell, which opens with no match in it: the scene is
             // loaded by LoadScene when one is started. The guard also covers
             // the ordinary path twice over, since a caller that has already
@@ -7209,6 +7326,13 @@ namespace MphRead
         protected override void OnRenderFrame(FrameEventArgs args)
         {
             ApplyFrameRateSettings();
+            if (Mods.Network.NetLaunch.TickTerminalLobby(this))
+            {
+                GL.Clear(ClearBufferMask.ColorBufferBit);
+                SwapBuffers();
+                base.OnRenderFrame(args);
+                return;
+            }
 #if MPHREAD_SHELL
             // The launcher and the in-game menus, which are screens in this
             // window rather than windows of their own: the shell starts and
@@ -7223,6 +7347,7 @@ namespace MphRead
                 // The launcher, with no match behind it. The pointer is the
                 // system's -- there is nobody to aim.
                 CursorState = CursorState.Normal;
+                Mods.Input.PointerDevice.Reset();
                 Mods.Render.UiOverlay.DrawAlone(FramebufferSize.X, FramebufferSize.Y);
                 // Before the swap: the back buffer holds this frame and
                 // nothing else does. Only -shellshot asks.
@@ -7241,6 +7366,18 @@ namespace MphRead
                 return;
             }
 #endif
+            if (Mods.Network.DemoPlayback.IsActive && Mods.Network.ReplayController.TakeRebuild(out uint target, out bool resume))
+            {
+                string path = Mods.Network.DemoPlayback.CurrentPath!;
+                EndScene();
+                Mods.Network.DemoPlayback.Stop();
+                Mods.SpectatorMode.Reset();
+                var plan = new Mods.Launcher.LaunchPlan { Kind = Mods.Launcher.LaunchKind.Demo, DemoPath = path };
+                if (!Mods.Launcher.MatchStart.Begin(this, new MenuSettings(), plan))
+                { EndOrClose(); return; }
+                Mods.Network.ReplayController.ContinueSeek(target, resume);
+                Mods.Render.FrameTiming.Reset();
+            }
             // The pause menu wants the pointer back, and so does the results
             // screen: its hunter picker is something you click, and a grabbed
             // cursor has no position on screen to click with.
@@ -7251,7 +7388,7 @@ namespace MphRead
             // the same reason the results screen is.
             CursorState = (Scene.CameraMode == CameraMode.Player || Scene.IsFreeCam) && !Scene.FrameAdvance
                 && !Mods.PauseMenu.Open && !Mods.EndScreen.Available
-                && !Mods.Input.StylusZone.Enabled && !Mods.Input.StylusZone.Placing
+                && !Mods.Input.PointerInput.StylusMode && !Mods.Input.StylusZone.Placing
                 && !Scene.ShowCursor && !GameState.DialogPause && !GameState.MenuPause
                 ? CursorState.Grabbed
                 : CursorState.Normal;
@@ -7266,10 +7403,11 @@ namespace MphRead
             // The DS bottom screen, if the player has marked one out. The
             // window's shape goes with it: the zone is given as a fraction of
             // the width and has to come out the DS's shape on screen.
-            Mods.Input.StylusZone.AspectCorrection = ClientSize.Y > 0
-                ? ClientSize.X / (float)ClientSize.Y : 16f / 9f;
-            Mods.Input.StylusZone.Update(pointerX, pointerY,
-                MouseState.IsButtonDown(MouseButton.Left));
+            var pointer = Mods.Input.WindowsPenInput.Read(MouseState, ClientSize.X, ClientSize.Y,
+                out bool independentPrimary);
+            Mods.Input.PointerDevice.Update(pointer, ClientSize.X, ClientSize.Y, independentPrimary,
+                acceptsInput: IsFocused && !Mods.PauseMenu.Open && !Mods.Chat.ChatBox.Composing
+                    && !GameState.MenuPause && !GameState.DialogPause && !Mods.EndScreen.Available);
             if (Mods.Input.StylusZone.Placing)
             {
                 Mods.Input.StylusZone.PlacementDrag(pointerX, pointerY);
@@ -7303,6 +7441,9 @@ namespace MphRead
             // scene because opening the menu is a window operation and the
             // window is this class -- the same reason the keyboard's Escape
             // is handled in OnKeyDown and not in the entity.
+            if (Mods.Chat.ChatBox.Composing && Mods.Input.GamepadInput.TakePress(
+                Mods.Input.GamepadButtons.B | Mods.Input.GamepadButtons.Start))
+                Mods.Chat.ChatBox.Cancel();
             if (Mods.Input.GamepadInput.TakeMenuPress()
                 && (Scene.CameraMode == CameraMode.Player || Scene.IsFreeCam))
             {
@@ -7317,6 +7458,7 @@ namespace MphRead
             {
                 Mods.Chat.ChatBox.Open(swallowOpeningChar: false);
             }
+            if (Mods.Network.ReplayController.IsSeeking) return;
             Scene.OnDrawFrame();
             if (!Scene.OnRenderFrame())
             {
@@ -7458,8 +7600,33 @@ namespace MphRead
             }
         }
 
+        protected override void OnJoystickConnected(JoystickEventArgs e)
+        {
+            Mods.Input.GamepadDesktop.DeviceChanged(e.JoystickId);
+            base.OnJoystickConnected(e);
+        }
+
+        protected override void OnFocusedChanged(FocusedChangedEventArgs e)
+        {
+            Mods.Input.GamepadContexts.Focused = e.IsFocused;
+            if (!e.IsFocused)
+            {
+                Mods.Input.GamepadManager.ClearAll();
+                Mods.Input.GamepadHaptics.Stop();
+            }
+            base.OnFocusedChanged(e);
+        }
+
         protected override void OnMouseDown(MouseButtonEventArgs e)
         {
+            Mods.Input.InputSourceTracker.Note(Mods.Input.InputSource.KeyboardMouse);
+            if (Mods.Network.DemoPlayback.IsActive && !Mods.PauseMenu.Open && e.Button == MouseButton.Right)
+            {
+                Mods.SpectatorMode.CyclePrevious();
+                Mods.Network.ReplayController.NoteInput();
+                return;
+            }
+
 #if MPHREAD_SHELL
             // A screen is up in this window -- the launcher, the pause menu,
             // the settings. It gets the whole of the input while it is, the
@@ -7547,6 +7714,8 @@ namespace MphRead
 
         protected override void OnMouseMove(MouseMoveEventArgs e)
         {
+            if (Math.Abs(e.DeltaX) + Math.Abs(e.DeltaY) > 2)
+                Mods.Input.InputSourceTracker.Note(Mods.Input.InputSource.KeyboardMouse);
 #if MPHREAD_SHELL
             // A screen is up in this window -- the launcher, the pause menu,
             // the settings. It gets the whole of the input while it is, the
@@ -7562,8 +7731,9 @@ namespace MphRead
 #endif
             // Filtered for the same reason the player's aim is: the free
             // camera is reached from a match, with the same pointer.
-            Scene.OnMouseMove(Mods.Input.PointerInput.Filter(e.DeltaX),
-                Mods.Input.PointerInput.Filter(e.DeltaY));
+            (float deltaX, float deltaY) = Scene.IsFreeCam
+                ? Mods.Input.PointerInput.Filter(e.DeltaX, e.DeltaY) : (e.DeltaX, e.DeltaY);
+            Scene.OnMouseMove(deltaX, deltaY);
             base.OnMouseMove(e);
         }
 
@@ -7637,6 +7807,7 @@ namespace MphRead
 
         protected override void OnKeyDown(KeyboardKeyEventArgs e)
         {
+            Mods.Input.InputSourceTracker.Note(Mods.Input.InputSource.KeyboardMouse);
 #if MPHREAD_SHELL
             // A screen is up in this window -- the launcher, the pause menu,
             // the settings. It gets the whole of the input while it is, the
@@ -7747,7 +7918,7 @@ namespace MphRead
                 string? clip = Mods.Network.DemoClip.Save();
                 if (clip != null)
                 {
-                    Mods.Chat.ChatBox.System($"saved the last {held:0} s to "
+                    Mods.Chat.ChatBox.System($"{(Mods.Network.DemoClip.IsSaving ? "saving" : "saved")} the last {held:0} s to "
                         + System.IO.Path.GetFileName(clip));
                 }
                 else
@@ -7771,8 +7942,18 @@ namespace MphRead
             // PlayerInput.ProcessInput -- so there is nothing this can
             // conflict with, and it is how a spectator gets back to the
             // overview they started in.
+            if (Mods.Replay.ReplayInput.HandleKey(e.Key))
+            {
+                base.OnKeyDown(e);
+                return;
+            }
+            if (Mods.Network.DemoPlayback.IsActive && e.Key != Keys.Escape)
+            {
+                base.OnKeyDown(e);
+                return;
+            }
             if (e.Key == Keys.Space
-                && (Mods.Network.DemoPlayback.IsActive || Mods.SpectatorMode.IsSpectating))
+                && Mods.SpectatorMode.IsSpectating)
             {
                 if (Mods.Network.DemoPlayback.IsActive)
                 {

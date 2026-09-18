@@ -54,6 +54,9 @@ namespace MphRead.Mods.Launcher.Gui
         private static LaunchPlan? _pending;
         private static bool _endMatch;
         private static bool _quit;
+        internal static bool OpenStudioOnStart { get; set; }
+        private static MapGen.MapDefinition? _studioPreview;
+        internal static void PrepareStudioPreview(MapGen.MapDefinition definition) => _studioPreview = definition;
 
         /// <summary>
         /// Open the window and run until the player quits.
@@ -142,6 +145,9 @@ namespace MphRead.Mods.Launcher.Gui
                 window.Close();
                 return;
             }
+            if (window.HasScene && NetSession.PersistentLobby && NetSession.IsInLobby && !_endMatch)
+                EndNetworkMatchToLobby(window);
+            if (window.HasScene && (NetSession.Refused || NetSession.SessionTimedOut)) _endMatch = true;
             if (_endMatch)
             {
                 _endMatch = false;
@@ -218,6 +224,7 @@ namespace MphRead.Mods.Launcher.Gui
                 Hunters.Reroll();
                 _front = new StartScreen(_settings, _rooms);
                 _front.Done += (_, plan) => Decided(plan);
+                _front.MatchRequested += (_, plan) => Decided(plan);
             }
             else
             {
@@ -228,6 +235,11 @@ namespace MphRead.Mods.Launcher.Gui
                 _front.Reset();
             }
             surface.Show(_front);
+            if (OpenStudioOnStart)
+            {
+                OpenStudioOnStart = false;
+                _front.OpenMapStudio();
+            }
         }
 
         private static void Decided(LaunchPlan plan)
@@ -281,13 +293,21 @@ namespace MphRead.Mods.Launcher.Gui
 
         private static void StartMatch(RenderWindow window, LaunchPlan plan)
         {
+            if (_studioPreview != null)
+            {
+                Metadata.RegisterStudioPreview(_studioPreview);
+                _studioPreview = null;
+            }
             _played = plan;
+            _front?.SuspendLobby();
             UiSurface.Current?.Hide();
             try
             {
                 if (!MatchStart.Begin(window, _settings, plan))
                 {
-                    ShowFrontScreen();
+                    if (NetLaunch.LoadReturnedToLobby) { EndNetworkMatchToLobby(window); return; }
+                    NetSession.ReportMatchLoadFailed("The map could not be loaded.");
+                    EndMatch(window);
                 }
             }
             catch (Exception ex)
@@ -304,10 +324,16 @@ namespace MphRead.Mods.Launcher.Gui
                 Mods.DebugLog.Exception("crash", ex);
                 // Back to the front screen rather than out of the program: a
                 // map that will not load is a reason to pick another one.
-                window.EndScene();
-                MatchStart.AfterMatch();
-                ShowFrontScreen();
+                NetSession.ReportMatchLoadFailed(ex.Message);
+                EndMatch(window);
             }
+        }
+
+        private static void EndNetworkMatchToLobby(RenderWindow window)
+        {
+            CloseMenu(); window.EndScene(); MatchStart.AfterMatch();
+            NetSession.ResetMatchState(); PauseMenu.Reset();
+            if (_front != null) { UiSurface.Current?.Show(_front); _front.ResumeLobby(); }
         }
 
         private static void EndMatch(RenderWindow window)
@@ -449,6 +475,7 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         internal static void AfterDraw(RenderWindow window)
         {
+            Diagnostics.LauncherWindowCheck.AfterDraw(window);
             if (_shotDirectory == null)
             {
                 return;
@@ -700,8 +727,30 @@ namespace MphRead.Mods.Launcher.Gui
 
         public static void KeyDown(KeyboardKeyEventArgs e)
         {
+            if (IsRomPasteShortcut(e.Key, e.Control, e.Command, e.Alt,
+                OperatingSystem.IsMacOS()) && _window != null)
+            {
+                try
+                {
+                    if (UiSurface.Current?.PasteRomPath(_window.ClipboardString) == true)
+                    {
+                        return;
+                    }
+                }
+                catch (Exception)
+                {
+                    if (UiSurface.Current?.PasteRomPath(null) == true)
+                    {
+                        return;
+                    }
+                }
+            }
             UiSurface.Current?.KeyDown(e.Key, Modifiers(e));
         }
+
+        internal static bool IsRomPasteShortcut(Keys key, bool control,
+            bool command, bool alt, bool macOS) => key == Keys.V && !alt
+                && (macOS ? command : control);
 
         public static void KeyUp(KeyboardKeyEventArgs e)
         {

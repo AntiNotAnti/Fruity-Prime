@@ -62,15 +62,15 @@ namespace MphRead.Mods.Launcher.Gui
         {
             _shape = shape;
             Label = label;
-            Height = 34;
+            Height = UiMetrics.ControlHeight;
             Focusable = true;
             Cursor = new Cursor(StandardCursorType.Hand);
         }
 
         private FormattedText Caption(IBrush brush)
         {
-            return new FormattedText(Label.ToUpperInvariant(), CultureInfo.InvariantCulture,
-                FlowDirection.LeftToRight, GuiTheme.Face(bold: true), LabelSize, brush);
+            return new FormattedText(UiText.Sentence(Label), CultureInfo.InvariantCulture,
+                FlowDirection.LeftToRight, GuiTheme.Face(bold: true), LabelSize * UiMetrics.TextFactor, brush);
         }
 
         protected override Size MeasureOverride(Size availableSize)
@@ -161,6 +161,7 @@ namespace MphRead.Mods.Launcher.Gui
 
         public override void Render(DrawingContext context)
         {
+            using var opacity = context.PushOpacity(IsEffectivelyEnabled ? 1 : UiMetrics.DisabledOpacity);
             context.FillRectangle(Brushes.Transparent,
                 new Rect(0, 0, Bounds.Width, Bounds.Height));
             bool lit = (IsPointerOver || IsFocused) && IsEnabled;
@@ -174,7 +175,12 @@ namespace MphRead.Mods.Launcher.Gui
             };
             double cy = Bounds.Height / 2;
             double half = Glyph / 2;
-            if (_shape == Shape.Accept)
+            if (Mods.Input.InputSourceTracker.Current == Mods.Input.InputSource.Gamepad && _shape is Shape.Accept or Shape.Cancel)
+            {
+                var prompt = Mods.Input.InputPrompt.For(_shape == Shape.Accept ? Mods.Input.UiAction.Accept : Mods.Input.UiAction.Back);
+                GamepadGlyph.Draw(context, new Rect(0, cy-half, Glyph, Glyph), prompt.Button, pen.Brush!);
+            }
+            else if (_shape == Shape.Accept)
             {
                 // A tick: down to the low point, then up and out past it.
                 context.DrawLine(pen, new Point(half - 7, cy + 1), new Point(half - 2, cy + 6));
@@ -201,11 +207,13 @@ namespace MphRead.Mods.Launcher.Gui
             }
             if (Label.Length == 0)
             {
+                UiMetrics.DrawFocus(context, this);
                 return;
             }
             FormattedText caption = Caption(new SolidColorBrush(colour));
             context.DrawText(caption,
                 new Point(Glyph + Gap, (Bounds.Height - caption.Height) / 2));
+            UiMetrics.DrawFocus(context, this);
         }
     }
 }

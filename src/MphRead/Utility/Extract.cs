@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using CommunityToolkit.HighPerformance.Buffers;
 using NCSFCommon.NC;
 using NCSFCommon.ReplayGain;
+using MphRead.Mods.Launcher;
 
 namespace MphRead
 {
@@ -78,18 +79,20 @@ namespace MphRead
                 newPath = Path.GetFullPath(Paths.Combine("files", rootName));
             }
             Paths.SetPath(rootName, newPath);
+            string pathsDirectory = Path.GetDirectoryName(Path.GetFullPath("paths.txt"))!;
+            string Stored(string key) => RomPaths.ToStoredPath(key, Paths.AllPaths[key], pathsDirectory);
             var lines = new List<string>();
             lines.Add(Program.Version.ToString());
-            lines.Add($"{Ver.AMFE0}={Paths.AllPaths[Ver.AMFE0]}");
-            lines.Add($"{Ver.AMFP0}={Paths.AllPaths[Ver.AMFP0]}");
-            lines.Add($"{Ver.A76E0}={Paths.AllPaths[Ver.A76E0]}");
-            lines.Add($"{Ver.AMHE0}={Paths.AllPaths[Ver.AMHE0]}");
-            lines.Add($"{Ver.AMHE1}={Paths.AllPaths[Ver.AMHE1]}");
-            lines.Add($"{Ver.AMHP0}={Paths.AllPaths[Ver.AMHP0]}");
-            lines.Add($"{Ver.AMHP1}={Paths.AllPaths[Ver.AMHP1]}");
-            lines.Add($"{Ver.AMHJ0}={Paths.AllPaths[Ver.AMHJ0]}");
-            lines.Add($"{Ver.AMHJ1}={Paths.AllPaths[Ver.AMHJ1]}");
-            lines.Add($"{Ver.AMHK0}={Paths.AllPaths[Ver.AMHK0]}");
+            lines.Add($"{Ver.AMFE0}={Stored(Ver.AMFE0)}");
+            lines.Add($"{Ver.AMFP0}={Stored(Ver.AMFP0)}");
+            lines.Add($"{Ver.A76E0}={Stored(Ver.A76E0)}");
+            lines.Add($"{Ver.AMHE0}={Stored(Ver.AMHE0)}");
+            lines.Add($"{Ver.AMHE1}={Stored(Ver.AMHE1)}");
+            lines.Add($"{Ver.AMHP0}={Stored(Ver.AMHP0)}");
+            lines.Add($"{Ver.AMHP1}={Stored(Ver.AMHP1)}");
+            lines.Add($"{Ver.AMHJ0}={Stored(Ver.AMHJ0)}");
+            lines.Add($"{Ver.AMHJ1}={Stored(Ver.AMHJ1)}");
+            lines.Add($"{Ver.AMHK0}={Stored(Ver.AMHK0)}");
             lines.Add($"Export={Paths.AllPaths["Export"]}");
             File.WriteAllText("paths.txt", String.Join(Environment.NewLine, lines));
             Nop();

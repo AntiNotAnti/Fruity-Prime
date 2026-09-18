@@ -1,8 +1,10 @@
+using MphRead.Mods.Multiplayer;
 using System;
 using System.Diagnostics;
 using MphRead.Effects;
 using MphRead.Formats;
 using MphRead.Formats.Culling;
+using MphRead.Mods.Render;
 using OpenTK.Mathematics;
 
 namespace MphRead.Entities
@@ -36,6 +38,8 @@ namespace MphRead.Entities
         private Node _baseNode = null!;
         private Node _baseNodeParent = null!;
         private ModelInstance _altIceModel = null!;
+        private Vector4? _brightSkin;
+        private Vector4? _outlineColor;
 
         public HalfturretEntity(PlayerEntity owner, Scene scene) : base(EntityType.Halfturret, scene)
         {
@@ -182,7 +186,7 @@ namespace MphRead.Entities
                     float minDistSqr = 15 * 15;
                     foreach (PlayerEntity player in _scene.GetPlayerEntities())
                     {
-                        if (player == Owner || player.Health == 0 || player.TeamIndex == Owner.TeamIndex || player.CurAlpha < 6 / 31f)
+                        if (player == Owner || player.Health == 0 || TeamRules.AreAllies(player.TeamIndex, Owner.TeamIndex) || player.CurAlpha < 6 / 31f)
                         {
                             continue;
                         }
@@ -403,7 +407,11 @@ namespace MphRead.Entities
             }
             model.UpdateMatrixStack();
             UpdateMaterials(inst, Recolor);
+            _brightSkin = _health > 0 && PaletteOverride == null ? BrightSkins.GetColor(Owner) : null;
+            _outlineColor = _health > 0 && _freezeTimer == 0 && PaletteOverride == null ? BrightSkins.GetOutlineColor(Owner) : null;
             GetDrawItems(inst, 0);
+            _brightSkin = null;
+            _outlineColor = null;
             PaletteOverride = null;
             if (_freezeTimer > 0)
             {
@@ -416,6 +424,23 @@ namespace MphRead.Entities
                 _useRoomLights = false;
             }
         }
+
+        protected override Vector4? GetRenderColor(ModelInstance inst, int index, Material material)
+        {
+            if (inst == _models[0] && _brightSkin.HasValue && PaletteOverride == null)
+            {
+                return BrightSkins.ForMaterial(_brightSkin, material.TextureId != -1,
+                    material.CurrentAlpha * Alpha, _scene.ShowTextures);
+            }
+            return base.GetRenderColor(inst, index, material);
+        }
+
+        protected override Vector4? GetPlayerOutlineColor(ModelInstance inst)
+            => inst == _models[0] && PaletteOverride == null ? _outlineColor : null;
+
+        protected override bool UseTexturedPlayerSkin(ModelInstance inst)
+            => inst == _models[0] && _brightSkin.HasValue
+                && Mods.RenderOptions.BrightSkinStyle != Mods.PlayerSkinStyle.Solid;
 
         protected override int? GetBindingOverride(ModelInstance inst, Material material, int index)
         {

@@ -1,5 +1,13 @@
 # Known gaps — claims not yet verified
 
+- **Controller camera assistance: automated coverage only.** The controller/aim
+  branch implements deterministic selection, visibility gates, bounded rotation,
+  friction and head refinement. Physical USB/Bluetooth/Android tests and
+  controller-versus-mouse balance testing were explicitly deferred by the user.
+  Initial tuning is not evidence of competitive parity. Local combat telemetry
+  confirms damage only on an authority; client prediction is not confirmed-hit
+  telemetry. See [AIM-ASSIST.md](AIM-ASSIST.md).
+
 What's below is unproven or partially proven, not broken. Say so rather than
 claiming coverage that isn't there.
 
@@ -128,21 +136,15 @@ claiming coverage that isn't there.
   with damage it did not deal, and it is a one-word fix (`NoSlot`) whenever
   that file is next touched.
 
-- **With the server as the authority, nobody gets the snapshot-based form
-  correction any more.** `NetPlayerBridge` reconciles a puppet's alt form
-  against `IntentButtons.AltFormState` only on the authority -- deliberately,
-  because a client doing it as well would take corrections from the owner's
-  intent and the authority's snapshot at once. When the authority was a
-  player, that player's own view of everybody was corrected; now the authority
-  is not a player, so every client converges by replaying presses alone.
-  Measured against the Pi with 150 ms injected on two of three clients, this
-  shows up as one client reporting a remote player in the wrong form for 78
-  consecutive frames. It is **not new** -- the relay control does not report
-  it only because the client that would have is the authority and is exempt
-  from the check -- but it is now everybody's. Whether clients can safely
-  reconcile form from the snapshot once the authority is not a player is an
-  open question, and one to settle with `run-remote-lag.sh` rather than by
-  reasoning. See `.claude/multiplayer/NETWORK-SERVERAUTH.md`.
+- **Live validation of snapshot-based form reconciliation remains.** The
+  authority now reconciles from the owner's intent and each client from the
+  authority's snapshot, with a transition-aware guard for stale state. The
+  prior Pi run with 150 ms injected on two of three clients found a remote
+  puppet wrong for 78 consecutive frames; that predates this change. The
+  deterministic form test covers morph and unmorph at 150 and 300 ms, but a
+  restart-free `run-remote-lag.sh` run is still needed to measure real packet
+  timing and whether any visual bounce remains. See
+  `.claude/multiplayer/NETWORK-DIAGNOSTICS.md`.
 - **The damage pipeline's `Replayed` count reads zero for one slot on one
   client, and the reason is not established.** Measured against Japan,
   2026-09-09, four two-client runs: the first client's slot carries the same
@@ -167,20 +169,19 @@ claiming coverage that isn't there.
   the reports from before this work, and it is the long-standing
   `damage-taken` mismatch in `NETWORK-DIAGNOSTICS.md` (17 against 7) seen from
   another angle.
-- **A continuous weapon does not resolve the same hits on two machines, and
-  nothing here makes it.** The Shock Coil's damage is divided by 32 and
-  dithered off `scene.FrameCount`, so the frame parity that produces a damaging
-  hit is a property of each machine's own counter: measured against Japan, the
-  authority landed 131 hits where the client that fired them resolved 28. The
-  totals are near enough that nobody notices the damage, and the *count* is
-  what `NetHitPrediction.Confirm` retires predictions by -- so one snapshot
-  retires everything outstanding and the hold collapses. The visible symptom,
-  a victim's health bar climbing back up when the trigger is released, is now
-  covered by the shown-health floor in `HealthFor`
-  (`.claude/multiplayer/NETWORK-PREDICTION.md`), but that is a floor on what is
-  *drawn*. The two machines still disagree about which frames landed a hit, and
-  making them agree -- dithering off a clock both sides share, or sending the
-  count rather than deriving it -- has not been attempted.
+- **Continuous-weapon hit agreement still needs a real network measurement.**
+  Shock Coil's old `scene.FrameCount` dither differed on each machine: the
+  authority landed 131 hits where the client that fired them resolved 28 in a
+  Japan run. Spawn now derives one phase from the owner's `NetFrame` or a
+  per-slot clock seeded from `IntentPacket.Frame + RemoteIntentAge` on a remote
+  machine. The remote clock advances through a held stream without re-anchoring
+  to packets that arrive late, and the phase is used for
+  ammo, damage and the homing ramp. The beam retains that phase for its enemy
+  hit gate. Invalid or stale intents and offline play use scene timing. This
+  removes the independent clock parity from fresh intents; it does not prove
+  that both simulations acquire the same target or process every hit. The
+  shown-health floor in `HealthFor` still covers the visible rebound while
+  network hit counts are measured again (`.claude/multiplayer/NETWORK-PREDICTION.md`).
 - **The scoreboard crash reported in bot matches is not reproduced here, and
   is therefore not fixed.** Reported from a phone, 2026-09-06: *"in bot matches
   the game still sometimes crashes when trying to view the scoreboard."* The
@@ -198,15 +199,12 @@ claiming coverage that isn't there.
   close this is a debug log from the phone it happens on: the render thread
   already catches and prints the whole exception (`GameView.Run`), so the
   stack is one switch away.
-- **The raw gamepad fallback has never been held against a real unmapped
-  pad.** `GamepadLayout`'s two shapes are written from the layouts SDL's own
-  database uses for them, and the mapping-file path
-  (`gamecontrollerdb.txt`, `SDL_GAMECONTROLLERCONFIG`) is exercised only by
-  code inspection: this box has no `/dev/uinput` to fake a third pad with, and
-  the virtual-pad recipe in `GAMEPAD.md` needs root. What is proven is that a
-  mapped pad still takes the mapped path, since that code is unchanged. When a
-  player reports buttons in the wrong places, `-gamepad` prints the mapping
-  line to correct rather than a shrug.
+- **Physical controller validation is still pending.** The shared controller
+  regression harness covers device switching, analog processing, binding capture,
+  settings migration and menu navigation. The mapped and raw platform readers,
+  USB/Bluetooth reconnects, Android motion profiles and actual rumble still need
+  the hardware matrix in `GAMEPAD.md`. Use `-gamepad -verbose` to inspect the
+  connected device and its current game bindings before changing a mapping.
 - **Disruption over the wire is implemented and unmeasured.** `FlagBurning`
   was measured crossing (255 frames on the victim's own machine against the
   authority's 299, Kanden vs Spire, 70 s); `FlagDisrupted` is the same
@@ -246,7 +244,7 @@ claiming coverage that isn't there.
   under its GL), so "Escape opens the pause menu over a running match" is
   proven on the menu's side (flags, windows, the pump) and unproven on the
   game's.
-- **macOS is cross-compiled and unrun.** See `.claude/launcher/LAUNCHER-OVERVIEW.md`.
+- **macOS interactive gameplay and Finder/Gatekeeper launch need manual verification.** Native CI now checks signed startup on both architectures; see `.claude/build-deploy/MACOS.md`.
 - **The Android match runs on an emulator; how it *looks* there proves
   nothing.** With the game files copied onto the device, an emulator (API 30,
   x86_64, software CPU and SwiftShader) has been driven front screen → offline

@@ -64,7 +64,7 @@ namespace MphRead.Mods.Network
             {
                 string safe = string.Concat(clientName.Select(c =>
                     char.IsLetterOrDigit(c) ? c : '_'));
-                string path = Path.Combine(AppContext.BaseDirectory, $"netlog-{safe}.txt");
+                string path = Path.Combine(Platform.AppPaths.UserDataDirectory, $"netlog-{safe}.txt");
                 _writer = new StreamWriter(path, append: false) { AutoFlush = true };
                 Enabled = true;
                 Line($"=== MphRead net log for \"{clientName}\" ===");
@@ -179,6 +179,13 @@ namespace MphRead.Mods.Network
                 // what makes an otherwise healthy remote player invisible.
                 line.Append($"form={p.ModFormState(),-24} ");
                 line.Append($"nodeRef={DescribeNodeRef(p)} ");
+                var health = NetHudHealth.Sample(p);
+                line.Append($"health slot={p.SlotIndex} generation={NetPlayerLifecycle.Generation(p.SlotIndex)} life={NetPlayerLifecycle.Get(p.SlotIndex)} authorityHP={(health.Authoritative ? health.Health.ToString() : "unknown")} entityHP={p.Health} hpFrame={health.SnapshotFrame} snapshotAge={NetSession.SnapshotAge} {NetHitPrediction.HealthDetails(p.SlotIndex)} ");
+                if (NetSession.RemoteStateValid[p.SlotIndex])
+                {
+                    var state = NetSession.RemoteStates[p.SlotIndex];
+                    line.Append($"lastDamageEvent={state.DamageEventId} lastAttacker={state.AttackerSlot} ");
+                }
                 // Whether the engine will call Process on this player at all.
                 // A slot can be occupied, active and flagged correctly and
                 // still be absent from the scene's entity list, in which case

@@ -21,7 +21,7 @@ namespace MphRead.Mods.Launcher.Gui
     /// has no left and right arrow keys and the strip is the only way to
     /// change face there.
     /// </summary>
-    internal sealed class UiTabs : StackPanel
+    internal sealed class UiTabs : WrapPanel
     {
         /// <summary>Raised after <see cref="Index"/> has already moved.</summary>
         public event EventHandler? Changed;
@@ -45,29 +45,25 @@ namespace MphRead.Mods.Launcher.Gui
             }
         }
 
+        internal void Select(string name)
+        {
+            int index = _words.FindIndex(word => word.Text == name);
+            if (index >= 0) Index = index;
+        }
+
         public UiTabs(IReadOnlyList<string> names, int index = 0)
         {
             Orientation = Orientation.Horizontal;
-            Spacing = 10;
+
             VerticalAlignment = VerticalAlignment.Center;
             _index = names.Count == 0 ? 0 : Math.Clamp(index, 0, names.Count - 1);
 
             Children.Add(Arrow(pointsLeft: true, () => Step(-1)));
             for (int i = 0; i < names.Count; i++)
             {
-                if (i > 0)
-                {
-                    Children.Add(new TextBlock
-                    {
-                        Text = "\u00b7",
-                        FontFamily = GuiTheme.Display,
-                        FontSize = UiLayout.WordSize,
-                        Foreground = GuiTheme.EdgeBrush,
-                        VerticalAlignment = VerticalAlignment.Center
-                    });
-                }
-                var word = new UiWord(names[i].ToUpperInvariant(), UiLayout.WordSize,
+                var word = new UiWord(names[i], UiMetrics.BodyText,
                     colour: GuiTheme.TextDim);
+                word.Margin = new Thickness(6, 4);
                 int target = i;
                 word.Click += (_, _) => Index = target;
                 _words.Add(word);

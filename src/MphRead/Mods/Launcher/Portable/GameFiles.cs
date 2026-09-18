@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Reflection;
 using System.Text;
 
 namespace MphRead.Mods.Launcher
@@ -24,15 +25,15 @@ namespace MphRead.Mods.Launcher
     public static class GameFiles
     {
         /// <summary>
-        /// Where paths.txt sits. The directory the program was started from
-        /// everywhere but Android, where the package's own directory is
+        /// Where paths.txt sits: Application Support on macOS, beside the
+        /// executable on Windows/Linux. Android's package directory is
         /// read-only and the files a player copies onto the device land
         /// somewhere else entirely -- the head sets this before the first
         /// screen is built, the same way it does LauncherPrefs.Directory.
         /// Whoever sets it must also make it the working directory, since
         /// upstream's Paths reads paths.txt relative to that.
         /// </summary>
-        public static string Root { get; set; } = AppContext.BaseDirectory;
+        public static string Root { get; set; } = Platform.AppPaths.UserDataDirectory;
 
         private static string PathsFile => Path.Combine(Root, "paths.txt");
 
@@ -108,9 +109,8 @@ namespace MphRead.Mods.Launcher
         /// Extract a .nds ROM into files this build can load.
         ///
         /// Returns true when paths.txt exists and points somewhere real
-        /// afterwards -- the child's exit code says nothing useful, because
-        /// upstream's setup reports a bad ROM by printing and waiting for a
-        /// key rather than by failing.
+        /// afterwards and the child did not fail. A zero exit alone is not
+        /// enough: upstream can also report setup failures on its console.
         /// </summary>
         public static bool RunSetup(string romPath, Action<string> report)
         {
@@ -147,21 +147,35 @@ namespace MphRead.Mods.Launcher
             };
             // One argument, no switches: that is the form upstream's setup
             // recognises, and it is what dragging a ROM onto the exe produces.
-            info.ArgumentList.Add(romPath);
             try
             {
+                // A framework-dependent launch runs inside dotnet, whose first
+                // argument must be the managed entry point rather than the ROM.
+                if (Path.GetFileNameWithoutExtension(exe).Equals("dotnet",
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    // This branch cannot run in a bundled single-file app.
+#pragma warning disable IL3000
+                    string? assembly = Assembly.GetEntryAssembly()?.Location;
+#pragma warning restore IL3000
+                    if (String.IsNullOrEmpty(assembly))
+                    {
+                        report("Could not find the MphRead assembly for extraction.");
+                        return false;
+                    }
+                    info.ArgumentList.Add(assembly);
+                }
+                info.ArgumentList.Add(romPath);
                 using Process? child = Process.Start(info);
                 if (child == null)
                 {
                     report("Could not start the extraction.");
                     return false;
                 }
-                var output = new StringBuilder();
                 child.OutputDataReceived += (_, e) =>
                 {
                     if (e.Data != null)
                     {
-                        output.AppendLine(e.Data);
                         report(e.Data);
                     }
                 };
@@ -169,7 +183,6 @@ namespace MphRead.Mods.Launcher
                 {
                     if (e.Data != null)
                     {
-                        output.AppendLine(e.Data);
                         report(e.Data);
                     }
                 };
@@ -192,6 +205,14 @@ namespace MphRead.Mods.Launcher
                 {
                     child.Kill(entireProcessTree: true);
                     report("The extraction took too long and was stopped.");
+                    return false;
+                }
+                // Drain asynchronous output before reading the result. Existing
+                // paths must never turn a failed extraction into a success.
+                child.WaitForExit();
+                if (child.ExitCode != 0)
+                {
+                    report($"The extraction failed with exit code {child.ExitCode}.");
                     return false;
                 }
             }

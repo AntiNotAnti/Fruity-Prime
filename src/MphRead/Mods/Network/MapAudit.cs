@@ -26,7 +26,7 @@ namespace MphRead.Mods.Network
     ///
     /// Usage: -maptest "MP3 PROVING GROUND" [-players 8] [-seconds 10]
     /// </summary>
-    public sealed class MapAudit : GameWindow
+    public sealed partial class MapAudit : GameWindow
     {
         private readonly string _room;
         private readonly int _players;
@@ -209,6 +209,9 @@ namespace MphRead.Mods.Network
         /// which drawing must never do. Any value but 0 is a failure.
         /// </summary>
         private int _drawAdvancedTheGame;
+        private int _lockjawTrailChecks;
+        private int _lockjawTrailMismatches;
+        private int _lockjawDrawRngChanges;
 
         private static GameWindowSettings GameSettings() => new() { UpdateFrequency = 60 };
 
@@ -317,7 +320,9 @@ namespace MphRead.Mods.Network
                 Hunter hunter = i == 0 && MainHunter.HasValue
                     ? MainHunter.Value
                     : (Hunter)(i % 7);
-                Scene.AddPlayer(hunter, recolor: 0, team: -1);
+                int team = GameState.IsTeamMode(mode)
+                    ? Math.Min(i, players - 1 - i) % (TeamProbe ? 4 : 2) : -1;
+                Scene.AddPlayer(hunter, recolor: 0, team: team);
             }
             for (int i = 0; i < PlayerEntity.Players.Count; i++)
             {
@@ -331,7 +336,8 @@ namespace MphRead.Mods.Network
             }
             PlayerEntity.PlayerCount = players;
             PlayerEntity.MainPlayerIndex = 0;
-            Scene.AddRoom(room, mode, playerCount: NetLaunch.RoomPlayerCount);
+            GameState.TeamCount = GameState.IsTeamMode(mode) ? TeamProbe ? 4 : 2 : 0;
+            Scene.AddRoom(room, mode, playerCount: Math.Clamp(players, 2, 4));
         }
 
         protected override void OnLoad()
@@ -352,12 +358,26 @@ namespace MphRead.Mods.Network
             Scene.OnSimulationFrame();
             ulong frameCountBefore = Scene.FrameCount;
             int draws = Math.Max(1, DrawRate);
+            (ulong Signature, int TrailCount) previousTrail = default;
             for (int i = 0; i < draws; i++)
             {
                 Scene.OnDrawFrame();
                 if (!Scene.OnRenderFrame())
                 {
                     return;
+                }
+                if (DrawRate > 1)
+                {
+                    var trail = Scene.ModLockjawTrailSignature();
+                    if (i > 0 && (trail.TrailCount > 0 || previousTrail.TrailCount > 0))
+                    {
+                        _lockjawTrailChecks++;
+                        if (trail != previousTrail)
+                        {
+                            _lockjawTrailMismatches++;
+                        }
+                    }
+                    previousTrail = trail;
                 }
                 if (i < draws - 1)
                 {
@@ -368,6 +388,7 @@ namespace MphRead.Mods.Network
                     Scene.AfterRenderFrame();
                 }
             }
+            _lockjawDrawRngChanges = BombEntity.ModLockjawDrawRngChanges;
             // The one invariant this whole feature rests on: drawing does not
             // advance the game. If a draw ever writes back to the world, the
             // frame counter is where it shows up first.
@@ -1270,6 +1291,11 @@ namespace MphRead.Mods.Network
 
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
+            if (TeamProbe)
+            {
+                _teamProbeProblems.AddRange(RunTeamProbe());
+                CaptureTeamResults();
+            }
             Scene.DoCleanup();
             base.OnClosing(e);
         }
@@ -1384,13 +1410,28 @@ namespace MphRead.Mods.Network
             {
                 Console.WriteLine($"FRAMETIMING {_room} | {DrawRate} draws per step"
                     + $" | {_frame} steps, {Scene.FrameCount} counted"
-                    + $" | draws advancing the game: {_drawAdvancedTheGame}");
+                    + $" | draws advancing the game: {_drawAdvancedTheGame}"
+                    + $" | active Lockjaw trail checks: {_lockjawTrailChecks}"
+                    + $" | trail mismatches: {_lockjawTrailMismatches}"
+                    + $" | Lockjaw GetDrawInfo RNG changes: {_lockjawDrawRngChanges}");
+                if (_lockjawTrailMismatches > 0)
+                {
+                    Console.WriteLine($"MAPFAIL {_room} | Lockjaw trail geometry changed between"
+                        + $" draws of the same simulation step ({_lockjawTrailMismatches} mismatches)");
+                }
+                if (_lockjawDrawRngChanges > 0)
+                {
+                    Console.WriteLine($"MAPFAIL {_room} | Lockjaw GetDrawInfo changed"
+                        + $" global RNG during {_lockjawDrawRngChanges} draw(s)");
+                }
             }
+            int lockjawFailures = (_lockjawTrailMismatches > 0 ? 1 : 0)
+                + (_lockjawDrawRngChanges > 0 ? 1 : 0);
 
             if (_itemProbe)
             {
                 Console.WriteLine($"ITEMSWEEP {_room} | {_itemSpots.Count} pickup(s) photographed");
-                return 0;
+                return lockjawFailures;
             }
 
             if (_renderProbe)
@@ -1402,7 +1443,7 @@ namespace MphRead.Mods.Network
                     Console.WriteLine($"MAPFAIL {_room} | {_spawnFailures} of {_spawnSpots.Count} "
                         + "spawn point(s) end in a frame with no room in it");
                 }
-                return _spawnFailures;
+                return _spawnFailures + lockjawFailures;
             }
 
             var problems = new List<string>();
@@ -1487,7 +1528,8 @@ namespace MphRead.Mods.Network
             {
                 Console.WriteLine($"MAPFAIL {_room} | {problem}");
             }
-            return problems.Count;
+            if (TeamProbe) problems.AddRange(_teamProbeProblems);
+            return problems.Count + lockjawFailures;
         }
 
         /// <summary>
@@ -1508,7 +1550,14 @@ namespace MphRead.Mods.Network
             bool bots = false, string? shotDirectory = null, bool renderProbe = false,
             bool allNodes = false, bool itemProbe = false)
         {
+            if (TeamProbe && (players != 8 || !GameState.IsTeamMode(mode) || mode == GameMode.Capture))
+            {
+                Console.WriteLine("MAPFAIL teamprobe requires eight players and a supported team mode");
+                return 1;
+            }
             MapAudit? window = null;
+            BombEntity.ModLockjawDrawRngChanges = 0;
+            BombEntity.ModAuditLockjawDrawRng = DrawRate > 1;
             try
             {
                 window = new MapAudit(room, Math.Clamp(players, 1, PlayerEntity.SlotCapacity),
@@ -1536,6 +1585,7 @@ namespace MphRead.Mods.Network
             }
             finally
             {
+                BombEntity.ModAuditLockjawDrawRng = false;
                 window?.Dispose();
             }
         }

@@ -193,6 +193,10 @@ namespace MphRead.Entities
                         if (targetTeleporter != null)
                         {
                             targetTeleporter.SetTriggered();
+                            if (IsMainPlayer)
+                            {
+                                _scene.NoteRenderLifecycle("respawn requested");
+                            }
                             Spawn(targetTeleporter.Position, targetTeleporter.FacingVector,
                                 targetTeleporter.UpVector, targetTeleporter.NodeRef, respawn: true);
                             if (GameState.TransitionAltForm)
@@ -223,6 +227,10 @@ namespace MphRead.Entities
                             {
                                 Vector3 facing = targetDoor.FacingVector;
                                 Vector3 position = targetDoor.Position + facing * 2;
+                                if (IsMainPlayer)
+                                {
+                                    _scene.NoteRenderLifecycle("respawn requested");
+                                }
                                 Spawn(position, facing, targetDoor.UpVector, targetDoor.NodeRef, respawn: true);
                             }
                         }
@@ -248,7 +256,8 @@ namespace MphRead.Entities
                                 }
                             }
                         }
-                        if (GameState.SinglePlayer || Controls.Shoot.IsDown || time <= 0 || IsBot
+                        if (GameState.SinglePlayer || Controls.Shoot.IsDown
+                            || Mods.Network.NetPlayerBridge.RespawnRequested(SlotIndex) || time <= 0 || IsBot
                             || Mods.Network.NetHooks.ForceSpawn(this)) // todo: or forced
                         {
                             // todo?: something with wi-fi
@@ -257,6 +266,10 @@ namespace MphRead.Entities
                             if (respawn != null)
                             {
                                 Vector3 position = ForcedSpawnPos ?? respawn.Position;
+                                if (IsMainPlayer)
+                                {
+                                    _scene.NoteRenderLifecycle("respawn requested");
+                                }
                                 Spawn(position, respawn.FacingVector, respawn.UpVector, respawn.NodeRef, respawn: true);
                             }
                         }
@@ -812,6 +825,10 @@ namespace MphRead.Entities
             {
                 UpdateAnimFrames(_altModel);
             }
+            if (Hunter == Hunter.Spire && Flags2.TestFlag(PlayerFlags2.AltAttack))
+            {
+                UpdateSpireAltCollisionPose();
+            }
             if (_boostEffect != null)
             {
                 _boostEffect.Transform(_gunVec2, _facingVector, Position);
@@ -1290,6 +1307,7 @@ namespace MphRead.Entities
             distSqr *= distSqr;
             foreach (ItemInstanceEntity item in _scene.GetItemInstanceEntities())
             {
+                if (!Mods.Network.NetHealthSync.OwnsPickup(item) || item.DespawnTimer == 0) continue;
                 bool inRange = false;
                 if (IsAltForm)
                 {
@@ -1800,6 +1818,23 @@ namespace MphRead.Entities
                 _modelTransform = GetTransformMatrix(new Vector3(_field80, 0, _field84), Vector3.UnitY);
             }
         }
+
+        private void AnimateSpireAltAttack()
+        {
+            Matrix4 transform = GetTransformMatrix(_spireAltFacing, _spireAltUp);
+            _altModel.Model.AnimateNodes(index: 0, useNodeTransform: false, transform, Vector3.One, _altModel.AnimInfo);
+        }
+
+        private void UpdateSpireAltCollisionPose()
+        {
+            // Keep collision pose advancing even when no draw pass runs.
+            AnimateSpireAltAttack();
+            _spireRockPosL = _spireAltNodes[0]!.Animation.Row3.Xyz + Position;
+            _spireRockPosR = _spireAltNodes[1]!.Animation.Row3.Xyz + Position;
+        }
+
+        internal (Vector3 Left, Vector3 Right) ModSpireAltCollisionPose()
+            => (_spireRockPosL, _spireRockPosR);
 
         private void UpdateStinglarvaSegments()
         {

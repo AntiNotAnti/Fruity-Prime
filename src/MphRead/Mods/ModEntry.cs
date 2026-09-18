@@ -33,6 +33,80 @@ namespace MphRead.Mods
         /// </summary>
         public static bool TryHandleHeadless(string[] args)
         {
+#if !ANDROID && !MPHREAD_SERVER
+            if (OperatingSystem.IsMacOS())
+            {
+                // OpenTK defaults to Apple's system framework on macOS,
+                // not the OpenAL Soft library shipped beside our executable.
+                OpenTK.Audio.OpenAL.OpenALLibraryNameContainer.OverridePath =
+                    System.IO.Path.Combine(Platform.AppPaths.ExecutableDirectory, "libopenal.1.dylib");
+            }
+#endif
+#if MPHREAD_SHELL
+            if (HasFlag(args, "glfwpathcheck"))
+            {
+                Environment.ExitCode = Diagnostics.GlfwPathCheck.Run();
+                return true;
+            }
+            if (HasFlag(args, "thumbnailwindowcheck"))
+            {
+                Environment.ExitCode = Diagnostics.ThumbnailWindowCheck.Run(HasFlag(args, "legacyglcheck"));
+                return true;
+            }
+            if (HasFlag(args, "windowcheck"))
+            {
+                Environment.ExitCode = Diagnostics.LauncherWindowCheck.Run();
+                return true;
+            }
+#endif
+            if (HasFlag(args, "smoketest"))
+            {
+                Environment.ExitCode = Diagnostics.CompatibilityCheck.Run();
+                return true;
+            }
+            if (HasFlag(args, "replayformatcheck"))
+            {
+                Environment.ExitCode = Network.ReplayFormatCheck.Run();
+                return true;
+            }
+            if (ValueAfter(args, "replayvalidate") is string validatePath)
+            {
+                var result = Network.ReplayArchive.Validate(validatePath);
+                Console.WriteLine($"[replayvalidate] {result}");
+                Environment.ExitCode = result == Network.ReplayOpenResult.Success ? 0 : 1;
+                return true;
+            }
+            if (ValueAfter(args, "replayrecover") is string recoverPath)
+            {
+                bool recovered = Network.ReplayArchive.Recover(recoverPath, out string? output, out var result);
+                Console.WriteLine($"[replayrecover] {result}: {output}");
+                Environment.ExitCode = recovered ? 0 : 1;
+                return true;
+            }
+            if (HasFlag(args, "replaycontrolcheck"))
+            {
+                Environment.ExitCode = Network.ReplayControlCheck.Run();
+                return true;
+            }
+
+            if (HasFlag(args, "netlobbytest"))
+            {
+                Environment.ExitCode = NetLobbyTest.Run();
+                return true;
+            }
+#if MPHREAD_AVALONIA
+            if (ValueAfter(args, "lobbyshot") is string lobbyShot)
+            {
+                Environment.ExitCode = RunLobbyCapture(lobbyShot);
+                return true;
+            }
+#endif
+            if (HasFlag(args, "altformcheck"))
+            {
+                Environment.ExitCode = Testing.TestPlayer.CheckAltForms();
+                return true;
+            }
+
             // Keys and mouse feel, before anything creates a player. Called
             // here because this runs for every invocation, launcher or not.
             InputSettings.Load();
@@ -44,13 +118,85 @@ namespace MphRead.Mods
             // on for a single run without the setting, for the case where the
             // launcher itself is what will not start.
             Launcher.LauncherPrefs.Load();
-            if (HasFlag(args, "debuglog"))
+            if (HasFlag(args, "debuglog") || HasFlag(args, "respawnrendercheck"))
             {
                 DebugLog.Force();
             }
             DebugLog.Attach();
+            if (OperatingSystem.IsMacOS()) { Diagnostics.PlatformDiagnostics.Start(); }
             Update.Updater.Disabled = HasFlag(args, "noupdate");
             ApplyRenderOverrides(args);
+
+            // Screen captures use synthetic rows and need no extracted game
+            // files. Keep the UI regression harness ahead of CheckSetup.
+#if MPHREAD_AVALONIA
+            if (ValueAfter(args, "uimatrix") is string matrixDirectory)
+            {
+                Environment.ExitCode = Launcher.Gui.UiCapture.RunMatrix(matrixDirectory);
+                return true;
+            }
+#endif
+            string? uiShot = ValueAfter(args, "uishot");
+            if (uiShot != null)
+            {
+                Environment.ExitCode = RunUiCapture(uiShot, HasFlag(args, "browseronly"));
+                return true;
+            }
+
+            // Arithmetic and cosmetic-noise checks need no extracted game files.
+            if (HasFlag(args, "frametimingcheck"))
+            {
+                Environment.ExitCode = Render.FrameTimingCheck.Run();
+                return true;
+            }
+
+            // This diagnostic needs assets, but must not apply/clean updates
+            // or enter any of the launcher/network command paths.
+            if (HasFlag(args, "respawnrendercheck"))
+            {
+                Update.Updater.Disabled = true;
+                return false;
+            }
+
+            if (HasFlag(args, "brightskinscheck"))
+            {
+                Environment.ExitCode = Testing.TestBrightSkins.Run();
+                return true;
+            }
+            if (HasFlag(args, "pointercheck"))
+            {
+                Environment.ExitCode = Input.PointerCheck.Run();
+                return true;
+            }
+
+
+            Input.AimAssist.AimAssistDebug.Enabled = HasFlag(args, "gamepadassistdebug");
+            Input.AimAssist.AimAssistDebug.UnassistedArm = HasFlag(args, "gamepadassistbaseline");
+            Input.AimAssist.AimAssistTelemetry.Configure(ValueAfter(args, "gamepadassisttelemetry"));
+
+            if (HasFlag(args, "gamepadcheck"))
+            {
+                Environment.ExitCode = Input.GamepadChecks.Run(ValueAfter(args, "shots"));
+                return true;
+            }
+            if (HasFlag(args, "gamepad"))
+            {
+                double seconds = 15;
+                string? given = ValueAfter(args, "seconds");
+                if (given != null && Double.TryParse(given, out double parsed) && parsed > 0)
+                {
+                    seconds = parsed;
+                }
+                Environment.ExitCode = Input.GamepadProbe.Run(seconds, HasFlag(args, "verbose"));
+                return true;
+            }
+#if !ANDROID
+            if (HasFlag(args, "playeroutlinecheck"))
+            {
+                Environment.ExitCode = Scene.RunPlayerOutlineCheck();
+                return true;
+            }
+#endif
 
             // The copying half of a desktop update, which is this build
             // started by the *previous* one. First, and before anything reads
@@ -80,10 +226,13 @@ namespace MphRead.Mods
                     relaunch);
                 return true;
             }
-            // Whatever the last update left behind. Here rather than in the
-            // copying process, which cannot delete the directory it is running
-            // from, and cheap when there is nothing there.
-            Update.DesktopUpdate.Clean();
+            // Diagnostics must leave staged updates alone; ordinary startup
+            // cleans them after the apply-update path above has returned.
+            if (!HasFlag(args, "spireposecheck")
+                && !(ValueAfter(args, "simcheck") != null && HasFlag(args, "formcheck")))
+            {
+                Update.DesktopUpdate.Clean();
+            }
             // And the desktop's own installer, unless a platform head has
             // already put its own in place.
             Update.UpdateInstall.UseDesktopIfPossible();
@@ -105,6 +254,19 @@ namespace MphRead.Mods
             {
                 Console.WriteLine($"[net] -netloss {netLoss} is not a percentage");
                 return true;
+            }
+            foreach (var option in new (string Name, Func<string?, bool> Configure)[]
+            {
+                ("netjitter", Network.NetLag.ConfigureJitter), ("netseed", Network.NetLag.ConfigureSeed),
+                ("netreorder", Network.NetLag.ConfigureReorder), ("netduplicate", Network.NetLag.ConfigureDuplicate)
+            })
+            {
+                string? value = ValueAfter(args, option.Name);
+                if (value != null && !option.Configure(value))
+                {
+                    Console.WriteLine($"[net] invalid -{option.Name} value: {value}");
+                    return true;
+                }
             }
             if (Network.NetLag.Active)
             {
@@ -223,17 +385,9 @@ namespace MphRead.Mods
             // is predicted whatever this says, and this does not turn it off:
             // there is nothing to disagree about when the source, the target
             // and the input are all on this machine.
-            if (HasFlag(args, "deathprediction"))
+            if (HasFlag(args, "deathprediction") || HasFlag(args, "nodeathprediction"))
             {
-                Network.NetHitPrediction.DeathEnabled = true;
-                Console.WriteLine("[net] death prediction on: a client's "
-                    + "kills land the frame it lands them");
-            }
-            if (HasFlag(args, "nodeathprediction"))
-            {
-                Network.NetHitPrediction.DeathEnabled = false;
-                Console.WriteLine("[net] death prediction off: a client's "
-                    + "kills land when the authority says so");
+                Console.WriteLine("[net] remote death waits for authority; self-death remains predicted");
             }
 
             // A client declaring which of its own shots landed, and the
@@ -294,6 +448,35 @@ namespace MphRead.Mods
                     System.IO.Path.Combine(ConsoleSetup.LaunchDirectory, mapDir));
             }
 
+            foreach (string command in new[] { "mapvalidate", "mapinspect" })
+            {
+                if (HasFlag(args, command))
+                {
+                    Environment.ExitCode = MapGen.MapCommands.Run(command, ValueAfter(args, command), ValueAfter(args, "out"));
+                    return true;
+                }
+            }
+
+            if (HasFlag(args, "mapstudio"))
+            {
+#if MPHREAD_SHELL
+                Launcher.Gui.Shell.OpenStudioOnStart = true;
+                Launcher.Gui.Shell.Run();
+#else
+                Console.WriteLine("[mapeditor] Map Studio requires a desktop game build.");
+                Environment.ExitCode = 1;
+#endif
+                return true;
+            }
+#if MPHREAD_SHELL
+            if(ValueAfter(args,"mapstudioshot") is {} studioShots)
+            {
+                Environment.ExitCode=Launcher.Gui.MapStudioScreen.Capture(System.IO.Path.GetFullPath(
+                    System.IO.Path.Combine(ConsoleSetup.LaunchDirectory,studioShots)));
+                return true;
+            }
+#endif
+
             // Cooking a bundle is here, before the game-file check, for the
             // reason the dedicated server is: it reads a recipe, the level
             // beside it and the textures baked from it, and touches no
@@ -307,17 +490,17 @@ namespace MphRead.Mods
                 string? outPath = ValueAfter(args, "out");
                 int cooked = 0;
                 int failed = 0;
-                foreach (MapGen.MapDefinition def in MapGen.CustomRooms.Definitions)
+                foreach (MapGen.MapDefinition def in MapGen.CustomRooms.CreateCatalog().Refresh(false)
+                    .Where(entry=>entry.Definition!=null).Select(entry=>entry.Definition!))
                 {
                     if (which != null && !which.Equals(def.Name, StringComparison.OrdinalIgnoreCase)
                         && !which.Equals("all", StringComparison.OrdinalIgnoreCase))
                     {
                         continue;
                     }
-                    if (def.SourcePath == null || def.BundlePath != null || def.Import == null)
+                    if (def.SourcePath == null || def.BundlePath != null)
                     {
-                        // Already a bundle, or a map that builds from its own
-                        // description and has no level to carry.
+                        // Build packages from editable sources, including native maps.
                         continue;
                     }
                     try
@@ -333,8 +516,8 @@ namespace MphRead.Mods
                 }
                 if (cooked == 0 && failed == 0)
                 {
-                    Console.WriteLine("No map to bundle. A bundle is cooked from a recipe and the "
-                        + $"level it converts; put both in {MapGen.CustomRooms.MapDirectory}.");
+                    Console.WriteLine($"No matching editable map source in {MapGen.CustomRooms.MapDirectory}.");
+                    failed++;
                 }
                 Environment.ExitCode = failed == 0 ? 0 : 1;
                 return true;
@@ -591,14 +774,16 @@ namespace MphRead.Mods
                 maxPlayers = parsedPlayers;
             }
 
-            // Rotation file lives beside the executable, the way a Quake 3
-            // server keeps its config next to the binary.
+            // Rotation follows writable user data: beside the executable on
+            // Windows/Linux, outside the signed application on macOS.
             string rotationPath = ValueAfter(args, "rotation")
-                ?? System.IO.Path.Combine(AppContext.BaseDirectory, "maprotation.txt");
+                ?? System.IO.Path.Combine(Platform.AppPaths.UserDataDirectory, "maprotation.txt");
             MapRotation rotation = MapRotation.LoadOrCreate(rotationPath);
 
             var server = new Network.DedicatedServer(port, maxPlayers, rotation)
             {
+                SessionPolicy = HasFlag(args, "lobby") ? Network.ServerSessionPolicy.Lobby : Network.ServerSessionPolicy.Continuous,
+                OwnerToken = Guid.TryParse(ValueAfter(args, "ownertoken"), out var ownerToken) ? ownerToken : Guid.Empty,
                 ServerName = ValueAfter(args, "servername") ?? ValueAfter(args, "name")
                     ?? Environment.MachineName,
                 FriendlyFire = HasFlag(args, "friendlyfire"),
@@ -868,6 +1053,15 @@ namespace MphRead.Mods
 
         public static bool TryHandle(string[] args)
         {
+            if (HasFlag(args, "respawnrendercheck"))
+            {
+                Environment.ExitCode = Render.RespawnRenderCheck.Run(
+                    ValueAfter(args, "respawnrendercheck"),
+                    HasFlag(args, "cycles") ? ValueAfter(args, "cycles") ?? "" : null,
+                    HasFlag(args, "timeout") ? ValueAfter(args, "timeout") ?? "" : null, HasFlag(args, "quality"));
+                return true;
+            }
+
             (int width, int height) = ParseSize(args);
 
             // Custom maps are registered as rooms from their JSON at startup,
@@ -922,23 +1116,18 @@ namespace MphRead.Mods
                 return true;
             }
 
-            // What a connected pad is doing, with no match in the way. The
-            // only way to tell "not connected" from "connected but not
-            // mapped" from "the dead zone is eating it" apart.
-            if (HasFlag(args, "gamepad"))
-            {
-                double seconds = 15;
-                string? given = ValueAfter(args, "seconds");
-                if (given != null && Double.TryParse(given, out double parsed) && parsed > 0)
-                {
-                    seconds = parsed;
-                }
-                Environment.ExitCode = Input.GamepadProbe.Run(seconds);
-                return true;
-            }
-
             // The multiplayer room list, one per line, so a shell loop can
             // walk every map without hard-coding the names.
+            if (HasFlag(args, "resourceaudit"))
+            {
+                Environment.ExitCode = Multiplayer.ResourceAudit.Run();
+                return true;
+            }
+            if (ValueAfter(args, "healthsimtest") is string healthRoom)
+            {
+                Environment.ExitCode = HealthSimulationTest.Run(healthRoom);
+                return true;
+            }
             if (HasFlag(args, "rooms"))
             {
                 foreach (string room in ThumbnailGenerator.MultiplayerRooms())
@@ -989,6 +1178,11 @@ namespace MphRead.Mods
             // textures come out of the player's own extracted files, so this
             // has to run here rather than at build time, and what ships in the
             // repository is the JSON, never the .bin.
+            if (HasFlag(args, "mapbuild"))
+            {
+                Environment.ExitCode = MapGen.MapCommands.Run("mapbuild", ValueAfter(args, "mapbuild"), ValueAfter(args, "out"));
+                return true;
+            }
             if (HasFlag(args, "mapgen"))
             {
                 string? only = ValueAfter(args, "mapgen");
@@ -1068,7 +1262,7 @@ namespace MphRead.Mods
                 {
                     Environment.ExitCode = MapGen.Q3Convert.Run(q3Convert, ValueAfter(args, "map"),
                         ValueAfter(args, "name"), ValueAfter(args, "out"), HasFlag(args, "noclip"),
-                        scale, textureSize);
+                        HasFlag(args, "noitems"), scale, textureSize);
                 }
                 catch (Exception ex)
                 {
@@ -1087,22 +1281,43 @@ namespace MphRead.Mods
                 return true;
             }
 
+            // Everything wrong with a map's collision, said before it is
+            // generated: the format's limits, faces that reject their own
+            // interior, what hurts, and every drawn surface with nothing solid
+            // behind it. Since collision is something a person edits by hand
+            // now, and none of those look like anything in a 3D tool.
+            string? mapCheck = ValueAfter(args, "mapcheck");
+            if (mapCheck != null)
+            {
+                Environment.ExitCode = MapGen.MapCheck.Run(mapCheck);
+                return true;
+            }
+
+            // What pickups a level already holds, as the "items" block a
+            // recipe would carry. The level's own were always imported
+            // silently; this is what lets an author write them down, turn
+            // keepItems off, and own them. Reads and prints -- a recipe can
+            // carry comments and is nobody's to rewrite.
+            string? mapItems = ValueAfter(args, "mapitems");
+            if (mapItems != null)
+            {
+                float? itemScale = null;
+                if (Single.TryParse(ValueAfter(args, "scale"), System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out float parsedItemScale)
+                    && parsedItemScale > 0)
+                {
+                    itemScale = parsedItemScale;
+                }
+                Environment.ExitCode = MapGen.MapReport.ListItems(mapItems, ValueAfter(args, "map"), itemScale);
+                return true;
+            }
+
             // List a room's materials, with the texture each one uses, so a
             // map can say which of them it wants to borrow.
             string? mapMaterials = ValueAfter(args, "mapmaterials");
             if (mapMaterials != null)
             {
                 Environment.ExitCode = MapGen.MapReport.ListMaterials(mapMaterials);
-                return true;
-            }
-
-            // Pictures of the launcher's own screens, rendered without a
-            // window. The one part of this program that could not be looked at
-            // from a headless box.
-            string? uiShot = ValueAfter(args, "uishot");
-            if (uiShot != null)
-            {
-                Environment.ExitCode = RunUiCapture(uiShot);
                 return true;
             }
 
@@ -1129,9 +1344,28 @@ namespace MphRead.Mods
                 return true;
             }
 
-            if (HasFlag(args, "frametimingcheck"))
+            string? combatCheck = ValueAfter(args, "netcombatcheck");
+            string? aimWorldCheck = ValueAfter(args, "gamepadaimworldcheck");
+            if (aimWorldCheck != null)
             {
-                Environment.ExitCode = Render.FrameTimingCheck.Run();
+                Environment.ExitCode = Input.AimAssist.AimAssistWorldChecks.Run(aimWorldCheck);
+                return true;
+            }
+            if (combatCheck != null)
+            {
+                Environment.ExitCode = Network.NetCombatCheck.Run(combatCheck);
+                return true;
+            }
+            string? spirePoseCheck = ValueAfter(args, "spireposecheck");
+            if (spirePoseCheck != null)
+            {
+                Environment.ExitCode = Network.SpireAltPoseCheck.Run(spirePoseCheck);
+                return true;
+            }
+
+            if (HasFlag(args, "brightskinscheckassets"))
+            {
+                Environment.ExitCode = Testing.TestBrightSkins.Run(assets: true);
                 return true;
             }
 
@@ -1163,7 +1397,7 @@ namespace MphRead.Mods
                     simMode = parsedSimMode;
                 }
                 Environment.ExitCode = Network.ServerSimCheck.Run(simCheck, simPlayers,
-                    simSeconds, simMode);
+                    simSeconds, simMode, formCheck: HasFlag(args, "formcheck"));
                 return true;
             }
 
@@ -1193,6 +1427,7 @@ namespace MphRead.Mods
                 // target every other capture reads, so seeing it needs a real
                 // window and a read from its buffer.
                 Network.MapAudit.ShowWindow = HasFlag(args, "hudshots");
+                Network.MapAudit.TeamProbe = HasFlag(args, "teamprobe");
                 // -hunter H puts that hunter in slot 0, whose HUD every
                 // capture is taken through. Each of the eight lays its
                 // readouts out differently, so a HUD picture with no hunter
@@ -1468,7 +1703,7 @@ namespace MphRead.Mods
                 }
                 Environment.ExitCode = Network.NetCheckClient.Run(check, ParsePort(args),
                     ParseName(args), ParseHunter(args), seconds, shots, width, height,
-                    recordDemo: HasFlag(args, "recorddemo"),
+                    recordDemo: (HasFlag(args, "recordreplay") || HasFlag(args, "recorddemo")),
                     spectateAt: spectateAt, rejoinAt: rejoinAt,
                     // -recolor N is a suit, and the harness needs to be able to
                     // ask for one: two clients asking for the same suit on the
@@ -1477,9 +1712,21 @@ namespace MphRead.Mods
                 return true;
             }
 
+#if MPHREAD_AVALONIA
+            if (ValueAfter(args, "replayshot") is string replayShots && ValueAfter(args, "demo") is string replayFile)
+            {
+                Environment.ExitCode = Launcher.Gui.UiCapture.RunReplay(replayShots, replayFile);
+                return true;
+            }
+#endif
+            if (ValueAfter(args, "replaydeterminism") is string replayPath)
+            {
+                Environment.ExitCode = Network.ReplayDeterminism.Run(replayPath, ValueAfter(args, "replayhashout"));
+                return true;
+            }
             // What a recorded match actually contains. Reads the file and
             // nothing else -- no room, no window, no game files.
-            string? demoInfo = ValueAfter(args, "demoinfo");
+            string? demoInfo = ValueAfter(args, "replayinfo") ?? ValueAfter(args, "demoinfo");
             if (demoInfo != null)
             {
                 Environment.ExitCode = Network.DemoInfo.Print(demoInfo,
@@ -1755,12 +2002,12 @@ namespace MphRead.Mods
         /// </summary>
         [System.Runtime.CompilerServices.MethodImpl(
             System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-        private static int RunUiCapture(string directory)
+        private static int RunUiCapture(string directory, bool browserOnly)
         {
 #if MPHREAD_AVALONIA
             try
             {
-                return Launcher.Gui.UiCapture.Run(directory);
+                return Launcher.Gui.UiCapture.Run(directory, browserOnly);
             }
             catch (Exception ex)
             {
@@ -1772,6 +2019,11 @@ namespace MphRead.Mods
             return 1;
 #endif
         }
+
+#if MPHREAD_AVALONIA
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static int RunLobbyCapture(string directory) => Launcher.Gui.UiCapture.RunLobby(directory);
+#endif
 
         /// <summary>
         /// The layout studies: `-uidesign DIR`. Same shape as the capture

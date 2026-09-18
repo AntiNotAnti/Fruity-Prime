@@ -200,6 +200,8 @@ namespace MphRead.Droid
         {
             Instance = this;
             base.OnCreate(savedInstanceState);
+            GamepadBridge.Start(this);
+            MphRead.Mods.Input.GamepadContexts.MenuVisible = true;
             // The desktop builds missing map binaries from ModEntry.TryHandle;
             // this head has no Main for that to live in. Off the UI thread:
             // it reads the extracted game files and writes three binaries per
@@ -500,6 +502,13 @@ namespace MphRead.Droid
         /// controls away for it would be taking them away from a phone with a
         /// pad in a drawer. See <c>GamepadInput.InUse</c>.
         /// </summary>
+        public override bool DispatchTouchEvent(MotionEvent? e)
+        {
+            if (e?.ActionMasked == MotionEventActions.Down)
+                MphRead.Mods.Input.InputSourceTracker.Note(MphRead.Mods.Input.InputSource.Touch);
+            return base.DispatchTouchEvent(e);
+        }
+
         public override bool DispatchGenericMotionEvent(MotionEvent? e)
         {
             if (GamepadBridge.HandleMotion(e))
@@ -525,6 +534,8 @@ namespace MphRead.Droid
         public override void OnWindowFocusChanged(bool hasFocus)
         {
             base.OnWindowFocusChanged(hasFocus);
+            MphRead.Mods.Input.GamepadContexts.Focused = hasFocus;
+            if (!hasFocus) GamepadBridge.Clear();
             if (hasFocus)
             {
                 GoImmersive(true);
@@ -548,6 +559,7 @@ namespace MphRead.Droid
             // to shut itself down on its own thread, which is what
             // Scene.DoCleanup does at the end of the loop.
             _gameView?.Stop();
+            GamepadBridge.Stop();
             base.OnDestroy();
         }
 
@@ -589,6 +601,7 @@ namespace MphRead.Droid
         /// <summary>Load what the plan asks for and hand the screen to it.</summary>
         internal void StartMatch(LaunchPlan plan)
         {
+            AndroidApp.Home?.SuspendLobby();
             if (_content == null || InMatch)
             {
                 return;
@@ -760,6 +773,7 @@ namespace MphRead.Droid
             if (_launcherView != null)
             {
                 _launcherView.Visibility = ViewStates.Visible;
+                MphRead.Mods.Input.GamepadContexts.MenuVisible = true;
             }
             AndroidApp.Home?.Reset();
             Window?.ClearFlags(WindowManagerFlags.KeepScreenOn);
@@ -780,6 +794,7 @@ namespace MphRead.Droid
             if (_launcherView != null)
             {
                 _launcherView.Visibility = ViewStates.Gone;
+                MphRead.Mods.Input.GamepadContexts.MenuVisible = false;
             }
             if (note != null)
             {
@@ -964,6 +979,7 @@ namespace MphRead.Droid
             if (_launcherView != null)
             {
                 _launcherView.Visibility = ViewStates.Visible;
+                MphRead.Mods.Input.GamepadContexts.MenuVisible = true;
             }
             GoImmersive(true);
             AndroidApp.Home?.ShowPauseMenu(ClosePauseMenu, EndMatch, () => Finish());
@@ -979,6 +995,7 @@ namespace MphRead.Droid
             if (_launcherView != null)
             {
                 _launcherView.Visibility = ViewStates.Gone;
+                MphRead.Mods.Input.GamepadContexts.MenuVisible = false;
             }
             if (_gameView != null)
             {
@@ -996,7 +1013,9 @@ namespace MphRead.Droid
         }
 
         /// <summary>Back to the front screen.</summary>
-        internal void EndMatch()
+        internal void EndMatch() => EndMatchCore(false);
+        internal void EndMatchToLobby() => EndMatchCore(true);
+        private void EndMatchCore(bool keepSession)
         {
             if (_content == null)
             {
@@ -1032,13 +1051,21 @@ namespace MphRead.Droid
             if (_launcherView != null)
             {
                 _launcherView.Visibility = ViewStates.Visible;
+                MphRead.Mods.Input.GamepadContexts.MenuVisible = true;
             }
             // The desktop builds a fresh front screen each time round its loop;
             // this one is the same object across a match, so it is told the
             // match is over rather than left believing it already answered.
-            AndroidApp.Home?.Reset();
-            NetSession.Stop();
-            NetHostSession.Stop();
+            if (keepSession)
+            {
+                NetSession.ResetMatchState();
+                AndroidApp.Home?.ResumeLobby();
+            }
+            else
+            {
+                NetSession.Stop(); NetHostSession.Stop();
+                AndroidApp.Home?.Reset();
+            }
             // A demo feeds NetSession from a file rather than a socket, so
             // stopping the session is not what closes it.
             DemoPlayback.Stop();

@@ -44,6 +44,8 @@
     <AssemblyName>FruityPrime</AssemblyName>
     <AssemblyName Condition="'$(MphReadServer)' == 'true' and $(RuntimeIdentifier.StartsWith('win'))">FruityPrimeServer</AssemblyName>
     <Product>Fruity Prime</Product>
+    <!-- A local build must not masquerade as the SDK's default 1.0.0 release. -->
+    <InformationalVersion Condition="'$(InformationalVersion)' == ''">local</InformationalVersion>
     <RootNamespace>MphRead</RootNamespace>
     <!-- Not the same question as "has no launcher": a server build is shipped
          with no game files and no way to get any, which is why it answers a
@@ -168,7 +170,7 @@
     <MphReadAudioRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</MphReadAudioRid>
     <MphReadAudioRid Condition="'$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('Windows'))">win-x64</MphReadAudioRid>
     <MphReadAudioRid Condition="'$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('Linux'))">linux-x64</MphReadAudioRid>
-    <MphReadAudioRid Condition="'$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('OSX'))">osx-x64</MphReadAudioRid>
+    <MphReadAudioRid Condition="'$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('OSX'))">$(NETCoreSdkRuntimeIdentifier)</MphReadAudioRid>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(MphReadServer)' != 'true' and $(MphReadAudioRid.StartsWith('win'))">
@@ -194,6 +196,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="gamecontrollerdb.txt;gamecontrollerdb.LICENSE" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Update="paths.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
@@ -216,7 +222,7 @@
        publishes. -->
   <ItemGroup>
     <!-- What ships: the bundles, and any map file loose at the top of maps/. -->
-    <None Include="..\..\maps\**\*.fpmap;..\..\maps\*.json;..\..\maps\*.bsp;..\..\maps\*.tex" Link="maps\%(RecursiveDir)%(Filename)%(Extension)">
+    <None Include="..\..\maps\**\*.fpmap;..\..\maps\*.json;..\..\maps\*.bsp;..\..\maps\*.tex;..\..\maps\*.obj" Link="maps\%(RecursiveDir)%(Filename)%(Extension)">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <!-- What a map is worked on as: a folder holding the recipe, somebody
@@ -225,8 +231,8 @@
          package carrying the folder as well as the bundle would carry the
          same map twice, one copy of it naming a .pk3 that is deliberately not
          there. -->
-    <None Include="..\..\maps\**\*.json;..\..\maps\**\*.bsp;..\..\maps\**\*.tex;..\..\maps\**\*.pk3"
-          Exclude="..\..\maps\*.json;..\..\maps\*.bsp;..\..\maps\*.tex"
+    <None Include="..\..\maps\**\*.json;..\..\maps\**\*.bsp;..\..\maps\**\*.tex;..\..\maps\**\*.pk3;..\..\maps\**\*.obj;..\..\maps\**\*.mtl"
+          Exclude="..\..\maps\*.json;..\..\maps\*.bsp;..\..\maps\*.tex;..\..\maps\*.obj"
           Link="maps\%(RecursiveDir)%(Filename)%(Extension)">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>Never</CopyToPublishDirectory>

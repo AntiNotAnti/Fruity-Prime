@@ -1,35 +1,23 @@
 # Launcher — settings
 
-Details about the settings window: layout, saving, and key toggles.
-It is `Mods/Launcher/Gui/SettingsWindow.cs`, and it is the same window on every
-platform and from both places that open it (the front screen, and the pause menu
-during a match).
+`Mods/Launcher/Gui/SettingsView.cs` is the same centered, scrollable surface
+in the launcher and pause menu, hosted in the existing GLFW window on desktop.
+Wrapped tabs remain above the page; Cancel and Save remain below its scroller.
 
-Layout
-
-- A rail of sections down the left -- Display, Audio, Controls, Match rules,
-  Launcher, Features, Cheats, Bugfixes -- and one page at a time on the right.
-- The selected section is marked with the accent on its bar and label
-  (`MenuEntry.Selected`), which is deliberately not the same as the hover fill:
-  "this is where you are" and "this is what the pointer is over" are two
-  different things.
-- Rows stretch to the page: Avalonia measures them with the width the panel
-  gives them, so nothing here needs the manual pass the WinForms window did.
-  The page's inset is its own `Margin` and not the `ScrollViewer`'s `Padding`,
-  which is not taken off the measured width.
-- The footer's button says **Save and close** from the launcher and **Apply**
-  from a match.
-
-Sections
-
-| Section | What is on it |
+| Section | Controls |
 |---|---|
 | Display | window mode; performance (render scale, lighting, fog, filtering, FPS counter, **frame rate**); cel shading; **Pro mode HUD**, which is the whole of the HUD question now, plus the two crosshair rows that appear under it |
 | Audio | sound-effect and music volume; the game's text language |
-| Controls | mouse sensitivity, invert either axis, and every key binding, plus reset to defaults; and a **Gamepad** section -- on/off, look sensitivity, stick dead zone, invert the stick's vertical aim. Its own section rather than more rows under Mouse, because a pad has its own sensitivity and a great many people invert one of the two and not the other. `.claude/GAMEPAD.md` |
+| Controls | Mouse and keyboard settings; controller selection, live stick/trigger/button test, family labels, independent stick calibration/sensitivity, curves, inversion, southpaw, trigger actuation, vibration, primary/secondary bindings, conflicts, modifier combinations, direct/last weapon shortcuts, scoped sensitivity, wheel setup, profiles and guided calibration/mapping. See `.claude/GAMEPAD.md`. |
 | Match rules | point goal, time limit, damage level, team play, friendly fire, hunter radar, affinity weapons, **shadow freeze**. The last is the Judicator ice wave's cone: on is the cartridge, glitch and all, and off makes it a cone rather than a column of infinite height. Server-decided in a networked match, like friendly fire, and broadcast in the match state -- what is set here is what a *hosted* game hands its own server |
 | Launcher | your name, hunter and **suit colour**, the default server, the server directory, and whether to check for updates. These live in `launcher.txt`, not `settings.json`. The suit is 1-4 (the last two of a hunter's six palettes are the team suits) and is announced with the hunter; two players who pick the same one on the same hunter are moved apart by `PlayerColors`. Answering either of those two rows during a match takes effect at the next respawn, exactly like the pause menu's own pair |
 | Features / Cheats / Bugfixes | every `public static bool` on those three classes, by reflection, so the list cannot drift |
+
+Controller presets retain focus and refresh binding labels while preserving aim
+calibration. Manual binding edits select Custom. Controller input on a supported
+keyboard action opens its controller binding without changing the keyboard key.
+Conflicts initially select Swap; swapping preserves Primary/Secondary positions.
+See `.claude/GAMEPAD.md` for capture controls and mapping diagnostics.
 
 Saving and applying
 
@@ -48,11 +36,22 @@ Saving and applying
 
 Notable toggles
 
+- **Player skins** under HUD and accessibility / Visibility offers Off, Textured (brightened
+  original textures), High contrast textured (strong suit/team tint with texture
+  detail), and Solid (flat identifying color). **Player outline**
+  independently offers Off, Team color, and Bright red, with 1–8 px thickness.
+  Team outlines use red in FFA. Both features default off and Save/Apply takes
+  effect immediately. The options persist in `launcher.txt`; old enabled
+  brightskins preferences keep Solid mode without enabling outlines.
+  Cloak, damage and Double Damage take priority, and ice/effects/first-person
+  equipment retain normal rendering.
+  See `.claude/render/BRIGHT-SKINS.md` for eligibility and validation.
+
 - **FPS limit is the picture's rate only**, and sits directly under Render
   scale: the two are the same question from both ends -- how much picture, and
   how often -- and they are what somebody not getting a smooth game comes to
   this page for. It is a `SliderRow` over a table of **stops** (Display
-  (VSync), 30, 60, 75, 90, 100, 120, 144, 165, 180, 200, 240, Unlimited)
+  (VSync), 30, 60, 75, 90, 100, 120, 144, 165, 180, 200, 240, No limit)
   rather than a free number, because a slider dragged across a free range
   lands on 143 as easily as 144, and a limit one frame under the monitor's
   rate is the one number nobody wants. None of the stops move the simulation,
@@ -61,7 +60,7 @@ Notable toggles
   screen with VSync on gets 72. Saves to `settings.json` as `FrameRateCap`.
   There is no motion-interpolation row any more, and no interpolation behind
   it -- see `.claude/render/FRAME-PACING.md` for why it was taken out.
-- **The two crosshair rows are children of Pro mode HUD** and are shown only
+- **The crosshair rows are children of Pro mode HUD** and are shown only
   while it is on: nothing else in the game draws that crosshair, and the DS HUD
   has its own reticle sprite. **Crosshair size** (Small / Medium / Big) and
   **Crosshair type** (Cross, Dot, Cross + dot, Circle, Brackets). The type row
@@ -75,7 +74,7 @@ Notable toggles
   row, since the preview answers for both. Saved through `Features.Commit` as
   `CrosshairStyle` and `CrosshairSize`, by name -- so the enum can gain or lose
   a member without invalidating anyone's file, which it already has.
-- **On-screen buttons** (Controls page, Android only) is a master switch plus one
+- **On-screen buttons** (Touch and mouse page, Android only) is a master switch plus one
   toggle per button, in `controls.txt` via `Mods/Input/TouchSettings.cs`. The
   desktop does not show the group at all: eleven switches that decide nothing
   are worse than no group.
@@ -152,3 +151,12 @@ Notable toggles
   `ApplyToPlayers`, because the players in a running match already hold their
   own copies. `KeyRow` maps the toolkit's key enumeration to GLFW's, and refuses
   anything unmapped rather than binding it to whatever key shares its number.
+
+## Stylus and drawing tablets
+
+Controls has a **Stylus / drawing tablet** section. Stylus mode enables absolute
+pointer handling; DS touch-screen zone and Reposition filtering are independent
+child toggles. Overlay opacity and Configure stylus zone retain the existing
+placement workflow. Turning off Stylus mode disables both behaviors while keeping
+the child preferences. Old `pointer_jump_guard` files migrate to the explicit
+`stylus_mode` master. See `../STYLUS-INPUT.md` for ownership and checks.

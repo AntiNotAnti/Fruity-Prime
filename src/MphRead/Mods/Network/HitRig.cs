@@ -137,6 +137,14 @@ namespace MphRead.Mods.Network
                     Mode = RigMode.Volley;
                     VolleyWeapon = BeamType.Battlehammer;
                     return true;
+                case "shockcoil":
+                    Mode = RigMode.Volley;
+                    VolleyWeapon = BeamType.ShockCoil;
+                    return true;
+                case "voltdriver":
+                    Mode = RigMode.Volley;
+                    VolleyWeapon = BeamType.VoltDriver;
+                    return true;
                 case "powerbeam":
                     Mode = RigMode.Volley;
                     VolleyWeapon = BeamType.PowerBeam;
@@ -378,7 +386,7 @@ namespace MphRead.Mods.Network
             RangeSum += range;
             RangeSamples++;
             HoldRange(player, c, range, Mode == RigMode.Sniper ? LongRange
-                : Mode == RigMode.Volley ? VolleyRange : CloseRange);
+                : Mode == RigMode.Volley && VolleyWeapon != BeamType.ShockCoil ? VolleyRange : CloseRange);
             // Tapped on the weapon's own cadence, and the tap is what makes
             // it fire. Holding looked right -- the Imperialist MP carries
             // WeaponFlags.RepeatFire, which repeats at `shotCooldown` 60 --

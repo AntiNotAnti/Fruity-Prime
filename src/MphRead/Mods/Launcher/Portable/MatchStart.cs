@@ -62,6 +62,8 @@ namespace MphRead.Mods.Launcher
                 return false;
             }
             GameFiles.ApplyPaths();
+            if (plan.Kind is LaunchKind.Online or LaunchKind.Host && !NetLaunch.VerifyServerMap())
+                return false;
             // The custom maps, here rather than only in ModEntry.TryHandle.
             // A launcher session never reaches TryHandle: the front screen is
             // dispatched from TryHandleHeadless, which returns as soon as it
@@ -146,6 +148,7 @@ namespace MphRead.Mods.Launcher
 
             if (NetSession.Active)
             {
+                NetLaunch.DisableCheatsForMatch();
                 NetLaunch.BuildPlayers(window.Scene, plan.Hunter,
                     localRecolor: LauncherPrefs.LastColor, teams: teamPlay);
             }
@@ -157,6 +160,7 @@ namespace MphRead.Mods.Launcher
                 ? NetLaunch.RoomPlayerCount
                 : 0);
             window.LoadScene();
+            NetSession.MarkMatchLoaded();
             return true;
         }
 

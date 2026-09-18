@@ -13,12 +13,14 @@ namespace MphRead.Mods.Network
         public readonly IPEndPoint Sender;
         public readonly byte[] Data;
         public readonly int Length;
+        public readonly long ArrivedAt;
 
-        public ReceivedPacket(IPEndPoint sender, byte[] data, int length)
+        public ReceivedPacket(IPEndPoint sender, byte[] data, int length, long arrivedAt = 0)
         {
             Sender = sender;
             Data = data;
             Length = length;
+            ArrivedAt = arrivedAt == 0 ? Stopwatch.GetTimestamp() : arrivedAt;
         }
 
         public PacketType Type => Length > 0 ? (PacketType)Data[0] : default;
@@ -37,12 +39,13 @@ namespace MphRead.Mods.Network
     /// </summary>
     public sealed class NetTransport : IDisposable
     {
-        private readonly UdpClient _socket;
-        private readonly Thread _worker;
+        private readonly UdpClient? _socket;
+        private readonly Thread? _worker;
         private readonly ConcurrentQueue<ReceivedPacket> _inbox = new();
         private readonly CancellationTokenSource _cancel = new();
         private volatile bool _running;
         private int _inboxCount;
+        private int _playbackBytes;
 
         /// <summary>
         /// How many received packets may wait for the game loop.
@@ -77,8 +80,9 @@ namespace MphRead.Mods.Network
         /// with different guards against it, and mixing the two would make a
         /// run that reproduced one impossible to read.
         /// </summary>
-        private readonly Queue<(long DueAt, ReceivedPacket Packet)> _heldIn = new();
-        private readonly Queue<(long DueAt, IPEndPoint Target, byte[] Data, int Length)> _heldOut = new();
+        private readonly NetFaultQueue<ReceivedPacket> _heldIn = NetLag.CreateQueue<ReceivedPacket>(outbound: false);
+        private readonly NetFaultQueue<(IPEndPoint Target, byte[] Data, int Length)> _heldOut
+            = NetLag.CreateQueue<(IPEndPoint Target, byte[] Data, int Length)>(outbound: true);
         private readonly object _heldLock = new();
         private Thread? _lagWorker;
 
@@ -107,8 +111,11 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static long TotalPacketsSent;
 
-        public NetTransport(int port)
+        public NetTransport(int port, bool playbackOnly = false)
         {
+            // Playback uses the normal inbox/handlers without opening a UDP listener.
+            // A replay cannot receive real datagrams or send gameplay traffic.
+            if (playbackOnly) return;
             _socket = new UdpClient(AddressFamily.InterNetwork);
             if (OperatingSystem.IsWindows())
             {
@@ -167,17 +174,16 @@ namespace MphRead.Mods.Network
         {
             while (_running)
             {
-                long now = Stopwatch.GetTimestamp();
+                double now = Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency;
                 while (true)
                 {
-                    (long DueAt, IPEndPoint Target, byte[] Data, int Length) held;
+                    (IPEndPoint Target, byte[] Data, int Length) held;
                     lock (_heldLock)
                     {
-                        if (_heldOut.Count == 0 || _heldOut.Peek().DueAt > now)
+                        if (!_heldOut.TryDequeue(now, out held))
                         {
                             break;
                         }
-                        held = _heldOut.Dequeue();
                     }
                     SendNow(held.Target, held.Data.AsSpan(0, held.Length));
                 }
@@ -210,13 +216,13 @@ namespace MphRead.Mods.Network
                     byte[] data;
                     try
                     {
-                        data = _socket.Receive(ref sender);
+                        data = _socket!.Receive(ref sender);
                     }
                     catch (SocketException ex) when (ex.SocketErrorCode == SocketError.TimedOut)
                     {
                         continue;
                     }
-                    if (data.Length == 0)
+                    if (data.Length == 0 || data.Length > NetConfig.MaxPacketSize)
                     {
                         continue;
                     }
@@ -240,7 +246,7 @@ namespace MphRead.Mods.Network
                         // the one number a latency run is read by would be
                         // describing the instrument.
                         Send(sender, PacketType.Pong, data.AsSpan(1),
-                            _lagWorker != null ? NetLag.HoldTicks() : 0);
+                            _lagWorker != null ? (long)(NetLag.RoundTripMs / 2.0 * Stopwatch.Frequency / 1000) : 0);
                         continue;
                     }
                     if (Volatile.Read(ref _inboxCount) >= MaxQueuedPackets)
@@ -263,20 +269,12 @@ namespace MphRead.Mods.Network
                     // there is something running that lets it out again.
                     if (_lagWorker != null)
                     {
-                        if (NetLag.Drops())
+                        lock (_heldLock)
                         {
-                            continue;
+                            _heldIn.Enqueue(Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency,
+                                new ReceivedPacket(sender, data, data.Length), lossOverride: NetLag.LossPercent / 100);
                         }
-                        long holdFor = NetLag.HoldTicks();
-                        if (holdFor > 0)
-                        {
-                            lock (_heldLock)
-                            {
-                                _heldIn.Enqueue((Stopwatch.GetTimestamp() + holdFor,
-                                    new ReceivedPacket(sender, data, data.Length)));
-                            }
-                            continue;
-                        }
+                        continue;
                     }
                     Interlocked.Increment(ref _inboxCount);
                     _inbox.Enqueue(new ReceivedPacket(sender, data, data.Length));
@@ -303,26 +301,26 @@ namespace MphRead.Mods.Network
             while (_inbox.TryDequeue(out ReceivedPacket packet))
             {
                 Interlocked.Decrement(ref _inboxCount);
+                if (_socket == null) _playbackBytes -= packet.Length;
                 yield return packet;
             }
         }
 
         private void PromoteHeldArrivals()
         {
-            long now = Stopwatch.GetTimestamp();
+            double now = Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency;
             while (true)
             {
                 ReceivedPacket packet;
                 lock (_heldLock)
                 {
-                    if (_heldIn.Count == 0 || _heldIn.Peek().DueAt > now)
+                    if (!_heldIn.TryDequeue(now, out packet))
                     {
                         return;
                     }
-                    packet = _heldIn.Dequeue().Packet;
                 }
                 Interlocked.Increment(ref _inboxCount);
-                _inbox.Enqueue(packet);
+                _inbox.Enqueue(new ReceivedPacket(packet.Sender, packet.Data, packet.Length));
             }
         }
 
@@ -340,10 +338,15 @@ namespace MphRead.Mods.Network
         /// </summary>
         public void EnqueueForPlayback(byte[] data, int length)
         {
-            if (Volatile.Read(ref _inboxCount) >= MaxQueuedPackets)
-            {
-                return;
-            }
+            if (length < 1 || length > data.Length || length > ushort.MaxValue)
+                throw new System.IO.InvalidDataException("Invalid replay packet length.");
+            // Unlike live UDP, silently dropping a replay packet changes the recording.
+            // Allow large recorded bursts, with an explicit failure for pathological files.
+            if (Volatile.Read(ref _inboxCount) >= 65536)
+                throw new System.IO.InvalidDataException("Replay exceeds 65536 packets on one frame.");
+            if (length > 32 * 1024 * 1024 - _playbackBytes)
+                throw new System.IO.InvalidDataException("Replay exceeds 32 MiB of packets on one frame.");
+            _playbackBytes += length;
             Interlocked.Increment(ref _inboxCount);
             _inbox.Enqueue(new ReceivedPacket(_playbackSender, data, length));
         }
@@ -360,29 +363,21 @@ namespace MphRead.Mods.Network
             payload.CopyTo(buffer[1..]);
             if (_lagWorker != null)
             {
-                if (NetLag.Drops())
+                byte[] copy = buffer[..(payload.Length + 1)].ToArray();
+                lock (_heldLock)
                 {
-                    return;
+                    _heldOut.Enqueue(Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency,
+                        (target, copy, copy.Length), extraHoldTicks * 1000.0 / Stopwatch.Frequency,
+                        lossOverride: NetLag.LossPercent / 100);
                 }
-                long holdFor = NetLag.HoldTicks() + extraHoldTicks;
-                if (holdFor > 0)
-                {
-                    // Copied, because the caller's span is a scratch buffer it
-                    // is about to write the next packet into.
-                    byte[] copy = buffer[..(payload.Length + 1)].ToArray();
-                    lock (_heldLock)
-                    {
-                        _heldOut.Enqueue((Stopwatch.GetTimestamp() + holdFor,
-                            target, copy, copy.Length));
-                    }
-                    return;
-                }
+                return;
             }
             SendNow(target, buffer[..(payload.Length + 1)]);
         }
 
         private void SendNow(IPEndPoint target, ReadOnlySpan<byte> datagram)
         {
+            if (_socket == null) return;
             try
             {
                 _socket.Send(datagram, target);
@@ -403,8 +398,8 @@ namespace MphRead.Mods.Network
         {
             _running = false;
             _cancel.Cancel();
-            _socket.Dispose();
-            if (!_worker.Join(TimeSpan.FromSeconds(1)))
+            _socket?.Dispose();
+            if (_worker != null && !_worker.Join(TimeSpan.FromSeconds(1)))
             {
                 // Background thread; the process can exit regardless.
             }

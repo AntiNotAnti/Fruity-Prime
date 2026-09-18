@@ -27,6 +27,44 @@ jobs:
       - name: every custom map has the level it converts
         run: tools/check-maps-shipped.sh
 
+  lobby-tests:
+    name: lobby protocol and lifecycle
+    needs: assets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '9.0.x'
+      - name: online presentation and connection cancellation
+        run: dotnet run --project tools/online-ui-check/online-ui-check.csproj -c Release
+      - name: persistent lobby regression without game assets
+        run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -netlobbytest
+  controller-checks:
+    name: controller regressions (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, macos-15-intel]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '9.0.x'
+      - name: player-facing copy regression
+        run: dotnet run --project tools/ui-copy-check/ui-copy-check.csproj -c Release
+      - name: deterministic input and headless UI checks
+        run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -gamepadcheck
+      - name: launcher layout and focus matrix
+        run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -uimatrix "${{ github.workspace }}/artifacts/ui-matrix"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: launcher-ui-matrix-${{ matrix.os }}
+          path: artifacts/ui-matrix
+          if-no-files-found: warn
+
   build:
     name: ${{ matrix.id }}
     needs: assets
@@ -59,24 +97,19 @@ jobs:
             rid: linux-arm64
             summary: the dedicated server and the directory, for a Raspberry Pi
             extra: "-p:MphReadServer=true"
-          # macOS, both processors. Cross-compiled here like the rest: the
-          # launcher is Avalonia on every platform now, so there is nothing in
-          # a mac build that has to be produced on a mac. Nobody has started
-          # one -- see the known gaps in CLAUDE.md.
-          - id: osx-x64
-            rid: osx-x64
-            summary: the game and the launcher, for an Intel Mac
-            extra: ""
-          - id: osx-arm64
-            rid: osx-arm64
-            summary: the game and the launcher, for an Apple Silicon Mac
-            extra: ""
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '9.0.x'
+
+      - name: lifecycle regression under seeded network faults
+        if: matrix.id == 'linux-x64'
+        run: dotnet run --project tools/nettest/nettest.csproj -c Release -- --lifecycle
+      - name: authoritative health and shot input fault matrix
+        if: matrix.id == 'linux-x64'
+        run: dotnet run --project tools/nettest/nettest.csproj -c Release -- --health-shots
 
       # Cook every custom map into the one file it ships as. The recipe, the
       # level it converts and the textures baked from it go into a .fpmap,
@@ -88,14 +121,27 @@ jobs:
       - name: cook the map bundles
         run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -mapdir maps -mapbundle
 
-      # Every target is net9.0 and every launcher is Avalonia, so all six of
-      # these come off one Ubuntu runner.
+      # Windows and Linux targets remain cross-published on Ubuntu.
       - name: publish ${{ matrix.summary }}
         run: >
           dotnet publish src/MphRead/MphRead.csproj
           -c Release -r ${{ matrix.rid }} ${{ matrix.extra }}
           --self-contained true -p:PublishSingleFile=true
           -o publish/${{ matrix.id }}
+
+      - name: bounded thumbnail worker regression
+        if: matrix.id == 'linux-x64'
+        run: dotnet run --project tools/thumbnail-batch-check/thumbnail-batch-check.csproj -c Release
+
+      - name: legacy thumbnail diagnostics without KHR_debug
+        if: matrix.id == 'linux-x64'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y xvfb xauth libgl1-mesa-dri libglx-mesa0 libxinerama1 libxcursor1 libxi6
+          chmod +x publish/linux-x64/FruityPrime
+          xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe \
+            MESA_GL_VERSION_OVERRIDE=2.1 MESA_EXTENSION_OVERRIDE=-GL_KHR_debug \
+            publish/linux-x64/FruityPrime -thumbnailwindowcheck -legacyglcheck
 
       - name: nothing from the game is in the output
         run: tools/check-no-game-assets.sh publish/${{ matrix.id }}
@@ -129,6 +175,62 @@ jobs:
         with:
           name: FruityPrime-${{ matrix.id }}
           path: publish/${{ matrix.id }}
+          if-no-files-found: error
+
+  macos:
+    name: macOS ${{ matrix.rid }}
+    needs: assets
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: osx-arm64
+            runner: macos-latest
+          - rid: osx-x64
+            runner: macos-15-intel
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '9.0.x'
+      - name: bounded thumbnail worker regression
+        run: dotnet run --project tools/thumbnail-batch-check/thumbnail-batch-check.csproj -c Release
+
+      - name: controller mapping and headless UI regressions
+        run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -gamepadcheck
+
+      - name: signing gate regressions
+        run: tools/test-macos-tools.sh
+      - name: cook the map bundles
+        run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -mapdir maps -mapbundle
+      - name: publish, sign and validate
+        env:
+          RID: ${{ matrix.rid }}
+        run: |
+          set -euo pipefail
+          dotnet publish src/MphRead/MphRead.csproj -c Release -r "$RID" \
+            --self-contained true -p:PublishSingleFile=true -o "publish/$RID"
+          chmod +x "publish/$RID/FruityPrime"
+          tools/sign-macos.sh "publish/$RID"
+          tools/check-macos-build.sh "publish/$RID" "$RID"
+          tools/run-macos-smoke.sh "publish/$RID" "$RID"
+          python3 tools/test-compatibility-smoke.py "publish/$RID/FruityPrime"
+          if tools/check-macos-graphics.sh; then
+            dotnet run --project tools/render-resource-check/render-resource-check.csproj -c Release
+          else
+            status=$?
+            [ "$status" = 77 ] || exit "$status"
+            echo '::warning::Mac GPU resource checks NOT RUN: no accelerated renderer.'
+          fi
+          tools/check-no-game-assets.sh "publish/$RID"
+          tools/check-maps-shipped.sh "publish/$RID"
+          VERSION=$(dotnet msbuild src/MphRead/MphRead.csproj -getProperty:Version)
+          tools/package-macos.sh "publish/$RID" dist "$RID" "$VERSION"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: FruityPrime-${{ matrix.rid }}
+          path: dist/*.tar.gz
           if-no-files-found: error
 
   # The Android head, and the APK a phone can install.

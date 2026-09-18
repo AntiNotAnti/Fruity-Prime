@@ -10,6 +10,7 @@ using MphRead.Effects;
 using MphRead.Entities;
 using MphRead.Formats.Culling;
 using MphRead.Text;
+using MphRead.Mods.Launcher;
 using OpenTK.Mathematics;
 
 namespace MphRead
@@ -1484,13 +1485,14 @@ namespace MphRead
             if (File.Exists("paths.txt"))
             {
                 string[] lines = File.ReadAllLines("paths.txt");
+                string directory = Path.GetDirectoryName(Path.GetFullPath("paths.txt"))!;
                 foreach (string line in lines)
                 {
-                    string[] split = line.Trim().Split('=');
+                    string[] split = line.Trim().Split('=', 2);
                     string key = split[0].Trim();
                     if (split.Length == 2 && _allPaths.ContainsKey(key))
                     {
-                        _allPaths[key] = split[1].Trim();
+                        _allPaths[key] = RomPaths.Resolve(key, split[1].Trim(), directory);
                     }
                 }
             }

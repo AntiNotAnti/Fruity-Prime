@@ -1,4 +1,13 @@
+Current netcode work uses protocol **12**; see [health and shot consistency](.claude/multiplayer/NETWORK-HEALTH-SHOTS.md) for behavior, checks and remaining acceptance gates. Historical protocol notes below describe earlier integrations.
+
 # Fruity Prime — tools, design, and the mechanics catalogue
+
+Network protocol **8**: authoritative life/occupant identity, match/authority
+stream identity and exact damage-event history are described in
+[NETWORK-LIFECYCLE.md](.claude/multiplayer/NETWORK-LIFECYCLE.md). Remote lethal
+prediction is always clamped to 1 HP; legacy death-prediction switches cannot
+re-enable it. This supersedes protocol-7 lifecycle descriptions below.
+
 
 **The project is Fruity Prime. The code is still `namespace MphRead`, and stays
 that way.** Upstream is NoneGiven/MphRead and every pull from it is a
@@ -78,7 +87,7 @@ export ALSOFT_DRIVERS=null PULSE_SERVER=   # else ALSA retries stall frames
   (`Scene.ReadSceneTarget`, used by `Mods/ScreenCapture.cs`), which carries the
   world but not the HUD.
 - `paths.txt` must sit **next to the DLL**, not in the working directory:
-  `ConsoleSetup.Run` does `Directory.SetCurrentDirectory(BaseDirectory)`.
+  `ConsoleSetup.Run` selects the installation directory on Windows/Linux and the user-data directory on macOS (see `.claude/build-deploy/MACOS.md`).
 - Audio failures used to kill the process from a static constructor. That is now
   non-fatal, but under WSL the audio device is flaky enough that the test rig
   disables it outright.
@@ -104,7 +113,7 @@ export ALSOFT_DRIVERS=null PULSE_SERVER=   # else ALSA retries stall frames
 | `MphRead -netcheck HOST -port N -name X -hunter H -seconds N [-shots DIR] [-size WxH]` | a real client driven by a script, which reports what it saw. Exit code 0 = pass. `-spectate [SEC]` makes it stop playing and watch, `-rejoin SEC` puts it back in -- the one player state the tour cannot reach on its own. `-mapvote N` votes on the results screen's map list -- agreeing with whatever is in front, proposing row N when nothing is -- and is **off** unless asked, since a scripted client that votes changes what a real server plays next and the hard-case batch runs against the public one. `-hudshots` opens a real window and photographs *it*, which is the only capture that carries the HUD: a results screen is HUD and nothing else |
 | `MphRead -netlag MS[:JITTER]` / `-netloss PCT` | play, or run any check, over a line this client makes up: `-netlag 200` adds 200 ms to the round trip (half each way), `-netlag 200:40` gives it jitter, `-netloss 5` eats one datagram in twenty. Works against the real server, on any platform, with no proxy and no `sudo` -- and unlike `hard/run-latency.sh`'s netem it can be given to **one** client while the others stay fast, which is the case a player with a bad line actually is. Every report says so when it is on |
 | `MphRead -nounlagged` | resolve shots against the present, the way every build before lag compensation did. The control for measuring it; on by default. `.claude/multiplayer/NETWORK-UNLAGGED.md` |
-| `MphRead -nohitprediction` / `-nohitmarker` / `-nodeathprediction` | wait for the authority before a hit lands, the way every build before instant hit registration did; drop the mark over the crosshair that says one has; and stop a prediction killing **somebody else**, which since protocol 7 it does by default -- the claim below is what made that safe again. All three are on by default, and a **self**-kill is predicted whatever any of them say. `.claude/multiplayer/NETWORK-PREDICTION.md` |
+| `MphRead -nohitprediction` / `-nohitmarker` | disable immediate predicted hit feedback, or its crosshair marker. Remote death always waits for authority; deterministic local self-deaths remain predicted. `.claude/multiplayer/NETWORK-LIFECYCLE.md` |
 | `MphRead -noclaims` | stop a client telling the authority which of its own shots landed. On by default: a hit the authority's own rewind cannot find -- because the rewind hit its ceiling, because the trigger pull was recovered from a press history, or because **the shooter was killed during the round trip and the authority never ran the shot at all** -- is declared, checked against the authority's own history, and either applied or refused with a reason. That last case is the one a player calls unfair rather than laggy, and the rule it is answered by is: a shot counts unless its shooter had already been put down by a hit aimed at a strictly earlier world, and two shots aimed at the same world both count. Every weapon, not just the Imperialist. `.claude/multiplayer/NETWORK-HITCLAIMS.md` |
 | `MphRead -nointerp` / `-relayedpuppets` | draw remote players by snapping them to whichever snapshot arrived last, the way every build before protocol 7 did, instead of reading them off a playout clock held a few frames behind. Interpolation is on by default and is why opponents on a bad line move instead of stuttering; it costs a few frames of extra rewind and gives nothing up in hit registration, because the read point travels in the intent as a sub-frame ack and the authority rewinds to exactly it. `-relayedpuppets` also hands puppet positions back to the owner's relayed intent, which is the full protocol-6 arm. `.claude/multiplayer/NETWORK-SMOOTHING.md` |
 | `MphRead -maxrewind N` | the furthest back a shot may be resolved, in frames. **45 (750 ms)** by default since protocol 7, against 24 (400 ms) before it: at a 320 ms round trip with jitter the old ceiling was clamping **89% of shots**, with the requested-depth distribution's mode two frames past it. `.claude/multiplayer/NETWORK-UNLAGGED.md` |
@@ -123,7 +132,10 @@ export ALSOFT_DRIVERS=null PULSE_SERVER=   # else ALSA retries stall frames
 | `MphRead -maptest "TEST ARENA" -players 8` | the harness's own room (`maps/arena/`): forty units square, eight spawns on a ring looking inward, nothing far from anything. Where damage, hit registration and the affliction states are actually measurable -- a real map's corridors mean most of the tour's shots land on a wall |
 | `MphRead -maptest "TEST PADS" -players 8` | the same room with four jump pads throwing hunters across the middle, in a box tall enough for the arc (`maps/pads/`). The one case hit registration is hardest in: a target crossing at 0.3 units a frame or more, against a headshot band 0.3 units tall. TEST ARENA is the control -- the two differ by the pads and the ceiling height and by nothing else |
 | `MphRead -rooms` | list every multiplayer room, one per line, for a shell loop. **27** is the whole cartridge and the right answer with no custom map source present; anything more is a custom map |
-| `MphRead -q3convert FILE.pk3 -map LEVEL -name ROOM [-noclip]` | a Quake 3 .pk3 to a custom map in one command: textures baked from the level's own art, scale and extents picked from its geometry, spawns from its entities. Places no weapons or powerups -- where those go decides how the map plays. `.claude/mapgen/MAP-PIPELINE.md` |
+| `MphRead -q3convert FILE.pk3 -map LEVEL -name ROOM [-noclip] [-noitems]` | a Quake 3 .pk3 to a custom map in one command: textures baked from the level's own art, scale and extents picked from its geometry, spawns and pickups from its entities. It **places** no weapons or powerups -- where those go decides how the map plays -- but it writes down the ones the level's own author placed and turns `keepItems` off, so what the room holds is in the recipe rather than read invisibly out of the .bsp on every generation. `-noitems` writes none and still turns it off. `.claude/mapgen/MAP-PIPELINE.md` |
+| `MphRead -mapitems "ROOM"` / `-mapitems FILE.pk3 -map LEVEL` | what pickups a level already holds, printed as the `items` block a recipe would carry, with the Quake classname each came from and which are handed out by the level's scripts rather than walked over. Writes nothing: a recipe carries comments and is nobody's to rewrite |
+| `MphRead -mapcheck "ROOM"` | what a custom map's collision will be, built in memory and written nowhere: against the format's limits, faces that reject part of their own interior (the run-time edge test, run early), what the surfaces are and how many of them hurt, what a hand-edited `.obj` changed against the geometry's own collision, and every drawn surface with nothing solid behind it. The check for collision a person edits by hand -- every way of getting that wrong is invisible in a 3D tool and in the game until somebody walks into it |
+| a recipe's `"collision": { "source": "x.obj" }` | what stops a player, read from a Wavefront OBJ instead of derived from the level, **replacing** it. `tools/collision-to-obj.py --group terrain` writes the file to start from; a material named `<terrain>[_attribute...]` (`sand`, `lava_damaging`, `metal_nobeams`) carries everything the format holds per face, and winding is what says which side blocks. What it is for: a converted level's collision includes every face nobody can reach -- a quarter of df_dust2's collision area -- and no importer can tell which of those are wanted. `.claude/mapgen/MAP-PIPELINE.md` |
 | `MphRead -mapgen ["NAME"]` | generate the room binaries for the custom maps in `maps/` (recursively: a map may sit in a folder of its own with its level and textures beside it, or be a single `.fpmap` bundle), from the player's own textures. `-mapmaterials "ROOM"` prints what textures a room can lend. A map is a JSON file; the `.bin` it produces is never committed. `.claude/mapgen/MAP-PIPELINE.md` |
 | `MphRead -mapbundle ["NAME"] [-mapdir DIR]` | cook a map into the one file it ships and is handed out as: recipe, level and baked textures in a `.fpmap`, with the level trimmed to the lumps the importer reads (376 KB for de_dust2, against 2.8 MB for the folder). What the workflow runs before it publishes -- the bundle is not committed, and the `.pk3` it is cooked from never reaches a package. `-mapdir` is resolved against the directory the command was typed in |
 | `MphRead -gamepad [-seconds N]` | what a connected pad is doing, with no match in the way: its name, its axes, and which game action each button reaches. The only thing that tells "not connected" from "connected but GLFW has no mapping for it" from "the dead zone is eating it" apart. `.claude/GAMEPAD.md` |
@@ -137,8 +149,8 @@ export ALSOFT_DRIVERS=null PULSE_SERVER=   # else ALSA retries stall frames
 | `MphRead -shellshot DIR` | the same screens photographed **in the game window**, walking the whole loop: front screen, a key, a click, a match loaded into that window, the pause menu over it, and the front screen again after leaving. What `-uishot` cannot answer -- it renders layouts, not the composite. Needs a display (Xvfb is one) |
 | `MphRead -uidesign DIR` | everything **behind** the front screen -- Play with maps, Play with servers, settings, the pause menu -- laid out **six** different ways and photographed, for choosing between them by looking rather than by describing. The front screen is deliberately not in it. The six differ in information architecture rather than in where a menu is pinned, since moving anchors around produces six pictures of one design; the photograph, the real content at its real density and `GuiTheme`'s palette are held constant. Nothing it draws ships (`Mods/Launcher/Gui/UiDesigns.cs`) |
 | `MphRead -uishot DIR` | pictures of the launcher's own screens -- home, settings, the map picker, the pause menu -- rendered without anyone looking at a display. The one part of the program that could not otherwise be checked from a headless box |
-| `MphRead -demoinfo FILE [-replay]` | what a recorded match contains -- records, frames, a packet-type histogram, and how well it compressed. `-replay` then runs the file through the real player with no room or window and reports how the packets landed per frame, which is the measurement "the replay stutters" is about. Needs no game files. `.claude/multiplayer/NETWORK-DEMOS.md` |
-| `MphRead -netcheck ... -recorddemo` | the harness client, recording a demo as it plays |
+| `MphRead -replayinfo FILE [-replay]` | what a recorded match contains -- records, frames, a packet-type histogram, and how well it compressed. `-replay` then runs the file through the real player with no room or window and reports how the packets landed per frame, which is the measurement "the replay stutters" is about. Needs no game files. `.claude/multiplayer/NETWORK-REPLAYS.md` |
+| `MphRead -netcheck ... -recordreplay` | the harness client, recording a replay as it plays |
 | `MphRead -mechanics` | print the catalogue in `MECHANICS.md`, generated from the game's own tables |
 | `MphRead` (no arguments, Windows or macOS) | the front screen. The Windows build is a GUI binary, so double-clicking it opens the launcher with no terminal behind it |
 | `MphRead -menu` | the console menu, for people who typed something |
@@ -528,30 +540,19 @@ directory, and how to run an emulator here.
 
 ## Gamepads
 
-**A pad and the touchscreen are both live at once on Android.** Using the pad
-puts the on-screen layout away and does nothing else: the surface underneath
-keeps working, so a touch does what it landed on *and* brings the layout back.
-A stick in one hand and a thumb on FIRE is a normal way to hold a phone, and
-the weapon wheel cannot be reached from a pad at all.
+Desktop and Android normalize each physical controller through
+`Mods/Input/GamepadManager`; `GamepadInput` still adds the active device to the
+existing gameplay bindings. The launcher and pause/settings screens use semantic
+controller navigation and existing Avalonia focus. Settings expose separate stick
+calibration, curves, southpaw, primary/secondary bindings and explicit conflicts.
+The right stick click opens a native directional weapon wheel. Family labels and
+capability-dependent haptics stay outside gameplay mapping.
 
-A pad plays the game on the desktop and on Android, over USB or Bluetooth,
-in an Xbox-shaped layout: sticks move and aim, right trigger shoots, A jumps,
-B morphs, the bumpers and d-pad change weapon, Back is the scoreboard and
-Start is the pause menu. There is **no weapon wheel on a pad** -- it reads an
-absolute pointer position, which a stick does not have.
-
-It reaches the game the way the touch controls do, from the other end: after
-`ProcessAllInput` has run, the pad's contribution is **ored** onto the same
-keybinds the keyboard just filled in, so a pad and a keyboard work at once and
-no upstream call site changed. Aim is the exception, since a stick is analogue
--- it goes in at `ApplyModAim`, in the same units and at the same point in the
-frame as the mouse's.
-
-`FruityPrime -gamepad` prints what a pad is doing with no match in the way,
-and distinguishes "not connected" from "connected but unmapped". Layout, feel
-(radial dead zone, squared look curve, 3.5 degrees a frame at full stick), the
-four settings, and how to test one with a virtual pad on `uinput`:
-`.claude/GAMEPAD.md`.
+`FruityPrime -gamepad -verbose` inspects devices and actual bindings;
+`FruityPrime -gamepadcheck` runs deterministic input and headless UI regressions
+without ROM assets. Physical USB/Bluetooth and Android hardware validation remains
+pending. Architecture, settings migration, mappings provenance, controls and
+platform haptics limits: `.claude/GAMEPAD.md`.
 
 ## Pen tablets, and the weapon wheel
 
@@ -886,12 +887,12 @@ MPH_SERVER_HOST=net.livetek.fr MPH_SERVER_USER=livetek \
 
 The exe is often locked by a running game: write `MphRead.new.exe`, then `mv`.
 
-**`NetConfig.ProtocolVersion` is 7.** Any protocol change means server **and**
-every client must be the same build — a mismatched client is refused outright
-at Hello with a line in the server log, which is the intended outcome and not
-a layout issue: the wire format doesn't move, an old client would read every
-byte correctly and then simulate a different game (frozen in place, shooting
-from its ankles) with nothing in the protocol to notice. Deploy the server
+**`NetConfig.ProtocolVersion` is 8.** Version 8 changes continuous-weapon
+phase timing without changing packet layout, so mixed builds must be refused.
+Server **and** every client must use the same protocol — a mismatched client is
+refused at Hello even though version 8's wire format is unchanged. An older
+build would read the packets but simulate different continuous-weapon events.
+Deploy the server
 before handing out a client built against a new protocol. Publish commands and
 the deploy script's env vars: `.claude/build-deploy/DEPLOY-SERVERS.md`.
 
@@ -1240,9 +1241,9 @@ rather than trusting the sender's, and rate limits at the relay. Packet
 numbers 24 and 25 are left free for a voice channel.
 `.claude/multiplayer/NETWORK-CHAT.md`.
 
-Recording and watching a match back -- the file format, the two things a demo
+Recording and watching a match back -- the file format, the two things a replay
 has to synthesize because they were never received, and why the player counts
-frames rather than milliseconds: `.claude/multiplayer/NETWORK-DEMOS.md`.
+frames rather than milliseconds: `.claude/multiplayer/NETWORK-REPLAYS.md`.
 
 Full postmortem, measurements, before/after tables, and the traps that cost
 the most time: `.claude/multiplayer/NETWORK-DIAGNOSTICS.md`. The

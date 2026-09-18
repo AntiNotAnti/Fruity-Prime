@@ -1,5 +1,6 @@
 using System;
 using MphRead.Formats;
+using MphRead.Mods.Network;
 using OpenTK.Mathematics;
 using OpenTK.Windowing.GraphicsLibraryFramework;
 
@@ -16,6 +17,20 @@ namespace MphRead.Entities
 
         private void ProcessInput()
         {
+            if (Mods.Network.NetSession.Active && !IsBot)
+            {
+                bool local = SlotIndex == Mods.Network.NetSession.LocalSlot
+                    && Mods.Network.NetSession.LocalSlot >= 0;
+                bool fresh = local || (SlotIndex >= 0
+                    && SlotIndex < Mods.Network.NetSession.RemoteIntentValid.Length
+                    && Mods.Network.NetSession.RemoteIntentValid[SlotIndex]
+                    && Mods.Network.NetSession.RemoteIntents[SlotIndex].Frame != 0
+                    && Mods.Network.NetSession.RemoteIntentAge(SlotIndex)
+                        <= Mods.Network.ContinuousWeaponPhase.MaxIntentAge);
+                Mods.Network.NetSession.ContinuousPhase.Observe(SlotIndex, _scene.FrameCount,
+                    EquipWeapon.Flags.TestFlag(WeaponFlags.Continuous) && Controls.Shoot.IsDown,
+                    fresh);
+            }
             if (_health > 0)
             {
                 if (Flags1.TestFlag(PlayerFlags1.FreeLook))
@@ -87,6 +102,8 @@ namespace MphRead.Entities
             }
             else
             {
+                // A gesture made on foot must not survive the next morph.
+                ModClearAltFlick();
                 ProcessBiped();
             }
         }
@@ -111,41 +128,21 @@ namespace MphRead.Entities
         /// presses: there is no keyboard here to put a key into, and a bind
         /// is what every one of these actions is actually read from.
         ///
-        /// Three things happen here, and all three are the same rule -- while
-        /// the tip is on the zone, the pointer belongs to the pen and not to
-        /// the mouse it is arriving as.
-        ///
-        /// <list type="bullet">
-        /// <item>Nothing fires. On the DS the stylus aims and a shoulder
-        /// button fires, so a touch was never a shot; here the tip *is* the
-        /// left button, which is the fire bind, and without this choosing a
-        /// weapon fires it and dragging the map empties the gun.</item>
-        /// <item>The weapon select is held rather than tapped, for as long as
-        /// the tip is down, wherever it has been dragged to since. The wheel
-        /// is a hold-and-choose gesture: it has to still be up when the pen
-        /// reaches it.</item>
-        /// <item>Everything else is a press, taken from the latch rather than
-        /// from a flag, so a touch that landed on a picture with no
-        /// simulation step behind it is not lost.</item>
-        /// </list>
+        /// Add DS actions after raw pointer ownership has been resolved. Independent
+        /// firing sources have already been preserved by the binding resolver.
         /// </summary>
         private static void ApplyStylusZone(PlayerEntity player)
         {
-            if (!Mods.Input.StylusZone.Capturing)
+            if (!Mods.Input.StylusZone.CapturingPointer)
             {
                 return;
             }
             PlayerControls controls = player.Controls;
-            controls.Shoot.IsDown = false;
-            controls.Shoot.IsPressed = false;
-            controls.Shoot.IsReleased = false;
             if (Mods.Input.StylusZone.MenuHeld)
             {
                 // Held down every frame of the touch. The release is the
-                // hardware's again -- Capturing goes false with the contact,
-                // this stops overriding, and the bind falls to the left button
-                // it is really reading, which is up. That is the edge
-                // EndWeaponMenu equips on.
+                // hardware's again when the contact ends. EndWeaponMenu equips
+                // when the combined hold is no longer down.
                 controls.WeaponMenu.IsDown = true;
                 controls.WeaponMenu.IsReleased = false;
                 player.Input.HasInput = true;
@@ -1100,7 +1097,7 @@ namespace MphRead.Entities
             }
             if (AttachedEnemy != null)
             {
-                return false;
+                return NetShotDiagnostics.Finish(this, ShotAttemptResult.AttachedEnemy);
             }
             bool pressed = Controls.Shoot.IsPressed;
             if (pressed || CurrentWeapon != BeamType.PowerBeam)
@@ -1124,11 +1121,12 @@ namespace MphRead.Entities
                 || !pressed && _timeSinceShot < _autofireCooldown)
                 && (!IsBot || !AiData.Flags2.TestFlag(AiFlags2.Bit20)))
             {
-                return false;
+                return NetShotDiagnostics.Finish(this, _timeSinceShot < EquipWeapon.ShotCooldown * 2
+                    ? ShotAttemptResult.Cooldown : ShotAttemptResult.AutofireCooldown);
             }
             if (GunAnimation == GunAnimation.UpDown)
             {
-                return false;
+                return NetShotDiagnostics.Finish(this, ShotAttemptResult.GunLowered);
             }
             Vector3 shotOrigin = Mods.Network.NetHooks.RemoteShotOrigin(this, _muzzlePos);
             Vector3 shotVec = Mods.Network.NetHooks.RemoteShotDirection(this, _aimPosition - _muzzlePos);
@@ -1170,13 +1168,15 @@ namespace MphRead.Entities
             Mods.Network.NetUnlagged.BeginShot(this);
             BeamResultFlags result = BeamProjectileEntity.Spawn(this, EquipInfo, shotOrigin, shotVec, flags, NodeRef, _scene);
             Mods.Network.NetUnlagged.EndShot(this);
-            Mods.Network.NetDamage.NoteFired(this, shotVec, _gunVec1);
             if (result == BeamResultFlags.NoSpawn)
             {
                 EquipInfo.Weapon = curWeapon;
                 PlayBeamEmptySfx(EquipInfo.Weapon.Beam);
-                return false;
+                return NetShotDiagnostics.Finish(this, ShotAttemptResult.NoAmmo);
             }
+            NetShotDiagnostics.Finish(this, ShotAttemptResult.Spawned, shotVec, _gunVec1);
+            ModControllerFeedback(EquipWeapon.MinCharge > 0 && EquipInfo.ChargeLevel >= EquipWeapon.MinCharge * 2
+                ? Mods.Input.GamepadFeedback.ChargedShot : Mods.Input.GamepadFeedback.Fire);
             // todo: update license stats
             _timeSinceShot = 0;
             if (IsMainPlayer)
@@ -1319,6 +1319,7 @@ namespace MphRead.Entities
             int animId = -1;
             AnimFlags animFlags = AnimFlags.None;
             Flags1 |= PlayerFlags1.UsedJump;
+            bool altFlick = ModConsumeAltFlick(out float altFlickX, out float altFlickY);
             if (_frozenTimer == 0 && _health > 0)
             {
                 // todo?: if touch movement for alt form was a thing, this would need extra conditions
@@ -1686,17 +1687,8 @@ namespace MphRead.Entities
                     }
                     if (_abilities.TestFlag(AbilityFlags.Boost) && AttachedEnemy == null)
                     {
-                        // A whip of the mouse is the same gesture from the
-                        // desktop's end -- nothing else reads a mouse delta
-                        // in the ball -- and it asks for the boost through
-                        // the same one-shot. See Mods.Input.MouseFlick.
-                        ModCheckMouseFlick();
-                        // A touch platform's swipe gesture is a flick, not a
-                        // hold-and-release: it forces a full charge straight
-                        // into the release branch below instead of building
-                        // one up over several frames.
-                        bool swipeBoost = SwipeBoostRequested;
-                        SwipeBoostRequested = false;
+                        // A flick forces a full charge into the normal release path.
+                        bool flickBoost = altFlick && _abilities.TestFlag(AbilityFlags.Boost);
                         // Where the flick pointed, turned into a world
                         // direction against the basis the ball already rolls
                         // with: up the screen is forward and left is left,
@@ -1708,10 +1700,10 @@ namespace MphRead.Entities
                         float boostDirX = _field70;
                         float boostDirZ = _field74;
                         bool boostAimed = false;
-                        if (swipeBoost && (SwipeBoostX != 0 || SwipeBoostY != 0))
+                        if (flickBoost && (altFlickX != 0 || altFlickY != 0))
                         {
-                            float forward = -SwipeBoostY;
-                            float left = -SwipeBoostX;
+                            float forward = -altFlickY;
+                            float left = -altFlickX;
                             // Taken as an aim, not snapped. It *was* snapped
                             // to the four directions the roll binds offer, on
                             // the reading that the gesture is a choice between
@@ -1752,15 +1744,13 @@ namespace MphRead.Entities
                                     // is three questions and this is the only
                                     // line that separates them.
                                     Mods.DebugLog.Line("input", "boost flick screen "
-                                        + $"({SwipeBoostX:0.00}, {SwipeBoostY:0.00}) -> "
+                                        + $"({altFlickX:0.00}, {altFlickY:0.00}) -> "
                                         + $"({forward:0.00} fwd, {left:0.00} left)"
                                         + $" -> world ({boostDirX:0.00}, {boostDirZ:0.00})");
                                 }
                             }
                         }
-                        SwipeBoostX = 0;
-                        SwipeBoostY = 0;
-                        if (Controls.Boost.IsDown && !swipeBoost)
+                        if (Controls.Boost.IsDown && !flickBoost)
                         {
                             // the game plays the boost charge SFX here, but that SFX is empty
                             if (_boostCharge < Values.BoostChargeMax * 2) // todo: FPS stuff
@@ -1770,7 +1760,7 @@ namespace MphRead.Entities
                         }
                         else
                         {
-                            if (swipeBoost)
+                            if (flickBoost)
                             {
                                 _boostCharge = (ushort)(Values.BoostChargeMax * 2);
                             }
@@ -1838,6 +1828,7 @@ namespace MphRead.Entities
                                 speedDelta = speedDelta.AddX(boostDirX * factor).AddZ(boostDirZ * factor);
                                 _altAttackCooldown = (ushort)(Values.AltAttackCooldown * 2); // todo: FPS stuff
                                 Flags1 |= PlayerFlags1.Boosting;
+                                ModControllerFeedback(Mods.Input.GamepadFeedback.Boost);
                                 _boostDamage = (ushort)(Values.AltAttackDamage * _boostCharge / (Values.BoostChargeMax * 2)); // todo: FPS stuff
                                 if (IsMainPlayer)
                                 {
@@ -2438,7 +2429,9 @@ namespace MphRead.Entities
                 // while the player they are watching takes somebody else's
                 // input entirely.
                 Mods.SpectatorMode.NoteScoreboard(
-                    IsDown(Mods.InputSettings.Current.Pause, keyboardSnap, mouseSnap));
+                    IsDown(Mods.InputSettings.Current.Pause, keyboardSnap, mouseSnap)
+                    || (Mods.Input.GamepadContexts.Current == Mods.Input.GamepadContext.Gameplay
+                        && Mods.Input.GamepadInput.State.Down(Mods.Input.GamepadButtons.Back)));
             }
             for (int i = 0; i < Players.Count; i++)
             {
@@ -2467,6 +2460,7 @@ namespace MphRead.Entities
                 player.Input.PrevMouseState = prevMouseSnap;
                 player.Input.KeyboardState = keyboardSnap;
                 player.Input.MouseState = mouseSnap;
+                player.Input.UpdatePointer();
                 _isScrollingUp = false;
                 _isScrollingDown = false;
                 // todo?: deal with overflow or whatever
@@ -2509,8 +2503,10 @@ namespace MphRead.Entities
                             {
                                 control.NeedsRepress = true;
                             }
-                            bool down = mouseSnap.IsButtonDown(control.MouseButton);
-                            bool prevDown = prevMouseSnap?.IsButtonDown(control.MouseButton) ?? false;
+                            bool primary = control.MouseButton == MouseButton.Left;
+                            bool down = primary ? player.Input.Primary.Down : mouseSnap.IsButtonDown(control.MouseButton);
+                            bool prevDown = primary ? player.Input.Primary.PreviousDown
+                                : prevMouseSnap?.IsButtonDown(control.MouseButton) ?? false;
                             if (control.NeedsRepress && !player._ignoreClick)
                             {
                                 if (!down || !prevDown)
@@ -2518,11 +2514,18 @@ namespace MphRead.Entities
                                     control.NeedsRepress = false;
                                 }
                             }
-                            if (!control.NeedsRepress)
+                            if (control.NeedsRepress)
                             {
-                                control.IsDown = down;
-                                control.IsPressed = control.IsDown && !prevDown;
-                                control.IsReleased = !control.IsDown && prevDown;
+                                control.IsDown = control.IsPressed = control.IsReleased = false;
+                            }
+                            else
+                            {
+                                if (!player.Input.Primary.Resolve(control))
+                                {
+                                    control.IsDown = down;
+                                    control.IsPressed = down && !prevDown;
+                                    control.IsReleased = !down && prevDown;
+                                }
                                 if (control.IsDown || control.IsPressed || control.IsReleased)
                                 {
                                     player.Input.HasInput = true;
@@ -2544,11 +2547,9 @@ namespace MphRead.Entities
                 }
                 if (player.LoadFlags.TestFlag(LoadFlags.Active))
                 {
-                    // After the hardware has been read, because it overrides
-                    // what the hardware said: a pen tip resting on the weapon
-                    // button is the left mouse button held down, which is the
-                    // fire bind. See Mods.Input.StylusZone.
+                    // Stylus actions are additive; raw tip capture happens before bindings.
                     ApplyStylusZone(player);
+                    player.ModPrepareSpireFlick();
                 }
                 player._ignoreClick = false;
                 if (mouseSnap.IsButtonDown(MouseButton.Left) && prevMouseSnap?.IsButtonDown(MouseButton.Left) != true)
@@ -2609,30 +2610,31 @@ namespace MphRead.Entities
             public MouseState? PrevMouseState { get; set; }
             public MouseState? MouseState { get; set; }
 
-            // Filtered, so a pointer that teleports does not turn the view.
-            // See Mods.Input.PointerInput: a mouse never reaches the
-            // threshold, and a pen reaches it every time it is lifted off the
-            // tablet and set down somewhere else.
-            //
-            // With a bottom screen marked out, the guard is not needed and not
-            // used: the pen aims by dragging the map and by nothing else, so
-            // the answer is the drag or it is nothing. It used to be the raw
-            // pointer whenever the tip was not on a button, which is a tablet
-            // player's aim swinging to wherever they reached for a weapon --
-            // and, since the tip is also the fire bind, doing it while
-            // shooting. "I cannot aim with the pen" was the other half of the
-            // same thing: a touch on the map turned the view by whatever
-            // distance the hand had travelled to get there and then stopped.
-            public float MouseDeltaX => StylusDelta((MouseState?.X - PrevMouseState?.X) ?? 0);
-            public float MouseDeltaY => StylusDelta((MouseState?.Y - PrevMouseState?.Y) ?? 0);
+            public Mods.Input.PointerBindings Primary { get; } = new();
+            public float MouseDeltaX { get; private set; }
+            public float MouseDeltaY { get; private set; }
+            public float PointerX => Mods.Input.PointerDevice.Active
+                ? Mods.Input.PointerDevice.Current.X : MouseState?.X ?? 0;
+            public float PointerY => Mods.Input.PointerDevice.Active
+                ? Mods.Input.PointerDevice.Current.Y : MouseState?.Y ?? 0;
+            private bool _loggedCapture;
 
-            private static float StylusDelta(float delta)
+            public void UpdatePointer()
             {
-                if (Mods.Input.StylusZone.Enabled || Mods.Input.StylusZone.Placing)
+                bool active = Mods.Input.PointerDevice.Active;
+                bool captured = Mods.Input.StylusZone.CapturingPrimaryButton || Mods.Input.StylusZone.Placing;
+                Primary.Update(active ? Mods.Input.PointerDevice.PrimaryDown
+                    : MouseState?.IsButtonDown(MouseButton.Left) == true, !active && captured);
+                (MouseDeltaX, MouseDeltaY) = active ? Mods.Input.PointerDevice.TakeDelta()
+                    : Mods.Input.PointerInput.Filter((MouseState?.X - PrevMouseState?.X) ?? 0,
+                        (MouseState?.Y - PrevMouseState?.Y) ?? 0);
+                if (Mods.DebugLog.Active && captured && !_loggedCapture)
                 {
-                    return Mods.Input.StylusZone.Aiming ? delta : 0;
+                    PlayerControls controls = Mods.InputSettings.Current;
+                    Mods.DebugLog.Line("input", $"stylus firing sources preserved: "
+                        + $"Shoot={controls.Shoot.Type}:{controls.Shoot} AltAttack={controls.AltAttack.Type}:{controls.AltAttack}");
                 }
-                return Mods.Input.PointerInput.Filter(delta);
+                _loggedCapture = captured;
             }
             public float ClickX { get; set; } = -1;
             public float ClickY { get; set; } = -1;

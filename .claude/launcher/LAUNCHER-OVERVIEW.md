@@ -27,6 +27,12 @@ Key implementation notes
 - **One launcher, in Avalonia, on every platform.** Windows, Linux and macOS run
   the same screens; there is no second toolkit and no per-platform launcher any
   more. `Mods/Launcher/Gui/` is the whole of it.
+- ROM selection follows the platform boundary: desktop uses the Fruity Prime
+  filesystem browser rendered inside the existing launcher surface, while
+  Android uses its real platform `StorageProvider` for local paths and
+  `content://` documents. Desktop Avalonia runs headless, so its `TopLevel`
+  is never presented to the window manager and must not be used to request a
+  platform dialog.
 - Every control is painted by this code (`GuiTheme`, `MenuEntry`, `ChoiceRow`,
   `SliderRow`, `KeyRow`, `SplashView`); only the text boxes and scroll bars are
   stock, under Fluent dark.
@@ -62,13 +68,12 @@ First-run behaviour and progress
 
 macOS and Android
 
-- **macOS** publishes like any other desktop target (`osx-x64`/`osx-arm64`,
-  cross-compiled on the Linux runner), and OpenAL ships with it
-  (`libopenal.1.dylib`, keyed on RID rather than a Windows/Linux special
-  case). **Nobody has started one.** Both packages are cross-compiled and
-  unrun; the thing to watch is GLFW and AppKit sharing a process and a main
-  thread, which the one-thread launcher arrangement is designed for and no
-  Mac has confirmed.
+- **macOS** publishes and runs `-smoketest` on matching Apple Silicon and
+  Intel runners. Releases are ad-hoc signed `.app` bundles in `.tar.gz` files.
+  Native dependencies stay beside the executable inside Contents/MacOS, maps
+  live in Contents/Resources, and writable state goes to Application Support. See `../build-deploy/MACOS.md`.
+  The smoke test checks headless startup; it does not prove a visible GLFW
+  window, OpenGL gameplay, or Gatekeeper acceptance of an Internet download.
 - **Android** is `src/MphRead.Android/`, a head project compiling the same
   sources with `ANDROID` defined. It now builds a front screen **and a
   match**: the engine's desktop GL is redirected to OpenGL ES 3.0 by a single
@@ -128,3 +133,8 @@ The preference keeps the word: `LauncherPrefs.LastHunter` still stores Random,
 so the picker still shows it and the next match rolls again.
 
 See also: .claude/launcher/LAUNCHER-DESIGN.md, .claude/launcher/LAUNCHER-SETTINGS.md, .claude/launcher/LAUNCHER-FIRSTRUN.md
+# Online and lobby presentation
+
+See [ONLINE-LOBBY-UX.md](ONLINE-LOBBY-UX.md) for server state presentation,
+cancellable joining, persistent lobby panels, responsive navigation and regression
+commands. The UI retains the existing protocol and server authority.

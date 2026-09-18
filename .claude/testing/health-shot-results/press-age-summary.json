@@ -1,0 +1,53 @@
+{
+  "runs": 96,
+  "completed": 96,
+  "pressAge": {
+    "False": {
+      "client_spawned": 733.0,
+      "client_localHits": 88.0,
+      "declared": 88,
+      "applied": 5,
+      "resolved": 32,
+      "deadShooter": 0,
+      "deadVictim": 41,
+      "refused": 0,
+      "unanswered": 4,
+      "repeats": 27,
+      "headPredicted": 55,
+      "headAgreed": 24,
+      "headDowngraded": 13,
+      "server_hitEvents": 98,
+      "server_damage": 13968,
+      "server_spawnEvents": 359,
+      "server_repeatedSpawnKeys": 0,
+      "server_rewound": 355.0,
+      "server_clamped": 0.0,
+      "meanRewindFrames": 24.187323943661973,
+      "runs": 48
+    },
+    "True": {
+      "client_spawned": 724.0,
+      "client_localHits": 86.0,
+      "declared": 86,
+      "applied": 2,
+      "resolved": 35,
+      "deadShooter": 0,
+      "deadVictim": 38,
+      "refused": 0,
+      "unanswered": 8,
+      "repeats": 35,
+      "headPredicted": 49,
+      "headAgreed": 28,
+      "headDowngraded": 10,
+      "server_hitEvents": 104,
+      "server_damage": 15296,
+      "server_spawnEvents": 352,
+      "server_repeatedSpawnKeys": 0,
+      "server_rewound": 351.0,
+      "server_clamped": 1.0,
+      "meanRewindFrames": 25.025071225071223,
+      "runs": 48
+    }
+  },
+  "limits": "Seeded local UDP measurements. Short runs and unequal shot exposure do not establish causality. Repeated spawn keys are not a ghost-shot count."
+}

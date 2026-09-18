@@ -45,6 +45,7 @@ namespace MphRead.Mods.Network
 
         /// <summary>Why the last attempt produced nothing.</summary>
         public static string? LastError { get; private set; }
+        public static Guid OwnerToken { get; private set; }
 
         /// <summary>
         /// The release tag of the package last installed, or "".
@@ -142,9 +143,9 @@ namespace MphRead.Mods.Network
                 {
                     return null;
                 }
-                return new ServerBinary(exe, new[] { dll }, directory, downloaded: false);
+                return new ServerBinary(exe, new[] { dll }, Platform.AppPaths.UserDataDirectory, downloaded: false);
             }
-            return new ServerBinary(exe, Array.Empty<string>(), directory, downloaded: false);
+            return new ServerBinary(exe, Array.Empty<string>(), Platform.AppPaths.UserDataDirectory, downloaded: false);
         }
 
         // --------------------------------------------------------- installing
@@ -263,9 +264,10 @@ namespace MphRead.Mods.Network
             IReadOnlyList<(string RoomKey, GameMode Mode)> rotation,
             int maxPlayers, float timeLimit, int pointGoal,
             string masterHost, int masterPort, bool listed,
-            CancellationToken cancel = default)
+            CancellationToken cancel = default, bool lobby = false)
         {
             LastError = null;
+            OwnerToken = lobby ? new Guid(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16)) : Guid.Empty;
             ServerBinary? found = Available();
             if (found == null)
             {
@@ -323,6 +325,12 @@ namespace MphRead.Mods.Network
                 start.ArgumentList.Add(argument);
             }
             start.ArgumentList.Add("-server");
+            if (lobby)
+            {
+                start.ArgumentList.Add("-lobby");
+                start.ArgumentList.Add("-ownertoken");
+                start.ArgumentList.Add(OwnerToken.ToString("N"));
+            }
             start.ArgumentList.Add("-port");
             start.ArgumentList.Add(port.ToString(CultureInfo.InvariantCulture));
             start.ArgumentList.Add("-players");
@@ -390,8 +398,9 @@ namespace MphRead.Mods.Network
 
         /// <summary>
         /// Put this installation's <c>paths.txt</c> beside a server that is
-        /// somewhere else. Nothing to do for the ordinary case, where the
-        /// server *is* this installation.
+        /// somewhere else. ROM entries must be absolute before the server
+        /// reads them from its own directory. Nothing to do for the ordinary
+        /// case, where the server *is* this installation.
         /// </summary>
         private static void CopyPaths(string directory)
         {
@@ -402,7 +411,27 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
-            File.Copy(source, target, overwrite: true);
+            string[] lines = File.ReadAllLines(source);
+            for (int i = 0; i < lines.Length; i++)
+            {
+                int equals = lines[i].IndexOf('=');
+                if (equals < 0)
+                {
+                    continue;
+                }
+                string key = lines[i][..equals].Trim();
+                if (key == "Export")
+                {
+                    continue;
+                }
+                string storedPath = lines[i][(equals + 1)..].Trim();
+                string resolved = RomPaths.Resolve(key, storedPath, GameFiles.Root);
+                if (resolved != storedPath)
+                {
+                    lines[i] = lines[i][..(equals + 1)] + resolved;
+                }
+            }
+            File.WriteAllLines(target, lines);
         }
 
         /// <summary>

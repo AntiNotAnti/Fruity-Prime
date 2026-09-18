@@ -1,4 +1,12 @@
+Protocol-12 updates: [authoritative HUD health, hidden HP, shot identity, lifecycle and claim validation](NETWORK-HEALTH-SHOTS.md). This section supersedes conflicting historical behavior below.
+
 # Opponents that move instead of teleporting
+
+> Protocol 8: see [NETWORK-LIFECYCLE.md](NETWORK-LIFECYCLE.md) for current
+> lifecycle, identity, wire and reset rules. The protocol-7 measurements below
+> are historical. Remote death prediction is now always disabled, including
+> with `-deathprediction`; only a new authoritative LifeId permits respawn.
+> Older protocol demos are refused.
 
 Code: `Mods/Network/NetSmoothing.cs`. Protocol 7.
 
