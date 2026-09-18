@@ -209,6 +209,13 @@ namespace MphRead.Mods.Network
 
         private struct Outgoing
         {
+            public ushort MatchId;
+            public ulong AuthorityEpoch;
+            public ushort ShooterGeneration;
+            public ushort ShooterLifeId;
+            public ushort VictimGeneration;
+            public ushort VictimLifeId;
+
             public ushort Id;
             public uint Frame;
             public uint AckFrame;
@@ -318,7 +325,8 @@ namespace MphRead.Mods.Network
             BeamType beam, uint damage, DamageFlags flags, bool lethal, Vector3 hitPoint,
             uint launchFrame)
         {
-            if (!Claiming || victim == attacker || damage == 0)
+            if (!Claiming || victim == attacker || damage == 0
+                || NetPlayerLifecycle.Get(victim.SlotIndex) == 0 || NetPlayerLifecycle.Get(attacker.SlotIndex) == 0)
             {
                 return 0;
             }
@@ -382,6 +390,12 @@ namespace MphRead.Mods.Network
                 : NetSession.AppliedSnapshotFrame;
             _outbox[index] = new Outgoing
             {
+                MatchId = NetSession.CurrentMatchId,
+                AuthorityEpoch = NetSession.AuthorityEpoch,
+                ShooterGeneration = NetPlayerLifecycle.Generation(attacker.SlotIndex),
+                ShooterLifeId = NetPlayerLifecycle.Get(attacker.SlotIndex),
+                VictimGeneration = NetPlayerLifecycle.Generation(slot),
+                VictimLifeId = NetPlayerLifecycle.Get(slot),
                 Id = _nextId,
                 Frame = NetSession.NetFrame,
                 AckFrame = ack,
@@ -437,6 +451,12 @@ namespace MphRead.Mods.Network
                 }
                 var packet = new HitClaimPacket
                 {
+                    MatchId = entry.MatchId,
+                    AuthorityEpoch = entry.AuthorityEpoch,
+                    ShooterGeneration = entry.ShooterGeneration,
+                    ShooterLifeId = entry.ShooterLifeId,
+                    VictimGeneration = entry.VictimGeneration,
+                    VictimLifeId = entry.VictimLifeId,
                     ClaimId = entry.Id,
                     Frame = entry.Frame,
                     AckFrame = entry.AckFrame,
@@ -507,10 +527,16 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
-            int count = payload[0];
+            if (payload.Length < HitVerdictPacket.HeaderSize) return;
+            if (!NetSession.MatchesStream(System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(payload[1..]),
+                System.Buffers.Binary.BinaryPrimitives.ReadUInt64LittleEndian(payload[3..]))
+                || !NetPlayerLifecycle.Matches(NetSession.LocalSlot,
+                    System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(payload[11..]),
+                    System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(payload[13..]))) return;
+            int count = Math.Min((int)payload[0], HitVerdictPacket.MaxPerPacket);
             for (int i = 0; i < count; i++)
             {
-                int at = 1 + i * HitVerdictPacket.EntrySize;
+                int at = HitVerdictPacket.HeaderSize + i * HitVerdictPacket.EntrySize;
                 if (at + HitVerdictPacket.EntrySize > payload.Length)
                 {
                     break;
@@ -520,7 +546,8 @@ namespace MphRead.Mods.Network
                 for (int j = 0; j < OutboxCapacity; j++)
                 {
                     ref Outgoing entry = ref _outbox[j];
-                    if (!entry.Live || entry.Id != id)
+                    if (!entry.Live || entry.Id != id
+                        || !NetPlayerLifecycle.Matches(entry.VictimSlot, entry.VictimGeneration, entry.VictimLifeId))
                     {
                         continue;
                     }
@@ -575,6 +602,13 @@ namespace MphRead.Mods.Network
 
         private struct Pending
         {
+            public ushort MatchId;
+            public ulong AuthorityEpoch;
+            public ushort ShooterGeneration;
+            public ushort ShooterLifeId;
+            public ushort VictimGeneration;
+            public ushort VictimLifeId;
+
             public ushort Id;
             public byte ShooterSlot;
             public byte VictimSlot;
@@ -609,7 +643,10 @@ namespace MphRead.Mods.Network
         /// </summary>
         private static readonly ushort[] _newestId = new ushort[Slots];
         private static readonly byte[] _lastResult = new byte[Slots];
-        private const ushort IdRestartGap = 8192;
+        private const int SeenCapacity = 128;
+        private const byte ResultPending = 255;
+        private static readonly ushort[,] _seenIds = new ushort[Slots, SeenCapacity];
+        private static readonly byte[,] _seenResults = new byte[Slots, SeenCapacity];
 
         /// <summary>
         /// Hits the authority resolved itself, for the duplicate test: the
@@ -999,13 +1036,29 @@ namespace MphRead.Mods.Network
                 }
                 HitClaimPacket claim = HitClaimPacket.Read(payload[at..]);
                 Received++;
+                if (claim.ShooterLifeId == 0 || claim.VictimLifeId == 0
+                    || !NetSession.MatchesStream(claim.MatchId, claim.AuthorityEpoch)
+                    || !NetPlayerLifecycle.Matches(shooterSlot, claim.ShooterGeneration, claim.ShooterLifeId))
+                {
+                    NetPlayerLifecycle.OldLifeClaims++;
+                    continue;
+                }
+                if (!NetPlayerLifecycle.Matches(claim.VictimSlot, claim.VictimGeneration, claim.VictimLifeId))
+                {
+                    NetPlayerLifecycle.OldLifeClaims++;
+                    Answer(shooterSlot, claim.ClaimId, HitVerdictPacket.ResultWrongLife, remember: false);
+                    continue;
+                }
                 // A repeat of something already answered. The answer is
                 // repeated too: the shooter is asking because the first one
                 // did not arrive.
                 if (Seen(shooterSlot, claim.ClaimId))
                 {
                     RepeatsHere++;
-                    Answer(shooterSlot, claim.ClaimId, _lastResult[shooterSlot]);
+                    int seenAt = claim.ClaimId % SeenCapacity;
+                    byte result = _seenIds[shooterSlot, seenAt] == claim.ClaimId
+                        ? _seenResults[shooterSlot, seenAt] : HitVerdictPacket.ResultTooOld;
+                    if (result != ResultPending) Answer(shooterSlot, claim.ClaimId, result);
                     continue;
                 }
                 byte immediate = Judge(shooterSlot, claim);
@@ -1015,32 +1068,22 @@ namespace MphRead.Mods.Network
                     Answer(shooterSlot, claim.ClaimId, immediate);
                     continue;
                 }
-                Remember(shooterSlot, claim.ClaimId, HitVerdictPacket.ResultApplied);
+                Remember(shooterSlot, claim.ClaimId, ResultPending);
                 Park(shooterSlot, claim);
             }
         }
 
-        private static bool Seen(int slot, ushort id)
-        {
-            ushort newest = _newestId[slot];
-            if (newest == 0)
-            {
-                return false;
-            }
-            if (id == newest)
-            {
-                return true;
-            }
-            // Ids rise. Anything not newer has been dealt with -- unless it is
-            // so far behind that the counter has restarted, which is a client
-            // that rejoined.
-            return (ushort)(newest - id) < IdRestartGap && id < newest;
-        }
+        private static bool Seen(int slot, ushort id) => id == 0
+            || _seenIds[slot, id % SeenCapacity] == id
+            || (_newestId[slot] != 0 && !NetLifecycleTracker.Newer(id, _newestId[slot])
+                && unchecked((ushort)(_newestId[slot] - id)) >= SeenCapacity);
 
         private static void Remember(int slot, ushort id, byte result)
         {
-            _newestId[slot] = id;
-            _lastResult[slot] = result;
+            if (_newestId[slot] == 0 || NetLifecycleTracker.Newer(id, _newestId[slot])) _newestId[slot] = id;
+            int at = id % SeenCapacity;
+            _seenIds[slot, at] = id;
+            _seenResults[slot, at] = result;
         }
 
         /// <summary>
@@ -1095,7 +1138,7 @@ namespace MphRead.Mods.Network
             // Where the authority itself had the victim, at the frame the
             // shooter was looking at. This is the claim's only evidence and
             // the authority's own record of it.
-            if (!NetUnlagged.PositionAt(victimSlot, claim.AckFrame, out Vector3 was))
+            if (!NetUnlagged.PositionAt(victimSlot, claim.AckFrame, claim.VictimGeneration, claim.VictimLifeId, out Vector3 was))
             {
                 // Either the victim was not in play in that world, or the ring
                 // no longer holds it. Both mean there is nothing to check.
@@ -1243,6 +1286,12 @@ namespace MphRead.Mods.Network
             }
             _pending[index] = new Pending
             {
+                MatchId = claim.MatchId,
+                AuthorityEpoch = claim.AuthorityEpoch,
+                ShooterGeneration = claim.ShooterGeneration,
+                ShooterLifeId = claim.ShooterLifeId,
+                VictimGeneration = claim.VictimGeneration,
+                VictimLifeId = claim.VictimLifeId,
                 Id = claim.ClaimId,
                 ShooterSlot = (byte)shooterSlot,
                 VictimSlot = claim.VictimSlot,
@@ -1299,6 +1348,7 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static void Tick()
         {
+            if (!NetRoomChange.GameplayReady) return;
             if (Claiming)
             {
                 TickOutbox();
@@ -1327,6 +1377,14 @@ namespace MphRead.Mods.Network
                     // and applying it would be the same hit twice. One of its
                     // hits retires one claim, so a burst that really did lose
                     // three of four still gets three back.
+                    if (!NetSession.MatchesStream(entry.MatchId, entry.AuthorityEpoch)
+                        || !NetPlayerLifecycle.Matches(entry.ShooterSlot, entry.ShooterGeneration, entry.ShooterLifeId)
+                        || !NetPlayerLifecycle.Matches(entry.VictimSlot, entry.VictimGeneration, entry.VictimLifeId))
+                    {
+                        entry.Live = false;
+                        NetPlayerLifecycle.OldLifeClaims++;
+                        continue;
+                    }
                     if (TakeLedger(entry.ShooterSlot, entry.VictimSlot, entry.AckFrame,
                         entry.LaunchFrame, entry.Arrived, entry.Grace, out int resolved))
                     {
@@ -1341,7 +1399,8 @@ namespace MphRead.Mods.Network
                     {
                         continue;
                     }
-                    if (next < 0 || entry.AckFrame < _pending[next].AckFrame)
+                    if (next < 0 || (entry.LaunchFrame != 0 ? entry.LaunchFrame : entry.AckFrame)
+                        < (_pending[next].LaunchFrame != 0 ? _pending[next].LaunchFrame : _pending[next].AckFrame))
                     {
                         next = i;
                     }
@@ -1500,6 +1559,13 @@ namespace MphRead.Mods.Network
         {
             int victimSlot = entry.VictimSlot;
             int shooterSlot = entry.ShooterSlot;
+            if (!NetSession.MatchesStream(entry.MatchId, entry.AuthorityEpoch)
+                || !NetPlayerLifecycle.Matches(shooterSlot, entry.ShooterGeneration, entry.ShooterLifeId)
+                || !NetPlayerLifecycle.Matches(victimSlot, entry.VictimGeneration, entry.VictimLifeId))
+            {
+                NetPlayerLifecycle.OldLifeClaims++;
+                return;
+            }
             if (victimSlot >= PlayerEntity.Players.Count
                 || shooterSlot >= PlayerEntity.Players.Count)
             {
@@ -1519,7 +1585,7 @@ namespace MphRead.Mods.Network
             // shooter in a world earlier than the one it fired in, and the
             // arbitration is about that ordering rather than about which
             // packet arrived first.
-            if (_dead[shooterSlot] && _deathFire[shooterSlot] < entry.AckFrame)
+            if (_dead[shooterSlot] && _deathFire[shooterSlot] < (entry.LaunchFrame != 0 ? entry.LaunchFrame : entry.AckFrame))
             {
                 VoidedDeadShooter++;
                 Answer(shooterSlot, entry.Id, HitVerdictPacket.ResultDeadShooter);
@@ -1649,12 +1715,13 @@ namespace MphRead.Mods.Network
             new (ushort, byte)[Slots, VerdictCapacity];
         private static readonly int[] _verdictCount = new int[Slots];
 
-        private static void Answer(int slot, ushort id, byte result)
+        private static void Answer(int slot, ushort id, byte result, bool remember = true)
         {
             if (slot < 0 || slot >= Slots || _verdictCount[slot] >= VerdictCapacity)
             {
                 return;
             }
+            if (remember) Remember(slot, id, result);
             _verdicts[slot, _verdictCount[slot]++] = (id, result);
         }
 
@@ -1686,6 +1753,8 @@ namespace MphRead.Mods.Network
         {
             Array.Clear(_outbox);
             Array.Clear(_pending);
+            Array.Clear(_seenIds);
+            Array.Clear(_seenResults);
             Array.Clear(_newestId);
             Array.Clear(_lastResult);
             Array.Clear(_authorityHit);
@@ -1743,7 +1812,7 @@ namespace MphRead.Mods.Network
             }
             for (int i = 0; i < OutboxCapacity; i++)
             {
-                if (_outbox[i].VictimSlot == slot)
+                if (_outbox[i].VictimSlot == slot || slot == NetSession.LocalSlot)
                 {
                     _outbox[i].Live = false;
                 }
@@ -1755,6 +1824,10 @@ namespace MphRead.Mods.Network
                     _pending[i].Live = false;
                 }
             }
+            _verdictCount[slot] = 0;
+            for (int i = 0; i < SeenCapacity; i++) { _seenIds[slot, i] = 0; _seenResults[slot, i] = 0; }
+            for (int i = 0; i < RescuedCapacity; i++)
+                if (_rescuedAttacker[i] == slot || _rescuedVictim[i] == slot) _rescuedOwed[i] = 0;
             _newestId[slot] = 0;
             _lastResult[slot] = 0;
             _deathFire[slot] = 0;
@@ -1771,6 +1844,11 @@ namespace MphRead.Mods.Network
         /// <summary>Every claim in flight is about a room that is going away.</summary>
         public static void ForgetPending()
         {
+            Array.Clear(_seenIds);
+            Array.Clear(_seenResults);
+            Array.Clear(_newestId);
+            Array.Clear(_verdictCount);
+            Array.Clear(_rescuedOwed);
             Array.Clear(_outbox);
             Array.Clear(_pending);
             Array.Clear(_authorityHit);

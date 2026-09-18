@@ -25,13 +25,16 @@ namespace MphRead.Mods.Network
     {
         private const int Slots = PlayerEntity.SlotCapacity;
 
-        private static readonly byte[] _sequence = new byte[Slots];
+        private static readonly ushort[] _sequence = new ushort[Slots];
+        private static readonly DamageEvent[,] _history = new DamageEvent[Slots, PlayerState.DamageHistory];
         private static readonly byte[] _attacker = new byte[Slots];
         private static readonly byte[] _beam = new byte[Slots];
         private static readonly byte[] _flags = new byte[Slots];
         private static readonly Vector3[] _direction = new Vector3[Slots];
 
-        private static readonly byte[] _lastSeen = new byte[Slots];
+        private static readonly ushort[] _lastLife = new ushort[Slots];
+        private static readonly ushort[] _lastGeneration = new ushort[Slots];
+        private static readonly ushort[] _lastSeen = new ushort[Slots];
         private static readonly bool[] _everSeen = new bool[Slots];
 
         public const byte NoSlot = 0xFF;
@@ -183,13 +186,6 @@ namespace MphRead.Mods.Network
         }
 
         /// <summary>
-        /// The most hits one snapshot may report as new. Generous next to
-        /// anything a real fight produces between two frames, and far below
-        /// the wrap that a regressed counter looks like.
-        /// </summary>
-        private const byte MaxCatchUp = 32;
-
-        /// <summary>
         /// Everything except the counter and the baseline, for a room change.
         ///
         /// The counter must survive one. It is not a count of anything a
@@ -254,6 +250,7 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
+            for (int i = 0; i < PlayerState.DamageHistory; i++) _history[slot, i] = default;
             _sequence[slot] = 0;
             _attacker[slot] = 0;
             _beam[slot] = 0;
@@ -267,6 +264,7 @@ namespace MphRead.Mods.Network
 
         public static void Reset()
         {
+            Array.Clear(_history);
             Array.Clear(_sequence);
             Array.Clear(_attacker);
             Array.Clear(_beam);
@@ -318,6 +316,8 @@ namespace MphRead.Mods.Network
             {
                 return false;
             }
+            if (source is BeamProjectileEntity projectile && !NetPlayerLifecycle.CurrentProjectile(projectile))
+                return true;
             if (NetSession.IsHost || NetSession.IsAuthority)
             {
                 // Except its own copy of a shot a hit claim has already made
@@ -433,7 +433,7 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
-            _sequence[slot]++;
+            _sequence[slot] = NetLifecycleTracker.Next(_sequence[slot]);
             Resolved[slot]++;
             if (NetLog.Enabled)
             {
@@ -477,6 +477,17 @@ namespace MphRead.Mods.Network
             // to the attacker's position for the damage indicator -- for the
             // indicator only, exactly as it does for a local hit.
             _direction[slot] = ClampImpulse(direction ?? Vector3.Zero);
+            for (int i = 0; i < PlayerState.DamageHistory - 1; i++) _history[slot, i] = _history[slot, i + 1];
+            _history[slot, PlayerState.DamageHistory - 1] = new DamageEvent
+            {
+                EventId = _sequence[slot], VictimSlot = (byte)slot,
+                VictimLifeId = NetPlayerLifecycle.Get(slot),
+                AttackerSlot = _attacker[slot],
+                AttackerLifeId = attacker != null ? NetPlayerLifecycle.Get(attacker.SlotIndex) : (ushort)0,
+                AttackerGeneration = attacker != null ? NetPlayerLifecycle.Generation(attacker.SlotIndex) : (ushort)0,
+                Damage = (ushort)Math.Min(amount, ushort.MaxValue), Beam = _beam[slot],
+                Flags = _flags[slot], Direction = _direction[slot]
+            };
         }
 
         /// <summary>
@@ -535,6 +546,30 @@ namespace MphRead.Mods.Network
         /// runs on the victim and moves the *attacker's* row. Here the
         /// ordering does not matter.
         /// </summary>
+        private static int _predictionScoreDepth;
+        public readonly struct PredictionScoreScope : IDisposable
+        {
+            private readonly bool _active;
+            public PredictionScoreScope(bool active)
+            {
+                _active = active;
+                if (active && _predictionScoreDepth++ == 0) SaveScores();
+            }
+            public void Dispose()
+            {
+                if (_active && --_predictionScoreDepth == 0) RestoreScores();
+            }
+        }
+
+        public static void ReplayDeath(PlayerEntity player)
+        {
+            bool wasReplaying = Replaying;
+            Replaying = true;
+            SaveScores();
+            try { player.TakeDamage(1, DamageFlags.Death | DamageFlags.NoDmgInvuln, null, null); }
+            finally { RestoreScores(); Replaying = wasReplaying; }
+        }
+
         private static void SaveScores()
         {
             Array.Copy(GameState.Points, _savedPoints, Slots);
@@ -556,7 +591,11 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
-            state.DamageSeq = _sequence[slot];
+            state.DamageEventId = _sequence[slot];
+            state.Damage0 = _history[slot, 0];
+            state.Damage1 = _history[slot, 1];
+            state.Damage2 = _history[slot, 2];
+            state.Damage3 = _history[slot, 3];
             state.AttackerSlot = _attacker[slot];
             state.DamageBeam = _beam[slot];
             state.DamageFlags = _flags[slot];
@@ -571,6 +610,14 @@ namespace MphRead.Mods.Network
         /// stands: a client joining a match in progress would otherwise open
         /// with a burst of damage for every hit landed before it arrived.
         /// </summary>
+        public static void BeginLife(int slot, in PlayerState state)
+        {
+            _lastLife[slot] = state.LifeId;
+            _lastGeneration[slot] = state.SlotGeneration;
+            _everSeen[slot] = true;
+            _lastSeen[slot] = state.DamageEventId;
+        }
+
         public static void Replay(PlayerEntity player, in PlayerState state)
         {
             int slot = player.SlotIndex;
@@ -578,42 +625,45 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
-            if (!_everSeen[slot])
+            if (!NetPlayerLifecycle.Matches(slot, state.SlotGeneration, state.LifeId))
             {
-                _everSeen[slot] = true;
-                _lastSeen[slot] = state.DamageSeq;
+                NetPlayerLifecycle.OldLifeDamage++;
                 return;
             }
-            // How many hits happened since this client last looked, not
-            // whether any did. Treating the counter as a change flag meant
-            // two hits landing between two received snapshots showed as one,
-            // and under fire or packet loss a sixth of them vanished --
-            // "my shots are not registering", from the shooter's side.
-            byte landed = (byte)(state.DamageSeq - _lastSeen[slot]);
-            if (landed == 0)
+            if (!_everSeen[slot] || _lastLife[slot] != state.LifeId || _lastGeneration[slot] != state.SlotGeneration)
             {
+                BeginLife(slot, state);
                 return;
             }
-            _lastSeen[slot] = state.DamageSeq;
-            if (landed > MaxCatchUp)
+            for (int i = 0; i < PlayerState.DamageHistory; i++)
             {
-                // Not a burst of fire: the counter is a byte, so a sequence
-                // that has gone *backwards* reads as almost a full wrap
-                // forwards. Nothing lands two hundred hits between two
-                // snapshots, so this is a straggler or a counter that was
-                // reset underneath us. Take the new value as the truth and
-                // show nothing -- replaying it would flinch the player, shove
-                // them, and, if the stale snapshot happened to say zero
-                // health, kill them for a hit that had already been shown.
-                NetLog.Event($"slot {slot} damage sequence jumped {landed}; resynced");
-                return;
+                DamageEvent hit = state.EventAt(i);
+                if (hit.EventId == 0 || (_lastSeen[slot] != 0 && !NetLifecycleTracker.Newer(hit.EventId, _lastSeen[slot]))) continue;
+                if (hit.VictimSlot != slot || hit.VictimLifeId != state.LifeId)
+                {
+                    NetPlayerLifecycle.OldLifeDamage++;
+                    continue;
+                }
+                // Redundant history carries the actual metadata for each hit,
+                // rather than replaying the last attacker's hit N times.
+                _lastSeen[slot] = hit.EventId;
+                PlayerState feedback = state;
+                feedback.AttackerSlot = NetPlayerLifecycle.Matches(hit.AttackerSlot, hit.AttackerGeneration, hit.AttackerLifeId)
+                    ? hit.AttackerSlot : NoSlot;
+                feedback.DamageBeam = hit.Beam;
+                feedback.DamageFlags = hit.Flags;
+                feedback.HitDirection = hit.Direction;
+                feedback.Health = hit.EventId == state.DamageEventId ? state.Health
+                    : (ushort)Math.Max(1, player.Health - hit.Damage);
+                ReplayEvent(player, feedback);
             }
-            // The feedback runs once even for several hits: the engine's
-            // damage path applies knockback and an indicator, and stacking
-            // those in a single frame would look worse than the hit it is
-            // reporting. The health that ends up on screen is the
-            // authority's, which already accounts for every one of them.
-            Replayed[slot] += landed;
+        }
+
+        private static void ReplayEvent(PlayerEntity player, in PlayerState state)
+        {
+            int slot = player.SlotIndex;
+            const int landed = 1;
+            Replayed[slot]++;
             bool lethal = state.Health == 0;
             // Consumed before the "already down" return below, not after it.
             //
@@ -675,7 +725,7 @@ namespace MphRead.Mods.Network
             int amount = Math.Max(1, player.Health - state.Health);
             if (!lethal)
             {
-                amount = Math.Min(amount, Math.Max(1, player.Health - 1));
+                amount = Math.Min(amount, Math.Max(0, player.Health - 1));
             }
             DamageFlags flags = (DamageFlags)state.DamageFlags | DamageFlags.NoDmgInvuln;
             if (lethal)
