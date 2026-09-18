@@ -84,6 +84,23 @@ namespace MphRead.Mods
             Update.Updater.Disabled = HasFlag(args, "noupdate");
             ApplyRenderOverrides(args);
 
+            if (HasFlag(args, "gamepadcheck"))
+            {
+                Environment.ExitCode = Input.GamepadChecks.Run(ValueAfter(args, "shots"));
+                return true;
+            }
+            if (HasFlag(args, "gamepad"))
+            {
+                double seconds = 15;
+                string? given = ValueAfter(args, "seconds");
+                if (given != null && Double.TryParse(given, out double parsed) && parsed > 0)
+                {
+                    seconds = parsed;
+                }
+                Environment.ExitCode = Input.GamepadProbe.Run(seconds, HasFlag(args, "verbose"));
+                return true;
+            }
+
             // Arithmetic and cosmetic-noise checks need no extracted game files.
             if (HasFlag(args, "frametimingcheck"))
             {
@@ -1029,21 +1046,6 @@ namespace MphRead.Mods
             if (HasFlag(args, "mechanics"))
             {
                 Network.MechanicsDump.Run();
-                return true;
-            }
-
-            // What a connected pad is doing, with no match in the way. The
-            // only way to tell "not connected" from "connected but not
-            // mapped" from "the dead zone is eating it" apart.
-            if (HasFlag(args, "gamepad"))
-            {
-                double seconds = 15;
-                string? given = ValueAfter(args, "seconds");
-                if (given != null && Double.TryParse(given, out double parsed) && parsed > 0)
-                {
-                    seconds = parsed;
-                }
-                Environment.ExitCode = Input.GamepadProbe.Run(seconds);
                 return true;
             }
 
