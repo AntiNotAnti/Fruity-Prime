@@ -91,7 +91,7 @@ namespace MphRead.Mods.Update
         /// whether it carries a *server* package for this platform, which a
         /// player wanting to run one needs whether or not their own build is
         /// current -- and needs from a local build too, where updating stands
-        /// down on purpose. See <see cref="ServerAsset"/>.
+        /// down on purpose. See <see cref="ServerAsset(CancellationToken)"/>.
         /// </summary>
         public static string? FetchLatest(CancellationToken cancel = default)
         {

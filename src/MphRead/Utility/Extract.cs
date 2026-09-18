@@ -308,7 +308,7 @@ namespace MphRead
         {
             Console.WriteLine(message);
             Console.WriteLine("Press any key to exit...");
-            Console.ReadKey();
+            ConsoleSetup.PauseIfInteractive();
         }
 
         private static void Nop()

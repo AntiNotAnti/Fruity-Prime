@@ -4,7 +4,6 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
-using Avalonia.Media;
 
 namespace MphRead.Mods.Launcher.Gui
 {
@@ -26,7 +25,7 @@ namespace MphRead.Mods.Launcher.Gui
         /// <summary>Raised after <see cref="Index"/> has already moved.</summary>
         public event EventHandler? Changed;
 
-        private readonly List<UiWord> _words = new();
+        private readonly List<DeckButton> _tabs = new();
         private int _index;
 
         public int Index
@@ -34,7 +33,7 @@ namespace MphRead.Mods.Launcher.Gui
             get => _index;
             set
             {
-                int clamped = _words.Count == 0 ? 0 : Math.Clamp(value, 0, _words.Count - 1);
+                int clamped = _tabs.Count == 0 ? 0 : Math.Clamp(value, 0, _tabs.Count - 1);
                 if (clamped == _index)
                 {
                     return;
@@ -47,33 +46,29 @@ namespace MphRead.Mods.Launcher.Gui
 
         public UiTabs(IReadOnlyList<string> names, int index = 0)
         {
+            // Faces, not words with dots between them. A strip of words needs
+            // the dots and the two arrows to read as a strip at all; a row of
+            // objects reads as one without either, and the one that is up says
+            // so by being a different colour rather than by being brighter.
             Orientation = Orientation.Horizontal;
-            Spacing = 10;
             VerticalAlignment = VerticalAlignment.Center;
+            HorizontalAlignment = HorizontalAlignment.Center;
             _index = names.Count == 0 ? 0 : Math.Clamp(index, 0, names.Count - 1);
 
-            Children.Add(Arrow(pointsLeft: true, () => Step(-1)));
             for (int i = 0; i < names.Count; i++)
             {
-                if (i > 0)
-                {
-                    Children.Add(new TextBlock
-                    {
-                        Text = "\u00b7",
-                        FontFamily = GuiTheme.Display,
-                        FontSize = UiLayout.WordSize,
-                        Foreground = GuiTheme.EdgeBrush,
-                        VerticalAlignment = VerticalAlignment.Center
-                    });
-                }
-                var word = new UiWord(names[i].ToUpperInvariant(), UiLayout.WordSize,
-                    colour: GuiTheme.TextDim);
+                // The reference's `.tab`: `font-size: 1.05em` of the frame,
+                // `padding: .38em .8em` of its own, and the `.btn` default
+                // six-point edge. Not a smaller menu entry -- the same object
+                // at a different density, which is why all three numbers move
+                // together.
+                var tab = new DeckButton(names[i], Deck.Face.Slate,
+                    sizeEms: 1.05, padXEms: 0.8, padYEms: 0.38, lip: 6);
                 int target = i;
-                word.Click += (_, _) => Index = target;
-                _words.Add(word);
-                Children.Add(word);
+                tab.Click += (_, _) => Index = target;
+                _tabs.Add(tab);
+                Children.Add(tab);
             }
-            Children.Add(Arrow(pointsLeft: false, () => Step(1)));
             Mark();
         }
 
@@ -105,51 +100,47 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         public void FocusSelected()
         {
-            if (_index >= 0 && _index < _words.Count)
+            if (_index >= 0 && _index < _tabs.Count)
             {
-                _words[_index].Focus();
+                _tabs[_index].Focus();
             }
+        }
+
+        /// <summary>
+        /// The strip's own gap, `.4em` of the frame. A StackPanel's Spacing is
+        /// a number rather than a binding, so it is set from the em here --
+        /// once, and only when the em has moved.
+        /// </summary>
+        protected override Size MeasureOverride(Size availableSize)
+        {
+            double gap = Math.Round(Deck.GetEm(this) * 0.4);
+            if (Math.Abs(gap - Spacing) > 0.01)
+            {
+                Spacing = gap;
+            }
+            return base.MeasureOverride(availableSize);
         }
 
         /// <summary>Wrapping: the faces are few and running off the end of them is nobody's intent.</summary>
         private void Step(int direction)
         {
-            if (_words.Count == 0)
+            if (_tabs.Count == 0)
             {
                 return;
             }
-            _index = (_index + direction + _words.Count) % _words.Count;
+            _index = (_index + direction + _tabs.Count) % _tabs.Count;
             Mark();
             Changed?.Invoke(this, EventArgs.Empty);
         }
 
         private void Mark()
         {
-            for (int i = 0; i < _words.Count; i++)
+            for (int i = 0; i < _tabs.Count; i++)
             {
-                _words[i].Selected = i == _index;
+                _tabs[i].Wear(i == _index ? Deck.Face.Rust : Deck.Face.Slate,
+                    selected: i == _index);
             }
         }
 
-        /// <summary>
-        /// The strip's own arrows, in a glyph the embedded font actually has.
-        ///
-        /// They were U+25C4/U+25BA (the geometric pointers) and Roboto-Bold
-        /// contains neither, so both were drawn by whatever the toolkit fell
-        /// back to -- which on the desktop is a system face that has them and
-        /// on Android is nothing at all: two empty boxes either side of every
-        /// tab strip in the program. The single angle quotes are in the font
-        /// we ship, so they are the same picture on every platform and depend
-        /// on no fallback. Anything drawn here in future wants checking
-        /// against Roboto-Bold's cmap first; the rows' own arrows dodge the
-        /// question entirely by being geometry rather than text (Rows.Arrow).
-        /// </summary>
-        private static Control Arrow(bool pointsLeft, Action go)
-        {
-            var word = new UiWord(pointsLeft ? "\u2039" : "\u203a", 15,
-                colour: GuiTheme.TextDim);
-            word.Click += (_, _) => go();
-            return word;
-        }
     }
 }

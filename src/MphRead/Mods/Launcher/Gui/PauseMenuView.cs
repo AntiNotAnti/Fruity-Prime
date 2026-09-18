@@ -50,7 +50,7 @@ namespace MphRead.Mods.Launcher.Gui
         public event EventHandler? RecordToggleRequested;
         public event EventHandler? VoteMapRequested;
 
-        private readonly UiWord _resume;
+        private readonly DeckButton _resume;
 
         /// <param name="offerWindowMode">
         /// Show the fullscreen/windowed entry. False on a phone, which has one
@@ -61,12 +61,16 @@ namespace MphRead.Mods.Launcher.Gui
             Background = Brushes.Transparent;
             Focusable = true;
 
-            var menu = new StackPanel { Spacing = 14 };
+            // Tighter than the column of words it replaces: each entry now
+            // carries its own edge, and fourteen points between two objects
+            // that already have a bottom lip is a gap.
+            var menu = new StackPanel { Spacing = 6, Width = 230 };
             // Titles only. Every entry here used to say what it did twice --
             // "Quit", "Close FruityPrime" -- and the second saying is what
             // made a seven-line menu tall enough to be cut off by the window
             // it is drawn over.
-            _resume = Add(menu, "Resume", () => Resumed?.Invoke(this, EventArgs.Empty));
+            _resume = Add(menu, "Resume", () => Resumed?.Invoke(this, EventArgs.Empty),
+                Deck.Face.Moss);
             if (!DemoPlayback.IsActive && NetSession.Active)
             {
                 // Offered whenever there is a server to ask, rather than only
@@ -90,16 +94,11 @@ namespace MphRead.Mods.Launcher.Gui
             }
             if (offerWindowMode)
             {
-                var window = new UiWord(WindowLabel());
-                window.Click += (_, _) =>
-                {
-                    FullscreenRequested?.Invoke(this, EventArgs.Empty);
-                    // The game thread does it on the next frame; reflect it
-                    // here straight away so the label is not a lie for 16
-                    // milliseconds.
-                    window.Text = WindowMode.IsFullscreen ? "Windowed" : "Fullscreen";
-                };
-                menu.Children.Add(window);
+                // The game thread does it on the next frame; the label is
+                // rebuilt here straight away so it is not a lie for 16
+                // milliseconds.
+                Add(menu, WindowLabel(),
+                    () => FullscreenRequested?.Invoke(this, EventArgs.Empty));
             }
             if (!DemoPlayback.IsActive && NetSession.Active)
             {
@@ -107,8 +106,10 @@ namespace MphRead.Mods.Launcher.Gui
                     () => RecordToggleRequested?.Invoke(this, EventArgs.Empty));
             }
             Add(menu, "Settings", () => SettingsRequested?.Invoke(this, EventArgs.Empty));
-            Add(menu, "Leave match", () => LeaveRequested?.Invoke(this, EventArgs.Empty));
-            Add(menu, "Quit", () => QuitRequested?.Invoke(this, EventArgs.Empty));
+            Add(menu, "Leave match", () => LeaveRequested?.Invoke(this, EventArgs.Empty),
+                Deck.Face.Brass);
+            Add(menu, "Quit", () => QuitRequested?.Invoke(this, EventArgs.Empty),
+                Deck.Face.Rust);
 
             // Centred, like every other screen behind the front one. Each
             // word is centred in the column rather than the column being
@@ -193,12 +194,27 @@ namespace MphRead.Mods.Launcher.Gui
             return WindowMode.IsFullscreen ? "Windowed" : "Fullscreen";
         }
 
-        private static UiWord Add(StackPanel menu, string text, Action action)
+        /// <summary>
+        /// One entry. Still titles only -- what changed is that an entry is
+        /// now an object you press rather than a word that brightens, which
+        /// is what lets a menu over a running match read as a menu rather
+        /// than as text that happens to be on top of the game.
+        /// </summary>
+        private static DeckButton Add(StackPanel menu, string text, Action action,
+            Deck.Face? face = null)
         {
-            var word = new UiWord(text);
-            word.Click += (_, _) => action();
-            menu.Children.Add(word);
-            return word;
+            // `.pentry`: `font-size: 1.2em`, `padding: .5em .8em`, a
+            // four-point edge, and the full width of the card. Ems, not
+            // points -- the third argument is a multiple of the frame's em
+            // now, and 17 of them is a label the height of the menu.
+            var entry = new DeckButton(text, face ?? Deck.Face.Slate,
+                sizeEms: 1.2, padXEms: 0.8, padYEms: 0.5, lip: 4)
+            {
+                HorizontalAlignment = HorizontalAlignment.Stretch
+            };
+            entry.Click += (_, _) => action();
+            menu.Children.Add(entry);
+            return entry;
         }
     }
 }

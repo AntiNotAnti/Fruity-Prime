@@ -26,15 +26,14 @@ namespace MphRead.Droid
     /// </summary>
     internal sealed class AndroidThumbnailHost : IThumbnailHost
     {
-        private readonly MainActivity _activity;
-
-        public AndroidThumbnailHost(MainActivity activity) => _activity = activity;
-
         public Task<int> RenderAsync(IReadOnlyList<string> rooms, Action<string> report)
         {
             // A custom map has no picture until it has binaries to render.
             AndroidMaps.EnsureBuilt();
-            return _activity.RenderPreviews(rooms, report);
+            // Installed from MainApplication.CustomizeAppBuilder, before any
+            // activity exists, so the activity itself has to be looked up
+            // when this is actually asked to render rather than captured then.
+            return MainActivity.Instance!.RenderPreviews(rooms, report);
         }
     }
 

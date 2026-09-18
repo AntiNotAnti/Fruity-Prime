@@ -49,7 +49,7 @@ namespace MphRead.Mods
         /// Save what the window holds when there is no scene at all -- the
         /// launcher, drawn into the game window with nothing behind it.
         ///
-        /// Same rules as <see cref="SaveWindow"/>: the window has to be
+        /// Same rules as <see cref="SaveWindow(Scene, string)"/>: the window has to be
         /// visible, and this has to be called after the draw and before the
         /// buffer swap. There is no scene to describe if it comes out black,
         /// which is itself the answer -- a black frame here means the overlay

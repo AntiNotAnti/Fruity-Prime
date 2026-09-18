@@ -784,7 +784,6 @@ namespace MphRead.Mods.Launcher.Gui
             public override Control PlayOnline()
             {
                 var stack = new StackPanel { Spacing = 1 };
-                stack.Children.Add(new ServerHeader());
                 for (int i = 0; i < _servers.Length; i++)
                 {
                     stack.Children.Add(Server(i));
@@ -1334,10 +1333,6 @@ namespace MphRead.Mods.Launcher.Gui
         private static UiList ServerTable(bool compact = false)
         {
             var list = new UiList();
-            if (!compact)
-            {
-                list.SetHeader(new ServerHeader());
-            }
             for (int i = 0; i < _servers.Length; i++)
             {
                 list.Add(Server(i));

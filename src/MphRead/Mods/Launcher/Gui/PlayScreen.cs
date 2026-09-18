@@ -103,6 +103,14 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly Image _preview = new() { Stretch = Stretch.UniformToFill };
         private readonly Border _previewBox;
 
+        /// <summary>
+        /// The hunter, turning, at the map picture's right-hand end -- see
+        /// <see cref="AddHunter"/> for why it is here and not under the row
+        /// that names it. Only the faces that ask which hunter you are taking
+        /// in show it.
+        /// </summary>
+        private readonly HunterStand _stand;
+
         /// <summary>The three things the well holds, kept so the shape can change.</summary>
         private readonly Grid _body;
         private readonly ScrollViewer _side;
@@ -118,7 +126,6 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly Note _note = new("");
         private readonly UiMark _go;
         private readonly UiMark _back;
-        private readonly UiMark _create;
 
         private DispatcherTimer? _statusTimer;
         private CancellationTokenSource? _statusCancel;
@@ -129,8 +136,8 @@ namespace MphRead.Mods.Launcher.Gui
         private ChoiceRow? _bots;
         private ChoiceRow? _skill;
         private ChoiceRow? _resume;
-        private FieldRow? _name;
-        private FieldRow? _address;
+        private DeckField? _name;
+        private DeckField? _address;
 
         /// <summary>
         /// Picture above the list, or options beside it.
@@ -162,6 +169,16 @@ namespace MphRead.Mods.Launcher.Gui
             }
             _compact = compact;
             _previewBox.IsVisible = _previewWanted;
+            _stand.IsVisible = _standWanted && _previewWanted;
+            // A band rather than a landscape box leaves less to stand in.
+            _stand.Height = compact ? 110 : 150;
+            if (_bar != null)
+            {
+                // The online face lays row 0 out itself; letting the compact
+                // rule move the list back over it is how the column headings
+                // ended up on top of the address box.
+                return;
+            }
             if (compact)
             {
                 // The list down the left, the options and the picture down the
@@ -176,6 +193,8 @@ namespace MphRead.Mods.Launcher.Gui
                 _side.Margin = new Thickness(18, 0, 0, 0);
                 Grid.SetColumn(_previewBox, 1);
                 Grid.SetRow(_previewBox, 1);
+                Grid.SetColumn(_stand, 1);
+                Grid.SetRow(_stand, 1);
                 // Stretched into what is left rather than given a height:
                 // whatever that is, it is the room there is, and a fixed
                 // number here would either overlap the line under the list on
@@ -186,6 +205,7 @@ namespace MphRead.Mods.Launcher.Gui
                 _previewBox.MaxHeight = 150;
                 _previewBox.VerticalAlignment = VerticalAlignment.Stretch;
                 _previewBox.Margin = new Thickness(18, 12, 0, 0);
+                _stand.Margin = _previewBox.Margin;
                 Grid.SetRow(_list, 0);
                 Grid.SetRowSpan(_list, 2);
                 Grid.SetColumnSpan(_list, 1);
@@ -196,16 +216,34 @@ namespace MphRead.Mods.Launcher.Gui
                 Grid.SetRow(_side, 0);
                 Grid.SetRowSpan(_side, 1);
                 _side.Margin = new Thickness(0);
+                Grid.SetColumn(_stand, 0);
+                Grid.SetRow(_stand, 0);
                 Grid.SetColumn(_previewBox, 0);
                 Grid.SetRow(_previewBox, 0);
                 _previewBox.Height = 172;
                 _previewBox.MaxHeight = Double.PositiveInfinity;
                 _previewBox.VerticalAlignment = VerticalAlignment.Stretch;
                 _previewBox.Margin = new Thickness(0, 0, 24, 14);
+                _stand.Margin = _previewBox.Margin;
                 Grid.SetRow(_list, 1);
                 Grid.SetRowSpan(_list, 1);
                 Grid.SetColumnSpan(_list, 2);
             }
+        }
+
+        /// <summary>
+        /// Undo what a face added outside the options column. Only the online
+        /// face has anything here, and it has to go before the next face lays
+        /// its own row 0 out on top of it.
+        /// </summary>
+        private void ClearFaceExtras()
+        {
+            if (_bar != null)
+            {
+                _body.Children.Remove(_bar);
+                _bar = null;
+            }
+            _side.IsVisible = true;
         }
 
         /// <summary>This face wants the picture; whether it gets it is the box's.</summary>
@@ -213,7 +251,11 @@ namespace MphRead.Mods.Launcher.Gui
         {
             _previewWanted = wanted;
             _previewBox.IsVisible = wanted;
+            _stand.IsVisible = _standWanted && wanted;
         }
+
+        /// <summary>Whether this face asks which hunter you are taking in.</summary>
+        private bool _standWanted;
 
         protected override Size MeasureOverride(Size availableSize)
         {
@@ -243,6 +285,20 @@ namespace MphRead.Mods.Launcher.Gui
                 Child = _preview
             };
 
+            // In the picture's cell rather than a cell of its own: a column
+            // for it would take width off the picture on every face,
+            // including the ones with no hunter to show.
+            _stand = new HunterStand
+            {
+                Width = 96,
+                Height = 150,
+                IsVisible = false,
+                IsHitTestVisible = false,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Name2 = _hunters[0]
+            };
+
             // The picture above the list rather than beside it, and the
             // settings about it to its right.
             //
@@ -258,16 +314,23 @@ namespace MphRead.Mods.Launcher.Gui
             // The preview stretches and the options do not: a room's picture
             // is better bigger, and a row of settings at 320 is the width it
             // was drawn for.
-            var body = new Grid
+            // `.body`: a scrolling column with a `.6em` gap and `.3em` of
+            // padding on the right, which is the gutter the scrollbar lives
+            // in. Without it the list runs to the panel's inside edge and the
+            // thumb is drawn over the last column.
+            var body = new BodyGrid
             {
                 ColumnDefinitions = new ColumnDefinitions("*,Auto"),
-                RowDefinitions = new RowDefinitions("Auto,*,Auto")
+                RowDefinitions = new RowDefinitions("Auto,*")
             };
             _body = body;
             _previewBox.Margin = new Thickness(0, 0, 24, 14);
             Grid.SetColumn(_previewBox, 0);
             Grid.SetRow(_previewBox, 0);
             body.Children.Add(_previewBox);
+            Grid.SetColumn(_stand, 0);
+            Grid.SetRow(_stand, 0);
+            body.Children.Add(_stand);
             // Scrolled, because a short window gives this row less height than
             // the options asked for -- and a StackPanel given less height than
             // it wants does not shrink and is not clipped, it simply draws
@@ -289,25 +352,39 @@ namespace MphRead.Mods.Launcher.Gui
             Grid.SetColumnSpan(_list, 2);
             Grid.SetRow(_list, 1);
             body.Children.Add(_list);
-            Grid.SetColumn(_note, 0);
-            Grid.SetColumnSpan(_note, 2);
-            Grid.SetRow(_note, 2);
-            body.Children.Add(_note);
+
+            // Offline's own face: every map at once, as pictures. It shares
+            // the body's second row with the list and only one of the two is
+            // ever up -- a grid of cards and a column of names are two answers
+            // to the same question, and the reference only asks it the one
+            // way.
+            _grid = new DeckGrid();
+            _gridScroll = new ScrollViewer
+            {
+                Content = _grid,
+                IsVisible = false,
+                // So the cards scrolled out of sight are clipped away rather
+                // than composited and then covered: twenty-one cards are in
+                // this grid and about nine are on screen.
+                ClipToBounds = true,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+            };
+            Grid.SetColumn(_gridScroll, 0);
+            Grid.SetColumnSpan(_gridScroll, 2);
+            Grid.SetRow(_gridScroll, 1);
+            body.Children.Add(_gridScroll);
 
             _back = new UiMark(UiMark.Shape.Cancel, "back");
             _back.Click += (_, _) => Leave();
             _go = new UiMark(UiMark.Shape.Accept, "play");
             _go.Click += (_, _) => Go();
-            // Between the two because that is what it is: running a server is
-            // neither leaving the browser nor joining a row on it, and the one
-            // place on the browser it belongs is beside the act it is an
-            // alternative to. Drawn only on Online -- there is nothing to
-            // create on any other face.
-            _create = new UiMark(UiMark.Shape.Add, "create server")
-            {
-                IsVisible = false
-            };
-            _create.Click += (_, _) => CreateRequested?.Invoke(this, EventArgs.Empty);
+            // One commit on the right, not two. The browser used to carry
+            // both CREATE SERVER and JOIN down there, which is a foot offering
+            // two acts of equal weight when only one of them is ever the one
+            // meant -- and the reference has a single blue button whose word
+            // is whatever the list is currently about. Nothing picked, and it
+            // creates; a row picked, and it joins that row.
 
             if (face != Face.Vote)
             {
@@ -315,9 +392,16 @@ namespace MphRead.Mods.Launcher.Gui
                     (int)face);
                 _tabs.Changed += (_, _) => Rebuild();
             }
-            Content = UiLayout.Page(overGame, UiLayout.WellPlay,
+            Panel page = UiLayout.Page(overGame, UiLayout.WellPlay,
                 face == Face.Vote ? "vote" : "play", _tabs, body, _back, _go,
-                extra: _create);
+                note: _note);
+            // Over the sheet, not inside the panel: the reference's `.side` is
+            // a sibling of the sheet and slides in past its right edge, which
+            // is what makes it read as a drawer the panel opened rather than
+            // as another column of it.
+            _sidePanel = BuildSidePanel();
+            page.Children.Add(_sidePanel);
+            Content = page;
 
             _list.Activated += (_, _) => Go();
             // Subscribed once, not per face: the list outlives every rebuild,
@@ -327,16 +411,371 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 RefreshPreview();
                 RefreshStory();
+                RefreshGoLabel();
+                // A server that answered opens the drawer beside the list, the
+                // way a map card does: the reference has one `.side` for both
+                // because they are the same question asked of two things.
+                if (Current == Face.Online && _list.Selected is ServerRow row)
+                {
+                    OpenServerSide(row);
+                }
             };
             Rebuild();
         }
 
+        private DeckGrid? _grid;
+        private ScrollViewer? _gridScroll;
+        private DeckSide? _sidePanel;
+        private StackPanel? _sideFacts;
+        private TextBlock? _sideNameText;
+        private TextBlock? _sideAddr;
+        private DeckChip? _sideCode;
+        private HunterStand? _sideStand;
+        private DeckButton? _sideGo;
+        private string? _picked;
+
+        /// <summary>
+        /// The drawer the reference opens when a map is picked: what it is at
+        /// the top, the hunter and the rules in the middle, Back and START
+        /// along the foot.
+        ///
+        /// Built once and refilled, not rebuilt per map: it carries a hunter
+        /// turntable and three stepper rows, and standing those up again on
+        /// every card press would throw away whatever the turntable was in the
+        /// middle of.
+        /// </summary>
+        private DeckSide BuildSidePanel()
+        {
+            // `.code`: a bare badge, no key -- see DeckChip.Label.
+            _sideCode = new DeckChip("", "");
+            _sideNameText = new TextBlock
+            {
+                FontFamily = GuiTheme.Display,
+                FontSize = 17,
+                Foreground = GuiTheme.TextBrush,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            _sideAddr = new TextBlock
+            {
+                FontFamily = GuiTheme.Display,
+                FontSize = 11,
+                Foreground = GuiTheme.TextDimBrush,
+                TextWrapping = TextWrapping.Wrap
+            };
+            var close = new DeckButton("x", Deck.Face.Slate,
+                sizeEms: 1, padXEms: 0.6, padYEms: 0.3, lip: 2);
+            close.Click += (_, _) => CloseSide();
+
+            var headLine = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
+            Grid.SetColumn(_sideCode, 0);
+            headLine.Children.Add(_sideCode);
+            _sideNameText.Margin = new Thickness(8, 0, 8, 0);
+            Grid.SetColumn(_sideNameText, 1);
+            headLine.Children.Add(_sideNameText);
+            Grid.SetColumn(close, 2);
+            headLine.Children.Add(close);
+
+            _sideStand = new HunterStand
+            {
+                Height = 150,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                Name2 = _hunters[0]
+            };
+            _sideFacts = new StackPanel { Spacing = 4 };
+
+            var bodyStack = new StackPanel { Spacing = 8 };
+            bodyStack.Children.Add(_sideStand);
+            bodyStack.Children.Add(_sideFacts);
+            var scroll = new ScrollViewer
+            {
+                Content = bodyStack,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+            };
+
+            var back = new DeckButton("Back", Deck.Face.Brass,
+                sizeEms: 1.1, padXEms: 0.9, padYEms: 0.5, lip: 5);
+            back.Click += (_, _) => CloseSide();
+            _sideGo = new DeckButton("START", Deck.Face.Moss,
+                sizeEms: 1.4, padXEms: 1, padYEms: 0.45, lip: 6);
+            // The same act the foot's own tick performs. Two buttons, one
+            // decision -- the drawer carries it because that is where the
+            // player is looking once it is open, and the foot keeps it for the
+            // keyboard.
+            _sideGo.Click += (_, _) => Go();
+            var foot = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*") };
+            Grid.SetColumn(back, 0);
+            foot.Children.Add(back);
+            _sideGo.Margin = new Thickness(6, 0, 0, 0);
+            _sideGo.HorizontalAlignment = HorizontalAlignment.Stretch;
+            Grid.SetColumn(_sideGo, 1);
+            foot.Children.Add(_sideGo);
+
+            var stack = new Grid
+            {
+                RowDefinitions = new RowDefinitions("Auto,*,Auto"),
+                RowSpacing = 8
+            };
+            var head = new StackPanel { Spacing = 3 };
+            head.Children.Add(headLine);
+            head.Children.Add(_sideAddr);
+            Grid.SetRow(head, 0);
+            stack.Children.Add(head);
+            Grid.SetRow(scroll, 1);
+            stack.Children.Add(scroll);
+            Grid.SetRow(foot, 2);
+            stack.Children.Add(foot);
+
+            var card = new DeckCard { Child = stack, MaxWidthEms = 17.5 };
+            return new DeckSide { Child = card, Margin = new Thickness(0, 14, 12, 14) };
+        }
+
+        /// <summary>
+        /// The drawer for a server: what it is running, who is on it, the
+        /// hunter you are taking in, and the one word that joins.
+        ///
+        /// The same object as the map drawer, because they are the same
+        /// question -- something chosen on the left, the hunter you take into
+        /// it, one button -- which is why the reference has one `.side` and
+        /// not two. Only the middle differs: a server's facts and roster,
+        /// against a map's rules.
+        /// </summary>
+        private void OpenServerSide(ServerRow row)
+        {
+            if (!row.IsLive)
+            {
+                return;
+            }
+            if (_sideCode != null)
+            {
+                // The reference puts the server's flag here. The mode is the
+                // shortest true thing this row can hand over without asking
+                // the directory again.
+                _sideCode.Text = row.ModeName.Length > 0 ? row.ModeName : "server";
+            }
+            if (_sideNameText != null)
+            {
+                _sideNameText.Text = row.DisplayName;
+            }
+            if (_sideAddr != null)
+            {
+                _sideAddr.Text = row.Endpoint;
+            }
+            if (_sideFacts != null)
+            {
+                _sideFacts.Children.Clear();
+                Fact(_sideFacts, "Map", row.MapName, null);
+                Fact(_sideFacts, "Mode", row.ModeName, null);
+                Fact(_sideFacts, "Players", row.PlayerCount, null);
+                Fact(_sideFacts, "Ping", row.PingText + " ms", row.PingBrush);
+                // The hunter rows come after the facts here, where on the
+                // offline face they *are* the facts: joining somebody else's
+                // server settles the map and the mode, so the only thing left
+                // to choose is who you arrive as.
+                if (_hunter != null)
+                {
+                    _sideFacts.Children.Add(_hunter);
+                }
+                if (_suit != null)
+                {
+                    _sideFacts.Children.Add(_suit);
+                }
+            }
+            if (_sideGo != null)
+            {
+                _sideGo.Text = "JOIN";
+            }
+            RefreshSideHunter();
+            if (_sidePanel != null)
+            {
+                _sidePanel.Open = true;
+            }
+        }
+
+        /// <summary>One `.fact`: a dim key on the left, the value on the right.</summary>
+        private static void Fact(Panel into, string key, string value, IBrush? tint)
+        {
+            var row = new Grid
+            {
+                ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+                Height = 26
+            };
+            var k = new TextBlock
+            {
+                Text = key.ToUpperInvariant(),
+                FontFamily = GuiTheme.Display,
+                FontSize = 10,
+                Foreground = GuiTheme.TextDimBrush,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            var v = new TextBlock
+            {
+                Text = value,
+                FontFamily = GuiTheme.Display,
+                FontSize = 12,
+                Foreground = tint ?? GuiTheme.TextBrush,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(k, 0);
+            row.Children.Add(k);
+            Grid.SetColumn(v, 1);
+            row.Children.Add(v);
+            into.Children.Add(row);
+        }
+
+        /// <summary>
+        /// Show the drawer for a map, and put the rules that belong to it in.
+        /// </summary>
+        private void OpenSide(DeckTile tile)
+        {
+            _picked = tile.RoomKey;
+            if (_grid != null)
+            {
+                foreach (Control child in _grid.Children)
+                {
+                    if (child is DeckTile other)
+                    {
+                        other.Chosen = other.RoomKey == tile.RoomKey;
+                    }
+                }
+            }
+            if (_sideCode != null)
+            {
+                _sideCode.Text = tile.Code;
+            }
+            if (_sideNameText != null)
+            {
+                (RoomMetadata? meta, _) = Metadata.GetRoomByName(tile.RoomKey);
+                _sideNameText.Text = meta?.InGameName ?? tile.RoomKey;
+            }
+            if (_sideAddr != null)
+            {
+                _sideAddr.Text = "offline \u2014 bots on this machine";
+            }
+            // The steppers move into the drawer: they are about the match this
+            // map is going to be, and the reference asks them where the map
+            // was chosen rather than on the far side of the screen.
+            if (_sideFacts != null)
+            {
+                _sideFacts.Children.Clear();
+                foreach (Control row in _offlineRows)
+                {
+                    _sideFacts.Children.Add(row);
+                }
+            }
+            if (_sideGo != null)
+            {
+                _sideGo.Text = "START";
+            }
+            if (_sidePanel != null)
+            {
+                _sidePanel.Open = true;
+            }
+            _note.Text = "";
+        }
+
+        /// <summary>
+        /// Picking a map is proposing it, picking the one already picked takes
+        /// it back. One vote each, so the previous one is given up first.
+        /// </summary>
+        private void CastVote(DeckTile tile)
+        {
+            if (_grid == null)
+            {
+                return;
+            }
+            bool taking = !tile.Chosen;
+            foreach (Control child in _grid.Children)
+            {
+                if (child is DeckTile other && other.Chosen)
+                {
+                    other.Chosen = false;
+                    other.Tally = Math.Max(0, other.Tally - 1);
+                }
+            }
+            if (taking)
+            {
+                tile.Chosen = true;
+                tile.Tally = Math.Max(0, tile.Tally) + 1;
+                _picked = tile.RoomKey;
+            }
+            else
+            {
+                _picked = null;
+            }
+            RefreshBallot();
+        }
+
+        private void CloseSide()
+        {
+            if (_sidePanel != null)
+            {
+                _sidePanel.Open = false;
+            }
+        }
+
+        /// <summary>The rows the drawer borrows, kept alive across openings.</summary>
+        private readonly List<Control> _offlineRows = new();
+
         private Face Current => _tabs == null ? _only : (Face)_tabs.Index;
+
+        /// <summary>
+        /// The one blue button says what it is about to do, and on the browser
+        /// that depends on whether a row is picked.
+        ///
+        /// Nothing picked and there is nothing to join, so the offer is the
+        /// other one the screen has: run a server of your own. It is the same
+        /// rule the reference uses and it is what lets the foot carry one act
+        /// instead of two competing ones.
+        /// </summary>
+        private void RefreshGoLabel()
+        {
+            if (Current != Face.Online)
+            {
+                return;
+            }
+            _go.Label = _list.Selected is ServerRow ? "join" : "create server";
+        }
+
+        /// <summary>
+        /// `.body { gap: .6em; padding-right: .3em }`, in ems.
+        /// </summary>
+        private sealed class BodyGrid : Grid
+        {
+            protected override Size MeasureOverride(Size availableSize)
+            {
+                double em = Deck.GetEm(this);
+                double gap = Math.Round(em * 0.6);
+                if (Math.Abs(gap - RowSpacing) > 0.01)
+                {
+                    RowSpacing = gap;
+                }
+                var want = new Thickness(0, 0, Math.Round(em * 0.3), 0);
+                if (Margin != want)
+                {
+                    Margin = want;
+                }
+                return base.MeasureOverride(availableSize);
+            }
+        }
 
         protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
         {
             base.OnAttachedToVisualTree(e);
-            _list.FocusFirst();
+            // The way out takes the keyboard, not the list. A screen that
+            // opens with a row already under the caret has picked for you, and
+            // Escape is the one key somebody arriving on a screen they did not
+            // mean to open is reaching for.
+            if (Current == Face.Online)
+            {
+                Dispatcher.UIThread.Post(() => _back.Focus());
+            }
+            else
+            {
+                _list.FocusFirst();
+            }
         }
 
         protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
@@ -423,18 +862,37 @@ namespace MphRead.Mods.Launcher.Gui
             // for one action, which is the habit this screen exists to break.
             _go.Label = Current switch
             {
-                Face.Online => "join",
+                // Nothing is picked yet on a browser that has just been
+                // rebuilt, so the word is the one for the act that needs no
+                // selection. Picking a row changes it -- see SelectServer.
+                Face.Online => "create server",
                 Face.Clips => "watch",
                 Face.Vote => "vote",
                 _ => "start"
             };
             _options.Children.Clear();
+            ClearFaceExtras();
             _note.Text = "";
             _note.Foreground = GuiTheme.TextDimBrush;
             _hunter = _mode = _bots = _skill = _resume = null;
             _name = _address = null;
+            _standWanted = false;
             WantPreview(false);
-            _create.IsVisible = Current == Face.Online;
+            bool offline = Current == Face.Offline || Current == Face.Vote;
+            if (_gridScroll != null)
+            {
+                _gridScroll.IsVisible = offline;
+            }
+            _list.IsVisible = !offline;
+            if (_sidePanel != null && !offline)
+            {
+                _sidePanel.Open = false;
+            }
+            _offlineRows.Clear();
+            if (_sideFacts != null)
+            {
+                _sideFacts.Children.Clear();
+            }
 
             switch (Current)
             {
@@ -455,7 +913,39 @@ namespace MphRead.Mods.Launcher.Gui
                 break;
             }
             RefreshPreview();
-            _list.FocusFirst();
+            // Every face but the browser opens with its list ready under the
+            // arrow keys. The browser does not: selecting a row is what turns
+            // the commit into JOIN, and a screen that picks a server for you
+            // the moment it opens has answered the question it is asking.
+            if (Current != Face.Online)
+            {
+                _list.FocusFirst();
+            }
+            RefreshGoLabel();
+        }
+
+        /// <summary>
+        /// The hunter and the suit, built once for whichever face is asking.
+        ///
+        /// Both the browser and the offline grid put them in the drawer now,
+        /// and they are the same two questions on both -- so they are made
+        /// here rather than twice, and <see cref="RefreshSideHunter"/> is what
+        /// keeps the turntable in step with them.
+        /// </summary>
+        private void MakeHunterRows()
+        {
+            _hunter = new ChoiceRow("Hunter", _hunters,
+                Math.Max(0, Array.IndexOf(_hunters, LauncherPrefs.LastHunter.ToString())));
+            _suit = new ChoiceRow("Suit", new[] { "1", "2", "3", "4" },
+                Math.Clamp(LauncherPrefs.LastColor, 0, 3));
+            _suit.Preview = (context, area) =>
+            {
+                context.DrawRectangle(new SolidColorBrush(SuitColour()), null,
+                    new RoundedRect(area, 3));
+            };
+            _hunter.Changed += (_, _) => RefreshSideHunter();
+            _suit.Changed += (_, _) => RefreshSideHunter();
+            RefreshSideHunter();
         }
 
         private ChoiceRow AddHunter()
@@ -463,6 +953,18 @@ namespace MphRead.Mods.Launcher.Gui
             var row = new ChoiceRow("Hunter", _hunters,
                 Math.Max(0, Array.IndexOf(_hunters, LauncherPrefs.LastHunter.ToString())));
             _options.Children.Add(row);
+
+            // The hunter, turning, beside the map rather than under the row
+            // that names it: the options column is a fixed height and anything
+            // added to it pushes the rows at the bottom -- Address, Refresh --
+            // off the screen. A name in a list is not what anybody recognises
+            // a hunter by, the silhouette is, so it goes where there is room
+            // for it to be one.
+            _standWanted = true;
+            _stand.IsVisible = _previewBox.IsVisible;
+            _stand.Margin = _previewBox.Margin;
+            _stand.Name2 = _hunters[row.Index];
+            row.Changed += (_, _) => _stand.Name2 = _hunters[row.Index];
             return row;
         }
 
@@ -476,28 +978,102 @@ namespace MphRead.Mods.Launcher.Gui
 
         private void BuildOnline()
         {
-            _go.Label = "join";
-            _list.SetHeader(new ServerHeader());
-            _name = new FieldRow("Name", PlayerName(), boxWidth: 150);
-            _hunter = AddHunter();
-            _options.Children.Insert(0, _name);
-            _address = new FieldRow("Address",
-                $"{LauncherPrefs.ServerAddress}:{LauncherPrefs.ServerPort}", boxWidth: 170);
+            // No column headings, and no labels on the two boxes. The
+            // reference drops both and it is right to: a name, a map, a mode,
+            // a count and a number need no labelling, and "Name" printed
+            // beside a box that already says livetek is a word taking the
+            // width the address needs.
+            //
+            // The `.blist` bar: a short box for who you are, a box that takes
+            // the rest for where you are going, and the button that asks
+            // again. `.short` is 7 ems, `.grow` is `flex: 1`, and the gap
+            // between them is `.45em` of the frame.
+            _name = new DeckField(PlayerName(), widthEms: 7);
+            _address = new DeckField(
+                $"{LauncherPrefs.ServerAddress}:{LauncherPrefs.ServerPort}",
+                widthEms: 0, watermark: "host:port \u2014 or pick a row");
             _address.Box.LostFocus += (_, _) => QueryStatusSoon();
-            _options.Children.Add(_address);
-            // The same picture the map list shows. A server row says which map
-            // it is running and the map is most of what decides whether to
-            // join, so the one screen that had the name without the picture
-            // was the one where the picture would have answered the question.
-            WantPreview(true);
-            var refresh = new UiWord("Refresh", 15, colour: GuiTheme.TextDim)
-            {
-                Margin = new Thickness(4, 10, 0, 0)
-            };
+
+            // No separate preview on this face any more: every row carries its
+            // own map behind it (ServerRow), which answers "which map is that"
+            // for the whole list at once instead of for the one row selected.
+            // What the column it used to share was costing was the list: three
+            // rows of a browser, with a third of the card empty beside them.
+            WantPreview(false);
+
+            // `.slist { gap: .32em }`, less the three points each row already
+            // spends on its own edge.
+            _list.SpacingEms = 0.32;
+            // Nothing picked on arrival. Every other face's list is a set of
+            // things you are choosing between and the first is as good a place
+            // to start as any; a browser's first row is whichever server the
+            // directory happened to name first, and highlighting it is the
+            // screen answering its own question.
+            _list.AutoSelectFirst = false;
+            // Who you arrive as, for the drawer a row opens.
+            MakeHunterRows();
+
+            var refresh = new DeckButton("Refresh", Deck.Face.Slate,
+                sizeEms: 0.95, padXEms: 0.8, padYEms: 0.4, lip: 3);
             refresh.Click += (_, _) => ReloadServers();
-            _options.Children.Add(refresh);
+            var bar = new BarRow();
+            DockPanel.SetDock(_name, Dock.Left);
+            DockPanel.SetDock(refresh, Dock.Right);
+            bar.Children.Add(_name);
+            bar.Children.Add(refresh);
+            // Last and undocked, so it fills what the other two leave: that is
+            // `flex: 1` in a DockPanel's own terms.
+            bar.Children.Add(_address);
+            _bar = bar;
+            Grid.SetColumn(_bar, 0);
+            Grid.SetColumnSpan(_bar, 2);
+            Grid.SetRow(_bar, 0);
+            _body.Children.Add(_bar);
+            _side.IsVisible = false;
+            // SetCompact spans the list across rows 0 and 1 when the options
+            // are beside it. They are not on this face -- the bar is above it
+            // -- so the span has to come off, or the list starts in row 0 and
+            // draws over the two boxes.
+            Grid.SetRow(_list, 1);
+            Grid.SetRowSpan(_list, 1);
+            Grid.SetColumnSpan(_list, 2);
+
             ReloadServers();
             StartPolling();
+        }
+
+        /// <summary>The online face's row of fields, cleared with the face.</summary>
+        private Control? _bar;
+
+        /// <summary>
+        /// `.blist`: a flex row with a `.45em` gap and one item that grows.
+        ///
+        /// A DockPanel rather than a StackPanel because one of the three has
+        /// to take what the other two leave, and a StackPanel has no way to
+        /// say that. The gap is an em, so it is applied here -- the last
+        /// child gets no trailing margin, or the address box would stop short
+        /// of the Refresh button by one gap too many.
+        /// </summary>
+        private sealed class BarRow : DockPanel
+        {
+            protected override Size MeasureOverride(Size availableSize)
+            {
+                double gap = Math.Round(Deck.GetEm(this) * 0.45);
+                foreach (Control child in Children)
+                {
+                    Thickness want = GetDock(child) switch
+                    {
+                        Dock.Left => new Thickness(0, 0, gap, 0),
+                        Dock.Right => new Thickness(gap, 0, 0, 0),
+                        _ => new Thickness(0)
+                    };
+                    if (child.Margin != want)
+                    {
+                        child.Margin = want;
+                    }
+                }
+                return base.MeasureOverride(availableSize);
+            }
         }
 
         /// <summary>
@@ -510,6 +1086,28 @@ namespace MphRead.Mods.Launcher.Gui
         private void ReloadServers()
         {
             _list.Clear();
+            _replied = 0;
+            _live = 0;
+            if (Sample != null)
+            {
+                // A browser with rows in it, with no directory and no network.
+                // -uishot exists to photograph a layout, and a layout with
+                // "asking..." on every row is a photograph of the one state
+                // that says nothing about the other two.
+                foreach ((string name, string endpoint, ServerStatus status) in Sample)
+                {
+                    var row = new ServerRow(name, endpoint);
+                    _list.Add(row);
+                    row.SetStatus(status);
+                    _replied++;
+                    if (status.Online)
+                    {
+                        _live++;
+                    }
+                }
+                Answered(Sample.Count);
+                return;
+            }
             _note.Text = $"Asking {LauncherPrefs.MasterHost}...";
             _note.Foreground = GuiTheme.TextDimBrush;
             Task.Run(() =>
@@ -535,14 +1133,48 @@ namespace MphRead.Mods.Launcher.Gui
                         _note.Foreground = GuiTheme.WarmBrush;
                         return;
                     }
-                    _note.Text = $"{result.Servers.Count} listed.";
+                    _asked = result.Servers.Count;
+                    _note.Text = $"asking {_asked} servers\u2026";
                     foreach (MasterListing listing in result.Servers)
                     {
                         AddServerRow(listing);
                     }
-                    _list.FocusFirst();
                 });
             });
+        }
+
+        /// <summary>
+        /// Rows to draw instead of asking anybody: <c>-uishot</c>'s, and
+        /// nothing else's. Null in every shipped path.
+        /// </summary>
+        internal static IReadOnlyList<(string Name, string Endpoint, ServerStatus Status)>? Sample
+        {
+            get;
+            set;
+        }
+
+        private int _asked;
+        private int _replied;
+        private int _live;
+
+        /// <summary>
+        /// The reference's line under the foot: how many of the servers asked
+        /// have said something, and what to do about it. Counting rather than
+        /// listing, because "13 listed" is what the *directory* said and what
+        /// a player wants to know is how many of those are actually there.
+        /// </summary>
+        private void Answered(int asked)
+        {
+            _asked = asked;
+            _note.Foreground = GuiTheme.TextDimBrush;
+            // A server that says "I am not here" has still replied, so the
+            // progress count and the final count are different numbers: the
+            // first is how much of the sweep is done and the second is how
+            // many servers there are to join. Reporting the same number twice
+            // left a browser stuck on "12 answered" with thirteen rows drawn.
+            _note.Text = _replied < asked
+                ? $"asking {asked} servers\u2026 {_replied} answered"
+                : $"{_live} of {asked} answered. Click one to join.";
         }
 
         private void AddServerRow(MasterListing listing)
@@ -568,6 +1200,12 @@ namespace MphRead.Mods.Launcher.Gui
                 Dispatcher.UIThread.Post(() =>
                 {
                     row.SetStatus(status);
+                    _replied++;
+                    if (status.Online)
+                    {
+                        _live++;
+                    }
+                    Answered(_asked);
                     // The answers come back in whatever order the servers
                     // reply in, and the selected row is usually the first one
                     // -- which means its map arrives after the preview was
@@ -634,6 +1272,15 @@ namespace MphRead.Mods.Launcher.Gui
                 {
                     if (cancel.IsCancellationRequested || _finished
                         || Current != Face.Online)
+                    {
+                        return;
+                    }
+                    // Only while the list has nothing to say. The browser's
+                    // own line -- "12 of 13 answered" -- is the one the note
+                    // is for once there are rows, and a probe firing every
+                    // four seconds was overwriting it with a sentence about a
+                    // server nobody had picked.
+                    if (_asked > 0)
                     {
                         return;
                     }
@@ -704,7 +1351,11 @@ namespace MphRead.Mods.Launcher.Gui
         private void BuildOffline()
         {
             _go.Label = "start";
-            FillRooms(_settings.RoomKey);
+            // Every map at once, as pictures, and the rules in the drawer the
+            // picture opens. See DeckTile: a column of names beside one
+            // thumbnail asks the player to remember what the other twenty look
+            // like, which is the thing this face is for.
+            FillMapGrid();
             // No "Where" row. Offline is a match on this machine and nothing
             // else: the row's other answer -- have the directory run it --
             // was a *server*, sitting on the one face of this screen that is
@@ -712,17 +1363,104 @@ namespace MphRead.Mods.Launcher.Gui
             // different settings under them. Running a server is its own act
             // and it moved to Online, beside the servers it joins.
             _mode = new ChoiceRow("Match type", _modes.Select(m => m.Label).ToArray());
-            _options.Children.Add(_mode);
-            _hunter = AddHunter();
+            MakeHunterRows();
             _bots = new ChoiceRow("Bots",
                 Enumerable.Range(0, PlayerEntity.SlotCapacity)
                     .Select(i => i.ToString(CultureInfo.InvariantCulture)).ToArray(),
                 LauncherPrefs.Bots);
-            _options.Children.Add(_bots);
             _skill = new ChoiceRow("Bot skill", new[] { "Easy", "Normal", "Hard", "Insane" },
                 LauncherPrefs.BotLevel);
-            _options.Children.Add(_skill);
-            WantPreview(true);
+            // Held rather than parented: the drawer takes them when it opens,
+            // and they keep whatever the player set the last time it was up.
+            _offlineRows.Clear();
+            _offlineRows.Add(_mode);
+            _offlineRows.Add(_hunter!);
+            _offlineRows.Add(_suit!);
+            _offlineRows.Add(_bots);
+            _offlineRows.Add(_skill);
+            RefreshSideHunter();
+            WantPreview(false);
+        }
+
+        private ChoiceRow? _suit;
+
+        /// <summary>The sampled colour of the suit the rows currently name.</summary>
+        private Color SuitColour()
+        {
+            try
+            {
+                if (_hunter == null || !Enum.TryParse(_hunter.Value, ignoreCase: true,
+                    out Hunter which))
+                {
+                    return GuiTheme.Accent;
+                }
+                ColorRgba sampled = Mods.HunterSuits.Color(which, _suit?.Index ?? 0);
+                return Color.FromRgb(sampled.Red, sampled.Green, sampled.Blue);
+            }
+            catch (Exception)
+            {
+                return GuiTheme.Accent;
+            }
+        }
+
+        /// <summary>The turntable in the drawer follows the two rows under it.</summary>
+        private void RefreshSideHunter()
+        {
+            if (_sideStand != null && _hunter != null)
+            {
+                _sideStand.Name2 = _hunter.Value;
+                _sideStand.Suit = _suit?.Index ?? 0;
+            }
+            _suit?.InvalidateVisual();
+        }
+
+        /// <summary>
+        /// One card per room, in the order the room list is in.
+        ///
+        /// A map with no render still gets a card: the picture comes out of
+        /// the player's own thumbnail pass, and a machine that has not run it
+        /// would otherwise be shown an empty face rather than a grid with the
+        /// codes on it.
+        /// </summary>
+        private void FillMapGrid()
+        {
+            if (_grid == null)
+            {
+                return;
+            }
+            _grid.Children.Clear();
+            if (_rooms.Count == 0)
+            {
+                _note.Text = "No multiplayer rooms were found. Set the game files up "
+                    + "from Settings.";
+                _note.Foreground = GuiTheme.WarmBrush;
+                return;
+            }
+            foreach (string room in _rooms)
+            {
+                // `.tag`'s `<b>`: the archive code alone -- "mp3", not
+                // "MP3 PROVING GROUND". The key's first token is that code,
+                // and the whole key in a tag is a tag wider than the card.
+                string code = room.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                    is { Length: > 0 } parts ? parts[0] : room;
+                (RoomMetadata? meta, _) = Metadata.GetRoomByName(room);
+                var tile = new DeckTile(room, code)
+                {
+                    Blurb = meta?.InGameName ?? ""
+                };
+                tile.Chosen = room == _settings.RoomKey;
+                tile.Click += (_, _) =>
+                {
+                    if (Current == Face.Vote)
+                    {
+                        CastVote(tile);
+                        return;
+                    }
+                    OpenSide(tile);
+                };
+                _grid.Children.Add(tile);
+            }
+            _picked = _settings.RoomKey;
         }
 
         private void FillRooms(string? current)
@@ -753,6 +1491,7 @@ namespace MphRead.Mods.Launcher.Gui
             var hunter = (Hunter)Enum.Parse(typeof(Hunter), _hunter!.Value);
             _settings.RoomKey = roomKey;
             LauncherPrefs.LastHunter = hunter;
+            LauncherPrefs.LastColor = _suit?.Index ?? LauncherPrefs.LastColor;
             LauncherPrefs.Bots = _bots!.Index;
             LauncherPrefs.BotLevel = _skill!.Index;
             LauncherPrefs.LastKind = (int)LaunchKind.Offline;
@@ -771,6 +1510,15 @@ namespace MphRead.Mods.Launcher.Gui
 
         private string? SelectedRoom()
         {
+            if (Current == Face.Offline || Current == Face.Vote)
+            {
+                // Both faces pick from the card grid now, and the list they
+                // used to read is not even built. This is what made "call the
+                // vote" do nothing at all: the word was pressed, the grid knew
+                // perfectly well which map was picked, and the commit asked a
+                // list that was empty.
+                return _picked;
+            }
             return (_list.Selected as UiListRow)?.Choice as string;
         }
 
@@ -929,35 +1677,25 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 return;
             }
-            string? demoDir = null;
-            try
-            {
-                demoDir = DemoLibrary.Directory;
-            }
-            catch (IOException)
-            {
-                // No default folder is a worse first run than one with a clean
-                // slate, not a reason to refuse the picker outright.
-            }
-            IStorageFile? file = null;
-            string? path = null;
-            // Headless has no chooser and answers with an empty list rather
-            // than a failure, which is a button that does nothing at all.
+            // The desktop draws these screens with the headless backend and so
+            // has no StorageProvider at all: ask the operating system instead.
+            // See NativeFilePicker.
             if (!top.StorageProvider.CanOpen)
             {
-                NativeFileDialog.FilePick pick = await NativeFileDialog.OpenAsync(
-                    "Clips", $"{Branding.Name} demo", DemoFile.Extension, demoDir);
-                if (pick.Problem != null)
+                if (!NativeFilePicker.Available)
                 {
-                    _note.Text = pick.Problem;
+                    _note.Text = "This desktop has no file dialog to open "
+                        + $"(install zenity or kdialog). Clips in {DemoLibrary.Directory} "
+                        + "are listed here without one.";
                     _note.Foreground = GuiTheme.BadBrush;
                     return;
                 }
-                if (pick.Path == null)
+                string? chosen = await NativeFilePicker.OpenFile("Clips",
+                    $"{Branding.Name} demo", DemoFile.Extension.TrimStart('.'));
+                if (chosen != null)
                 {
-                    return;
+                    await Watch(chosen);
                 }
-                await Watch(pick.Path);
                 return;
             }
             var options = new FilePickerOpenOptions { Title = "Clips", AllowMultiple = false };
@@ -977,6 +1715,7 @@ namespace MphRead.Mods.Launcher.Gui
             }
             try
             {
+                string demoDir = DemoLibrary.Directory;
                 if (Directory.Exists(demoDir))
                 {
                     options.SuggestedStartLocation =
@@ -994,8 +1733,7 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 return;
             }
-            file = picked[0];
-            path = file.TryGetLocalPath();
+            string? path = picked[0].TryGetLocalPath();
             if (path == null)
             {
                 // Android hands back a content:// document with no file behind
@@ -1005,7 +1743,7 @@ namespace MphRead.Mods.Launcher.Gui
                 try
                 {
                     string scratch = Path.Combine(GameFiles.Root, $"picked{DemoFile.Extension}");
-                    await using (Stream source = await file.OpenReadAsync())
+                    await using (Stream source = await picked[0].OpenReadAsync())
                     await using (var target = File.Create(scratch))
                     {
                         await source.CopyToAsync(target);
@@ -1027,8 +1765,65 @@ namespace MphRead.Mods.Launcher.Gui
         private void BuildVote()
         {
             _go.Label = "call the vote";
-            FillRooms(NetSession.ServerMatch?.RoomKey);
-            WantPreview(true);
+            // The whole map list as pictures, not a column of names beside one
+            // preview. MapPick's own note says why the ballot is every map
+            // rather than four the server drew up -- "where next" is not
+            // multiple choice -- and the reference draws that ballot as the
+            // same cards the offline face uses, with a count in the corner of
+            // each and a ring on whatever is ahead.
+            FillMapGrid();
+            _picked = NetSession.ServerMatch?.RoomKey;
+            foreach (Control child in _grid?.Children ?? (IList<Control>)Array.Empty<Control>())
+            {
+                if (child is DeckTile tile)
+                {
+                    tile.Verb = "Pick";
+                    tile.ChosenVerb = "Picked";
+                    tile.Tally = 0;
+                    tile.Chosen = false;
+                }
+            }
+            RefreshBallot();
+            WantPreview(false);
+        }
+
+        /// <summary>
+        /// `.ballotbar` and the badges under it: what is leading, and by how
+        /// much, said once above the grid rather than on every card.
+        /// </summary>
+        private void RefreshBallot()
+        {
+            if (_grid == null)
+            {
+                return;
+            }
+            int best = 0;
+            foreach (Control child in _grid.Children)
+            {
+                if (child is DeckTile tile && tile.Tally > best)
+                {
+                    best = tile.Tally;
+                }
+            }
+            string? leader = null;
+            foreach (Control child in _grid.Children)
+            {
+                if (child is not DeckTile tile)
+                {
+                    continue;
+                }
+                tile.Leader = best > 0 && tile.Tally == best;
+                if (tile.Leader && leader == null)
+                {
+                    (RoomMetadata? meta, _) = Metadata.GetRoomByName(tile.RoomKey);
+                    leader = meta?.InGameName ?? tile.RoomKey;
+                }
+                tile.InvalidateVisual();
+            }
+            _note.Foreground = GuiTheme.TextDimBrush;
+            _note.Text = leader == null
+                ? "Nobody has picked. The rotation decides."
+                : $"{leader} is leading with {best}. Most votes wins.";
         }
 
         // -------------------------------------------------------------- shared
@@ -1042,7 +1837,17 @@ namespace MphRead.Mods.Launcher.Gui
             switch (Current)
             {
             case Face.Online:
-                _ = Join();
+                // Whatever the word on it says: a row picked means join it,
+                // nothing picked means there is nothing to join and the offer
+                // is to run one. See RefreshGoLabel.
+                if (_list.Selected is ServerRow)
+                {
+                    _ = Join();
+                }
+                else
+                {
+                    CreateRequested?.Invoke(this, EventArgs.Empty);
+                }
                 break;
             case Face.Offline:
                 StartMatch();

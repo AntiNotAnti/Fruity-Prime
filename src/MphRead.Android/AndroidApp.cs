@@ -33,6 +33,18 @@ namespace MphRead.Droid
 
         public override void Initialize()
         {
+            // Before anything else builds a screen. Android has no console to
+            // print a stack into and the process is gone by the time anybody
+            // could look, so a crash writes a file the log-sharing entry can
+            // hand out -- see Mods/CrashReport.cs, which exists because the
+            // same fault on Windows was invisible for the same reason.
+            CrashReport.Install();
+            Android.Runtime.AndroidEnvironment.UnhandledExceptionRaiser += (_, e) =>
+            {
+                // The Java side's own: an exception crossing back out of a
+                // callback the runtime invoked. AppDomain never sees these.
+                CrashReport.Report(e.Exception, "android");
+            };
             Styles.Add(new FluentTheme());
             RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Dark;
             base.Initialize();
@@ -40,16 +52,31 @@ namespace MphRead.Droid
 
         public override void OnFrameworkInitializationCompleted()
         {
-            if (ApplicationLifetime is ISingleViewApplicationLifetime single)
+            // A factory, not the view itself: this runs from MainApplication,
+            // Android's Application.OnCreate, before any activity exists, and
+            // BuildHome reaches things -- ThumbnailHost.Current's activity,
+            // MainActivity.Instance -- that are only there once one has been
+            // created. Avalonia's own activity is what calls this factory,
+            // from MainActivity.OnCreate, which is late enough.
+            if (ApplicationLifetime is IActivityApplicationLifetime activity)
             {
-                // Wrapped, not handed over bare. The screens in
-                // Mods/Launcher/Gui are authored for a box near 960x600 points
-                // and a phone in landscape is about 830x390, so without the
-                // scale host every one of them is laid out three times too
-                // large for the view it is in -- which is a front screen with
-                // its words off the edges and a server browser arranged
-                // somewhere off the side of the display. The desktop scales
-                // the same screens the same way; see UiScaleHost.
+                activity.MainViewFactory = () =>
+                {
+                    // Wrapped, not handed over bare. The screens in
+                    // Mods/Launcher/Gui are authored for a box near 960x600
+                    // points and a phone in landscape is about 830x390, so
+                    // without the scale host every one of them is laid out
+                    // three times too large for the view it is in -- which is
+                    // a front screen with its words off the edges and a
+                    // server browser arranged somewhere off the side of the
+                    // display. The desktop scales the same screens the same
+                    // way; see UiScaleHost.
+                    Home = BuildHome();
+                    return new UiScaleHost(Home);
+                };
+            }
+            else if (ApplicationLifetime is ISingleViewApplicationLifetime single)
+            {
                 Home = BuildHome();
                 single.MainView = new UiScaleHost(Home);
             }

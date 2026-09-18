@@ -3,6 +3,18 @@
 What's below is unproven or partially proven, not broken. Say so rather than
 claiming coverage that isn't there.
 
+- **The tap rule has never met a finger.** *Written 2026-09-15.*
+  `Mods/Launcher/Gui/Tap.cs` is the answer to "scrolling the settings on
+  Android activates the buttons": no row acts on its press any more, and a
+  gesture that travels more than eight points is given up. `-tapcheck` proves
+  the rule on written-down coordinates and the desktop's `-uishot`/`-shellshot`
+  prove the screens still take a click, but nothing here has dragged a real
+  settings page on a real phone -- the emulator available cannot load a match,
+  and touch is the one input this box does not have. What could still be wrong
+  is the *interaction* with Avalonia's `ScrollGestureRecognizer` (it is assumed
+  to take the pointer at thirty points, which is its default and was not
+  measured on a device), not the rule.
+
 - **A client's own beam is spawned before its puppets are placed, and turning
   snapshot-owned puppets on made that visible.** *Found and fixed
   2026-09-14; the fix is not yet re-measured.* `ProcessInput` runs before the
@@ -356,3 +368,23 @@ claiming coverage that isn't there.
   pickup is simulated from replicated positions and three clients in a 90 s
   match agreed exactly (`12`, `12`, `12`) — but "probably fine" isn't
   "measured".
+
+## A relative root in paths.txt used to break every read
+
+`AMHE0=files\AMHE0` -- a path relative to the program -- made the game report
+every room's spawns and every hunter model missing, from a folder with the
+root repeated two or three times:
+
+    ...\files\AMHE0\files\AMHE0\files\AMHE0\levels\entities\mp3_Ent.bin
+
+The files were where they should be. Several read paths combine the root in
+more than once -- `Read.GetEntities` combines it, calls `GetEntitiesFromPath`
+which combines it again, which calls `ReadBytes` which combines it a third
+time -- and that is invisible for an absolute root, since `Path.Combine(abs,
+abs)` is `abs`. Only a relative one stacks, which is why nobody had seen it:
+the launcher writes an absolute path and a hand-written relative one is rare.
+
+`Paths.Absolute` makes every root from paths.txt absolute as it is read,
+against the program's own directory. Reproduced and fixed on the same machine:
+a relative root gave 30 spawn failures and 1 missing model before, 0 and 0
+after.

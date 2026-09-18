@@ -47,7 +47,7 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly double _size;
         private readonly FontFamily _font;
         private readonly Color _colour;
-        private bool _pressed;
+        private readonly Tap _tap = new();
 
         static UiWord()
         {
@@ -70,7 +70,7 @@ namespace MphRead.Mods.Launcher.Gui
         {
             return new FormattedText(Text, CultureInfo.InvariantCulture,
                 FlowDirection.LeftToRight,
-                new Typeface(_font, FontStyle.Normal, FontWeight.Bold),
+                new Typeface(_font, FontStyle.Normal, FontWeight.Normal),
                 _size, brush);
         }
 
@@ -92,14 +92,14 @@ namespace MphRead.Mods.Launcher.Gui
 
         protected override void OnPointerExited(PointerEventArgs e)
         {
-            _pressed = false;
+            _tap.Cancel();
             InvalidateVisual();
             base.OnPointerExited(e);
         }
 
         protected override void OnPointerPressed(PointerPressedEventArgs e)
         {
-            _pressed = true;
+            _tap.Press(e, this);
             Focus();
             e.Pointer.Capture(this);
             e.Handled = true;
@@ -107,22 +107,28 @@ namespace MphRead.Mods.Launcher.Gui
             base.OnPointerPressed(e);
         }
 
+        protected override void OnPointerMoved(PointerEventArgs e)
+        {
+            // A finger that has set off across the screen is scrolling
+            // whatever this sits in, and is no longer pressing this. See Tap.
+            _tap.Moved(e, this);
+            base.OnPointerMoved(e);
+        }
+
         protected override void OnPointerReleased(PointerReleasedEventArgs e)
         {
-            bool was = _pressed;
-            _pressed = false;
+            // Tap decides: the press has to have landed here, stayed within a
+            // finger's slop, and let go inside. Where the release landed, not
+            // IsPointerOver -- a finger hovers nothing, so the pointer has
+            // already left by the time it lets go.
+            bool tapped = _tap.Release(e, this);
             InvalidateVisual();
             if (ReferenceEquals(e.Pointer.Captured, this))
             {
                 e.Pointer.Capture(null);
             }
             base.OnPointerReleased(e);
-            // Where the release landed, not IsPointerOver: a finger hovers
-            // nothing, so on a touchscreen the pointer is already gone from
-            // the word by the time it lets go.
-            Point p = e.GetPosition(this);
-            if (was && IsEnabled && p.X >= 0 && p.Y >= 0
-                && p.X <= Bounds.Width && p.Y <= Bounds.Height)
+            if (tapped && IsEnabled)
             {
                 Click?.Invoke(this, EventArgs.Empty);
             }
@@ -130,18 +136,19 @@ namespace MphRead.Mods.Launcher.Gui
 
         protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
         {
-            _pressed = false;
+            // The scroll gesture above has taken the pointer.
+            _tap.Cancel();
             InvalidateVisual();
             base.OnPointerCaptureLost(e);
         }
 
-        protected override void OnGotFocus(GotFocusEventArgs e)
+        protected override void OnGotFocus(FocusChangedEventArgs e)
         {
             InvalidateVisual();
             base.OnGotFocus(e);
         }
 
-        protected override void OnLostFocus(RoutedEventArgs e)
+        protected override void OnLostFocus(FocusChangedEventArgs e)
         {
             InvalidateVisual();
             base.OnLostFocus(e);

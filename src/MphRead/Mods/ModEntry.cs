@@ -427,6 +427,74 @@ namespace MphRead.Mods
             // text launcher offering matches it cannot play.
             doubleClicked = false;
 #endif
+            // The launcher's own screens, looked at without anybody sitting
+            // in front of them. Here rather than with the rest of the
+            // commands, which run after the game-files check: none of these
+            // load a room, all of them exist to be run on a box that has no
+            // extracted game files -- CI is exactly that box -- and behind
+            // that check they could only ever be run on a machine that was
+            // already set up to play.
+            // Pictures of the launcher's own screens, rendered without a
+            // window. The one part of this program that could not be looked at
+            // from a headless box.
+            string? uiShot = ValueAfter(args, "uishot");
+            if (uiShot != null)
+            {
+                Environment.ExitCode = RunUiCapture(uiShot);
+                return true;
+            }
+
+            // What a redraw of those screens costs, split into its parts, at
+            // every resolution anybody plays at. Beside the capture because it
+            // is the same arrangement -- a headless top level and no game
+            // files -- and because "the menus feel slow" is otherwise a report
+            // nothing in this program can answer with a number.
+            if (HasFlag(args, "uibench"))
+            {
+                Environment.ExitCode = RunUiBench(args);
+                return true;
+            }
+
+            // The same three screens laid out five different ways, for
+            // choosing between them by looking. Nothing it draws ships; see
+            // UiDesigns.
+            string? uiDesign = ValueAfter(args, "uidesign");
+            if (uiDesign != null)
+            {
+                Environment.ExitCode = RunUiDesigns(uiDesign);
+                return true;
+            }
+
+            // The same screens, but photographed *in the game window* -- which
+            // is the half -uishot cannot answer, since what it renders is the
+            // layout and not the composite. This opens the real shell window,
+            // lets it draw, reads the window's own buffer and presses Escape
+            // to prove the screens are taking input as well as pixels. Needs a
+            // display; Xvfb is one.
+            string? shellShot = ValueAfter(args, "shellshot");
+            if (shellShot != null)
+            {
+                Environment.ExitCode = RunShellCapture(shellShot);
+                return true;
+            }
+
+            if (HasFlag(args, "frametimingcheck"))
+            {
+                Environment.ExitCode = Render.FrameTimingCheck.Run();
+                return true;
+            }
+
+            // The rule that tells a tap from the beginning of a scroll, which
+            // is what every row on a settings page dragged by a finger turns
+            // on. No display, no toolkit and no touchscreen -- see
+            // Mods/Launcher/Gui/TapCheck.cs.
+            if (HasFlag(args, "tapcheck"))
+            {
+                Environment.ExitCode = RunTapCheck();
+                return true;
+            }
+
+
             // Display flags, before the launcher and not after it. They used
             // to be read further down, which is past the block below: the
             // shell opens its window there and reads the saved window mode as
@@ -770,7 +838,7 @@ namespace MphRead.Mods
             if (OperatingSystem.IsWindows() && ConsoleWindow.OwnsItsConsole())
             {
                 Console.WriteLine("Press any key to close this window...");
-                Console.ReadKey();
+                ConsoleSetup.PauseIfInteractive();
             }
         }
 #endif
@@ -1135,39 +1203,6 @@ namespace MphRead.Mods
             if (mapMaterials != null)
             {
                 Environment.ExitCode = MapGen.MapReport.ListMaterials(mapMaterials);
-                return true;
-            }
-
-            // Pictures of the launcher's own screens, rendered without a
-            // window. The one part of this program that could not be looked at
-            // from a headless box.
-            string? uiShot = ValueAfter(args, "uishot");
-            if (uiShot != null)
-            {
-                Environment.ExitCode = RunUiCapture(uiShot);
-                return true;
-            }
-
-            // The same three screens laid out five different ways, for
-            // choosing between them by looking. Nothing it draws ships; see
-            // UiDesigns.
-            string? uiDesign = ValueAfter(args, "uidesign");
-            if (uiDesign != null)
-            {
-                Environment.ExitCode = RunUiDesigns(uiDesign);
-                return true;
-            }
-
-            // The same screens, but photographed *in the game window* -- which
-            // is the half -uishot cannot answer, since what it renders is the
-            // layout and not the composite. This opens the real shell window,
-            // lets it draw, reads the window's own buffer and presses Escape
-            // to prove the screens are taking input as well as pixels. Needs a
-            // display; Xvfb is one.
-            string? shellShot = ValueAfter(args, "shellshot");
-            if (shellShot != null)
-            {
-                Environment.ExitCode = RunShellCapture(shellShot);
                 return true;
             }
 
@@ -1787,7 +1822,21 @@ namespace MphRead.Mods
         {
 #if MPHREAD_SHELL
             Launcher.Gui.Shell.RequestShots(directory);
-            return Launcher.Gui.GuiLauncher.TryRun() ? 0 : 1;
+            if (!Launcher.Gui.GuiLauncher.TryRun())
+            {
+                return 1;
+            }
+            // A step that could not press what it named is the check failing,
+            // not a note in the log: what it proves is that a click reaches
+            // the control it was aimed at, and a predicate matching nothing
+            // proves that of nothing.
+            int misses = Launcher.Gui.Shell.ShotMisses;
+            if (misses > 0)
+            {
+                Console.WriteLine($"[shellshot] {misses} step(s) found nothing to press");
+                return 1;
+            }
+            return 0;
 #else
             Console.WriteLine("[shellshot] this build has no launcher");
             return 1;
@@ -1819,6 +1868,46 @@ namespace MphRead.Mods
         }
 
         /// <summary>
+        /// What the screens cost to redraw: `-uibench [screen]`. Same shape as
+        /// the capture above it, and not inlined for the same reason.
+        ///
+        /// Desktop only, unlike the captures: what it measures is the surface
+        /// the screens are drawn into, and Android has a real one.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static int RunUiBench(string[] args)
+        {
+#if MPHREAD_SHELL
+            try
+            {
+                Launcher.Gui.UiBench.Slow = HasFlag(args, "uibenchslow");
+                Launcher.Gui.UiBench.AsAndroid = HasFlag(args, "uibenchandroid");
+                Launcher.Gui.DeckTile.CacheChrome = !HasFlag(args, "uibenchnochrome");
+                Launcher.Gui.UiBench.FreeFrames = HasFlag(args, "uibenchfree");
+                Launcher.Gui.UiBench.OnlySize = ValueAfter(args, "uibenchsize");
+                Launcher.Gui.UiBench.OnlyMove = ValueAfter(args, "uibenchonly");
+                Launcher.Gui.UiBench.Shot = ValueAfter(args, "uibenchshot");
+                if (Double.TryParse(ValueAfter(args, "uibenchscale"),
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out double parsed))
+                {
+                    Launcher.Gui.UiBench.ScaleOverride = parsed;
+                }
+                return Launcher.Gui.UiBench.Run(ValueAfter(args, "uibench"));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[uibench] no launcher toolkit here: {ex.Message}");
+                return 1;
+            }
+#else
+            Console.WriteLine("[uibench] this build has no launcher surface to measure");
+            return 1;
+#endif
+        }
+
+        /// <summary>
         /// The layout studies: `-uidesign DIR`. Same shape as the capture
         /// above it, and not inlined for the same reason.
         /// </summary>
@@ -1838,6 +1927,25 @@ namespace MphRead.Mods
             }
 #else
             Console.WriteLine("[uidesign] this build has no Avalonia launcher");
+            return 1;
+#endif
+        }
+
+        /// <summary>
+        /// The tap-versus-scroll rule on its own: `-tapcheck`. The rule has no
+        /// toolkit in it, but the check that drives it is written in Avalonia's
+        /// coordinate types and lives under Mods/Launcher/Gui/, which a server
+        /// build does not compile at all -- so the call goes through here for
+        /// the same reason the captures above do.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static int RunTapCheck()
+        {
+#if MPHREAD_AVALONIA
+            return Launcher.Gui.TapCheck.Run();
+#else
+            Console.WriteLine("[tapcheck] this build has no launcher");
             return 1;
 #endif
         }

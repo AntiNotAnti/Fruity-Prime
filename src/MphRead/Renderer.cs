@@ -570,9 +570,17 @@ namespace MphRead
                     InitEntity(player.Halfturret);
                 }
             }
-            if (!Mods.Headless.Active)
+            if (!Mods.Headless.Active && !SideScene)
             {
                 // The console prompt, which is a question put to a person.
+                //
+                // Not on a side scene. That one belongs to the launcher's
+                // hunter preview, and the launcher's Windows build is a GUI
+                // binary with no console at all -- so the first Console.Clear
+                // this loop reaches throws "The handle is invalid" on a task
+                // nobody is awaiting, and the finalizer rethrows it. There is
+                // also nobody to prompt: the scene has no room to load into
+                // and no camera to move.
                 OutputStart();
             }
             GC.Collect(generation: 2, GCCollectionMode.Forced, blocking: true, compacting: true);
@@ -609,6 +617,16 @@ namespace MphRead
             Mods.RenderOptions.Scaled(Size.X), Mods.RenderOptions.Scaled(Size.Y));
 
         private Vector2i _targetSize;
+
+        /// <summary>
+        /// Whether this scene is somebody's private one rather than the
+        /// window's match.
+        ///
+        /// Set by <see cref="RenderWindow.NewSideScene"/>. It turns off the
+        /// things that only make sense for a match somebody is playing -- see
+        /// where it is read.
+        /// </summary>
+        public bool SideScene { get; set; }
 
         public void OnResize()
         {
@@ -6937,6 +6955,27 @@ namespace MphRead
         }
 
         /// <summary>
+        /// A scene this window does <b>not</b> hold: one the caller owns, for
+        /// something that needs the renderer without being a match.
+        ///
+        /// <see cref="OnRenderFrame"/> routes on <c>_scene == null</c> -- that
+        /// is what tells the shell's frame apart from a match's -- so anything
+        /// that stood a scene up the ordinary way would send the window down
+        /// the match path with no room in it. The launcher's hunter preview
+        /// needs a scene for its shader and its render-item list and needs
+        /// nothing else from one; this is how it gets one without the window
+        /// deciding a match has started. See
+        /// <see cref="Mods.Render.LauncherHunter"/>.
+        /// </summary>
+        public Scene NewSideScene()
+        {
+            var scene = NewScene();
+            scene.Size = PixelSize;
+            scene.SideScene = true;
+            return scene;
+        }
+
+        /// <summary>
         /// Make the scene a match will be built into. The caller fills it --
         /// players, then the room -- and calls <see cref="LoadScene"/>.
         /// </summary>
@@ -7208,6 +7247,10 @@ namespace MphRead
             // ends matches here, and the surface renders whatever screen is up
             // into the texture drawn at the end of the frame.
             Mods.Launcher.Gui.Shell.BeforeFrame(this);
+            // The results panel comes and goes with the results themselves,
+            // which nothing on this machine announces -- the server decides
+            // the match is over. See Shell.TickEndPanel.
+            Mods.Launcher.Gui.Shell.TickEndPanel();
             Mods.Launcher.Gui.Shell.TickUi(this);
 #endif
 #if MPHREAD_SHELL
@@ -7216,7 +7259,7 @@ namespace MphRead
                 // The launcher, with no match behind it. The pointer is the
                 // system's -- there is nobody to aim.
                 CursorState = CursorState.Normal;
-                Mods.Render.UiOverlay.DrawAlone(FramebufferSize.X, FramebufferSize.Y);
+                Mods.Render.UiOverlay.DrawAlone(this, FramebufferSize.X, FramebufferSize.Y);
                 // Before the swap: the back buffer holds this frame and
                 // nothing else does. Only -shellshot asks.
                 Mods.Launcher.Gui.Shell.AfterDraw(this);
@@ -7321,6 +7364,11 @@ namespace MphRead
             // up.
 #if MPHREAD_SHELL
             Mods.Render.UiOverlay.Draw(PixelSize.X, PixelSize.Y);
+            // The real hunter, over the screens, when a screen is asking for
+            // one during a match -- which is the results panel. Under the
+            // texture is where the world's own pass would put it, and the
+            // panel it goes in is opaque, so under is behind a card.
+            Mods.Render.LauncherHunter.Draw(this, PixelSize.X, PixelSize.Y);
             // Before the swap, for the reason the sceneless branch gives.
             Mods.Launcher.Gui.Shell.AfterDraw(this);
 #endif
@@ -7628,9 +7676,40 @@ namespace MphRead
             base.OnKeyUp(e);
         }
 
+        /// <summary>
+        /// Put a key through the window's own handler, as if it had been
+        /// pressed.
+        ///
+        /// For <c>-shellshot</c>. Its own <c>Key</c> helper hands the key
+        /// straight to <c>UiSurface</c>, which is the right shape for testing
+        /// a *screen* -- and is exactly the wrong shape for testing the keys
+        /// the window claims before any screen sees them, since it skips the
+        /// code that claims them. A test that cannot fail is worse than none.
+        /// </summary>
+        internal void FeedKey(KeyboardKeyEventArgs e) => OnKeyDown(e);
+
         protected override void OnKeyDown(KeyboardKeyEventArgs e)
         {
 #if MPHREAD_SHELL
+            // F11 and Alt+Enter first, screen or no screen.
+            //
+            // They are gestures at the *window*, not input to whatever is
+            // drawn in it, and every other program in the world treats them
+            // that way. The shell takes the whole of the keyboard while a
+            // screen is up -- which is right for every other key -- so
+            // fullscreen was the one thing the launcher could not do, and a
+            // player who wanted it had to start a match first.
+            //
+            // Except while a rebind row is waiting: "press a key" has to be
+            // able to be told F11, or F11 is the one key in the game nobody
+            // can bind.
+            if (Mods.Launcher.Gui.Shell.UiVisible
+                && !Mods.Launcher.Gui.KeyRow.AnyListening
+                && Mods.WindowMode.HandleKey(this, e))
+            {
+                base.OnKeyDown(e);
+                return;
+            }
             // A screen is up in this window -- the launcher, the pause menu,
             // the settings. It gets the whole of the input while it is, the
             // way a window on top of the game used to get it from the window

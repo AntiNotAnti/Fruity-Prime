@@ -272,7 +272,7 @@ namespace MphRead.Mods.Launcher.Gui
         /// For <c>-uishot</c>, which is the only way any of these can be
         /// looked at from a machine with no display.
         /// </summary>
-        internal void ShowSection(string name)
+        internal void ShowSection(string name, int sub = 0)
         {
             for (int i = 0; i < _sections.Count; i++)
             {
@@ -280,6 +280,11 @@ namespace MphRead.Mods.Launcher.Gui
                 {
                     _tabs.Index = i;
                     ShowPage(i);
+                    if (sub != 0 && _controlTabs != null
+                        && String.Equals(name, "Controls", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _controlTabs.Index = sub;
+                    }
                     return;
                 }
             }
@@ -525,7 +530,49 @@ namespace MphRead.Mods.Launcher.Gui
 
         // ------------------------------------------------------------ controls
 
-        private void BuildControls(StackPanel page)
+        /// <summary>
+        /// Three devices, three pages.
+        ///
+        /// A keyboard, a pad and a pen tablet do not share a list: "Sensitivity"
+        /// is a different number on each of them, the key list means nothing on
+        /// two of the three, and the bottom-screen zone means nothing on two
+        /// either. They were one page with three headings, which made the page
+        /// long enough that the thing you came to change was usually below the
+        /// fold -- so they are three pages behind a strip now, and the strip is
+        /// the same <see cref="UiTabs"/> the sections above it use.
+        /// </summary>
+        private void BuildControls(StackPanel outer)
+        {
+            var keyboard = new StackPanel { Spacing = 2 };
+            var gamepad = new StackPanel { Spacing = 2, IsVisible = false };
+            var stylus = new StackPanel { Spacing = 2, IsVisible = false };
+            var subs = new UiTabs(new[] { "Keyboard", "Gamepad", "Stylus" });
+            _controlTabs = subs;
+            subs.Margin = new Thickness(0, 0, 0, 8);
+            subs.Changed += (_, _) =>
+            {
+                keyboard.IsVisible = subs.Index == 0;
+                gamepad.IsVisible = subs.Index == 1;
+                stylus.IsVisible = subs.Index == 2;
+            };
+            outer.Children.Add(subs);
+            outer.Children.Add(keyboard);
+            outer.Children.Add(gamepad);
+            outer.Children.Add(stylus);
+            BuildKeyboard(keyboard);
+            BuildGamepad(gamepad);
+            BuildStylus(stylus);
+        }
+
+        /// <summary>
+        /// The Controls page's own strip, so <see cref="ShowSection"/> can
+        /// open one of its three sub-pages. The rows under Gamepad are the
+        /// ones that have never been arranged until it is opened, which is
+        /// where the crash was.
+        /// </summary>
+        private UiTabs? _controlTabs;
+
+        private void BuildKeyboard(StackPanel page)
         {
             Heading(page, "Mouse");
             // A slider over an index (0-100 mapped across a range) could only
@@ -546,14 +593,62 @@ namespace MphRead.Mods.Launcher.Gui
             // real player's aim rather than protecting it. Turning it on is
             // also the gate for everything below it -- the bottom-screen
             // zone means nothing to a mouse. See Mods.Input.PointerInput.
+            BuildTouchControls(page);
+
+            // The keys, on the keyboard page.
+            //
+            // They were built inside BuildGamepad, under a "Keys" heading
+            // after the pad's own buttons, so the Keyboard tab offered four
+            // mouse rows and nothing else and every key in the game was two
+            // clicks away behind a tab called Gamepad. The reference has never
+            // had them anywhere but here: `Controls > Keyboard` is Mouse and
+            // then Keys, and `Controls > Gamepad` is Sticks and then Buttons.
+            Heading(page, "Keys");
+            var rows = new List<KeyRow>();
+            // Chat first, and by hand. It is the one key this project added
+            // rather than inherited, so it is not a Keybind on PlayerControls
+            // and the reflection below cannot find it -- which is why it was
+            // the one key in the game with no row, settable only by editing
+            // the file.
+            rows.Add(Add(page, new KeyRow("Chat",
+                () => InputSettings.ChatKey, k => InputSettings.ChatKey = k)));
+            // The clip button and how much it saves, together: the length is
+            // the only thing anybody wants to know about that key, and putting
+            // it on the far side of the settings from the bind would make them
+            // two unrelated questions.
+            rows.Add(Add(page, new KeyRow("Save clip",
+                () => InputSettings.ClipKey, k => InputSettings.ClipKey = k)));
+            _clipSecondsRow = Add(page, new ChoiceRow("Clip length",
+                Array.ConvertAll(Mods.Network.DemoClip.Lengths, n => $"{n} seconds"),
+                Math.Max(0, Array.IndexOf(Mods.Network.DemoClip.Lengths,
+                    Mods.Network.DemoClip.Seconds))));
+            foreach (PropertyInfo property in InputSettings.Bindings)
+            {
+                rows.Add(Add(page, new KeyRow(property)));
+            }
+            _keyRows = rows;
+        }
+
+        /// <summary>Every key row, so Reset can redraw them from whichever page it is on.</summary>
+        private List<KeyRow> _keyRows = new();
+
+        /// <summary>The pen tablet's page: the guard, and the zone it gates.</summary>
+        private void BuildStylus(StackPanel page)
+        {
+            Heading(page, "Pen tablet");
+            // Off by default: a fast flick with a high-DPI mouse at high
+            // sensitivity can clear the jump threshold too, which zeroed a
+            // real player's aim rather than protecting it. Turning it on is
+            // also the gate for everything below it. See Mods.Input.PointerInput.
             _penTablet = Add(page, new ToggleRow("Stylus mode", Mods.Input.PointerInput.GuardJumps));
             BuildStylusZone(page);
             _penTablet.Changed += (_, _) => ShowStylusRows();
             ShowStylusRows();
+        }
 
-            BuildTouchControls(page);
-
-            // Its own section rather than more rows under "Mouse": a pad has
+        private void BuildGamepad(StackPanel page)
+        {
+            // Its own page rather than more rows under "Mouse": a pad has
             // its own sensitivity, and somebody who inverts one of the two
             // very often does not invert the other.
             Heading(page, "Gamepad");
@@ -578,30 +673,6 @@ namespace MphRead.Mods.Launcher.Gui
                 padRows.Add(Add(page, new PadRow(action)));
             }
 
-            Heading(page, "Keys");
-            var rows = new List<KeyRow>();
-            // Chat first, and by hand. It is the one key this project added
-            // rather than inherited, so it is not a Keybind on PlayerControls
-            // and the reflection below cannot find it -- which is why it was
-            // the one key in the game with no row, settable only by editing
-            // the file.
-            KeyRow chatRow = Add(page, new KeyRow("Chat",
-                () => InputSettings.ChatKey, k => InputSettings.ChatKey = k));
-            rows.Add(chatRow);
-            // The clip button and how much it saves, together: the length is
-            // the only thing anybody wants to know about that key, and putting
-            // it on the far side of the settings from the bind would make them
-            // two unrelated questions.
-            rows.Add(Add(page, new KeyRow("Save clip",
-                () => InputSettings.ClipKey, k => InputSettings.ClipKey = k)));
-            _clipSecondsRow = Add(page, new ChoiceRow("Clip length",
-                Array.ConvertAll(Mods.Network.DemoClip.Lengths, n => $"{n} seconds"),
-                Math.Max(0, Array.IndexOf(Mods.Network.DemoClip.Lengths,
-                    Mods.Network.DemoClip.Seconds))));
-            foreach (PropertyInfo property in InputSettings.Bindings)
-            {
-                rows.Add(Add(page, new KeyRow(property)));
-            }
             var reset = new UiWord("Reset to defaults", 15, colour: GuiTheme.Warm)
             {
                 Margin = new Thickness(0, 10, 0, 0)
@@ -629,7 +700,7 @@ namespace MphRead.Mods.Launcher.Gui
                 {
                     row.InvalidateVisual();
                 }
-                foreach (KeyRow row in rows)
+                foreach (KeyRow row in _keyRows)
                 {
                     row.InvalidateVisual();
                 }
@@ -859,6 +930,39 @@ namespace MphRead.Mods.Launcher.Gui
                 GameFiles.Ready ? GuiTheme.Good : GuiTheme.Warm));
 
             BuildDebugLogs(page);
+
+            // Nothing behind it yet, and the row says so when pressed rather
+            // than being absent until the day there is: a player who wonders
+            // whether their times count anywhere gets an answer either way,
+            // and "coming soon" is an answer.
+            // The hunter you start as, and the hunter itself. A name in a
+            // drop-down is not what anybody recognises a hunter by; the
+            // silhouette is. The picker on the results screen is the one that
+            // matters mid-session -- this is the one that answers "who am I by
+            // default", which is a settings question.
+            Heading(page, "Hunter");
+            string[] standNames = HunterStand.Names;
+            var hunterRow = Add(page, new ChoiceRow("Default hunter", standNames,
+                Math.Max(0, Array.IndexOf(standNames, LauncherPrefs.LastHunter.ToString()))));
+            var stand = new HunterStand
+            {
+                Height = 150,
+                Margin = new Thickness(0, 4, 0, 4),
+                Name2 = standNames[hunterRow.Index]
+            };
+            hunterRow.Changed += (_, _) => stand.Name2 = standNames[hunterRow.Index];
+            page.Children.Add(stand);
+
+            Heading(page, "Account");
+            var signIn = new UiWord("Sign in", 15, colour: GuiTheme.Accent);
+            var signInNote = new Note("") { IsVisible = false };
+            signIn.Click += (_, _) =>
+            {
+                signInNote.Text = "Ranking feature will be coming soon!";
+                signInNote.IsVisible = true;
+            };
+            page.Children.Add(signIn);
+            page.Children.Add(signInNote);
         }
 
         /// <summary>

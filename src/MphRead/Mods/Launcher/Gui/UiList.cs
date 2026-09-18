@@ -7,6 +7,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Styling;
 using Avalonia.Threading;
 
 namespace MphRead.Mods.Launcher.Gui
@@ -71,6 +72,8 @@ namespace MphRead.Mods.Launcher.Gui
             }
         }
 
+        private readonly Tap _tap = new();
+
         public UiListRow(string title, string detail = "")
         {
             _title = title;
@@ -108,21 +111,40 @@ namespace MphRead.Mods.Launcher.Gui
         protected override void OnPointerExited(PointerEventArgs e)
         {
             _hot = false;
+            _tap.Cancel();
             InvalidateVisual();
             base.OnPointerExited(e);
         }
 
+        protected override void OnPointerPressed(PointerPressedEventArgs e)
+        {
+            _tap.Press(e, this);
+            base.OnPointerPressed(e);
+        }
+
+        protected override void OnPointerMoved(PointerEventArgs e)
+        {
+            _tap.Moved(e, this);
+            base.OnPointerMoved(e);
+        }
+
         protected override void OnPointerReleased(PointerReleasedEventArgs e)
         {
-            // See UiWord.OnPointerReleased: a finger hovers nothing, so the
-            // release position is what decides, not IsPointerOver.
-            Point p = e.GetPosition(this);
-            if (p.X >= 0 && p.Y >= 0 && p.X <= Bounds.Width && p.Y <= Bounds.Height)
+            // A release is not a choice on its own: a list is the thing most
+            // likely to be scrolled, and a flick that ends over a row used to
+            // pick it. See Tap -- the press has to have landed here and stayed.
+            if (_tap.Release(e, this))
             {
                 Focus();
                 Clicked?.Invoke(this, EventArgs.Empty);
             }
             base.OnPointerReleased(e);
+        }
+
+        protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+        {
+            _tap.Cancel();
+            base.OnPointerCaptureLost(e);
         }
 
         protected override void OnKeyDown(KeyEventArgs e)
@@ -139,13 +161,13 @@ namespace MphRead.Mods.Launcher.Gui
 
 
 
-        protected override void OnGotFocus(GotFocusEventArgs e)
+        protected override void OnGotFocus(FocusChangedEventArgs e)
         {
             InvalidateVisual();
             base.OnGotFocus(e);
         }
 
-        protected override void OnLostFocus(RoutedEventArgs e)
+        protected override void OnLostFocus(FocusChangedEventArgs e)
         {
             InvalidateVisual();
             base.OnLostFocus(e);
@@ -245,13 +267,47 @@ namespace MphRead.Mods.Launcher.Gui
     /// </summary>
     internal sealed class UiList : Decorator
     {
-        private readonly StackPanel _rows = new() { Spacing = 1 };
+        /// <summary>
+        /// The rows, with room either side for the ring a selected one wears.
+        ///
+        /// `box-shadow: 0 0 0 2px` spreads *outward* from the box, and the
+        /// scroller above clips to its own width (it has to: horizontal
+        /// scrolling is disabled). A row stretched to that width therefore had
+        /// the left and right of its accent ring cut off while the top and
+        /// bottom survived in the gap between rows -- which is exactly what
+        /// "le surlignage jaune est croppé sur les côtés" was. Three points is
+        /// the two the ring spreads plus one for the rounding.
+        /// </summary>
+        private readonly StackPanel _rows = new()
+        {
+            Spacing = 1,
+            Margin = new Thickness(3, 0, 3, 0)
+        };
         private readonly Panel _header = new();
         private readonly ScrollViewer _scroll;
         private readonly List<Control> _focusable = new();
 
         /// <summary>The row the keyboard is on, or the last one pressed.</summary>
         public Control? Selected { get; private set; }
+
+        /// <summary>
+        /// The gap between rows, in frame ems, or zero to keep the flat one
+        /// point a plain list uses.
+        ///
+        /// The browser sets `.32em`. A row's own solid edge is drawn *into*
+        /// this gap rather than inside the row's box, the way a box-shadow
+        /// falls, so the pitch is the slab plus this and nothing else.
+        /// </summary>
+        public double SpacingEms { get; set; }
+
+        /// <summary>
+        /// Whether the first row to arrive becomes the selection.
+        ///
+        /// True for a list of things you are choosing between, where starting
+        /// somewhere is better than starting nowhere. False for the server
+        /// browser, where the first row is an accident of who replied first.
+        /// </summary>
+        public bool AutoSelectFirst { get; set; } = true;
 
         /// <summary>Raised when a row is pressed or Enter is taken on it.</summary>
         public event EventHandler<Control>? Activated;
@@ -271,6 +327,28 @@ namespace MphRead.Mods.Launcher.Gui
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto
             };
+            // `scrollbar-width: thin; scrollbar-color: var(--edge) transparent`.
+            // Six points of the panel's own edge colour on nothing, rather
+            // than the Fluent theme's pale grey rail -- which is the one
+            // control on these screens that still said "toolkit" out loud.
+            Styles.Add(new Style(x => x.OfType<ScrollBar>().Class("vertical"))
+            {
+                Setters =
+                {
+                    new Setter(ScrollBar.WidthProperty, 6.0),
+                    new Setter(ScrollBar.MinWidthProperty, 6.0),
+                    new Setter(ScrollBar.BackgroundProperty, Brushes.Transparent)
+                }
+            });
+            Styles.Add(new Style(x => x.OfType<ScrollBar>().Template().OfType<Thumb>())
+            {
+                Setters =
+                {
+                    new Setter(Thumb.BackgroundProperty, GuiTheme.EdgeBrush),
+                    new Setter(Thumb.CornerRadiusProperty, new CornerRadius(3)),
+                    new Setter(Thumb.MinWidthProperty, 6.0)
+                }
+            });
             var dock = new DockPanel { LastChildFill = true };
             DockPanel.SetDock(_header, Dock.Top);
             dock.Children.Add(_header);
@@ -315,7 +393,7 @@ namespace MphRead.Mods.Launcher.Gui
                 return;
             }
             _focusable.Add(row);
-            if (Selected == null)
+            if (Selected == null && AutoSelectFirst)
             {
                 // The first row to arrive is the selection, and it has to take
                 // the selection's side effect with it. It did not: `activate`
@@ -413,6 +491,31 @@ namespace MphRead.Mods.Launcher.Gui
         /// beside the list, and up and down should still walk the list --
         /// which is the thing the screen is for.
         /// </summary>
+        protected override Size MeasureOverride(Size availableSize)
+        {
+            if (SpacingEms > 0)
+            {
+                // Not rounded: a gap of 3.63 against one of 4 is three
+                // quarters of a point per row, and a list is where that
+                // compounds.
+                // And no layout rounding on the column. Avalonia rounds every
+                // arranged box to a whole point by default, which turns a
+                // 29.6-point row and a 3.63-point gap into 30 and 4 -- eight
+                // tenths of a point per row, and over thirteen rows the ten
+                // points that had a phone's panel sitting too high. The rows
+                // still *draw* on whole pixels; it is only where they are that
+                // is allowed a fraction, which is what the layout this is a
+                // port of does.
+                _rows.UseLayoutRounding = false;
+                double gap = Deck.GetEm(this) * SpacingEms;
+                if (Math.Abs(gap - _rows.Spacing) > 0.01)
+                {
+                    _rows.Spacing = gap;
+                }
+            }
+            return base.MeasureOverride(availableSize);
+        }
+
         public bool HandleKey(Key key)
         {
             if (_focusable.Count == 0)
