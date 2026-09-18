@@ -1705,6 +1705,7 @@ namespace MphRead.Entities
 
         public void TakeDamage(uint damage, DamageFlags flags, Vector3? direction, EntityBase? source)
         {
+            using var predictedScores = new Mods.Network.NetDamage.PredictionScoreScope(Mods.Network.NetHitPrediction.Predicting);
             if (Mods.Network.NetDamage.Suppress(this, source, flags))
             {
                 return;
@@ -1881,7 +1882,7 @@ namespace MphRead.Entities
             // *this* player is not -- a fall into the void or a rocket jump at
             // low health kills on the frame it happens.
             // Mods.Network.NetHitPrediction.
-            Mods.Network.NetHitPrediction.NoteHit(this, attacker, flags, ref damage,
+            Mods.Network.NetHitPrediction.NoteHit(this, attacker, ref flags, ref damage,
                 beam?.Beam ?? BeamType.None, beam?.ModLaunchFrame ?? 0, beam?.Age ?? 0);
             bool dead = false;
             if (IsBot && GameState.SinglePlayer && AiData.Flags1 && _health <= AiData.HealthThreshold)
