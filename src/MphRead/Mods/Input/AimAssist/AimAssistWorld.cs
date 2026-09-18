@@ -84,7 +84,8 @@ namespace MphRead.Entities
                 var headError = AssistAngles(head);
                 bool headVisible = !target.IsAltForm && profile.Head && headError.Length() < 1.5f && AssistVisible(head);
                 long targetLife = ((long)NetPlayerLifecycle.Generation(target.SlotIndex) << 16) | NetPlayerLifecycle.Get(target.SlotIndex);
-                candidates[count++] = new(target.SlotIndex, targetLife, bodyError, headError, distance, visible, headVisible);
+                candidates[count++] = new(target.SlotIndex, targetLife, bodyError, headError, distance, visible, headVisible,
+                    BodyPointType: target.IsAltForm ? AimAssistPointType.CenterMass : AimAssistPointType.UpperChest);
                 if (count == candidates.Length) break;
             }
             var pad = snapshot.State;
@@ -97,7 +98,11 @@ namespace MphRead.Entities
                 move, 1f / 60, eligible, profile);
             AimAssistTarget chosen = default;
             foreach (ref readonly var candidate in candidates[..count]) if (candidate.Slot == result.TargetSlot) chosen = candidate;
-            if (AimAssistDebug.UnassistedArm) result = result with { X = x, Y = y, Friction = 1, RotationStrength = 0, HeadBlend = 0 };
+            if (AimAssistDebug.UnassistedArm)
+            {
+                result = result with { X = x, Y = y, Friction = 1, RotationStrength = 0, HeadBlend = 0, PointType = chosen.BodyPointType };
+                _controllerAssist.PreviousOutput = new(x, y);
+            }
             AimAssistDebug.Result = result; AimAssistDebug.Target = chosen;
             AimAssistDebug.Raw = new(x, y); AimAssistDebug.Velocity = _controllerAssist.AngularVelocity;
             var observation = result;

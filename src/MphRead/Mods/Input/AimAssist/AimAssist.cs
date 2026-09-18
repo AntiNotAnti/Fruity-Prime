@@ -66,7 +66,7 @@ namespace MphRead.Mods.Input.AimAssist
             Vector2 output = adjusted + rotation;
             state.PreviousError = target.BodyError; state.PreviousOutput = output;
             return new(output.X, output.Y, target.Slot, friction, strength,
-                state.HeadBlend > 0 ? AimAssistPointType.Head : AimAssistPointType.UpperChest, state.HeadBlend, best == retained ? retainedScore : bestScore);
+                state.HeadBlend > 0 ? AimAssistPointType.Head : target.BodyPointType, state.HeadBlend, best == retained ? retainedScore : bestScore);
         }
     }
 }
