@@ -11,13 +11,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      DOTNET_INSTALL_DIR: ${{ runner.temp }}/netcode-dotnet
-      NUGET_PACKAGES: ${{ runner.temp }}/netcode-nuget
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - name: Configure isolated public dependency paths
+        run: |
+          echo "DOTNET_INSTALL_DIR=$RUNNER_TEMP/netcode-dotnet" >> "$GITHUB_ENV"
+          echo "NUGET_PACKAGES=$RUNNER_TEMP/netcode-nuget" >> "$GITHUB_ENV"
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
