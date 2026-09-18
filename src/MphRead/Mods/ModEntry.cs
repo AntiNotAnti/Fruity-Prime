@@ -84,6 +84,13 @@ namespace MphRead.Mods
             Update.Updater.Disabled = HasFlag(args, "noupdate");
             ApplyRenderOverrides(args);
 
+            if (HasFlag(args, "pointercheck"))
+            {
+                Environment.ExitCode = Input.PointerCheck.Run();
+                return true;
+            }
+
+
             if (HasFlag(args, "gamepadcheck"))
             {
                 Environment.ExitCode = Input.GamepadChecks.Run(ValueAfter(args, "shots"));
