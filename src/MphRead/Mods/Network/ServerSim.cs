@@ -361,7 +361,7 @@ namespace MphRead.Mods.Network
         /// The number to read is the mean rewind against the round trips of
         /// the players connected: see NETWORK-UNLAGGED.md.
         /// </summary>
-        public string DescribeUnlagged() => NetUnlagged.Describe();
+        public string DescribeUnlagged() => NetUnlagged.Describe() + "\n" + NetShotDiagnostics.Describe() + NetTimingDiagnostics.Describe();
 
         /// <summary>
         /// The requested-rewind distribution. Only the simulating machine has
