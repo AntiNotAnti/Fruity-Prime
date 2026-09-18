@@ -10,7 +10,7 @@ namespace MphRead.Mods.Launcher.Gui
         public LobbyPlayerRow(RosterPacket roster, int index, byte owner)
         {
             int slot = roster.Slots[index];
-            string team = roster.Teams[index] < 0 ? "FFA" : $"Team {roster.Teams[index] + 1}";
+            string team = roster.Teams[index] < 0 ? "FFA" : $"Team {(char)('A' + roster.Teams[index])}";
             var lines = new StackPanel();
             lines.Children.Add(new TextBlock
             {
