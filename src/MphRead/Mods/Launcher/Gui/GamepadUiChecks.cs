@@ -174,6 +174,15 @@ namespace MphRead.Mods.Launcher.Gui
             filter.Text = "missing"; Dispatcher.UIThread.RunJobs();
             GamepadChecks.Check(!details.Join.IsEnabled, "empty search cannot join stale selection");
             filter.Text = ""; Dispatcher.UIThread.RunJobs();
+            window.Width = 600; window.UpdateLayout();
+            var pages = browser.GetVisualDescendants().OfType<UiTabs>().First();
+            pages.Select("Offline"); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            var optionsScroll = browser.GetVisualDescendants().OfType<ChoiceRow>().First().GetVisualAncestors().OfType<ScrollViewer>().First();
+            GamepadChecks.Check(Grid.GetColumn(optionsScroll) == 1, "leaving compact Online restores the offline options column");
+            pages.Select("Online"); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            details = browser.GetVisualDescendants().OfType<ServerDetailsPanel>().Single();
+            GamepadChecks.Check(!details.Join.IsEnabled, "returning to Online clears stale join availability");
+            window.Width = 800;
 
             UiCapture.LobbyFixture("host-ffa", rooms);
             var lobby = new LobbyScreen(rooms, new LobbyContext("Test lobby", "test.example:27888")); lobby.Suspend();

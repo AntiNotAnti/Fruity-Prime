@@ -63,7 +63,8 @@ controls into view; touch and keyboard use the same controls.
 - `dotnet run --project tools/online-ui-check/online-ui-check.csproj -c Release`:
   87 pure state/cancellation assertions without UI initialization or game assets.
 - `-gamepadcheck`: browser availability/filter/selection, draft validation and stale
-  revisions, role changes, pending Ready, chat Escape/scroll and lost connection.
+  revisions, role changes, pending Ready, chat Escape/scroll, lost connection and switching
+  between Online and Offline at compact widths.
 - `-uimatrix DIR`: 302 captures including 150 new online/lobby state captures at
   1920x1080, 1280x720, 960x600, 800x400, 430x860 and 860x430. Each capture checks
   focus reachability and scrolling. Mock lobby injection never opens a socket.

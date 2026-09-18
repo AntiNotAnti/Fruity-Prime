@@ -457,6 +457,7 @@ namespace MphRead.Mods.Launcher.Gui
             _go.IsEnabled = true;
             _options.Width = 300;
             _body.ColumnDefinitions = new ColumnDefinitions("*,Auto");
+            Grid.SetColumn(_side, 1);
             _compact = !_compact; SetCompact(!_compact);
 
             _go.IsVisible = true;
@@ -557,6 +558,7 @@ namespace MphRead.Mods.Launcher.Gui
         private void BuildOnline()
         {
             _go.IsVisible = false;
+            _directSelected = false; _directStatus = null;
             _list.SetHeader(null);
             _body.Children.Remove(_list);
             _onlineList.Children.Add(_onlineTools); Grid.SetRow(_list, 1); _onlineList.Children.Add(_list);
@@ -598,11 +600,11 @@ namespace MphRead.Mods.Launcher.Gui
             var expand = new UiMark(UiMark.Shape.Add, "Direct Connect");
             expand.Click += (_, _) => direct.IsVisible = !direct.IsVisible;
             var check = new UiMark(UiMark.Shape.Accept, "Check Server");
-            check.Click += (_, _) => { _directSelected = true; _directStatus = null; RefreshServerDetails(); QueryStatusSoon(); };
+            check.Click += (_, _) => { if (_joinCancel != null) return; _directSelected = true; _directStatus = null; RefreshServerDetails(); QueryStatusSoon(); };
             _address.Box.TextChanged += (_, _) => { if (_directSelected) { _directStatus = null; RefreshServerDetails(); } };
             direct.Children.Add(_address); direct.Children.Add(check);
             _options.Children.Add(expand); _options.Children.Add(direct);
-            LayoutOnline(); ReloadServers(); StartPolling();
+            LayoutOnline(); RefreshServerDetails(); ReloadServers(); StartPolling();
         }
 
         /// <summary>
@@ -821,6 +823,7 @@ namespace MphRead.Mods.Launcher.Gui
             _joinCancel = cancel; StopPolling();
             if (_tabs != null) _tabs.IsEnabled = false;
             _create.IsEnabled = _list.IsEnabled = _onlineTools.IsEnabled = false;
+            _name!.IsEnabled = _hunter.IsEnabled = _address!.IsEnabled = false;
             _back.Label = "cancel join";
             _browserTabs.Index = 1; RefreshServerDetails();
             LauncherPrefs.PlayerName = name; LauncherPrefs.LastHunter = hunter;
@@ -833,7 +836,8 @@ namespace MphRead.Mods.Launcher.Gui
             bool cancelled = cancel.IsCancellationRequested;
             _joinCancel = null;
             if (_tabs != null) _tabs.IsEnabled = true;
-            _create.IsEnabled = _list.IsEnabled = _onlineTools.IsEnabled = true; _back.Label = "back";
+            _create.IsEnabled = _list.IsEnabled = _onlineTools.IsEnabled = true;
+            _name!.IsEnabled = _hunter.IsEnabled = _address!.IsEnabled = true; _back.Label = "back";
             RefreshServerDetails();
             if (!joined || cancelled)
             {
