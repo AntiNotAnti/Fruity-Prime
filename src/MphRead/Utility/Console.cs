@@ -23,7 +23,7 @@ namespace MphRead
         /// Where the shell was when this was launched.
         ///
         /// <see cref="Run"/> moves the process to the directory the binary is
-        /// in -- paths.txt and the game files are found relative to it -- so
+        /// in (the user-data directory on macOS), where paths.txt lives, so
         /// by the time a command line is parsed, a relative path the player
         /// typed no longer means what they meant. Anything taking a path from
         /// the command line resolves it against this instead.
@@ -65,7 +65,10 @@ namespace MphRead
         {
             CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
             LaunchDirectory = Directory.GetCurrentDirectory();
-            Directory.SetCurrentDirectory(AppDomain.CurrentDomain.BaseDirectory);
+            // Upstream reads/writes settings, saves and extraction output relative
+            // to cwd. On macOS this must be writable and outside the signed app.
+            Mods.Platform.AppPaths.PrepareUserData();
+            Directory.SetCurrentDirectory(Mods.Platform.AppPaths.UserDataDirectory);
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
                 IntPtr iStdOut = GetStdHandle(-11);

@@ -46,6 +46,9 @@ namespace MphRead.Mods.Launcher.Gui
         /// <summary>Is a screen up and taking the input?</summary>
         public static bool UiVisible => UiSurface.Current?.Visible == true;
 
+        /// <summary>The one window, for anything that needs to own a dialog.</summary>
+        internal static RenderWindow? Window => _window;
+
         private static RenderWindow? _window;
 
         /// <summary>
@@ -541,6 +544,7 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         internal static void AfterDraw(RenderWindow window)
         {
+            Diagnostics.LauncherWindowCheck.AfterDraw(window);
             if (_shotDirectory == null)
             {
                 return;

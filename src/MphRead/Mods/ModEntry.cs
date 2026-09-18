@@ -33,6 +33,37 @@ namespace MphRead.Mods
         /// </summary>
         public static bool TryHandleHeadless(string[] args)
         {
+#if !ANDROID && !MPHREAD_SERVER
+            if (OperatingSystem.IsMacOS())
+            {
+                // OpenTK defaults to Apple's system framework on macOS,
+                // not the OpenAL Soft library shipped beside our executable.
+                OpenTK.Audio.OpenAL.OpenALLibraryNameContainer.OverridePath =
+                    System.IO.Path.Combine(Platform.AppPaths.ExecutableDirectory, "libopenal.1.dylib");
+            }
+#endif
+#if MPHREAD_SHELL
+            if (HasFlag(args, "glfwpathcheck"))
+            {
+                Environment.ExitCode = Diagnostics.GlfwPathCheck.Run();
+                return true;
+            }
+            if (HasFlag(args, "thumbnailwindowcheck"))
+            {
+                Environment.ExitCode = Diagnostics.ThumbnailWindowCheck.Run(HasFlag(args, "legacyglcheck"));
+                return true;
+            }
+            if (HasFlag(args, "windowcheck"))
+            {
+                Environment.ExitCode = Diagnostics.LauncherWindowCheck.Run();
+                return true;
+            }
+#endif
+            if (HasFlag(args, "smoketest"))
+            {
+                Environment.ExitCode = Diagnostics.CompatibilityCheck.Run();
+                return true;
+            }
             // Keys and mouse feel, before anything creates a player. Called
             // here because this runs for every invocation, launcher or not.
             InputSettings.Load();
@@ -49,8 +80,16 @@ namespace MphRead.Mods
                 DebugLog.Force();
             }
             DebugLog.Attach();
+            if (OperatingSystem.IsMacOS()) { Diagnostics.PlatformDiagnostics.Start(); }
             Update.Updater.Disabled = HasFlag(args, "noupdate");
             ApplyRenderOverrides(args);
+
+            // Arithmetic and cosmetic-noise checks need no extracted game files.
+            if (HasFlag(args, "frametimingcheck"))
+            {
+                Environment.ExitCode = Render.FrameTimingCheck.Run();
+                return true;
+            }
 
             // The copying half of a desktop update, which is this build
             // started by the *previous* one. First, and before anything reads
@@ -80,10 +119,13 @@ namespace MphRead.Mods
                     relaunch);
                 return true;
             }
-            // Whatever the last update left behind. Here rather than in the
-            // copying process, which cannot delete the directory it is running
-            // from, and cheap when there is nothing there.
-            Update.DesktopUpdate.Clean();
+            // Whatever the last update left behind. The headless diagnostics
+            // are read-only and must leave an update staged beside the
+            // executable alone; ordinary startup still clears it.
+            if (!HasFlag(args, "spireposecheck") && !HasFlag(args, "formcheck"))
+            {
+                Update.DesktopUpdate.Clean();
+            }
             // And the desktop's own installer, unless a platform head has
             // already put its own in place.
             Update.UpdateInstall.UseDesktopIfPossible();
@@ -659,10 +701,10 @@ namespace MphRead.Mods
                 maxPlayers = parsedPlayers;
             }
 
-            // Rotation file lives beside the executable, the way a Quake 3
-            // server keeps its config next to the binary.
+            // Rotation follows writable user data: beside the executable on
+            // Windows/Linux, outside the signed application on macOS.
             string rotationPath = ValueAfter(args, "rotation")
-                ?? System.IO.Path.Combine(AppContext.BaseDirectory, "maprotation.txt");
+                ?? System.IO.Path.Combine(Platform.AppPaths.UserDataDirectory, "maprotation.txt");
             MapRotation rotation = MapRotation.LoadOrCreate(rotationPath);
 
             var server = new Network.DedicatedServer(port, maxPlayers, rotation)
@@ -1164,6 +1206,15 @@ namespace MphRead.Mods
                 return true;
             }
 
+            // Spire's slam, driven through the headless simulation. Needs
+            // extracted game files, like -simcheck below.
+            string? spirePoseCheck = ValueAfter(args, "spireposecheck");
+            if (spirePoseCheck != null)
+            {
+                Environment.ExitCode = Network.SpireAltPoseCheck.Run(spirePoseCheck);
+                return true;
+            }
+
             // The headless simulation on its own, with nobody connected: what
             // a room costs a server in memory and in milliseconds a step. The
             // one measurement that decides whether a given box can be the
@@ -1192,7 +1243,7 @@ namespace MphRead.Mods
                     simMode = parsedSimMode;
                 }
                 Environment.ExitCode = Network.ServerSimCheck.Run(simCheck, simPlayers,
-                    simSeconds, simMode);
+                    simSeconds, simMode, formCheck: HasFlag(args, "formcheck"));
                 return true;
             }
 

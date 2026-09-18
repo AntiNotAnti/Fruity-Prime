@@ -44,6 +44,8 @@
     <AssemblyName>FruityPrime</AssemblyName>
     <AssemblyName Condition="'$(MphReadServer)' == 'true' and $(RuntimeIdentifier.StartsWith('win'))">FruityPrimeServer</AssemblyName>
     <Product>Fruity Prime</Product>
+    <!-- A local build must not masquerade as the SDK's default 1.0.0 release. -->
+    <InformationalVersion Condition="'$(InformationalVersion)' == ''">local</InformationalVersion>
     <RootNamespace>MphRead</RootNamespace>
     <!-- Not the same question as "has no launcher": a server build is shipped
          with no game files and no way to get any, which is why it answers a
@@ -221,7 +223,7 @@
     <MphReadAudioRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</MphReadAudioRid>
     <MphReadAudioRid Condition="'$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('Windows'))">win-x64</MphReadAudioRid>
     <MphReadAudioRid Condition="'$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('Linux'))">linux-x64</MphReadAudioRid>
-    <MphReadAudioRid Condition="'$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('OSX'))">osx-x64</MphReadAudioRid>
+    <MphReadAudioRid Condition="'$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('OSX'))">$(NETCoreSdkRuntimeIdentifier)</MphReadAudioRid>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(MphReadServer)' != 'true' and $(MphReadAudioRid.StartsWith('win'))">

@@ -23,7 +23,11 @@ namespace MphRead.Mods.Network
     {
         private static readonly bool[] _activated = new bool[PlayerEntity.SlotCapacity];
 
-        public static void Reset() => Array.Clear(_activated);
+        public static void Reset()
+        {
+            Array.Clear(_activated);
+            NetSession.ContinuousPhase.Reset();
+        }
 
         /// <summary>
         /// Bring the scene's active slots in line with the server's roster.
