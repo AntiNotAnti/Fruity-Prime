@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Embedding;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Input;
@@ -65,11 +66,24 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 return null;
             }
-            _current = new UiSurface();
+            try
+            {
+                _current = new UiSurface();
+            }
+            catch (Exception ex)
+            {
+                // The surface is the launcher: without one there are no
+                // screens to show, and the text launcher is the fallback --
+                // the same one a machine with no display gets.
+                Console.WriteLine($"[launcher] the screens could not be built: {ex.Message}");
+                Mods.DebugLog.Exception("ui", ex);
+                return null;
+            }
             return _current;
         }
 
-        private readonly Window _window;
+        private readonly UiTopLevelImpl _impl;
+        private readonly EmbeddableControlRoot _window;
         private readonly LayoutTransformControl _host;
         private int _pixelWidth = 1280;
         private int _pixelHeight = 768;
@@ -104,11 +118,16 @@ namespace MphRead.Mods.Launcher.Gui
                 HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch
             };
-            _window = new Window
+            // Our own top level rather than a Window on the headless backend.
+            // See UiTopLevel.cs: the backend it replaces allocates and frees a
+            // full-window bitmap per redraw, copies every finished frame a
+            // second time, and forces two extra rasterisations per input
+            // event. Everything else about the arrangement is unchanged --
+            // same controls, same Skia, same layout, same pixels out.
+            _impl = new UiTopLevelImpl(new Avalonia.Rendering.Composition.Compositor(null));
+            _impl.SetClientSize(new Size(_pixelWidth, _pixelHeight));
+            _window = new EmbeddableControlRoot(_impl)
             {
-                Width = _pixelWidth,
-                Height = _pixelHeight,
-                SystemDecorations = SystemDecorations.None,
                 // Transparent, because the pause menu is a scrim over a match
                 // that is still being played: what this renders is composited
                 // onto the frame, so anything the screens do not paint has to
@@ -119,7 +138,12 @@ namespace MphRead.Mods.Launcher.Gui
                 RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Dark,
                 Content = _host
             };
-            _window.Show();
+            // Prepare is the initial layout pass a window gets from being
+            // shown, and StartRendering is what attaches the tree to the
+            // compositor: without the second one the render timer ticks and
+            // nothing is ever drawn.
+            _window.Prepare();
+            _window.StartRendering();
         }
 
         /// <summary>
@@ -191,14 +215,10 @@ namespace MphRead.Mods.Launcher.Gui
             // cleared the transform *by*. See ApplyScale.
             ApplyScale();
             // Focus is what makes the keyboard reach the screen at all: a
-            // headless top-level is never activated by a window manager, so
-            // nothing would otherwise give the content focus and every key
-            // would land on nobody.
-            Dispatcher.UIThread.Post(() =>
-            {
-                _window.Activate();
-                view.Focus();
-            }, DispatcherPriority.Input);
+            // top level with no windowing system above it is never activated
+            // by anything, so nothing would otherwise give the content focus
+            // and every key would land on nobody.
+            Dispatcher.UIThread.Post(() => view.Focus(), DispatcherPriority.Input);
             Tick();
         }
 
@@ -294,8 +314,7 @@ namespace MphRead.Mods.Launcher.Gui
             // LayoutTransformControl watches the LayoutTransform property, and
             // mutating the object it already holds changes nothing it can see.
             ApplyScale();
-            _window.Width = surfaceWidth;
-            _window.Height = surfaceHeight;
+            _impl.SetClientSize(new Size(surfaceWidth, surfaceHeight));
             // The layout the new size implies, now rather than on the frame
             // after: a resize that is one frame late is a screen drawn at the
             // old size over a window that is already the new one.
@@ -686,19 +705,20 @@ namespace MphRead.Mods.Launcher.Gui
             _redraws++;
             Report(now);
             clock.Restart();
-            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
-            WriteableBitmap? frame = _window.GetLastRenderedFrame();
+            int drawn = _impl.Drawn;
+            UiRenderTimer.Pump();
             _drawMs += clock.Elapsed.TotalMilliseconds;
             clock.Restart();
-            if (frame == null)
+            // Only when the compositor actually put something in the buffer.
+            // It draws nothing when nothing is dirty -- which is most of the
+            // backstop redraws -- and the texture already on the card is then
+            // still the right one. This is the last full-surface copy in the
+            // path and it is skipped on the frames that do not need it.
+            if (_impl.Drawn != drawn && _impl.Pixels != IntPtr.Zero)
             {
-                return;
+                UiOverlay.Upload(_impl.Pixels, _impl.PixelWidth, _impl.PixelHeight);
+                _uploadMs += clock.Elapsed.TotalMilliseconds;
             }
-            using (ILockedFramebuffer buffer = frame.Lock())
-            {
-                UiOverlay.Upload(buffer.Address, buffer.Size.Width, buffer.Size.Height);
-            }
-            _uploadMs += clock.Elapsed.TotalMilliseconds;
             UiOverlay.Visible = true;
         }
 
@@ -731,7 +751,7 @@ namespace MphRead.Mods.Launcher.Gui
             // pointer handed straight through would land low and right of
             // where the player pressed -- by a quarter of the screen at 4K.
             _pointer = new Point(x * _raster, y * _raster);
-            _window.MouseMove(_pointer, _modifiers);
+            _impl.MouseMove(_pointer, _modifiers);
         }
 
         public void PointerButton(MouseButton button, bool down)
@@ -751,12 +771,12 @@ namespace MphRead.Mods.Launcher.Gui
             if (down)
             {
                 _modifiers |= flag;
-                _window.MouseDown(_pointer, button, _modifiers);
+                _impl.MouseDown(_pointer, button, _modifiers);
             }
             else
             {
                 _modifiers &= ~flag;
-                _window.MouseUp(_pointer, button, _modifiers);
+                _impl.MouseUp(_pointer, button, _modifiers);
             }
         }
 
@@ -881,7 +901,7 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 return;
             }
-            _window.MouseWheel(_pointer, new Vector(deltaX, deltaY), _modifiers);
+            _impl.MouseWheel(_pointer, new Vector(deltaX, deltaY), _modifiers);
         }
 
         public void KeyDown(Keys key, RawInputModifiers modifiers)
@@ -901,7 +921,7 @@ namespace MphRead.Mods.Launcher.Gui
                 // None is honest here -- GLFW's key *is* a physical one, but
                 // the character it produced arrives separately as text input
                 // (see TextInput), which is the only form a text box can use.
-                _window.KeyPress(mapped, _modifiers, PhysicalKey.None, "");
+                _impl.KeyPress(mapped, _modifiers, PhysicalKey.None, "");
             }
         }
 
@@ -916,7 +936,7 @@ namespace MphRead.Mods.Launcher.Gui
             Key mapped = Translate(key);
             if (mapped != Key.None)
             {
-                _window.KeyRelease(mapped, _modifiers, PhysicalKey.None, "");
+                _impl.KeyRelease(mapped, _modifiers, PhysicalKey.None, "");
             }
         }
 
@@ -933,7 +953,7 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 return;
             }
-            _window.KeyTextInput(text);
+            _impl.TextInput(text);
         }
 
         /// <summary>

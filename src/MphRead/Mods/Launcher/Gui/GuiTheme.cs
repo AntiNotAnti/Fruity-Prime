@@ -198,7 +198,7 @@ namespace MphRead.Mods.Launcher.Gui
             // of has grey. A separate attached property says so, and it is set
             // in the same place for the same reason: the control that would
             // have been forgotten is the one that shows.
-            Avalonia.Media.RenderOptions.SetTextRenderingMode(visual,
+            Avalonia.Media.TextOptions.SetTextRenderingMode(visual,
                 TextRenderingMode.Antialias);
             // Nearest-neighbour for bitmaps too, so a map render scaled into a
             // row is scaled the way the rest of the screen is drawn.

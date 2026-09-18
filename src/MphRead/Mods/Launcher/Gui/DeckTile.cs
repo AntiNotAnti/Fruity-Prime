@@ -1,5 +1,6 @@
 #if MPHREAD_AVALONIA
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
@@ -203,14 +204,14 @@ namespace MphRead.Mods.Launcher.Gui
             base.OnKeyDown(e);
         }
 
-        protected override void OnGotFocus(GotFocusEventArgs e)
+        protected override void OnGotFocus(FocusChangedEventArgs e)
         {
             _popTarget = 1.03;
             InvalidateVisual();
             base.OnGotFocus(e);
         }
 
-        protected override void OnLostFocus(RoutedEventArgs e)
+        protected override void OnLostFocus(FocusChangedEventArgs e)
         {
             if (!IsPointerOver)
             {
@@ -297,15 +298,26 @@ namespace MphRead.Mods.Launcher.Gui
                 var face = new RoundedRect(new Rect(0, 0, w, h), radius);
                 Color ring = _chosen || Leader ? GuiTheme.Accent
                     : hot ? Color.FromRgb(0x4a, 0x6f, 0x8c) : GuiTheme.Edge;
-                var shadows = new BoxShadows(
-                    Deck.Shadow(0, 0, 0, 2, ring),
-                    new[]
-                    {
-                        Deck.Shadow(0, hot || _chosen ? 7 : 5, 0, 0, Deck.Fade(0, 0.45)),
-                        Deck.Shadow(0, hot || _chosen ? 16 : 10, hot || _chosen ? 26 : 18, 0,
-                            Deck.Fade(0, 0.5))
-                    });
-                context.DrawRectangle(new SolidColorBrush(GuiTheme.PanelDeep), null, face, shadows);
+                bool raised = hot || _chosen;
+                // The shadow, out of the shared cut rather than blurred again.
+                // Three shadows, one of them a 26-point blur, times the twenty
+                // cards a 1080p grid shows, was 48% of the whole frame --
+                // measured, and measured on the Android head too, which is
+                // GPU-accelerated and was reported just as sluggish. A blur is
+                // expensive wherever it runs; the answer is not to run it. The
+                // cut depends on the card's size and state and never on which
+                // map it is, so every card on the screen shares four of them.
+                Bitmap? chrome = Chrome(w, h, radius, ring, raised);
+                if (chrome != null)
+                {
+                    context.DrawImage(chrome,
+                        new Rect(-Bleed, -Bleed, w + Bleed * 2, h + Bleed * 2));
+                }
+                else
+                {
+                    context.DrawRectangle(new SolidColorBrush(GuiTheme.PanelDeep), null,
+                        face, Shadows(ring, raised));
+                }
 
                 using (context.PushClip(face))
                 {
@@ -356,7 +368,138 @@ namespace MphRead.Mods.Launcher.Gui
         protected override Size ArrangeOverride(Size finalSize)
         {
             Bake(finalSize.Width, finalSize.Height);
+            PrimeChrome(finalSize.Width, finalSize.Height, Em * 0.55);
             return base.ArrangeOverride(finalSize);
+        }
+
+        // ------------------------------------------------- the card's shadow
+
+        /// <summary>
+        /// The card's own three shadows, which are what <see cref="Chrome"/>
+        /// bakes and what the fallback path draws directly.
+        /// </summary>
+        private static BoxShadows Shadows(Color ring, bool raised)
+        {
+            return new BoxShadows(
+                Deck.Shadow(0, 0, 0, 2, ring),
+                new[]
+                {
+                    Deck.Shadow(0, raised ? 7 : 5, 0, 0, Deck.Fade(0, 0.45)),
+                    Deck.Shadow(0, raised ? 16 : 10, raised ? 26 : 18, 0,
+                        Deck.Fade(0, 0.5))
+                });
+        }
+
+        /// <summary>
+        /// How far past the card the shadows reach, in points: the furthest
+        /// offset (16) plus the widest blur (26) plus the ring's spread (2),
+        /// with a little over. None of the three is scaled by the em, so this
+        /// is a constant rather than a calculation.
+        /// </summary>
+        private const double Bleed = 48;
+
+        private readonly record struct Cut(int Width, int Height, int Radius,
+            uint Ring, bool Raised);
+
+        /// <summary>
+        /// Two sizes' worth of the four states a card can be in: the grid as
+        /// it is now, and the grid as it was before the window was dragged.
+        /// </summary>
+        private const int ChromeKept = 8;
+
+        private static readonly List<KeyValuePair<Cut, RenderTargetBitmap>> _chrome = new();
+
+        /// <summary>How many cuts have been taken and asked for, for -uibench.</summary>
+        internal static int ChromeBakes { get; private set; }
+
+        internal static int ChromeAsks { get; private set; }
+
+        /// <summary>
+        /// Off puts the blur back on every card on every frame, which is what
+        /// this replaced. For measuring the difference and nothing else.
+        /// </summary>
+        internal static bool CacheChrome { get; set; } = true;
+
+        /// <summary>
+        /// Cut every state this card could be drawn in, before it is drawn in
+        /// any of them.
+        ///
+        /// In the arrange pass and never in <see cref="Render"/>, for the
+        /// reason <see cref="Bake"/> gives -- and because the state that
+        /// decides which cut is wanted (the pointer arriving) changes between
+        /// arrange passes, so the one that is about to be needed has to have
+        /// been taken already.
+        /// </summary>
+        private static void PrimeChrome(double w, double h, double radius)
+        {
+            // The reachable combinations, and only those: hot always raises a
+            // card, and a card that is neither chosen nor led nor hot is never
+            // raised, so two of the six do not exist.
+            Chrome(w, h, radius, GuiTheme.Edge, raised: false);
+            Chrome(w, h, radius, GuiTheme.Accent, raised: false);
+            Chrome(w, h, radius, GuiTheme.Accent, raised: true);
+            Chrome(w, h, radius, Color.FromRgb(0x4a, 0x6f, 0x8c), raised: true);
+        }
+
+        private static Bitmap? Chrome(double w, double h, double radius, Color ring,
+            bool raised)
+        {
+            if (!CacheChrome)
+            {
+                return null;
+            }
+            int width = (int)Math.Ceiling(w / 8) * 8;
+            int height = (int)Math.Ceiling(h / 8) * 8;
+            if (width <= 0 || height <= 0)
+            {
+                return null;
+            }
+            var key = new Cut(width, height, (int)Math.Round(radius), ring.ToUInt32(), raised);
+            ChromeAsks++;
+            for (int i = 0; i < _chrome.Count; i++)
+            {
+                if (_chrome[i].Key == key)
+                {
+                    KeyValuePair<Cut, RenderTargetBitmap> hit = _chrome[i];
+                    _chrome.RemoveAt(i);
+                    _chrome.Add(hit);
+                    return hit.Value;
+                }
+            }
+            try
+            {
+                ChromeBakes++;
+                // At the resolution it will be drawn at rather than at its own
+                // point size: the ring is a two-point hairline with no blur on
+                // it, and a hairline cut at 1:1 and blown up by the layout
+                // transform is a smear. Same bargain as BakedBackdrop.
+                double scale = UiLayout.BakeScale <= 0 ? 1 : UiLayout.BakeScale;
+                double boxWidth = width + Bleed * 2, boxHeight = height + Bleed * 2;
+                var cut = new RenderTargetBitmap(
+                    new PixelSize(Math.Max((int)Math.Ceiling(boxWidth * scale), 1),
+                        Math.Max((int)Math.Ceiling(boxHeight * scale), 1)),
+                    new Vector(96, 96));
+                using (DrawingContext into = cut.CreateDrawingContext())
+                using (into.PushTransform(Avalonia.Matrix.CreateScale(scale, scale)))
+                {
+                    into.DrawRectangle(new SolidColorBrush(GuiTheme.PanelDeep), null,
+                        new RoundedRect(new Rect(Bleed, Bleed, width, height), radius),
+                        Shadows(ring, raised));
+                }
+                while (_chrome.Count >= ChromeKept)
+                {
+                    _chrome[0].Value.Dispose();
+                    _chrome.RemoveAt(0);
+                }
+                _chrome.Add(new KeyValuePair<Cut, RenderTargetBitmap>(key, cut));
+                return cut;
+            }
+            catch (Exception)
+            {
+                // A cut that could not be taken means the card blurs its own
+                // shadow this frame, which is what it always did.
+                return null;
+            }
         }
 
         private Bitmap? Bake(double w, double h)

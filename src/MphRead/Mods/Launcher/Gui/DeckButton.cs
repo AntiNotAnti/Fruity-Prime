@@ -392,7 +392,7 @@ namespace MphRead.Mods.Launcher.Gui
             base.OnKeyDown(e);
         }
 
-        protected override void OnGotFocus(GotFocusEventArgs e)
+        protected override void OnGotFocus(FocusChangedEventArgs e)
         {
             // Unspecified is what a programmatic Focus() reports, and every
             // screen here focuses something as it opens; that is the keyboard
@@ -412,7 +412,7 @@ namespace MphRead.Mods.Launcher.Gui
             base.OnGotFocus(e);
         }
 
-        protected override void OnLostFocus(RoutedEventArgs e)
+        protected override void OnLostFocus(FocusChangedEventArgs e)
         {
             _ringVisible = false;
             if (!IsPointerOver)

@@ -227,14 +227,14 @@ namespace MphRead.Mods.Launcher.Gui
             Rebound?.Invoke(this, EventArgs.Empty);
         }
 
-        protected override void OnLostFocus(Avalonia.Interactivity.RoutedEventArgs e)
+        protected override void OnLostFocus(FocusChangedEventArgs e)
         {
             SetListening(false);
             InvalidateVisual();
             base.OnLostFocus(e);
         }
 
-        protected override void OnGotFocus(GotFocusEventArgs e)
+        protected override void OnGotFocus(FocusChangedEventArgs e)
         {
             InvalidateVisual();
             base.OnGotFocus(e);

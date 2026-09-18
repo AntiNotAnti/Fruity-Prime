@@ -388,7 +388,7 @@ namespace MphRead.Mods.Launcher.Gui
             base.OnPointerExited(e);
         }
 
-        protected override void OnGotFocus(GotFocusEventArgs e)
+        protected override void OnGotFocus(FocusChangedEventArgs e)
         {
             // `:focus-visible` carries the tip too, so the mark is reachable
             // without a pointer.
@@ -397,7 +397,7 @@ namespace MphRead.Mods.Launcher.Gui
             base.OnGotFocus(e);
         }
 
-        protected override void OnLostFocus(RoutedEventArgs e)
+        protected override void OnLostFocus(FocusChangedEventArgs e)
         {
             if (!IsPointerOver)
             {

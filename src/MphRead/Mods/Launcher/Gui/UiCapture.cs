@@ -429,7 +429,7 @@ namespace MphRead.Mods.Launcher.Gui
                     Height = size.Height,
                     Background = GuiTheme.PanelBrush,
                     RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Dark,
-                    SystemDecorations = SystemDecorations.None,
+                    WindowDecorations = WindowDecorations.None,
                     ShowInTaskbar = false,
                     ShowActivated = false,
                     WindowStartupLocation = WindowStartupLocation.Manual,
@@ -453,7 +453,7 @@ namespace MphRead.Mods.Launcher.Gui
                     new PixelSize((int)size.Width, (int)size.Height),
                     new Vector(96, 96));
                 bitmap.Render(window);
-                bitmap.Save(path);
+                bitmap.Save(path, PngBitmapEncoderOptions.Default);
                 DumpBounds(window, Path.ChangeExtension(path, ".json"));
                 return true;
             }

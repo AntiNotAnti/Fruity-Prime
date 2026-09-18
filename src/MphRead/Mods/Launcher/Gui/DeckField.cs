@@ -64,7 +64,7 @@ namespace MphRead.Mods.Launcher.Gui
             Box = new TextBox
             {
                 Text = value,
-                Watermark = watermark,
+                PlaceholderText = watermark,
                 Background = Brushes.Transparent,
                 BorderThickness = new Thickness(0),
                 Foreground = GuiTheme.TextBrush,

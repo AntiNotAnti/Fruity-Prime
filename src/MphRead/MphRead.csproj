@@ -75,6 +75,29 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
     <ProduceReferenceAssembly>False</ProduceReferenceAssembly>
+    <!-- The launcher's screens are drawn into the game window through an
+         ITopLevelImpl of our own (Mods/Launcher/Gui/UiTopLevel.cs), which is
+         the supported way to put Avalonia inside somebody else's frame and is
+         the difference between a menu that scrolls and one that does not: the
+         toolkit's headless backend allocates and frees a full-window bitmap
+         per redraw and forces two extra rasterisations per input event.
+
+         Avalonia ships reference assemblies that hide the platform interfaces,
+         so implementing one needs this switch, which is Avalonia's own. It
+         also pins us to an exact version: these interfaces are allowed to
+         change between releases, so the Avalonia PackageReferences above are
+         exact versions and not ranges, and bumping them means rebuilding
+         against the new shape rather than hoping. AVA3001 is the warning that
+         says so and is expected. -->
+    <AvaloniaAccessUnstablePrivateApis Condition="'$(MphReadAvalonia)' == 'true'">true</AvaloniaAccessUnstablePrivateApis>
+    <!-- AVA3001 is the notice the switch above prints on every build: "you are
+         using unstable internal APIs". It is saying something true and it has
+         been acted on rather than waved away, which is what the exact version
+         pins are for: bumping Avalonia means rebuilding against the new shape
+         of ITopLevelImpl and IRenderTimer, deliberately. Silenced because the
+         build has no other warnings and one that fires unconditionally is one
+         that teaches people to stop reading them. -->
+    <NoWarn Condition="'$(MphReadAvalonia)' == 'true'">$(NoWarn);AVA3001</NoWarn>
   </PropertyGroup>
 
   <!-- Mods\Launcher\Gui\ is the front screen and every window behind it, in
@@ -88,7 +111,7 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(MphReadAvalonia)' == 'true'">
-    <PackageReference Include="Avalonia" Version="11.3.11" />
+    <PackageReference Include="Avalonia" Version="12.1.2" />
     <!-- Desktop is still here for the platform's fonts, its Skia backend and
          the packages the render path pulls in; what it is no longer used for
          is a window. The launcher's screens are rendered by the *headless*
@@ -96,11 +119,11 @@
          (Mods/Render/UiOverlay.cs), so the program opens exactly one window on
          every platform and the launcher is a screen in the game rather than a
          second application beside it. -->
-    <PackageReference Include="Avalonia.Desktop" Version="11.3.11" />
-    <PackageReference Include="Avalonia.Headless" Version="11.3.11" />
-    <PackageReference Include="Avalonia.Skia" Version="11.3.11" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.11" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.11" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.2" />
+    <PackageReference Include="Avalonia.Headless" Version="12.1.2" />
+    <PackageReference Include="Avalonia.Skia" Version="12.1.2" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.2" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.2" />
     <!-- Loaded at runtime through avares://, Avalonia's own asset scheme: a
          plain EmbeddedResource is not visible to AssetLoader. The wordmark is
          the corner of every launcher screen; the mark is the window icon. -->
@@ -222,6 +245,25 @@
   <ItemGroup>
     <ProjectReference Include="..\NcsfPlay\NcsfPlay.csproj" />
   </ItemGroup>
+
+  <!-- The native packages ship their own debug symbols, and since SkiaSharp 3
+       (which Avalonia 12 binds) publish copies them: libSkiaSharp.pdb is 80 MB
+       and libHarfBuzzSharp.pdb another 20, on a download that is otherwise
+       about a hundred. Nobody debugging this program steps into Skia's C++,
+       and the managed symbols are embedded in the binary (DebugType above).
+
+       Filtered rather than switched off at the source: there is no package
+       option for it, and AllowedReferenceRelatedFileExtensions only reaches
+       *managed* references. Ours are left alone; what goes is only what came
+       out of a package's runtimes/ folder, and that is still in the NuGet
+       cache for anyone who wants it. -->
+  <Target Name="MphReadDropNativeSymbols" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish
+        Remove="@(ResolvedFileToPublish)"
+        Condition="'%(Extension)' == '.pdb' and '%(ResolvedFileToPublish.AssetType)' == 'native'" />
+    </ItemGroup>
+  </Target>
 
   <ItemGroup>
     <None Update="paths.txt">

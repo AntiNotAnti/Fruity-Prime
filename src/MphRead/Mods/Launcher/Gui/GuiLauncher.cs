@@ -125,6 +125,11 @@ namespace MphRead.Mods.Launcher.Gui
                     })
                     .WithInterFont()
                     .SetupWithoutStarting();
+                // Before anything asks for a render loop: the backend's own
+                // timer renders the whole surface from inside RunJobs, which
+                // the frame calls whether or not it wants a redraw. See
+                // UiRenderTimer.
+                UiRenderTimer.Install();
                 _setUp = true;
                 return true;
 #endif

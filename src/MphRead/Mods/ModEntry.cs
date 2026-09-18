@@ -402,6 +402,17 @@ namespace MphRead.Mods
                 return true;
             }
 
+            // What a redraw of those screens costs, split into its parts, at
+            // every resolution anybody plays at. Beside the capture because it
+            // is the same arrangement -- a headless top level and no game
+            // files -- and because "the menus feel slow" is otherwise a report
+            // nothing in this program can answer with a number.
+            if (HasFlag(args, "uibench"))
+            {
+                Environment.ExitCode = RunUiBench(args);
+                return true;
+            }
+
             // The same three screens laid out five different ways, for
             // choosing between them by looking. Nothing it draws ships; see
             // UiDesigns.
@@ -1801,6 +1812,46 @@ namespace MphRead.Mods
             }
 #else
             Console.WriteLine("[uishot] this build has no Avalonia launcher");
+            return 1;
+#endif
+        }
+
+        /// <summary>
+        /// What the screens cost to redraw: `-uibench [screen]`. Same shape as
+        /// the capture above it, and not inlined for the same reason.
+        ///
+        /// Desktop only, unlike the captures: what it measures is the surface
+        /// the screens are drawn into, and Android has a real one.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static int RunUiBench(string[] args)
+        {
+#if MPHREAD_SHELL
+            try
+            {
+                Launcher.Gui.UiBench.Slow = HasFlag(args, "uibenchslow");
+                Launcher.Gui.UiBench.AsAndroid = HasFlag(args, "uibenchandroid");
+                Launcher.Gui.DeckTile.CacheChrome = !HasFlag(args, "uibenchnochrome");
+                Launcher.Gui.UiBench.FreeFrames = HasFlag(args, "uibenchfree");
+                Launcher.Gui.UiBench.OnlySize = ValueAfter(args, "uibenchsize");
+                Launcher.Gui.UiBench.OnlyMove = ValueAfter(args, "uibenchonly");
+                Launcher.Gui.UiBench.Shot = ValueAfter(args, "uibenchshot");
+                if (Double.TryParse(ValueAfter(args, "uibenchscale"),
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out double parsed))
+                {
+                    Launcher.Gui.UiBench.ScaleOverride = parsed;
+                }
+                return Launcher.Gui.UiBench.Run(ValueAfter(args, "uibench"));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[uibench] no launcher toolkit here: {ex.Message}");
+                return 1;
+            }
+#else
+            Console.WriteLine("[uibench] this build has no launcher surface to measure");
             return 1;
 #endif
         }
