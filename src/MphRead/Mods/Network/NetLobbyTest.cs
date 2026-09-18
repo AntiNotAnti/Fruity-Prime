@@ -51,8 +51,9 @@ namespace MphRead.Mods.Network
 
         private static void ProtocolChecks()
         {
-            Check(NetConfig.ProtocolVersion == 9 && (byte)PacketType.SessionState == 36
-                && (byte)PacketType.MapDone == 35, "protocol and reserved IDs");
+            Check(NetConfig.ProtocolVersion == 12 && (byte)PacketType.SessionState == 36
+                && (byte)PacketType.MapOffer == 32 && (byte)PacketType.MapDone == 35,
+                "combined protocol and non-overlapping map/lobby IDs");
             var state = new SessionStatePacket { Phase = SessionPhase.Starting, Policy = ServerSessionPolicy.Lobby,
                 OwnerSlot = 7, MaxPlayers = 8, Revision = ushort.MaxValue, MatchId = 19,
                 RuleFlags = SessionRules.RequireReady | SessionRules.AllowJoinInProgress | SessionRules.LockTeams,
@@ -60,7 +61,7 @@ namespace MphRead.Mods.Network
                 ExpectedParticipants = 255, LoadedParticipants = 3,
                 Match = new MatchDefinition { RoomKey = new string('X', 40), Mode = GameMode.BattleTeams,
                     Format = MatchFormat.FourVsFour, TimeLimitSeconds = 600, PointGoal = 20,
-                    FriendlyFire = true, AffinityWeapons = true, ShadowFreeze = true } };
+                    FriendlyFire = true, AffinityWeapons = true, ShadowFreeze = true, HideOpponentHealth = true } };
             byte[] data = new byte[SessionStatePacket.Size]; state.Write(data);
             Check(SessionStatePacket.TryRead(data, out var read) && read.Match == state.Match
                 && read.Revision == state.Revision && read.LoadedParticipants == 3, "session round trip/max room/revision");

@@ -1928,7 +1928,7 @@ namespace MphRead.Mods.Network
         /// is unchanged, but version 7 peers would simulate different ammo
         /// and damage events, so mixed builds must be refused.
         /// </summary>
-        public const int ProtocolVersion = 8;
+        public const int ProtocolVersion = 12;
         /// <summary>
         /// Frames between intent packets. One, so every frame.
         ///
