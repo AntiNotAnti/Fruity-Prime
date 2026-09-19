@@ -182,6 +182,7 @@ namespace MphRead.Droid
             bool alt = e?.IsAltPressed ?? false;
             if (!composing)
             {
+                if (MphRead.Mods.Replay.ReplayInput.HandleKey(Map(keyCode))) return true;
                 // The results screen's hunter picker owns the arrow keys
                 // while it is up. The panel is drawn by the shared HUD, so it
                 // appears here whether or not this head hooks it -- and a
@@ -195,7 +196,7 @@ namespace MphRead.Droid
                 // The one key that opens it, and only where there is a match
                 // to talk in. Everything else belongs to whoever asked next.
                 return MphRead.Mods.Chat.ChatBox.HandleKeyDown(Map(keyCode), control, alt,
-                    canOpen: Scene != null, swallowOpeningChar: false);
+                    canOpen: Scene != null && !Mods.Network.DemoPlayback.IsActive, swallowOpeningChar: false);
             }
             Keys key = Map(keyCode);
             if (key == Keys.Enter || key == Keys.Escape || key == Keys.Backspace)
@@ -237,6 +238,11 @@ namespace MphRead.Droid
                 Keycode.Del => Keys.Backspace,
                 Keycode.Space => Keys.Space,
                 Keycode.Tab => Keys.Tab,
+                Keycode.Period => Keys.Period,
+                Keycode.Comma => Keys.Comma,
+                Keycode.LeftBracket => Keys.LeftBracket,
+                Keycode.RightBracket => Keys.RightBracket,
+                Keycode.MoveHome => Keys.Home,
                 // The arrows, which nothing here used to need: they are the
                 // results screen's picker, and a pad's d-pad arrives as these
                 // same codes on Android.
@@ -777,6 +783,28 @@ namespace MphRead.Droid
             private bool DrawFrame()
             {
                 Scene scene = Scene!;
+                if (Mods.Network.DemoPlayback.IsActive && Mods.Network.ReplayController.TakeRebuild(out uint target, out bool resume))
+                {
+                    if (Mods.Replay.ReplayCheckpointManager.TryRestore(
+                        scene, target, resume, out uint checkpointFrame))
+                    {
+                        Console.WriteLine($"[replay] restored checkpoint {checkpointFrame} for seek to {target}");
+                        Mods.Network.ReplayController.ContinueSeek(target, resume);
+                        FrameTiming.Reset();
+                    }
+                    else
+                    {
+                        scene.DoCleanup();
+                        scene.UnloadGl();
+                        Mods.Network.DemoPlayback.Stop();
+                        Mods.SpectatorMode.Reset();
+                        BuildScene();
+                        if (Scene == null || _ended) return false;
+                        scene = Scene;
+                        Mods.Network.ReplayController.ContinueSeek(target, resume);
+                        FrameTiming.Reset();
+                    }
+                }
                 double elapsed = WaitForTick();
                 GameState.ApplyPause();
                 int steps = FrameTiming.Advance(elapsed);
@@ -793,12 +821,14 @@ namespace MphRead.Droid
                     }
                 }
                 RequestFrameRate();
+                if (Mods.Network.ReplayController.IsSeeking) return true;
                 scene.OnDrawFrame();
                 if (!scene.OnRenderFrame())
                 {
                     End(scene);
                     return false;
                 }
+                Mods.Replay.ReplayVideoExporter.AfterSceneDraw(scene);
                 scene.AfterRenderFrame();
                 DrawUi();
                 if (_display != null && _eglSurface != null
@@ -1089,7 +1119,8 @@ namespace MphRead.Droid
                 bool view = _controls.IsHeld(TouchAction.ScanVisor);
                 if (view && !_spectateViewHeld)
                 {
-                    Mods.SpectatorMode.ToggleView();
+                    if (Mods.Network.DemoPlayback.IsActive) Mods.Replay.ReplayCamera.ToggleFree();
+                    else Mods.SpectatorMode.ToggleView();
                 }
                 _spectateViewHeld = view;
                 bool menuHeld = _controls.IsHeld(TouchAction.Pause);
@@ -1112,7 +1143,7 @@ namespace MphRead.Droid
                     _input.ApplyKey(Keys.S, (dir & TouchControls.Dir.Down) != 0);
                     _input.ApplyKey(Keys.A, (dir & TouchControls.Dir.Left) != 0);
                     _input.ApplyKey(Keys.D, (dir & TouchControls.Dir.Right) != 0);
-                    _input.ApplyKey(Keys.Space, _controls.IsHeld(TouchAction.Jump));
+                    _input.ApplyKey(Mods.Network.DemoPlayback.IsActive ? Keys.E : Keys.Space, _controls.IsHeld(TouchAction.Jump));
                     _input.ApplyKey(Keys.V, _controls.IsHeld(TouchAction.Morph));
                     (float X, float Y) look = _controls.TakeAimDelta();
                     if (look.X != 0 || look.Y != 0)

@@ -33,6 +33,31 @@ namespace MphRead.Mods
         /// </summary>
         public static bool TryHandleHeadless(string[] args)
         {
+            if (HasFlag(args, "replayformatcheck"))
+            {
+                Environment.ExitCode = Network.ReplayFormatCheck.Run();
+                return true;
+            }
+            if (ValueAfter(args, "replayvalidate") is string validatePath)
+            {
+                var result = Network.ReplayArchive.Validate(validatePath);
+                Console.WriteLine($"[replayvalidate] {result}");
+                Environment.ExitCode = result == Network.ReplayOpenResult.Success ? 0 : 1;
+                return true;
+            }
+            if (ValueAfter(args, "replayrecover") is string recoverPath)
+            {
+                bool recovered = Network.ReplayArchive.Recover(recoverPath, out string? output, out var result);
+                Console.WriteLine($"[replayrecover] {result}: {output}");
+                Environment.ExitCode = recovered ? 0 : 1;
+                return true;
+            }
+            if (HasFlag(args, "replaycontrolcheck"))
+            {
+                Environment.ExitCode = Network.ReplayControlCheck.Run();
+                return true;
+            }
+
 #if !ANDROID && !MPHREAD_SERVER
             if (OperatingSystem.IsMacOS())
             {
@@ -740,6 +765,23 @@ namespace MphRead.Mods
                 ?? System.IO.Path.Combine(Platform.AppPaths.UserDataDirectory, "maprotation.txt");
             MapRotation rotation = MapRotation.LoadOrCreate(rotationPath);
 
+            bool serverReplays = !HasFlag(args, "noserverreplays");
+            string? serverReplaysValue = ValueAfterAny(args,
+                "serverreplays", "server_replays");
+            if (serverReplaysValue != null
+                && !TryParseOnOff(serverReplaysValue, out serverReplays))
+            {
+                Console.WriteLine($"[server] ignoring replay setting "
+                    + $"{serverReplaysValue} (expected on/off or true/false)");
+                serverReplays = true;
+            }
+            int replayStorageGb = IntOption(args, 25, 0, 1024,
+                "serverreplaystoragegb", "server_replay_storage_gb");
+            int replayRetentionDays = IntOption(args, 14, 0, 36500,
+                "serverreplayretentiondays", "server_replay_retention_days");
+            int replayKeepLast = IntOption(args, 100, 0, 100000,
+                "serverreplaykeeplast", "server_replay_keep_last");
+
             var server = new Network.DedicatedServer(port, maxPlayers, rotation)
             {
                 ServerName = ValueAfter(args, "servername") ?? ValueAfter(args, "name")
@@ -760,7 +802,12 @@ namespace MphRead.Mods
                 AllowMapVotes = !HasFlag(args, "novote"),
                 // This process is the server, so it is the one that may
                 // replace itself. See DedicatedServer.AutoUpdate.
-                AutoUpdate = true
+                AutoUpdate = true,
+                ReplayPolicy = new Network.ServerReplayPolicy(
+                    Enabled: serverReplays,
+                    StorageLimitGb: replayStorageGb,
+                    RetentionDays: replayRetentionDays,
+                    KeepLast: replayKeepLast)
             };
             // Whether this server will also open *extra* matches, on ports of
             // its own, for players who ask. Off unless an admin says a range,
@@ -849,12 +896,16 @@ namespace MphRead.Mods
             string exe = System.IO.Path.GetFileNameWithoutExtension(
                 Environment.ProcessPath) ?? "MphReadServer";
             Console.WriteLine();
-            Console.WriteLine($"{Branding.Name} dedicated server. It needs no game files.");
+            Console.WriteLine($"{Branding.Name} dedicated server. It needs the game files.");
             Console.WriteLine();
             Console.WriteLine($"  {exe} -server -port {NetConfig.DefaultPort} -players 8 "
                 + "-servername \"My server\"");
             Console.WriteLine("      run a server. Maps come from maprotation.txt, written");
             Console.WriteLine("      beside this program on first run.");
+            Console.WriteLine();
+            Console.WriteLine("      canonical replays: on; 25 GiB; 14 days; keep newest 100");
+            Console.WriteLine("      override with -serverreplays on|off, -serverreplaystoragegb N,");
+            Console.WriteLine("      -serverreplayretentiondays N and -serverreplaykeeplast N.");
             Console.WriteLine();
             Console.WriteLine($"  {exe} -masterserver -port {NetMasterConfig.DefaultPort}");
             Console.WriteLine("      run a server directory of your own.");
@@ -1586,6 +1637,31 @@ namespace MphRead.Mods
                 return true;
             }
 
+#if MPHREAD_AVALONIA
+            if (ValueAfter(args, "replayshot") is string replayShots && ValueAfter(args, "demo") is string replayFile)
+            {
+                Environment.ExitCode = Launcher.Gui.UiCapture.RunReplay(replayShots, replayFile);
+                return true;
+            }
+#endif
+            if (ValueAfter(args, "replaydeterminism") is string replayPath)
+            {
+                Environment.ExitCode = Network.ReplayDeterminism.Run(replayPath, ValueAfter(args, "replayhashout"));
+                return true;
+            }
+            if (ValueAfter(args, "replayclipcheck") is string clipSource
+                && ValueAfter(args, "clip") is string clipPath)
+            {
+                if (!UInt32.TryParse(ValueAfter(args, "start"), out uint sourceStart))
+                {
+                    Console.WriteLine("[replayclipcheck] -start FRAME is required.");
+                    Environment.ExitCode = 1;
+                    return true;
+                }
+                Environment.ExitCode = Network.ReplayClipFidelity.Run(
+                    clipSource, clipPath, sourceStart);
+                return true;
+            }
             // What a recorded match actually contains. Reads the file and
             // nothing else -- no room, no window, no game files.
             string? demoInfo = ValueAfter(args, "demoinfo");
@@ -2002,6 +2078,62 @@ namespace MphRead.Mods
                 }
             }
             return null;
+        }
+
+        private static string? ValueAfterAny(string[] args, params string[] names)
+        {
+            foreach (string raw in args)
+            {
+                string option = raw.TrimStart('-');
+                foreach (string name in names)
+                {
+                    string prefix = name + "=";
+                    if (option.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                        return option[prefix.Length..];
+                }
+            }
+            foreach (string name in names)
+            {
+                string? value = ValueAfter(args, name);
+                if (value != null) return value;
+            }
+            return null;
+        }
+
+        private static int IntOption(string[] args, int fallback, int minimum,
+            int maximum, params string[] names)
+        {
+            string? value = ValueAfterAny(args, names);
+            if (value == null) return fallback;
+            if (Int32.TryParse(value, out int parsed) && parsed >= minimum
+                && parsed <= maximum)
+            {
+                return parsed;
+            }
+            Console.WriteLine($"[server] ignoring -{names[0]} {value} "
+                + $"(expected {minimum}-{maximum})");
+            return fallback;
+        }
+
+        private static bool TryParseOnOff(string value, out bool result)
+        {
+            if (Boolean.TryParse(value, out result)) return true;
+            switch (value.Trim().ToLowerInvariant())
+            {
+                case "on":
+                case "yes":
+                case "1":
+                    result = true;
+                    return true;
+                case "off":
+                case "no":
+                case "0":
+                    result = false;
+                    return true;
+                default:
+                    result = false;
+                    return false;
+            }
         }
 
         /// <summary>
