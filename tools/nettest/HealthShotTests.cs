@@ -71,10 +71,16 @@ namespace MphRead.NetTest
         { NetSession.InjectPlaybackPacket(bytes, bytes.Length); NetSession.Update(0); }
         internal static void Snapshot(uint frame, PlayerState state)
         {
-            byte[] bytes = new byte[1 + SnapshotHeader.Size + PlayerState.Size + 64 + 3];
+            const ushort matchId = 51;
+            const int timeSyncSize = PlayerEntity.SlotCapacity * sizeof(float) * 2;
+            int healthOffset = 1 + SnapshotHeader.Size + PlayerState.Size + timeSyncSize;
+            byte[] bytes = new byte[healthOffset + NetHealthSync.HeaderSize];
             bytes[0] = (byte)PacketType.Snapshot;
-            new SnapshotHeader { MatchId = 51, AuthorityEpoch = 4, Frame = frame, PlayerCount = 1 }.Write(bytes.AsSpan(1));
-            state.Write(bytes.AsSpan(1 + SnapshotHeader.Size)); Deliver(bytes);
+            new SnapshotHeader { MatchId = matchId, AuthorityEpoch = 4, Frame = frame, PlayerCount = 1 }
+                .Write(bytes.AsSpan(1));
+            state.Write(bytes.AsSpan(1 + SnapshotHeader.Size));
+            BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(healthOffset), matchId);
+            Deliver(bytes);
         }
         internal static void Field(object instance, string name, object value)
         { instance.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(instance, value); }
