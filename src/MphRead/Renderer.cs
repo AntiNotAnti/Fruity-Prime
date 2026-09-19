@@ -1555,6 +1555,7 @@ namespace MphRead
                 }
                 Mods.Network.DemoPlayback.PumpFrame();
                 Mods.Network.NetSession.Update(_globalElapsedTime);
+                if (Mods.Network.NetSession.FreezeGameplay) return;
                 if (Mods.Network.DemoPlayback.IsActive && !Mods.SpectatorMode.IsSpectating)
                 {
                     // No local player to spawn as during playback -- watch

@@ -717,6 +717,7 @@ namespace MphRead.Droid
                 _launcherView.Visibility = ViewStates.Visible;
                 MphRead.Mods.Input.GamepadContexts.MenuVisible = true;
             }
+            MphRead.Mods.Launcher.Gui.Deck.Asleep = false;
             AndroidApp.Home?.Reset();
             Window?.ClearFlags(WindowManagerFlags.KeepScreenOn);
             GoImmersive(true);
@@ -743,6 +744,9 @@ namespace MphRead.Droid
             // blending a full-window bitmap for the whole match, on the UI
             // thread of the process running it.
             MovingBackdrop.Suspended = true;
+            // And neither would any of the other animations on it. Deck.Still
+            // is what each of them already checks.
+            MphRead.Mods.Launcher.Gui.Deck.Asleep = true;
             if (note != null)
             {
                 Console.WriteLine($"[android] starting the match anyway: {note}");
@@ -877,6 +881,98 @@ namespace MphRead.Droid
 
         private bool _pauseMenuOpen;
 
+        private MphRead.Mods.Launcher.Gui.EndPanelView? _endPanel;
+        private Action? _endPanelTick;
+        private bool _endPanelWanted;
+
+        /// <summary>
+        /// Put the results panel up while the results are up, and take it down
+        /// after -- the same two questions the desktop asks there (where next,
+        /// and who you are coming back as) with the program's own controls
+        /// rather than with arrows and swatches beside a 32x32 sprite.
+        ///
+        /// Driven from a poll rather than from whatever ends a match, for the
+        /// reason <c>Shell.TickEndPanel</c> gives: the results arrive because
+        /// the *server* said the match is over and there is no one place on
+        /// this machine that hears it. A tenth of a second, not a frame --
+        /// the frame belongs to the GL thread and this is the toolkit's.
+        ///
+        /// Never over the pause menu: Escape during the results is a thing a
+        /// player can still do, and two screens over one match is one too
+        /// many.
+        /// </summary>
+        private void TickEndPanel()
+        {
+            // `_pending` counts as in a match: the poll is started when one is
+            // asked for and the view does not exist until the window has held
+            // still, which is a second or two of ticks that must not stop it.
+            if (!InMatch && _pending == null)
+            {
+                HideEndPanel();
+                _endPanelTick = null;
+                return;
+            }
+            bool want = MphRead.Mods.EndScreen.Available && !_pauseMenuOpen;
+            // The panel going up and down mid-results is what "the 3D model
+            // appears and disappears" is: the HUD draws its own picker the
+            // moment PanelUp clears. Say which of Available's six clauses moved.
+            if (want != _endPanelWanted)
+            {
+                _endPanelWanted = want;
+                MphRead.Mods.DebugLog.Line("ui", $"end panel {(want ? "up" : "down")}"
+                    + $": state={MphRead.GameState.MatchState}"
+                    + $" main={MphRead.Entities.PlayerEntity.Main != null}"
+                    + $" mp={MphRead.GameState.Multiplayer}"
+                    + $" menupause={MphRead.GameState.MenuPause}"
+                    + $" spectating={MphRead.Mods.SpectatorMode.IsSpectating}"
+                    + $" freecam={MphRead.Mods.SpectatorMode.FreeCamera}"
+                    + $" pausemenu={_pauseMenuOpen}");
+            }
+            if (want && _endPanel == null)
+            {
+                AndroidUiSurface? surface = AndroidUiSurface.Ensure();
+                if (surface != null && _gameView != null
+                    && _gameView.Width > 0 && _gameView.Height > 0)
+                {
+                    surface.Resize(_gameView.Width, _gameView.Height);
+                    _endPanel = new MphRead.Mods.Launcher.Gui.EndPanelView();
+                    MphRead.Mods.EndScreen.PanelUp = true;
+                    // On the glass, even though the launcher's own view is
+                    // not: this panel is composited into the game's frame.
+                    MphRead.Mods.Launcher.Gui.Deck.Asleep = false;
+                    surface.Show(_endPanel);
+                    _controls.ReleaseEverything();
+                    _overlay?.Invalidate();
+                }
+            }
+            else if (!want && _endPanel != null)
+            {
+                HideEndPanel();
+            }
+            else
+            {
+                _endPanel?.Refresh();
+            }
+            if (_endPanelTick != null)
+            {
+                _content?.PostDelayed(_endPanelTick, 100);
+            }
+        }
+
+        private void HideEndPanel()
+        {
+            if (_endPanel == null)
+            {
+                return;
+            }
+            _endPanel = null;
+            MphRead.Mods.EndScreen.PanelUp = false;
+            MphRead.Mods.Launcher.Gui.Deck.Asleep = InMatch;
+            AndroidUiSurface.Current?.Hide();
+            _controls.ReleaseEverything();
+            _overlay?.Invalidate();
+        }
+
         /// <summary>
         /// The app's own menu, over a running match: resume, settings, leave,
         /// quit.
@@ -904,6 +1000,9 @@ namespace MphRead.Droid
             }
             _pauseMenuOpen = true;
             _controls.ReleaseEverything();
+            // Two screens over one match is one too many, and the pause menu
+            // is the one the player just asked for.
+            HideEndPanel();
             if (_overlay != null)
             {
                 _overlay.Visibility = ViewStates.Gone;
@@ -928,6 +1027,7 @@ namespace MphRead.Droid
                 _launcherView.Visibility = ViewStates.Visible;
                 MphRead.Mods.Input.GamepadContexts.MenuVisible = true;
             }
+            MphRead.Mods.Launcher.Gui.Deck.Asleep = false;
             GoImmersive(true);
             AndroidApp.Home?.ShowPauseMenu(ClosePauseMenu, EndMatch, () => Finish());
         }
@@ -944,6 +1044,7 @@ namespace MphRead.Droid
                 _launcherView.Visibility = ViewStates.Gone;
                 MphRead.Mods.Input.GamepadContexts.MenuVisible = false;
             }
+            MphRead.Mods.Launcher.Gui.Deck.Asleep = true;
             if (_gameView != null)
             {
                 _gameView.Visibility = ViewStates.Visible;
@@ -960,7 +1061,9 @@ namespace MphRead.Droid
         }
 
         /// <summary>Back to the front screen.</summary>
-        internal void EndMatch()
+        internal void EndMatch() => EndMatchCore(false);
+        internal void EndMatchToLobby() => EndMatchCore(true);
+        private void EndMatchCore(bool keepSession)
         {
             if (_content == null)
             {
@@ -969,6 +1072,8 @@ namespace MphRead.Droid
             _pending = null;
             _pauseMenuOpen = false;
             HideNotice();
+            HideEndPanel();
+            _endPanelTick = null;
             if (_overlay != null)
             {
                 _content.RemoveView(_overlay);
@@ -998,15 +1103,23 @@ namespace MphRead.Droid
                 _launcherView.Visibility = ViewStates.Visible;
                 MphRead.Mods.Input.GamepadContexts.MenuVisible = true;
             }
+            MphRead.Mods.Launcher.Gui.Deck.Asleep = false;
             // The front screen is on the glass again, so its ground may move
             // -- unless the device is still rendering previews.
             MovingBackdrop.Suspended = _renderingPreviews;
             // The desktop builds a fresh front screen each time round its loop;
             // this one is the same object across a match, so it is told the
             // match is over rather than left believing it already answered.
-            AndroidApp.Home?.Reset();
-            NetSession.Stop();
-            NetHostSession.Stop();
+            if (keepSession)
+            {
+                NetSession.ResetMatchState();
+                AndroidApp.Home?.ResumeLobby();
+            }
+            else
+            {
+                NetSession.Stop(); NetHostSession.Stop();
+                AndroidApp.Home?.Reset();
+            }
             // A demo feeds NetSession from a file rather than a socket, so
             // stopping the session is not what closes it.
             DemoPlayback.Stop();
