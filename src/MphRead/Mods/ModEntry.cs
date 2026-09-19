@@ -2053,6 +2053,16 @@ namespace MphRead.Mods
 
         private static string? ValueAfterAny(string[] args, params string[] names)
         {
+            foreach (string raw in args)
+            {
+                string option = raw.TrimStart('-');
+                foreach (string name in names)
+                {
+                    string prefix = name + "=";
+                    if (option.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                        return option[prefix.Length..];
+                }
+            }
             foreach (string name in names)
             {
                 string? value = ValueAfter(args, name);

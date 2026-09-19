@@ -72,8 +72,8 @@ $BIN -masterserver -port "$MASTER_PORT" >"$WORK/master.log" 2>&1 &
 MASTER_PID=$!
 $BIN -server -port "$SERVER_PORT" -players 8 \
      -servername "CI smoke test" \
-     -serverreplays on -serverreplaystoragegb 7 \
-     -serverreplayretentiondays 3 -serverreplaykeeplast 9 \
+     -server_replays=true -server_replay_storage_gb=7 \
+     -server_replay_retention_days=3 -server_replay_keep_last=9 \
      -master 127.0.0.1 -masterport "$MASTER_PORT" \
      -rotation "$(topath "$WORK/maprotation.txt")" >"$WORK/server.log" 2>&1 &
 SERVER_PID=$!
