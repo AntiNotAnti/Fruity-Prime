@@ -58,6 +58,7 @@ namespace MphRead.Mods.Launcher.Gui
         public event EventHandler? GameFilesRequested;
 
         private ChoiceRow? _windowRow;
+        private ChoiceRow? _clipPostRollRow;
         private ChoiceRow? _clipSecondsRow;
         private SliderRow _resolutionScale = null!;
         private ToggleRow _lightingRow = null!;
@@ -319,13 +320,14 @@ namespace MphRead.Mods.Launcher.Gui
         }
 
         /// <summary>
-        /// Five pages: display, audio, controls, profile and credits.
+        /// Six pages: display, audio, controls, replays, profile and credits.
         /// </summary>
         private void BuildPages()
         {
             BuildDisplay(AddSection("Display"));
             BuildAudio(AddSection("Audio"));
             BuildControls(AddSection("Controls"));
+            BuildReplays(AddSection("Replays"));
             BuildLauncher(AddSection("Profile"));
             BuildCredits(AddSection("Credits"));
         }
@@ -612,21 +614,36 @@ namespace MphRead.Mods.Launcher.Gui
             // the file.
             rows.Add(Add(page, new KeyRow("Chat",
                 () => InputSettings.ChatKey, k => InputSettings.ChatKey = k)));
-            // The clip button and how much it saves, together: the length is
-            // the only thing anybody wants to know about that key, and putting
-            // it on the far side of the settings from the bind would make them
-            // two unrelated questions.
             rows.Add(Add(page, new KeyRow("Save clip",
                 () => InputSettings.ClipKey, k => InputSettings.ClipKey = k)));
-            _clipSecondsRow = Add(page, new ChoiceRow("Clip length",
-                Array.ConvertAll(Mods.Network.DemoClip.Lengths, n => $"{n} seconds"),
-                Math.Max(0, Array.IndexOf(Mods.Network.DemoClip.Lengths,
-                    Mods.Network.DemoClip.Seconds))));
             foreach (PropertyInfo property in InputSettings.Bindings)
             {
                 rows.Add(Add(page, new KeyRow(property)));
             }
             _keyRows = rows;
+        }
+
+
+        // -------------------------------------------------------------- replays
+
+        private void BuildReplays(StackPanel page)
+        {
+            Heading(page, "Instant clips");
+            Explain(page, "Save the moments around the clip key without recording a full match. "
+                + "The rolling buffer stays in memory and only writes when you ask for a clip.");
+            _clipSecondsRow = Add(page, new ChoiceRow("Clip length",
+                Array.ConvertAll(Mods.Network.DemoClip.Lengths, n => $"{n} seconds"),
+                Math.Max(0, Array.IndexOf(Mods.Network.DemoClip.Lengths,
+                    Mods.Network.DemoClip.Seconds))));
+            _clipPostRollRow = Add(page, new ChoiceRow("Clip post-roll",
+                Array.ConvertAll(Mods.Network.DemoClip.PostRollLengths, n => $"{n} seconds"),
+                Math.Max(0, Array.IndexOf(Mods.Network.DemoClip.PostRollLengths,
+                    Mods.Network.DemoClip.PostRollSeconds))));
+
+            Heading(page, "Replay library");
+            Explain(page, "Full recordings, instant clips and recovered sessions appear under "
+                + "CLIPS on the main screen. Files are stored in:\n"
+                + Mods.Network.DemoLibrary.Directory);
         }
 
         /// <summary>Every key row, so Reset can redraw them from whichever page it is on.</summary>
@@ -1153,6 +1170,8 @@ namespace MphRead.Mods.Launcher.Gui
                     PauseMenu.RequestFullscreenToggle();
                 }
             }
+            if (_clipPostRollRow != null)
+                Mods.Network.DemoClip.PostRollSeconds = Mods.Network.DemoClip.PostRollLengths[Math.Clamp(_clipPostRollRow.Index, 0, Mods.Network.DemoClip.PostRollLengths.Length - 1)];
             if (_clipSecondsRow != null)
             {
                 Mods.Network.DemoClip.Seconds = Mods.Network.DemoClip.Lengths[

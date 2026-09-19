@@ -33,6 +33,31 @@ namespace MphRead.Mods
         /// </summary>
         public static bool TryHandleHeadless(string[] args)
         {
+            if (HasFlag(args, "replayformatcheck"))
+            {
+                Environment.ExitCode = Network.ReplayFormatCheck.Run();
+                return true;
+            }
+            if (ValueAfter(args, "replayvalidate") is string validatePath)
+            {
+                var result = Network.ReplayArchive.Validate(validatePath);
+                Console.WriteLine($"[replayvalidate] {result}");
+                Environment.ExitCode = result == Network.ReplayOpenResult.Success ? 0 : 1;
+                return true;
+            }
+            if (ValueAfter(args, "replayrecover") is string recoverPath)
+            {
+                bool recovered = Network.ReplayArchive.Recover(recoverPath, out string? output, out var result);
+                Console.WriteLine($"[replayrecover] {result}: {output}");
+                Environment.ExitCode = recovered ? 0 : 1;
+                return true;
+            }
+            if (HasFlag(args, "replaycontrolcheck"))
+            {
+                Environment.ExitCode = Network.ReplayControlCheck.Run();
+                return true;
+            }
+
 #if !ANDROID && !MPHREAD_SERVER
             if (OperatingSystem.IsMacOS())
             {
@@ -1557,6 +1582,18 @@ namespace MphRead.Mods
                 return true;
             }
 
+#if MPHREAD_AVALONIA
+            if (ValueAfter(args, "replayshot") is string replayShots && ValueAfter(args, "demo") is string replayFile)
+            {
+                Environment.ExitCode = Launcher.Gui.UiCapture.RunReplay(replayShots, replayFile);
+                return true;
+            }
+#endif
+            if (ValueAfter(args, "replaydeterminism") is string replayPath)
+            {
+                Environment.ExitCode = Network.ReplayDeterminism.Run(replayPath, ValueAfter(args, "replayhashout"));
+                return true;
+            }
             // What a recorded match actually contains. Reads the file and
             // nothing else -- no room, no window, no game files.
             string? demoInfo = ValueAfter(args, "demoinfo");

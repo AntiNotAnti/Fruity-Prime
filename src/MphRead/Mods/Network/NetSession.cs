@@ -304,7 +304,7 @@ namespace MphRead.Mods.Network
         public static void StartPlayback()
         {
             Stop();
-            _transport = new NetTransport(0);
+            _transport = new NetTransport(0, playbackOnly: true);
             Role = NetRole.Client;
             LocalSlot = -1;
             NetFrame = 0;
@@ -382,6 +382,7 @@ namespace MphRead.Mods.Network
             NetPlayerSetup.Reset();
             SpectatorMode.Reset();
             DemoRecorder.Stop();
+            ReplayCapture.Reset();
             NetMatchSync.Reset();
             NetSlotManager.Reset();
             NetDamage.Reset();
@@ -582,6 +583,7 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static void Update(double time)
         {
+            DemoClip.Tick();
             if (Role == NetRole.Server)
             {
                 // No socket here: DedicatedServer owns it, drains it on its
@@ -714,6 +716,13 @@ namespace MphRead.Mods.Network
 
         private static void Handle(ReceivedPacket packet, double time)
         {
+            // Connection-control packets belong to the recorded client's original
+            // session, not to the spectator replaying it.
+            if (DemoPlayback.IsActive && packet.Type is PacketType.Welcome or PacketType.Authority
+                or PacketType.Bye or PacketType.Refused)
+            {
+                return;
+            }
             if (Role == NetRole.Client)
             {
                 if (_lastServerPacket > 0 && time > _lastServerPacket)
@@ -1307,6 +1316,19 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static void ApplyRoster(RosterPacket roster)
         {
+            for (int slot = 0; slot < SlotOccupied.Length; slot++)
+            {
+                bool present = false;
+                for (int i = 0; i < roster.Count; i++)
+                {
+                    present |= roster.Slots[i] == slot;
+                }
+                if (present != SlotOccupied[slot])
+                {
+                    ReplayCapture.Event(present ? ReplayEventType.PlayerJoined
+                        : ReplayEventType.PlayerLeft, slot);
+                }
+            }
             Array.Clear(SlotOccupied);
             for (int i = 0; i < roster.Count; i++)
             {
@@ -1345,6 +1367,14 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static void ApplyMatchState(MatchStatePacket state, bool rotated)
         {
+            if (ServerMatch?.MatchId != state.MatchId)
+            {
+                ReplayCapture.Event(ReplayEventType.MatchStarted);
+            }
+            if (state.Ending && ServerMatch?.Ending != true)
+            {
+                ReplayCapture.Event(ReplayEventType.MatchEnded);
+            }
             string? previous = ServerMatch?.RoomKey;
             ServerMatch = state;
             // Fire on an actual map change, whether the server announced it
@@ -1439,6 +1469,7 @@ namespace MphRead.Mods.Network
             _lateSnapshotRun = 0;
             _lastSnapshotFrame = header.Frame;
             SnapshotArrived = Math.Max(NetFrame, 1);
+            ReplayCapture.Observe(packet.Data.AsSpan(0, packet.Length));
             SnapshotsReceived++;
             // Rng.cs reproduces the game's original LCG and its state is
             // global, so adopting the host's words keeps every random
@@ -1458,6 +1489,7 @@ namespace MphRead.Mods.Network
                 offset += PlayerState.Size;
                 if (state.SlotIndex < RemoteStates.Length)
                 {
+                    ReplayCapture.AcceptedState(state);
                     RemoteStates[state.SlotIndex] = state;
                     RemoteStateValid[state.SlotIndex] = true;
                     if (count < _snapshotScratch.Length)
@@ -1669,6 +1701,7 @@ namespace MphRead.Mods.Network
                 state.Kills = (ushort)Math.Clamp(GameState.Kills[i], 0, UInt16.MaxValue);
                 state.Deaths = (ushort)Math.Clamp(GameState.Deaths[i], 0, UInt16.MaxValue);
                 NetDamage.Write(i, ref state);
+                ReplayCapture.AcceptedState(state);
                 state.Write(_scratch.AsSpan(offset));
                 offset += PlayerState.Size;
                 count++;

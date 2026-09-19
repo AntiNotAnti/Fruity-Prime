@@ -120,8 +120,9 @@ namespace MphRead.Mods.Launcher.Gui
                 Margin = new Thickness(0, -18, 0, 0)
             };
             _menu.Children.Add(_sub);
-            // A row of faces rather than a column of words. Three of them,
-            // which is what the screen has always offered; what changed is
+            // A row of faces rather than a column of words. Clips is a
+            // first-class destination now, beside Play rather than buried in
+            // the play-mode strip; what changed is
             // that each is now an object you press rather than a word that
             // brightens, and the row reads as one bar across the screen
             // instead of a stack down the middle of the photograph.
@@ -132,7 +133,7 @@ namespace MphRead.Mods.Launcher.Gui
                 HorizontalAlignment = HorizontalAlignment.Center,
                 Margin = new Thickness(0, 6, 0, 0)
             };
-            // The front screen's three faces are the reference's plain
+            // The front screen's four faces are the reference's plain
             // `.btn`: `font-size: 1.55em`, `padding: .85em 1.5em`, a
             // six-point edge -- which is what the constructor defaults to.
             // Play is the one that bobs, and the only one on any screen that
@@ -140,6 +141,9 @@ namespace MphRead.Mods.Launcher.Gui
             var play = new DeckButton("PLAY", Deck.Face.Blue) { Idle = true };
             play.Click += (_, _) => _ = OpenPlay();
             bar.Children.Add(play);
+            var clips = new DeckButton("CLIPS", Deck.Face.Moss);
+            clips.Click += (_, _) => _ = OpenClips();
+            bar.Children.Add(clips);
             var options = new DeckButton("SETTINGS", Deck.Face.Brass);
             options.Click += (_, _) => _ = OpenSettings();
             bar.Children.Add(options);
@@ -148,7 +152,7 @@ namespace MphRead.Mods.Launcher.Gui
             bar.Children.Add(quit);
             root.Children.Add(_menu);
 
-            // A bar across the foot, not a stack in the middle: the three
+            // A bar across the foot, not a stack in the middle: the four
             // faces between the profile on one end and the support mark on
             // the other. The photograph gets its middle back, which is what
             // it is there for.
@@ -247,8 +251,8 @@ namespace MphRead.Mods.Launcher.Gui
             _ = CatchUpPreviews();
         }
 
-        /// <summary>The width below which the three faces will not fit across.</summary>
-        private const double BarTurnsWidth = 470;
+        /// <summary>The width below which the four faces will not fit across.</summary>
+        private const double BarTurnsWidth = 620;
         private const double _windowWidthGuess = 940;
         private StackPanel? _bar;
         private DeckWordmark? _wordmark;
@@ -576,6 +580,15 @@ namespace MphRead.Mods.Launcher.Gui
             return Task.CompletedTask;
         }
 
+        private Task OpenClips()
+        {
+            var view = new PlayScreen(_settings, _rooms, PlayScreen.Face.Clips);
+            view.Closed += (_, _) => Pop();
+            view.Launched += (_, plan) => Finish(plan);
+            Push(view);
+            return Task.CompletedTask;
+        }
+
         /// <summary>
         /// Run a server rather than join one -- pushed over the browser rather
         /// than replacing it, so backing out lands on the list of servers,
@@ -672,6 +685,18 @@ namespace MphRead.Mods.Launcher.Gui
                 onResume();
             };
             view.VoteMapRequested += (_, _) => OpenVote();
+            view.ReplayControlsRequested += (_, _) =>
+            {
+                var controls = new ReplayControlsView();
+                controls.Closed += (_, _) => Pop();
+                controls.ResumeRequested += (_, _) =>
+                {
+                    Pop();
+                    Pop();
+                    onResume();
+                };
+                Push(controls);
+            };
             view.SettingsRequested += (_, _) =>
             {
                 var settings = new SettingsView(_settings, inGame: true);

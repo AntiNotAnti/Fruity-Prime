@@ -49,6 +49,7 @@ namespace MphRead.Mods.Launcher.Gui
         public event EventHandler? RejoinRequested;
         public event EventHandler? RecordToggleRequested;
         public event EventHandler? VoteMapRequested;
+        public event EventHandler? ReplayControlsRequested;
 
         private readonly DeckButton _resume;
 
@@ -71,6 +72,12 @@ namespace MphRead.Mods.Launcher.Gui
             // it is drawn over.
             _resume = Add(menu, "Resume", () => Resumed?.Invoke(this, EventArgs.Empty),
                 Deck.Face.Moss);
+            if (DemoPlayback.IsActive)
+            {
+                Add(menu, "Replay controls",
+                    () => ReplayControlsRequested?.Invoke(this, EventArgs.Empty),
+                    Deck.Face.Blue);
+            }
             if (!DemoPlayback.IsActive && NetSession.Active)
             {
                 // Offered whenever there is a server to ask, rather than only
