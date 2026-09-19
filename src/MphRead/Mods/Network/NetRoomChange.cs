@@ -39,6 +39,15 @@ namespace MphRead.Mods.Network
         /// slot rebuilt, every score back to zero.
         /// </summary>
         private static ushort _loadedMatch;
+        private static uint _loadedFrame;
+
+        // Clients complete a room rotation on different frames. For the first
+        // second after this client finishes, peer-reported positions and old
+        // scoreboard snapshots still describe the room that was just left.
+        private const uint SettleFrames = 60;
+        public static bool Settling => _loadedFrame != 0
+            && NetSession.NetFrame - _loadedFrame < SettleFrames;
+
         /// <summary>
         /// Player count the room layout is built from during a transition.
         /// Fixed for the same reason it is fixed at first load: the layout
@@ -57,6 +66,7 @@ namespace MphRead.Mods.Network
             _requestedFrame = 0;
             _requestedMatch = 0;
             _loadedMatch = 0;
+            _loadedFrame = 0;
         }
 
         /// <summary>
@@ -204,6 +214,7 @@ namespace MphRead.Mods.Network
         public static void AfterRebuild(Scene scene)
         {
             _loadedMatch = _requestedMatch;
+            _loadedFrame = Math.Max(NetSession.NetFrame, 1);
             _loadPending = false;
             _requested = "";
             // Everything the bridge remembered about where players were

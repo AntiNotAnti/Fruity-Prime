@@ -434,6 +434,22 @@ namespace MphRead.Mods.Network
         public static long Unpredicted { get; private set; }
 
         /// <summary>
+        /// Authority-confirmed hits this client did not predict, split by
+        /// whether the local shooter was moving. This preserves upstream's
+        /// diagnostic for spotting divergence between local projectile flight
+        /// and the authority's rewound simulation.
+        /// </summary>
+        public static long UnpredictedMoving { get; private set; }
+        public static long UnpredictedStill { get; private set; }
+
+        private static bool MovingNow()
+        {
+            int local = NetHooks.LocalSlot;
+            return local >= 0 && local < PlayerEntity.Players.Count
+                && PlayerEntity.Players[local].Speed.LengthSquared > 0.0004f;
+        }
+
+        /// <summary>
         /// Kills held back so the authority could make them -- which is what
         /// every lethal prediction did before death was predicted, and what
         /// one still does under <c>-nodeathprediction</c>.
@@ -602,6 +618,8 @@ namespace MphRead.Mods.Network
             SelfConfirmed = 0;
             Denied = 0;
             Unpredicted = 0;
+            UnpredictedMoving = 0;
+            UnpredictedStill = 0;
             LethalHeld = LethalConfirmed = LethalDenied = 0;
             Array.Clear(_pendingHeld);
             DeathsPredicted = 0;
@@ -941,6 +959,8 @@ namespace MphRead.Mods.Network
                 if (rest > 0)
                 {
                     Unpredicted += rest;
+                    if (MovingNow()) UnpredictedMoving += rest;
+                    else UnpredictedStill += rest;
                 }
                 return fromSettled > 0;
             }
