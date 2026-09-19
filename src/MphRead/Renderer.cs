@@ -456,7 +456,7 @@ namespace MphRead
                     player.LoadFlags |= LoadFlags.Initial;
                     if (team != -1)
                     {
-                        Debug.Assert(team == 0 || team == 1);
+                        Debug.Assert((uint)team < 4);
                         player.TeamIndex = team;
                     }
                     player.IsBot = PlayerEntity.PlayerCount >= 1;
@@ -561,16 +561,27 @@ namespace MphRead
                 }
             }
             // todo: probably revisit this
-            foreach (PlayerEntity player in PlayerEntity.Players)
+            //
+            // Not on a side scene: that one has no room and no world, and the
+            // roster it would be initialising against is *static*. On a head
+            // that renders map previews in the game's own process there is a
+            // slot-active player left over from the last one, so standing the
+            // launcher's preview scene up ran PlayerEntity.Initialize with no
+            // sound loaded under it and took the thread down.
+            if (!SideScene)
             {
-                if (player.LoadFlags.TestFlag(LoadFlags.SlotActive))
+                foreach (PlayerEntity player in PlayerEntity.Players)
                 {
-                    player.Initialize();
-                    InitEntity(player);
-                    InitEntity(player.Halfturret);
+                    if (player.LoadFlags.TestFlag(LoadFlags.SlotActive))
+                    {
+                        player.Initialize();
+                        InitEntity(player);
+                        InitEntity(player.Halfturret);
+                    }
                 }
             }
-            if (!Mods.Headless.Active && !SideScene)
+            if (!Mods.Headless.Active && !SideScene && !Mods.ThumbnailMode.Active
+                && !Console.IsOutputRedirected && !Console.IsInputRedirected)
             {
                 // The console prompt, which is a question put to a person.
                 //
@@ -581,6 +592,12 @@ namespace MphRead
                 // nobody is awaiting, and the finalizer rethrows it. There is
                 // also nobody to prompt: the scene has no room to load into
                 // and no camera to move.
+                //
+                // Nor on a thumbnail worker, and nor when the streams are
+                // pipes: a capture is a child process whose output the parent
+                // reads, so ConsoleWindow.Show stands down and there is no
+                // console buffer for Console.Clear to find -- the same
+                // exception, from the same line, with nobody to prompt again.
                 OutputStart();
             }
             GC.Collect(generation: 2, GCCollectionMode.Forced, blocking: true, compacting: true);
@@ -1520,6 +1537,12 @@ namespace MphRead
         /// </summary>
         public void OnSimulationFrame()
         {
+            if (Mods.Network.NetSession.FreezeGameplay)
+            {
+                if (Mods.Network.NetSession.IsStarting) Mods.Network.NetSession.MarkMatchLoaded();
+                Mods.Network.NetSession.Pump();
+                return;
+            }
             // The effect clock, before anything can spawn an effect. See
             // _effectFrame: it has to be the same value for the spawn and for
             // the ProcessEffects call that belongs to this step, and the
@@ -6262,32 +6285,41 @@ namespace MphRead
 
         private async Task OutputUpdate(CancellationToken token)
         {
-            while (!token.IsCancellationRequested)
+            try
             {
-                if (_promptState == PromptState.Load)
+                while (!token.IsCancellationRequested)
                 {
-                    OutputLoadPrompt();
-                    _promptState = PromptState.None;
-                    _currentOutput = "";
+                    if (_promptState == PromptState.Load)
+                    {
+                        OutputLoadPrompt();
+                        _promptState = PromptState.None;
+                        _currentOutput = "";
+                    }
+                    else if (_promptState == PromptState.CameraPos)
+                    {
+                        OutputCameraPrompt();
+                        _promptState = PromptState.None;
+                        _currentOutput = "";
+                    }
+                    string output = OutputGetAll();
+                    if (output != _currentOutput)
+                    {
+                        Console.Clear(); // todo: this causes flickering
+                        Console.WriteLine(output);
+                        _currentOutput = output;
+                    }
+                    try
+                    {
+                        await Task.Delay(100, token);
+                    }
+                    catch (TaskCanceledException) { }
                 }
-                else if (_promptState == PromptState.CameraPos)
-                {
-                    OutputCameraPrompt();
-                    _promptState = PromptState.None;
-                    _currentOutput = "";
-                }
-                string output = OutputGetAll();
-                if (output != _currentOutput)
-                {
-                    Console.Clear(); // todo: this causes flickering
-                    Console.WriteLine(output);
-                    _currentOutput = output;
-                }
-                try
-                {
-                    await Task.Delay(100, token);
-                }
-                catch (TaskCanceledException) { }
+            }
+            catch (System.IO.IOException)
+            {
+                // No console buffer, so there is nothing to clear and nobody
+                // reading. Nothing awaits this task, so throwing here reaches
+                // the finalizer instead of anything that could act on it.
             }
         }
 
@@ -7274,6 +7306,13 @@ namespace MphRead
         protected override void OnRenderFrame(FrameEventArgs args)
         {
             ApplyFrameRateSettings();
+            if (Mods.Network.NetLaunch.TickTerminalLobby(this))
+            {
+                GL.Clear(ClearBufferMask.ColorBufferBit);
+                SwapBuffers();
+                base.OnRenderFrame(args);
+                return;
+            }
 #if MPHREAD_SHELL
             // The launcher and the in-game menus, which are screens in this
             // window rather than windows of their own: the shell starts and

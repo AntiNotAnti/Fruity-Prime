@@ -1,3 +1,4 @@
+using MphRead.Mods.Multiplayer;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -728,7 +729,10 @@ namespace MphRead.Entities
 
         public void Spawn(Vector3 pos, Vector3 facing, Vector3 up, NodeRef nodeRef, bool respawn)
         {
+            if (!Mods.Network.NetPlayerLifecycle.CanSpawn) return;
+            Mods.Network.NetPlayerLifecycle.OnSpawn(this);
             Mods.Network.NetSession.ContinuousPhase.ResetSlot(SlotIndex);
+            Mods.Network.NetPlayerBridge.NoteSpawn(SlotIndex);
             // Before anything below reads Hunter: a player who asked to come
             // back as somebody else is changed here, so that the abilities,
             // the energy tank and the HUD this call sets up are the new
@@ -1704,6 +1708,7 @@ namespace MphRead.Entities
 
         public void TakeDamage(uint damage, DamageFlags flags, Vector3? direction, EntityBase? source)
         {
+            using var predictedScores = new Mods.Network.NetDamage.PredictionScoreScope(Mods.Network.NetHitPrediction.Predicting);
             if (Mods.Network.NetDamage.Suppress(this, source, flags))
             {
                 return;
@@ -1791,7 +1796,7 @@ namespace MphRead.Entities
             }
             bool ignoreDamage = false;
             if (GameState.SinglePlayer && IsBot && attacker == this || GameState.Teams && !GameState.FriendlyFire
-                && attacker != null && attacker != this && attacker.TeamIndex == TeamIndex)
+                && attacker != null && attacker != this && TeamRules.AreAllies(attacker.TeamIndex, TeamIndex))
             {
                 ignoreDamage = true;
                 damage = 0;
@@ -2289,7 +2294,7 @@ namespace MphRead.Entities
                         }
                         else
                         {
-                            if (attacker.TeamIndex == TeamIndex)
+                            if (TeamRules.AreAllies(attacker.TeamIndex, TeamIndex))
                             {
                                 GameState.FriendlyKills[attacker.SlotIndex]++;
                                 GameState.KillStreak[attacker.SlotIndex] = 0;

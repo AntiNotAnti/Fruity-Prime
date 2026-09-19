@@ -518,6 +518,7 @@ namespace MphRead.Droid
         /// <summary>Load what the plan asks for and hand the screen to it.</summary>
         internal void StartMatch(LaunchPlan plan)
         {
+            AndroidApp.Home?.SuspendLobby();
             if (_content == null || InMatch)
             {
                 return;
@@ -555,6 +556,11 @@ namespace MphRead.Droid
                 Console.WriteLine("[android] stopping the preview run: a match was asked for");
                 _stopPreviews = true;
             }
+            // Same reason, and it has to happen whether or not a preview run
+            // is going: the launcher's hunter preview holds a scene and a GL
+            // context of its own, and a display list cut in that context is
+            // written onto the *shared* Model the match is about to draw from.
+            AndroidHunterShot.Current?.Retire();
             var input = new AndroidInput();
             _controls.ReleaseEverything();
             // The controls object outlives a match -- it is a field here, not
@@ -570,6 +576,11 @@ namespace MphRead.Droid
             GoImmersive(true);
             _pending = (plan, input);
             _waitingSince = SystemClock.UptimeMillis();
+            if (_endPanelTick == null)
+            {
+                _endPanelTick = TickEndPanel;
+                _content.PostDelayed(_endPanelTick, 100);
+            }
             _lastSize = ContentSize;
             _sizeSettledAt = _waitingSince;
             // Before the wait, not after it. The front screen has just been

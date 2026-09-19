@@ -51,6 +51,30 @@ namespace MphRead.Mods
         }
 
         /// <summary>
+        /// Whether the deck panel is drawn over the results, so the HUD's own
+        /// picker knows to leave the right-hand side alone.
+        ///
+        /// Set by whichever head is showing it -- the desktop shell through
+        /// its surface, Android through its own -- because the two put the
+        /// same panel on the screen by different routes and the engine must
+        /// not have to know which. The scoreboard beside it is untouched
+        /// either way: that is the engine's screen and a scoreboard is not a
+        /// place to put a theme.
+        /// </summary>
+        public static bool PanelUp
+        {
+            // A field, because it is written on the toolkit's thread and read
+            // inside the render loop: an auto-property there is one the JIT
+            // may hoist out of the loop, and a results HUD that goes on
+            // drawing its own picker under an opaque panel publishes a preview
+            // slot the panel's own model is then painted into.
+            get => _panelUp;
+            set => _panelUp = value;
+        }
+
+        private static volatile bool _panelUp;
+
+        /// <summary>
         /// Whether this player has said they are ready for the next match.
         ///
         /// Read straight off the results screen by the intent packet each

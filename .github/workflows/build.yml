@@ -93,6 +93,12 @@ jobs:
       - name: cook the map bundles
         run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -mapdir maps -mapbundle
 
+      - name: netcode lifecycle and health/shot regressions
+        if: matrix.id == 'linux-x64'
+        run: |
+          dotnet run --project tools/nettest/nettest.csproj -c Release -- --lifecycle
+          dotnet run --project tools/nettest/nettest.csproj -c Release -- --health-shots
+
       # Windows and Linux targets remain cross-published on Ubuntu.
       - name: publish ${{ matrix.summary }}
         run: >
