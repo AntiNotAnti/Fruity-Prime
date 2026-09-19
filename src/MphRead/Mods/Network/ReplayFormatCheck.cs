@@ -50,6 +50,14 @@ namespace MphRead.Mods.Network
                     Require(reader.Metadata.Integrity == ReplayIntegrity.Healthy, "validated integrity");
                 }
                 Require(ReplayArchive.Validate(clean) == ReplayOpenResult.Success, "validator");
+                using (var indexed = DemoReader.Open(clean, out var indexedResult))
+                {
+                    Require(indexedResult == ReplayOpenResult.Success && indexed != null,
+                        "indexed reader opens");
+                    DemoRecord? after250 = indexed!.SeekAfter(250);
+                    Require(after250 is DemoRecord seekRecord && seekRecord.Frame == 251,
+                        "v3 footer index seek lands after requested frame");
+                }
                 string hashed = Path.Combine(directory, "hashed.fpdemo");
                 var references = new[] { new ReplayExpectedHash(0, new string('A', 64)), new ReplayExpectedHash(300, new string('B', 64)) };
                 Require(ReplayArchive.WithExpectedHashes(clean, hashed, references) == ReplayOpenResult.Success, "store reference hashes in v3 copy");

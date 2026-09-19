@@ -42,6 +42,31 @@ namespace MphRead.Mods.Network
                 }
                 Console.WriteLine("[replaycheck] timing: all rates, pause, step, resume and presentation independence passed");
                 Replay.ReplayCameraTrackCheck.Run();
+
+                var events = new[]
+                {
+                    new ReplayEvent(60, ReplayEventType.Kill, 0, 1),
+                    new ReplayEvent(120, ReplayEventType.Kill, 0, 1),
+                    new ReplayEvent(180, ReplayEventType.Objective, 1),
+                    new ReplayEvent(200, ReplayEventType.Damage, 1, 0, 200),
+                    new ReplayEvent(300, ReplayEventType.MatchEnded)
+                };
+                var analytics = Replay.ReplayStudio.Analytics(events, 300);
+                Require(analytics.TotalKills == 2 && analytics.TotalDamage == 200
+                    && analytics.ObjectiveEvents == 1, "studio aggregate analytics");
+                var player0 = System.Linq.Enumerable.Single(analytics.Players, p => p.Slot == 0);
+                var player1 = System.Linq.Enumerable.Single(analytics.Players, p => p.Slot == 1);
+                Require(player0.Kills == 2 && player1.Deaths == 2
+                    && player1.ObjectiveEvents == 1 && player1.Damage == 200,
+                    "studio per-player analytics");
+                var highlights = Replay.ReplayStudio.Highlights(events, 300);
+                Require(System.Linq.Enumerable.Any(highlights,
+                    h => h.Kind == Replay.ReplayHighlightKind.MultiKill && h.ActorSlot == 0),
+                    "multi-kill highlight");
+                Require(System.Linq.Enumerable.Any(highlights,
+                    h => h.Kind == Replay.ReplayHighlightKind.Objective && h.ActorSlot == 1),
+                    "objective highlight");
+                Console.WriteLine("[replaycheck] studio: analytics and highlight derivation passed");
                 return 0;
             }
             catch (Exception ex) { Console.WriteLine($"[replaycheck] FAIL: {ex.Message}"); return 1; }

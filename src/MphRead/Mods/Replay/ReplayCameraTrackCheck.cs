@@ -26,7 +26,13 @@ namespace MphRead.Mods.Replay
                 Require((facing - new Vector3(-MathF.Sqrt(0.5f), 0, -MathF.Sqrt(0.5f))).Length < 0.0001f, "spherical orientation");
                 Require(mid.LookAtSlot == -1 && track.Sample(30, out var last) && last.LookAtSlot == 3, "look-at boundary");
                 Require(track.Sample(20, out var paused) && paused == mid, "paused frame stable");
-                Require(track.Sample(0, out var first) && first == start && track.Sample(uint.MaxValue, out last) && last == end, "endpoint clamp");
+                Require(track.Sample(20, out var constantMid, constantSpeed: true)
+                    && float.IsFinite(constantMid.Position.X)
+                    && float.IsFinite(constantMid.Position.Y)
+                    && float.IsFinite(constantMid.Position.Z),
+                    "constant-speed spline sample finite");
+                Require(track.Sample(0, out var first) && first == start
+                    && track.Sample(uint.MaxValue, out last) && last == end, "endpoint clamp");
                 foreach (Vector3 direction in new[] { Vector3.UnitX, -Vector3.UnitZ, new Vector3(1, 2, 3).Normalized(), Vector3.UnitY })
                     Require((Vector3.Transform(-Vector3.UnitZ, ReplayCameraTrack.FacingRotation(direction)) - direction).Length < 0.0001f, "capture orientation");
                 Require(track.Save(replay), "save");
