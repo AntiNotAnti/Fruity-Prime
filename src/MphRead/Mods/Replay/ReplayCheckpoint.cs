@@ -96,7 +96,9 @@ namespace MphRead.Mods.Replay
                 return false;
             NoteReplay(DemoPlayback.CurrentPath);
 
-            EntityBase[] membership = scene.Entities.ToArray();
+            var membershipList = new List<EntityBase>();
+            foreach (EntityBase entity in scene.Entities) membershipList.Add(entity);
+            EntityBase[] membership = membershipList.ToArray();
             foreach (Checkpoint checkpoint in Checkpoints
                 .Where(c => c.Frame <= target && !Bad.Contains(c.Frame))
                 .OrderByDescending(c => c.Frame))
@@ -157,7 +159,9 @@ namespace MphRead.Mods.Replay
 
             public static Checkpoint Capture(Scene scene, uint frame, string hash)
             {
-                EntityBase[] entities = scene.Entities.ToArray();
+                var entityList = new List<EntityBase>();
+                foreach (EntityBase entity in scene.Entities) entityList.Add(entity);
+                EntityBase[] entities = entityList.ToArray();
                 return new Checkpoint
                 {
                     Frame = frame,
