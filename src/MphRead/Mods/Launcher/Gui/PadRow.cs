@@ -270,7 +270,7 @@ namespace MphRead.Mods.Launcher.Gui
             base.OnPointerExited(e);
         }
 
-        protected override void OnLostFocus(Avalonia.Interactivity.RoutedEventArgs e)
+        protected override void OnLostFocus(FocusChangedEventArgs e)
         {
             if (_listening)
             {
@@ -279,7 +279,7 @@ namespace MphRead.Mods.Launcher.Gui
             base.OnLostFocus(e);
         }
 
-        protected override void OnGotFocus(GotFocusEventArgs e)
+        protected override void OnGotFocus(FocusChangedEventArgs e)
         {
             InvalidateVisual();
             base.OnGotFocus(e);

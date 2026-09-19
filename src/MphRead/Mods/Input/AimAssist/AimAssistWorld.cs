@@ -4,7 +4,6 @@ using MphRead.Formats;
 using MphRead.Mods.Input;
 using MphRead.Mods.Input.AimAssist;
 using MphRead.Mods.Network;
-using MphRead.Mods.Multiplayer;
 using OpenTK.Mathematics;
 
 namespace MphRead.Entities
@@ -69,7 +68,7 @@ namespace MphRead.Entities
                 var target = Players[index];
                 if (target == null || target == this || !target.ModInPlay || !target.LoadFlags.TestFlag(LoadFlags.Active)
                     || !target.LoadFlags.TestFlag(LoadFlags.Spawned) || target.CurAlpha < .95f
-                    || (GameState.Teams && TeamRules.AreAllies(TeamIndex, target.TeamIndex))) continue;
+                    || (GameState.Teams && TeamIndex == target.TeamIndex)) continue;
                 var volume = PlayerVolumes[(int)target.Hunter, target.IsAltForm ? 2 : 0];
                 Vector3 center = target.Position + volume.SpherePosition;
                 float height = Fixed.ToFloat(target.Values.MaxPickupHeight);
