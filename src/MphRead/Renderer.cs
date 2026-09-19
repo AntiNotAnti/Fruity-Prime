@@ -1541,7 +1541,6 @@ namespace MphRead
                     _elapsedTime += _frameTime;
                 }
                 if (_inputMode == InputMode.CameraOnly || Mods.Chat.ChatBox.Composing)
-                    _cameraPosition.Y += (pad.RightTrigger - pad.LeftTrigger) * .15f;
                 {
                     // Every frame the prompt is up, not once when it opens: a
                     // key held at the moment somebody pressed T stays held in
@@ -1585,6 +1584,22 @@ namespace MphRead
                 Mods.Input.GamepadContexts.Current = Mods.Input.GamepadContexts.Resolve(
                     Mods.Chat.ChatBox.Composing, Mods.EndScreen.Available);
                 Mods.Input.GamepadInput.BeginFrame();
+                if (Mods.SpectatorMode.IsSpectating && !Mods.PauseMenu.Open)
+                {
+                    var spectator = Mods.Input.SpectatorInput.ReadController();
+                    spectator.ApplyView();
+                    Mods.SpectatorMode.NoteScoreboard(
+                        _keyboardState.IsKeyDown(Keys.Tab) || spectator.Scoreboard);
+                    if (_freeCam)
+                    {
+                        _cameraPosition += _cameraFacing * spectator.MoveY * .15f
+                            + _cameraRight * spectator.MoveX * .15f;
+                        _cameraPosition.Y += (spectator.Ascend - spectator.Descend) * .15f;
+                        UpdateCameraRotation(
+                            MathHelper.DegreesToRadians(spectator.LookX),
+                            MathHelper.DegreesToRadians(spectator.LookY));
+                    }
+                }
                 // Straight after the edges are worked out and before anything
                 // consumes them. A pad has no key events to hook, so the
                 // results screen's picker has to be polled, and it takes the
