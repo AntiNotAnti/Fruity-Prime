@@ -306,7 +306,7 @@ namespace MphRead.Mods.Network
         public static bool TakeControl(int slot, out string? branchPath)
         {
             branchPath = null;
-            if (!IsActive || CurrentPath == null
+            if (!IsActive || CurrentPath == null || !SpectatorMode.IsSpectating
                 || slot < 0 || slot >= Entities.PlayerEntity.Players.Count)
                 return false;
 
