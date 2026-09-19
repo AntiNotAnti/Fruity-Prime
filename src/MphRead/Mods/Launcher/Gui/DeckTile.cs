@@ -40,9 +40,15 @@ namespace MphRead.Mods.Launcher.Gui
     {
         public event EventHandler? Click;
 
-        private readonly Tap _tap = new();
         private readonly Stopwatch _clock = Stopwatch.StartNew();
         private TimeSpan _last;
+
+        /// <summary>
+        /// Hover, as <see cref="DeckGrid"/> resolved it rather than as the
+        /// toolkit's hit test answered it. The two disagree here -- see the
+        /// grid's note -- so <c>IsPointerOver</c> is the wrong card.
+        /// </summary>
+        private bool _over;
 
         /// <summary>The room this card stands for, and what the tag says.</summary>
         public string RoomKey { get; }
@@ -128,106 +134,34 @@ namespace MphRead.Mods.Launcher.Gui
             return new Size(side, Math.Round(side / Math.Max(0.1, Ratio)));
         }
 
-        protected override void OnPointerEntered(PointerEventArgs e)
+        /// <summary>
+        /// Hover and lean, decided by <see cref="DeckGrid"/> and given in this
+        /// card's own coordinates.
+        ///
+        /// The card has no pointer handlers of its own any more: the toolkit
+        /// delivers them to the wrong card, so a card that listened lit up
+        /// under a pointer that was over its neighbour.
+        /// </summary>
+        internal void Hover(bool over, Point at)
         {
-            _popTarget = 1.03;
-            InvalidateVisual();
-            base.OnPointerEntered(e);
-        }
-
-        protected override void OnPointerExited(PointerEventArgs e)
-        {
-            _popTarget = 1;
-            _tiltTarget = 0;
-            _tiltXTarget = 0;
-            InvalidateVisual();
-            base.OnPointerExited(e);
-        }
-
-        protected override void OnPointerMoved(PointerEventArgs e)
-        {
-            if (_tap.Down && _tap.Moved(e, this))
+            _over = over;
+            _popTarget = over || (IsFocused && Deck.KeyboardDriving) ? 1.03 : 1;
+            if (over && Bounds.Width > 0 && Bounds.Height > 0)
             {
-                InvalidateVisual();
-            }
-            if (IsPointerOver && Bounds.Width > 0 && Bounds.Height > 0)
-            {
-                Point at = e.GetPosition(this);
                 double halfW = Bounds.Width / 2, halfH = Bounds.Height / 2;
                 _tiltTarget = Math.Clamp((at.X - halfW) / halfW, -1, 1) * MaxTilt;
                 _tiltXTarget = -Math.Clamp((at.Y - halfH) / halfH, -1, 1) * MaxTilt;
-                InvalidateVisual();
             }
-            base.OnPointerMoved(e);
-        }
-
-        protected override void OnPointerPressed(PointerPressedEventArgs e)
-        {
-            TopLevel? top = TopLevel.GetTopLevel(this);
-            if (top != null)
+            else
             {
-                Point at = e.GetPosition(top);
-                Point local = e.GetPosition(this);
-                Point origin = this.TranslatePoint(new Point(0, 0), top) ?? default;
-                Point far = this.TranslatePoint(
-                    new Point(Bounds.Width, Bounds.Height), top) ?? origin;
-                Mods.DebugLog.Line("ui", $"tile \"{RoomKey}\" pressed at "
-                    + $"({at.X:0},{at.Y:0}), local ({local.X:0},{local.Y:0}) "
-                    + $"of {Bounds.Width:0}x{Bounds.Height:0}, its box is "
-                    + $"({origin.X:0},{origin.Y:0})-({far.X:0},{far.Y:0})");
-                // Which tile's own box really holds that point, asked of the
-                // same rectangles the draw uses.
-                IInputElement? asked = top.InputHitTest(at);
-                Mods.DebugLog.Line("ui", $"   InputHitTest says "
-                    + $"{(asked as DeckTile)?.RoomKey ?? asked?.GetType().Name ?? "nothing"}");
-                if (Parent is Panel siblings)
-                {
-                    foreach (Control child in siblings.Children)
-                    {
-                        if (child is not DeckTile other)
-                        {
-                            continue;
-                        }
-                        Point a = other.TranslatePoint(new Point(0, 0), top) ?? default;
-                        Point b = other.TranslatePoint(
-                            new Point(other.Bounds.Width, other.Bounds.Height), top) ?? a;
-                        if (at.X >= a.X && at.X <= b.X && at.Y >= a.Y && at.Y <= b.Y)
-                        {
-                            Mods.DebugLog.Line("ui", $"   the point is really in "
-                                + $"\"{other.RoomKey}\" ({a.X:0},{a.Y:0})-({b.X:0},{b.Y:0})");
-                        }
-                    }
-                }
+                _tiltTarget = 0;
+                _tiltXTarget = 0;
             }
-            _tap.Press(e, this);
-            Focus();
-            e.Pointer.Capture(this);
-            e.Handled = true;
             InvalidateVisual();
-            base.OnPointerPressed(e);
         }
 
-        protected override void OnPointerReleased(PointerReleasedEventArgs e)
-        {
-            bool tapped = _tap.Release(e, this);
-            InvalidateVisual();
-            if (tapped)
-            {
-                e.Handled = true;
-                Click?.Invoke(this, EventArgs.Empty);
-            }
-            base.OnPointerReleased(e);
-        }
-
-        protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
-        {
-            _tap.Cancel();
-            _popTarget = 1;
-            _tiltTarget = 0;
-            _tiltXTarget = 0;
-            InvalidateVisual();
-            base.OnPointerCaptureLost(e);
-        }
+        /// <summary>The grid decided this card was tapped.</summary>
+        internal void Fire() => Click?.Invoke(this, EventArgs.Empty);
 
         protected override void OnKeyDown(KeyEventArgs e)
         {
@@ -249,7 +183,7 @@ namespace MphRead.Mods.Launcher.Gui
 
         protected override void OnLostFocus(FocusChangedEventArgs e)
         {
-            if (!IsPointerOver)
+            if (!_over)
             {
                 _popTarget = 1;
             }
@@ -319,7 +253,7 @@ namespace MphRead.Mods.Launcher.Gui
             }
             double em = Em;
             double radius = em * 0.55;
-            bool hot = IsPointerOver || (IsFocused && Deck.KeyboardDriving);
+            bool hot = _over || (IsFocused && Deck.KeyboardDriving);
 
             using (context.PushTransform(
                 Avalonia.Matrix.CreateTranslation(-w / 2, -h / 2)
@@ -723,7 +657,7 @@ namespace MphRead.Mods.Launcher.Gui
                 var slab = new Rect(pad, wordY, Math.Max(0, w - pad * 2), wordH);
                 Deck.Face faceColour = _chosen ? Deck.Face.Brass : Deck.Face.Moss;
                 Color fill = faceColour.Fill, lipColour = faceColour.Lip;
-                if (IsPointerOver)
+                if (_over)
                 {
                     fill = DeckPaint.Saturate(DeckPaint.Brightness(fill, 1.22), 1.15);
                     lipColour = DeckPaint.Saturate(DeckPaint.Brightness(lipColour, 1.22), 1.15);
@@ -764,6 +698,133 @@ namespace MphRead.Mods.Launcher.Gui
     {
         /// <summary>`@container (max-width: 640px)` -- and the container is the frame.</summary>
         private const double TwoColumnFrame = 640;
+
+        private readonly Tap _tap = new();
+        private DeckTile? _down;
+        private DeckTile? _over;
+
+        /// <summary>
+        /// The grid resolves its own pointer, against the rectangles it
+        /// arranged the cards into, and the cards have no pointer handlers of
+        /// their own.
+        ///
+        /// The toolkit hit-tests a card against <i>what it drew</i>, not
+        /// against its rectangle -- and a card draws three shadows, one of
+        /// them a 26-point blur, well outside its own box. So neighbouring
+        /// cards overlap by tens of points and the one drawn later wins,
+        /// which means a press near a card's edge picks the next one along.
+        /// Measured on the offline grid, in the grid's own units, one row of
+        /// press points across three columns:
+        ///
+        /// <code>
+        ///                        column 1 ends   column 2 ends
+        ///   the rectangles            208             415
+        ///   the toolkit               155             380
+        /// </code>
+        ///
+        /// 480 of 1470 swept points -- 33% -- landed on the wrong card, and
+        /// the gaps between rows answered a card at all. It is not Android's:
+        /// those numbers are the desktop's, which is why the offline grid
+        /// picked the wrong map there too and why fixing the results ballot
+        /// alone fixed neither.
+        ///
+        /// Clipping the cards would fix the hit test and take the shadows
+        /// with it, so the rectangles are consulted instead and the picture
+        /// is left alone.
+        ///
+        /// In the tunnel, so the card the toolkit chose never sees it. On the
+        /// release rather than the press, because acting on the press is what
+        /// CLAUDE.md records as having made scrolling the settings on a phone
+        /// toggle every row a drag passed over: the press records, the release
+        /// decides, and the release must land on the same card. Nothing is
+        /// captured and nothing is marked handled before the release -- a card
+        /// holding the pointer is what stopped the ballot being scrolled by
+        /// dragging it, and the scroll gesture lives above this in the same
+        /// route.
+        /// </summary>
+        public DeckGrid()
+        {
+            AddHandler(PointerPressedEvent, Pressed, RoutingStrategies.Tunnel);
+            AddHandler(PointerMovedEvent, Moved, RoutingStrategies.Tunnel);
+            AddHandler(PointerReleasedEvent, Released, RoutingStrategies.Tunnel);
+        }
+
+        /// <summary>The card whose own rectangle holds that point, or none.</summary>
+        private DeckTile? TileAt(Point at)
+        {
+            foreach (Control child in Children)
+            {
+                if (child is DeckTile tile && tile.Bounds.Contains(at))
+                {
+                    return tile;
+                }
+            }
+            return null;
+        }
+
+        private void Hover(DeckTile? tile, Point at)
+        {
+            if (!ReferenceEquals(_over, tile))
+            {
+                _over?.Hover(false, default);
+                _over = tile;
+            }
+            tile?.Hover(true, at - tile.Bounds.Position);
+        }
+
+        private void Pressed(object? sender, PointerPressedEventArgs e)
+        {
+            Point at = e.GetPosition(this);
+            _down = TileAt(at);
+            Hover(_down, at);
+            if (_down != null)
+            {
+                _tap.Press(e, this);
+                _down.Focus();
+            }
+        }
+
+        private void Moved(object? sender, PointerEventArgs e)
+        {
+            Point at = e.GetPosition(this);
+            Hover(TileAt(at), at);
+            if (_tap.Down)
+            {
+                _tap.Moved(e, this);
+            }
+        }
+
+        private void Released(object? sender, PointerReleasedEventArgs e)
+        {
+            DeckTile? tile = _down;
+            _down = null;
+            bool tapped = _tap.Release(e, this);
+            if (tile == null)
+            {
+                return;
+            }
+            // Ours either way: the card the toolkit would have sent this to is
+            // not the one under the pointer, so letting it through picks the
+            // wrong map.
+            e.Handled = true;
+            if (tapped && TileAt(e.GetPosition(this)) == tile)
+            {
+                tile.Fire();
+            }
+        }
+
+        protected override void OnPointerExited(PointerEventArgs e)
+        {
+            Hover(null, default);
+            base.OnPointerExited(e);
+        }
+
+        protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+        {
+            _tap.Cancel();
+            _down = null;
+            base.OnPointerCaptureLost(e);
+        }
 
         /// <summary>
         /// Fixed number of columns, or zero for the container query below.
@@ -806,13 +867,8 @@ namespace MphRead.Mods.Launcher.Gui
                 child.Measure(slot);
             }
             int rows = (Children.Count + columns - 1) / columns;
-            _measuredWidth = width;
-            _measuredCell = cell;
             return new Size(width, rows * high + Math.Max(0, rows - 1) * gap);
         }
-
-        private double _measuredWidth;
-        private double _measuredCell;
 
         protected override Size ArrangeOverride(Size finalSize)
         {
@@ -820,12 +876,6 @@ namespace MphRead.Mods.Launcher.Gui
             double gap = Gap;
             double cell = Math.Max(1, (finalSize.Width - gap * (columns - 1)) / columns);
             double high = Math.Round(cell / Math.Max(0.1, Ratio));
-            if (Math.Abs(_measuredCell - cell) > 0.5)
-            {
-                Mods.DebugLog.Line("ui", $"ballot measured at {_measuredWidth:0.#} "
-                    + $"(cell {_measuredCell:0.#}) and arranged at {finalSize.Width:0.#} "
-                    + $"(cell {cell:0.#}, row pitch {high + gap:0.#})");
-            }
             for (int i = 0; i < Children.Count; i++)
             {
                 int row = i / columns, column = i % columns;

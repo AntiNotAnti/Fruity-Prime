@@ -52,8 +52,6 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly ChoiceRow _hunter;
         private readonly ChoiceRow _suit;
         private readonly DeckButton _ready;
-        private readonly Tap _ballotTap = new();
-        private DeckTile? _ballotDown;
         private readonly Note _count = new("");
 
         /// <summary>What the ballot face says before the server has sent one.</summary>
@@ -85,18 +83,6 @@ namespace MphRead.Mods.Launcher.Gui
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto
             };
-            // The ballot resolves its own presses, from the rectangles the
-            // draw uses. In this top level -- ours, composited into the game's
-            // frame -- InputHitTest answers with a tile the point is outside:
-            // measured at one row and one column off, against boxes that match
-            // the picture on screen to the pixel. Taken in the tunnel so the
-            // tile it would have gone to never sees it.
-            _ballot.AddHandler(PointerPressedEvent, BallotPressed,
-                RoutingStrategies.Tunnel);
-            _ballot.AddHandler(PointerMovedEvent, BallotMoved,
-                RoutingStrategies.Tunnel);
-            _ballot.AddHandler(PointerReleasedEvent, BallotReleased,
-                RoutingStrategies.Tunnel);
 
             _stand = new HunterStand
             {
@@ -240,57 +226,9 @@ namespace MphRead.Mods.Launcher.Gui
         /// something. So this pulls rather than pushing, and the only writes
         /// are the three in <see cref="Commit"/>.
         /// </summary>
-        private void BallotPressed(object? sender, PointerPressedEventArgs e)
-        {
-            _ballotDown = TileAt(e.GetPosition(_ballot));
-            if (_ballotDown != null)
-            {
-                _ballotTap.Press(e, _ballot);
-            }
-        }
-
-        private void BallotMoved(object? sender, PointerEventArgs e)
-        {
-            if (_ballotTap.Down)
-            {
-                _ballotTap.Moved(e, _ballot);
-            }
-        }
-
-        private void BallotReleased(object? sender, PointerReleasedEventArgs e)
-        {
-            DeckTile? tile = _ballotDown;
-            _ballotDown = null;
-            bool tapped = _ballotTap.Release(e, _ballot);
-            if (tile == null)
-            {
-                return;
-            }
-            // Ours either way: the tile the toolkit would have sent this to is
-            // not the one under the finger, so letting it bubble votes for the
-            // wrong map.
-            e.Handled = true;
-            if (tapped && TileAt(e.GetPosition(_ballot)) == tile)
-            {
-                MapPick.Choose(MapPick.IndexOf(tile.RoomKey));
-                Refresh();
-            }
-        }
-
-        private DeckTile? TileAt(Point at)
-        {
-            foreach (Control child in _ballot.Children)
-            {
-                if (child is DeckTile tile && tile.Bounds.Contains(at))
-                {
-                    return tile;
-                }
-            }
-            return null;
-        }
-
         public void Refresh()
-        {            // A copy, because the list is the network thread's: it is rebuilt
+        {
+            // A copy, because the list is the network thread's: it is rebuilt
             // whenever a vote arrives, and enumerating it from here while that
             // happens took the process down with "collection was modified".
             string[] order = System.Linq.Enumerable.ToArray(MapPick.Order);
