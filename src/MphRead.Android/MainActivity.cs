@@ -543,6 +543,11 @@ namespace MphRead.Droid
                 Console.WriteLine("[android] stopping the preview run: a match was asked for");
                 _stopPreviews = true;
             }
+            // Same reason, and it has to happen whether or not a preview run
+            // is going: the launcher's hunter preview holds a scene and a GL
+            // context of its own, and a display list cut in that context is
+            // written onto the *shared* Model the match is about to draw from.
+            AndroidHunterShot.Current?.Retire();
             var input = new AndroidInput();
             _controls.ReleaseEverything();
             // The controls object outlives a match -- it is a field here, not
@@ -558,6 +563,11 @@ namespace MphRead.Droid
             GoImmersive(true);
             _pending = (plan, input);
             _waitingSince = SystemClock.UptimeMillis();
+            if (_endPanelTick == null)
+            {
+                _endPanelTick = TickEndPanel;
+                _content.PostDelayed(_endPanelTick, 100);
+            }
             _lastSize = ContentSize;
             _sizeSettledAt = _waitingSince;
             // Before the wait, not after it. The front screen has just been
@@ -863,6 +873,78 @@ namespace MphRead.Droid
 
         private bool _pauseMenuOpen;
 
+        private MphRead.Mods.Launcher.Gui.EndPanelView? _endPanel;
+        private Action? _endPanelTick;
+
+        /// <summary>
+        /// Put the results panel up while the results are up, and take it down
+        /// after -- the same two questions the desktop asks there (where next,
+        /// and who you are coming back as) with the program's own controls
+        /// rather than with arrows and swatches beside a 32x32 sprite.
+        ///
+        /// Driven from a poll rather than from whatever ends a match, for the
+        /// reason <c>Shell.TickEndPanel</c> gives: the results arrive because
+        /// the *server* said the match is over and there is no one place on
+        /// this machine that hears it. A tenth of a second, not a frame --
+        /// the frame belongs to the GL thread and this is the toolkit's.
+        ///
+        /// Never over the pause menu: Escape during the results is a thing a
+        /// player can still do, and two screens over one match is one too
+        /// many.
+        /// </summary>
+        private void TickEndPanel()
+        {
+            // `_pending` counts as in a match: the poll is started when one is
+            // asked for and the view does not exist until the window has held
+            // still, which is a second or two of ticks that must not stop it.
+            if (!InMatch && _pending == null)
+            {
+                HideEndPanel();
+                _endPanelTick = null;
+                return;
+            }
+            bool want = MphRead.Mods.EndScreen.Available && !_pauseMenuOpen;
+            if (want && _endPanel == null)
+            {
+                AndroidUiSurface? surface = AndroidUiSurface.Ensure();
+                if (surface != null && _gameView != null
+                    && _gameView.Width > 0 && _gameView.Height > 0)
+                {
+                    surface.Resize(_gameView.Width, _gameView.Height);
+                    _endPanel = new MphRead.Mods.Launcher.Gui.EndPanelView();
+                    MphRead.Mods.EndScreen.PanelUp = true;
+                    surface.Show(_endPanel);
+                    _controls.ReleaseEverything();
+                    _overlay?.Invalidate();
+                }
+            }
+            else if (!want && _endPanel != null)
+            {
+                HideEndPanel();
+            }
+            else
+            {
+                _endPanel?.Refresh();
+            }
+            if (_endPanelTick != null)
+            {
+                _content?.PostDelayed(_endPanelTick, 100);
+            }
+        }
+
+        private void HideEndPanel()
+        {
+            if (_endPanel == null)
+            {
+                return;
+            }
+            _endPanel = null;
+            MphRead.Mods.EndScreen.PanelUp = false;
+            AndroidUiSurface.Current?.Hide();
+            _controls.ReleaseEverything();
+            _overlay?.Invalidate();
+        }
+
         /// <summary>
         /// The app's own menu, over a running match: resume, settings, leave,
         /// quit.
@@ -890,6 +972,9 @@ namespace MphRead.Droid
             }
             _pauseMenuOpen = true;
             _controls.ReleaseEverything();
+            // Two screens over one match is one too many, and the pause menu
+            // is the one the player just asked for.
+            HideEndPanel();
             if (_overlay != null)
             {
                 _overlay.Visibility = ViewStates.Gone;
@@ -953,6 +1038,8 @@ namespace MphRead.Droid
             _pending = null;
             _pauseMenuOpen = false;
             HideNotice();
+            HideEndPanel();
+            _endPanelTick = null;
             if (_overlay != null)
             {
                 _content.RemoveView(_overlay);

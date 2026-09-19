@@ -205,6 +205,102 @@ namespace MphRead.Mods.Network
         private static readonly bool[,] _pendingSpent = new bool[Slots, PendingCapacity];
 
         /// <summary>
+        /// The authority frame applied when a verdict settled that entry.
+        /// <b>Counted, never acted on.</b> A verdict and the health for the
+        /// same hit do not travel together, so a verdict is not evidence the
+        /// hit has been paid; dropping the debit on it put the bar back up to
+        /// a health that still predated the shot.
+        /// </summary>
+        private static readonly uint[,] _pendingSettledAt = new uint[Slots, PendingCapacity];
+
+        /// <summary>
+        /// The authority's health for that victim when the prediction was
+        /// filed. If its number has since fallen by at least this hit's
+        /// damage, the authority has taken it off and the bar must not.
+        /// </summary>
+        private static readonly int[,] _pendingAuthorityAt = new int[Slots, PendingCapacity];
+
+        /// <summary>
+        /// Whether that prediction came from a shot that had been in the air.
+        ///
+        /// <b>The authority answers a travelling shot before it lands here.</b>
+        /// It resolves the whole flight inside the frame the trigger was
+        /// pulled (NetUnlagged's catch-up) while this machine's copy is still
+        /// crossing the room, so the victim's published health usually has the
+        /// damage already by the time NoteHit files this. Charging the debit on
+        /// top takes it off twice -- a Missile removing 64 of a hunter's 99 --
+        /// and <see cref="PaidByAuthority"/> cannot catch it, because the drop
+        /// happened before the filing it compares against. Whether it does
+        /// depends on jitter and on how far the shot flew, which is what makes
+        /// it look random. Same threshold and same reasoning as NoteHit's
+        /// lethal hold; a Power Beam or an Imperialist round arrives in about
+        /// a frame and is unaffected.
+        /// </summary>
+        private static readonly bool[,] _pendingTravelled = new bool[Slots, PendingCapacity];
+
+        private static bool SettledAndCarried(int slot, int at)
+        {
+            return _pendingSpent[slot, at]
+                && unchecked((int)(NetSession.AppliedSnapshotFrame - _pendingSettledAt[slot, at])) > 0;
+        }
+
+        /// <summary>
+        /// Whether the authority's number has fallen by at least this hit's
+        /// damage since it was predicted.
+        ///
+        /// <b>Counted, never acted on.</b> The test is per entry and the drop
+        /// it reads is never consumed, so one 32-point hit from somebody else
+        /// satisfies every 6-point prediction outstanding at once -- eighteen
+        /// points released for damage that was not this machine's, and a bar
+        /// that climbs by exactly that. The floor hides it until a respawn
+        /// lifts the floor, which is where it was seen. A release needs
+        /// attribution, and only the snapshot's AttackerSlot carries it --
+        /// which is <see cref="Confirm"/>'s job. <c>_pendingTravelled</c> is
+        /// kept because it is a fact about the shot rather than a reading of
+        /// somebody else's damage.
+        /// </summary>
+        private static bool PaidByAuthority(int slot, int at)
+        {
+            int was = _pendingAuthorityAt[slot, at];
+            return was > 0 && _lastAuthorityHealth[slot] > 0
+                && was - _lastAuthorityHealth[slot] >= _pendingDamage[slot, at];
+        }
+
+        /// <summary>
+        /// Debit that would have been charged to the drawn bar a second time.
+        /// Nothing else here can see it: HealthDisagreed only fires with an
+        /// empty debit, and a double charge is never empty.
+        /// </summary>
+        public static long SettledDebitSamples { get; private set; }
+        public static long SettledDebitPoints { get; private set; }
+
+        /// <summary>
+        /// Hits the authority credited that this machine never predicted, split
+        /// by whether it was moving at the time. Read against
+        /// <see cref="NetDamage.FiredMoving"/>: a share higher than the share
+        /// of shots fired while moving is the local projectile and the
+        /// authority's rewound one parting company because the shooter moved
+        /// between the two resolutions.
+        /// </summary>
+        public static long UnpredictedMoving { get; private set; }
+        public static long UnpredictedStill { get; private set; }
+
+        /// <summary>Whether this machine's own player is moving now.</summary>
+        private static bool MovingNow()
+        {
+            int local = NetHooks.LocalSlot;
+            if (local < 0 || local >= PlayerEntity.Players.Count)
+            {
+                return false;
+            }
+            return PlayerEntity.Players[local].Speed.LengthSquared > 0.0004f;
+        }
+        public static int SettledDebitWorst { get; private set; }
+        public static long PaidDebitSamples { get; private set; }
+        public static long PaidDebitPoints { get; private set; }
+        public static int PaidDebitWorst { get; private set; }
+
+        /// <summary>
         /// Whether that entry is a hit on this machine's own player -- its own
         /// splash, a fall. Kept out of the per-weapon tally for the same
         /// reason <see cref="SelfPredicted"/> is kept out of
@@ -534,6 +630,33 @@ namespace MphRead.Mods.Network
         public static bool DeathEnabled { get; set; } = true;
 
         /// <summary>
+        /// Whether a shot that spent time in the air may decide a death.
+        ///
+        /// <b>Off, and measured off.</b> The double charge that used to draw a
+        /// victim tens of points below the truth is gone -- <c>_pendingTravelled</c>
+        /// -- so the arithmetic behind a lethal decision is now sound, and
+        /// turning this on was tried on that reasoning. It was wrong within
+        /// minutes: against Japan at 255 ms, four Missiles from across the
+        /// room took a victim 99 -> 67 -> 35 -> 3 exactly, debit 0 and the
+        /// drawn bar equal to the authority's, and the fourth was predicted
+        /// lethal on a victim the authority never killed -- it finished the
+        /// match on 3 health with no deaths at all.
+        ///
+        /// The arithmetic was never the whole of it. The authority spawns the
+        /// shot into the world the shooter was looking at and walks it forward
+        /// re-reconciling every frame; this machine flies an ordinary
+        /// projectile across the room against puppets held a few frames behind
+        /// by interpolation. The two flights diverge, and they diverge further
+        /// the longer the shot is in the air -- so the long-range Missile is
+        /// the worst case, not an edge one. No amount of debit accounting
+        /// reaches it.
+        ///
+        /// <c>-traveldeaths</c> turns it on for measuring. Read
+        /// <see cref="DeathsUndone"/> against <see cref="DeathsPredicted"/>.
+        /// </summary>
+        public static bool TravelDeaths { get; set; }
+
+        /// <summary>
         /// How long a projectile may have been in the air and still have its
         /// kill predicted, in seconds.
         ///
@@ -580,6 +703,9 @@ namespace MphRead.Mods.Network
             Array.Clear(_pendingBeam);
             Array.Clear(_pendingClaim);
             Array.Clear(_pendingSpent);
+            Array.Clear(_pendingSettledAt);
+            Array.Clear(_pendingAuthorityAt);
+            Array.Clear(_pendingTravelled);
             Array.Clear(_pendingSelf);
             Array.Clear(_settledCredit);
             Array.Clear(_settledFrame);
@@ -779,12 +905,36 @@ namespace MphRead.Mods.Network
             }
             if (Predicting && Enabled)
             {
+                // What the shot is actually worth, kept before the holds
+                // below rewrite `damage` to leave the victim standing. The
+                // holds are about this machine's picture; a claim is a
+                // statement of fact to the authority, and the authority is
+                // what decides whether that amount kills.
+                uint dealt = damage;
                 // Lethal even at zero damage when the flag says so: a fall
                 // into the void is TakeDamage(0, DamageFlags.Death), and
                 // reading the number alone would file the one death that is
                 // certainly right as a scratch.
                 bool lethal = victim.Health > 0
                     && (damage >= (uint)victim.Health || flags.TestFlag(DamageFlags.Death));
+                // Not on debited health. The bar is the authority's number
+                // less every hit this machine believes in and has not had
+                // confirmed, and with a fast weapon at 250 ms that is three to
+                // six shots in flight -- tens of points, half a life. Deciding
+                // a death on it bets on every one of them landing. Measured:
+                // "drawn health 3, debit 16, authority last said 19", an
+                // 8-damage round predicted lethal on a player the authority
+                // had nowhere near dead. The flinch, the mark and the bar are
+                // unaffected; only the body falling waits for the authority's
+                // own number to allow it.
+                if (lethal && !self && !flags.TestFlag(DamageFlags.Death)
+                    && _lastAuthorityHealth[victim.SlotIndex] > 0
+                    && damage < (uint)_lastAuthorityHealth[victim.SlotIndex])
+                {
+                    damage = (uint)Math.Max(0, victim.Health - 1);
+                    LethalHeld++;
+                    lethal = false;
+                }
                 // Not for a shot that had to cross the room.
                 //
                 // <b>The one thing three rounds of accounting could not
@@ -817,7 +967,7 @@ namespace MphRead.Mods.Network
                 // unaffected, which is the split the complaint arrived in:
                 // kills undone with the Missile and the Magmaul, none with
                 // those two.
-                if (lethal && !self && flight > TravelFlight)
+                if (lethal && !self && !TravelDeaths && flight > TravelFlight)
                 {
                     damage = (uint)Math.Max(0, victim.Health - 1);
                     LethalHeld++;
@@ -890,7 +1040,7 @@ namespace MphRead.Mods.Network
                         Math.Min((int)damage, Math.Max(0, victim.Health));
                 }
                 int at = Push(victim.SlotIndex, NetSession.NetFrame, (int)damage,
-                    lethal, headshot, beam, self);
+                    lethal, headshot, beam, self, flight > TravelFlight);
                 // And tell the authority, which may not find this hit itself:
                 // its rewind has a ceiling, its copy of the trigger pull may
                 // be stale, and if this machine's player is killed during the
@@ -906,7 +1056,13 @@ namespace MphRead.Mods.Network
                 // See _pendingClaim.
                 if (!self && attacker != null)
                 {
-                    ushort claimId = NetHitClaims.Declare(victim, attacker, beam, damage,
+                    // `dealt`, not `damage`: a hold clamps the bar this
+                    // machine draws, and declaring the clamped number had the
+                    // authority rescue a 32-damage Magmaul as 2 whenever its
+                    // own rewind could not find the shot -- which is the one
+                    // case a claim exists for. Seen in the authority's own
+                    // "predicted 2 ... resolved 32" line.
+                    ushort claimId = NetHitClaims.Declare(victim, attacker, beam, dealt,
                         flags, lethal, victim.Position, launchFrame);
                     StampClaim(victim.SlotIndex, at, claimId);
                 }
@@ -1007,6 +1163,20 @@ namespace MphRead.Mods.Network
                 if (rest > 0)
                 {
                     Unpredicted += rest;
+                    // Was this machine moving when the authority credited a
+                    // hit it never predicted? Compare the share against
+                    // FiredMoving/FiredStill: a credit rate higher than the
+                    // firing rate is the local projectile and the authority's
+                    // rewound one disagreeing because the shooter moved
+                    // between them.
+                    if (MovingNow())
+                    {
+                        UnpredictedMoving += rest;
+                    }
+                    else
+                    {
+                        UnpredictedStill += rest;
+                    }
                 }
                 return fromSettled > 0;
             }
@@ -1104,6 +1274,9 @@ namespace MphRead.Mods.Network
                 _pendingBeam[slot, i] = AltBeam;
                 _pendingClaim[slot, i] = 0;
                 _pendingSpent[slot, i] = false;
+                _pendingSettledAt[slot, i] = 0;
+                _pendingAuthorityAt[slot, i] = 0;
+                _pendingTravelled[slot, i] = false;
                 _pendingSelf[slot, i] = false;
             }
             _pendingCount[slot] = 0;
@@ -1259,13 +1432,41 @@ namespace MphRead.Mods.Network
             uint now = NetSession.NetFrame;
             int hold = HoldFrames;
             int debit = 0;
+            int settled = 0;
+            int paid = 0;
             for (int i = 0; i < _pendingCount[slot]; i++)
             {
                 int at = (_pendingHead[slot] + i) % PendingCapacity;
-                if (now - _pendingFrame[slot, at] < (uint)hold)
+                if (now - _pendingFrame[slot, at] >= (uint)hold)
                 {
-                    debit += _pendingDamage[slot, at];
+                    continue;
                 }
+                if (SettledAndCarried(slot, at))
+                {
+                    settled += _pendingDamage[slot, at];
+                }
+                if (PaidByAuthority(slot, at))
+                {
+                    paid += _pendingDamage[slot, at];
+                }
+                if (_pendingTravelled[slot, at])
+                {
+                    paid += _pendingDamage[slot, at];
+                    continue;
+                }
+                debit += _pendingDamage[slot, at];
+            }
+            if (settled > 0)
+            {
+                SettledDebitSamples++;
+                SettledDebitPoints += settled;
+                SettledDebitWorst = Math.Max(SettledDebitWorst, settled);
+            }
+            if (paid > 0)
+            {
+                PaidDebitSamples++;
+                PaidDebitPoints += paid;
+                PaidDebitWorst = Math.Max(PaidDebitWorst, paid);
             }
             return debit;
         }
@@ -1424,7 +1625,9 @@ namespace MphRead.Mods.Network
                 + $"lifted {FloorLifted}; disagreed with nothing outstanding "
                 + $"{HealthDisagreed} -- drawn low by {HealthUnderPoints} point(s) "
                 + $"(worst {HealthUnderWorst}), high by {HealthOverPoints} "
-                + $"(worst {HealthOverWorst})";
+                + $"(worst {HealthOverWorst}); double charges avoided: settled "
+                + $"{SettledDebitSamples}/{SettledDebitPoints}pt/worst {SettledDebitWorst}, "
+                + $"paid {PaidDebitSamples}/{PaidDebitPoints}pt/worst {PaidDebitWorst}";
         }
 
         /// <summary>
@@ -1569,7 +1772,7 @@ namespace MphRead.Mods.Network
         /// declared -- the claim is what retires it exactly later.
         /// </summary>
         private static int Push(int slot, uint frame, int damage, bool lethal,
-            bool headshot, BeamType beam, bool self)
+            bool headshot, BeamType beam, bool self, bool travelled = false)
         {
             if (slot < 0 || slot >= Slots)
             {
@@ -1588,6 +1791,9 @@ namespace MphRead.Mods.Network
             _pendingBeam[slot, tail] = (byte)Bucket(beam);
             _pendingClaim[slot, tail] = 0;
             _pendingSpent[slot, tail] = false;
+            _pendingSettledAt[slot, tail] = 0;
+            _pendingAuthorityAt[slot, tail] = _lastAuthorityHealth[slot];
+            _pendingTravelled[slot, tail] = travelled && !self;
             _pendingSelf[slot, tail] = self;
             _pendingCount[slot]++;
             if (!self)
@@ -1636,6 +1842,9 @@ namespace MphRead.Mods.Network
             }
             _pendingClaim[slot, head] = 0;
             _pendingSpent[slot, head] = false;
+            _pendingSettledAt[slot, head] = 0;
+            _pendingAuthorityAt[slot, head] = 0;
+            _pendingTravelled[slot, head] = false;
             _pendingSelf[slot, head] = false;
             _pendingHead[slot] = (head + 1) % PendingCapacity;
             _pendingCount[slot]--;
@@ -1731,6 +1940,7 @@ namespace MphRead.Mods.Network
                     // retired by the snapshot that actually carries the health
                     // (Confirm, walking the head) or by ageing out of the hold
                     // window, exactly as it was before claims existed.
+                    _pendingSettledAt[slot, at] = NetSession.AppliedSnapshotFrame;
                     return;
                 }
                 // A refusal is different: the prediction is wrong, and the

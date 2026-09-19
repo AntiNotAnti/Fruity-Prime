@@ -277,6 +277,12 @@ namespace MphRead.Mods
                 Console.WriteLine("[net] death prediction off: a client's "
                     + "kills land when the authority says so");
             }
+            if (HasFlag(args, "traveldeaths"))
+            {
+                Network.NetHitPrediction.TravelDeaths = true;
+                Console.WriteLine("[net] a shot that travelled may decide a "
+                    + "death: measure DeathsUndone against DeathsPredicted");
+            }
 
             // A client declaring which of its own shots landed, and the
             // authority arbitrating them. On by default since protocol 7. Off

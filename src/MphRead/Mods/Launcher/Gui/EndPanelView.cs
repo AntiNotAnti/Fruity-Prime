@@ -148,7 +148,13 @@ namespace MphRead.Mods.Launcher.Gui
             var host = new Border
             {
                 Child = card,
-                Width = 340,
+                // Narrower on a phone. It is the same 340 points either way
+                // and the frame is not: a phone lays these screens out in a
+                // box about 830 points across against a desktop's eleven
+                // hundred, so the same panel takes 41% of the width there and
+                // 31% here -- and the difference is exactly the scoreboard's
+                // deaths column, which it must not cover.
+                Width = Deck.Phone ? 285 : 340,
                 HorizontalAlignment = HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Stretch,
                 Margin = new Thickness(0, 14, 14, 14)
@@ -156,6 +162,7 @@ namespace MphRead.Mods.Launcher.Gui
             root.Children.Add(host);
             GuiTheme.PixelPerfect(root);
             Content = root;
+            ShowFace();
             Refresh();
         }
 
@@ -183,6 +190,12 @@ namespace MphRead.Mods.Launcher.Gui
         {
             _ballotScroll.IsVisible = _tabs.Index == 0;
             _hunterPane.IsVisible = _tabs.Index == 1;
+            // The stand as well as the pane it is in. A hidden pane keeps the
+            // bounds its children were last arranged at, and the head that
+            // has the engine draw the real model into the stand's rectangle
+            // reads those bounds -- so on the ballot face the model's own
+            // dark ground was painted over the scoreboard's deaths column.
+            _stand.IsVisible = _tabs.Index == 1;
             _empty.IsVisible = _tabs.Index == 0 && MapPick.Order.Count == 0;
         }
 
@@ -213,7 +226,10 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         public void Refresh()
         {
-            IReadOnlyList<string> order = MapPick.Order;
+            // A copy, because the list is the network thread's: it is rebuilt
+            // whenever a vote arrives, and enumerating it from here while that
+            // happens took the process down with "collection was modified".
+            string[] order = System.Linq.Enumerable.ToArray(MapPick.Order);
             string key = String.Join('|', order);
             if (key != _order)
             {
@@ -238,7 +254,7 @@ namespace MphRead.Mods.Launcher.Gui
                     _ballot.Children.Add(tile);
                 }
             }
-            _empty.IsVisible = order.Count == 0 && _tabs.Index == 0;
+            _empty.IsVisible = order.Length == 0 && _tabs.Index == 0;
             int best = 0;
             foreach (string room in order)
             {

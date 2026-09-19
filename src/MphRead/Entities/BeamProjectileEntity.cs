@@ -1746,6 +1746,16 @@ namespace MphRead.Entities
                 }
                 beam.Velocity = velocity;
                 beam.Acceleration = acceleration;
+                // A beam comes off a free list and keeps whatever transform the
+                // last one left on it until the draw pass computes a new one.
+                // Only draw functions 3 and 17 set one here, so every other
+                // weapon draws its first frame at its predecessor's position --
+                // and across a death that predecessor belongs to the previous
+                // life, which is the "phantom shots from where I died".
+                // Harmless for 17, which overwrites this with the same thing.
+                Matrix4 spawnTransform = GetTransformMatrix(beam.Direction, beam.Up);
+                spawnTransform.Row3.Xyz = position;
+                beam.Transform = spawnTransform;
                 if (beam.DrawFuncId == 3)
                 {
                     beam.Flags |= BeamFlags.HasModel;

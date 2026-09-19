@@ -791,6 +791,7 @@ namespace MphRead.Droid
                     return false;
                 }
                 scene.AfterRenderFrame();
+                DrawUi();
                 if (_display != null && _eglSurface != null
                     && !EGL14.EglSwapBuffers(_display, _eglSurface))
                 {
@@ -801,6 +802,64 @@ namespace MphRead.Droid
                     ReleaseSurface();
                 }
                 return true;
+            }
+
+            private byte[] _uiPixels = Array.Empty<byte>();
+            private int _uiVersion;
+
+            /// <summary>
+            /// The launcher's own picture, over the finished frame -- which on
+            /// this head is the results panel and nothing else.
+            ///
+            /// The desktop does the same thing in the same place (see
+            /// RenderWindow.OnRenderFrame and Mods/Render/UiOverlay.cs). The
+            /// frame is rendered by Skia on the UI thread and comes across as
+            /// pixels; an unchanged version means the texture already on the
+            /// card is still the right one, which is most frames.
+            /// </summary>
+            private void DrawUi()
+            {
+                AndroidUiSurface? surface = AndroidUiSurface.Current;
+                if (surface == null || !surface.Visible)
+                {
+                    AndroidUiOverlay.Visible = false;
+                    MphRead.Scene.LauncherPreview = false;
+                    return;
+                }
+                if (surface.TakeFrame(ref _uiPixels, ref _uiVersion, out int w, out int h))
+                {
+                    AndroidUiOverlay.Upload(_uiPixels, w, h);
+                }
+                AndroidUiOverlay.Visible = true;
+                AndroidUiOverlay.Draw(_size.X, _size.Y);
+                // The real hunter, *over* the screens rather than under them:
+                // the panel it stands in is opaque, so under is behind a card.
+                // The stand draws nothing where it goes (see HunterStand) and
+                // this fills that rectangle afterwards. Same order, same
+                // reason and the same call as the desktop's LauncherHunter.
+                if (MphRead.Mods.Render.HunterShot.HoleWanted && Scene != null)
+                {
+                    MphRead.Scene.LauncherPreview = true;
+                    MphRead.Scene.LauncherHunter = MphRead.Mods.Render.HunterShot.HoleHunter;
+                    MphRead.Scene.LauncherSuit = MphRead.Mods.Render.HunterShot.HoleSuit;
+                    MphRead.Scene.PreviewWanted = true;
+                    MphRead.Scene.PreviewLeft = MphRead.Mods.Render.HunterShot.HoleLeft;
+                    MphRead.Scene.PreviewTop = MphRead.Mods.Render.HunterShot.HoleTop;
+                    MphRead.Scene.PreviewRight = MphRead.Mods.Render.HunterShot.HoleRight;
+                    MphRead.Scene.PreviewBottom = MphRead.Mods.Render.HunterShot.HoleBottom;
+                    Scene.ModDrawPreviewAlone(_size);
+                }
+                else
+                {
+                    // The results HUD publishes a preview slot of its own and
+                    // is stepped whether or not it is drawn, so saying "not
+                    // this frame" has to be said to *both* of them or the
+                    // model turns up in the HUD's rectangle, over the
+                    // scoreboard, on a face of the panel that has no hunter on
+                    // it.
+                    MphRead.Scene.LauncherPreview = false;
+                    MphRead.Scene.PreviewWanted = false;
+                }
             }
 
             /// <summary>

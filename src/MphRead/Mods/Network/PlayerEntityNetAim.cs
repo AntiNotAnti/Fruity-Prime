@@ -25,6 +25,9 @@ namespace MphRead.Entities
         private readonly uint[] _networkPositionFrames = new uint[NetworkHistoryLength];
         private int _networkPositionHistoryCount;
 
+        /// <summary>Where this player's next beam will be born. Diagnostics only.</summary>
+        internal OpenTK.Mathematics.Vector3 ModMuzzlePos => _muzzlePos;
+
         internal void ModRecordNetworkPosition(uint frame)
         {
             int count = Math.Min(_networkPositionHistoryCount, NetworkHistoryLength - 1);
@@ -59,7 +62,8 @@ namespace MphRead.Entities
         internal void ModRefreshNetworkAim()
         {
             if (NetSession.Active && SlotIndex != NetHooks.LocalSlot
-                && NetSession.RemoteIntentValid[SlotIndex])
+                && NetSession.RemoteIntentValid[SlotIndex]
+                && NetPlayerBridge.AimTrusted(SlotIndex))
             {
                 ModSetAim(NetSession.RemoteIntents[SlotIndex].Aim);
             }
@@ -1380,7 +1384,8 @@ namespace MphRead.Entities
                 }
                 return;
             }
-            if (!NetSession.RemoteIntentValid[SlotIndex])
+            if (!NetSession.RemoteIntentValid[SlotIndex]
+                || !NetPlayerBridge.AimTrusted(SlotIndex))
             {
                 return;
             }

@@ -729,6 +729,7 @@ namespace MphRead.Entities
         public void Spawn(Vector3 pos, Vector3 facing, Vector3 up, NodeRef nodeRef, bool respawn)
         {
             Mods.Network.NetSession.ContinuousPhase.ResetSlot(SlotIndex);
+            Mods.Network.NetPlayerBridge.NoteSpawn(SlotIndex);
             // Before anything below reads Hunter: a player who asked to come
             // back as somebody else is changed here, so that the abilities,
             // the energy tank and the HUD this call sets up are the new
