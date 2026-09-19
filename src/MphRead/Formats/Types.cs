@@ -50,6 +50,12 @@ namespace MphRead
         public BillboardMode BillboardMode { get; set; }
         public bool Wireframe { get; set; }
         public bool Lighting { get; set; }
+        /// <summary>
+        /// True for camera-attached first-person geometry. These meshes share
+        /// the world's depth buffer but use the camera's unmodified projection
+        /// so a wide world FOV cannot stretch the arm cannon.
+        /// </summary>
+        public bool ViewModel { get; set; }
         public bool NoLines { get; set; }
         public Vector3 Diffuse { get; set; }
         public Vector3 Ambient { get; set; }

@@ -1416,85 +1416,102 @@ namespace MphRead.Entities
             }
             else
             {
-                // hiding during dialog pause due to overlap with "bottom screen" elements
-                // (which causes one frame of flicker when the escape starts)
-                if (GameState.SinglePlayer && !GameState.DialogPause)
+                // The cartridge HUD was authored around the DS camera. Keep its
+                // visor/readouts visually coupled to a wider world view, but do
+                // not scale Pro HUD, menus, chat, dialogs or scoreboards.
+                float previousHudScale = _scene.PushHudScale(
+                    Features.ProHud || ScanVisor ? 1f : Mods.RenderOptions.HudFovScale);
+                try
                 {
-                    DrawEscapeTime();
+                    // hiding during dialog pause due to overlap with "bottom screen" elements
+                    // (which causes one frame of flicker when the escape starts)
+                    if (GameState.SinglePlayer && !GameState.DialogPause)
+                    {
+                        DrawEscapeTime();
+                    }
+                    if (Health > 0)
+                    {
+                        if (!GameState.DialogPause)
+                        {
+                            if (IsAltForm || IsMorphing || IsUnmorphing)
+                            {
+                                DrawBoostBombs();
+                            }
+                            else if (!ScanVisor)
+                            {
+                                // The ammo meter and the weapon icon beside it are
+                                // both drawn into the helmet's moulding, so Pro
+                                // mode -- which has no helmet -- draws neither.
+                                // What it puts in their place is in DrawProHud.
+                                if (!Features.ProHud)
+                                {
+                                    DrawAmmoBar();
+                                    _weaponIconInst.PositionX = (_hudObjects.WeaponIconPosX + _objShiftX) / 256f;
+                                    _weaponIconInst.PositionY = (_hudObjects.WeaponIconPosY + _objShiftY) / 192f;
+                                    _weaponIconInst.Alpha = Features.HudOpacity;
+                                    _scene.DrawHudObject(_weaponIconInst);
+                                }
+                                // Crosshair size is a separate aiming preference,
+                                // not part of the helmet/readout scale.
+                                float reticleScale = _scene.PushHudScale(1f);
+                                try
+                                {
+                                    // Wherever UpdateReticle put it: dead centre under
+                                    // a static weapon, and the reprojected aim point
+                                    // under a dynamic one.
+                                    float reticleX = _targetCircleInst.PositionX;
+                                    float reticleY = _targetCircleInst.PositionY;
+                                    if (Features.CustomCrosshair)
+                                    {
+                                        _scene.DrawCustomCrosshair(GetCrosshairColor(), reticleX, reticleY);
+                                    }
+                                    else
+                                    {
+                                        _targetCircleInst.Alpha = Features.ReticleOpacity;
+                                        _scene.DrawHudObject(_targetCircleInst);
+                                    }
+                                    float hitMarker = Mods.Network.NetHitPrediction.MarkerAlpha;
+                                    if (hitMarker > 0)
+                                    {
+                                        _scene.DrawHitMarker(new Vector4(1f, 1f, 1f, hitMarker),
+                                            reticleX, reticleY);
+                                    }
+                                }
+                                finally
+                                {
+                                    _scene.RestoreHudScale(reticleScale);
+                                }
+                                if (Features.ModernHud)
+                                {
+                                    DrawWeaponList();
+                                }
+                            }
+                            DrawModeHud();
+                            DrawDoubleDamageHud();
+                            DrawCloakHud();
+                        }
+                        // todo: once we have masking that can account for various things (in this case, not drawing the scan lines
+                        // on top of the layer for the scan log title box), call DrawModeHud when dialog pause is active
+                        if (Features.ProHud)
+                        {
+                            if (!ScanVisor)
+                            {
+                                DrawProHud();
+                            }
+                        }
+                        else if (!GameState.DialogPause || DialogType != DialogType.Event
+                            && (Hunter == Hunter.Samus || Hunter == Hunter.Guardian))
+                        {
+                            DrawHealthbars();
+                        }
+                    }
                 }
-                if (Health > 0)
+                finally
                 {
-                    if (!GameState.DialogPause)
-                    {
-                        if (IsAltForm || IsMorphing || IsUnmorphing)
-                        {
-                            DrawBoostBombs();
-                        }
-                        else if (!ScanVisor)
-                        {
-                            // The ammo meter and the weapon icon beside it are
-                            // both drawn into the helmet's moulding, so Pro
-                            // mode -- which has no helmet -- draws neither.
-                            // What it puts in their place is in DrawProHud.
-                            if (!Features.ProHud)
-                            {
-                                DrawAmmoBar();
-                                _weaponIconInst.PositionX = (_hudObjects.WeaponIconPosX + _objShiftX) / 256f;
-                                _weaponIconInst.PositionY = (_hudObjects.WeaponIconPosY + _objShiftY) / 192f;
-                                _weaponIconInst.Alpha = Features.HudOpacity;
-                                _scene.DrawHudObject(_weaponIconInst);
-                            }
-                            // Wherever UpdateReticle put it: dead centre under
-                            // a static weapon, and the reprojected aim point
-                            // under a dynamic one. The flat crosshair used to
-                            // be drawn at the middle of the screen whatever
-                            // the reticle was doing, which is why Pro mode
-                            // looked like Quake even after the Weapon row was
-                            // set to Dynamic.
-                            float reticleX = _targetCircleInst.PositionX;
-                            float reticleY = _targetCircleInst.PositionY;
-                            if (Features.CustomCrosshair)
-                            {
-                                _scene.DrawCustomCrosshair(GetCrosshairColor(), reticleX, reticleY);
-                            }
-                            else
-                            {
-                                _targetCircleInst.Alpha = Features.ReticleOpacity;
-                                _scene.DrawHudObject(_targetCircleInst);
-                            }
-                            // Over whichever of the two is drawn: the mark is
-                            // the answer to "did that land", and that question
-                            // does not depend on which reticle a player picked.
-                            float hitMarker = Mods.Network.NetHitPrediction.MarkerAlpha;
-                            if (hitMarker > 0)
-                            {
-                                _scene.DrawHitMarker(new Vector4(1f, 1f, 1f, hitMarker),
-                                    reticleX, reticleY);
-                            }
-                            if (Features.ModernHud)
-                            {
-                                DrawWeaponList();
-                            }
-                        }
-                        DrawModeHud();
-                        DrawDoubleDamageHud();
-                        DrawCloakHud();
-                    }
-                    // todo: once we have masking that can account for various things (in this case, not drawing the scan lines
-                    // on top of the layer for the scan log title box), call DrawModeHud when dialog pause is active
-                    if (Features.ProHud)
-                    {
-                        if (!ScanVisor)
-                        {
-                            DrawProHud();
-                        }
-                    }
-                    else if (!GameState.DialogPause || DialogType != DialogType.Event
-                        && (Hunter == Hunter.Samus || Hunter == Hunter.Guardian))
-                    {
-                        DrawHealthbars();
-                    }
+                    _scene.RestoreHudScale(previousHudScale);
                 }
+                // Message/dialog surfaces are interface chrome rather than
+                // visor geometry and stay at their authored screen size.
                 DrawQueuedHudMessages();
                 DrawDialogs();
             }

@@ -180,17 +180,29 @@ namespace MphRead.Entities
                 }
                 else if (AttachedEnemy == null && !_field6D0 && Hunter != Hunter.Guardian)
                 {
-                    Matrix4 transform = GetTransformMatrix(_aimVec, _upVector, _gunDrawPos);
-                    UpdateTransforms(_gunModel, transform, Recolor);
-                    GetDrawItems(_gunModel, _gunModel.Model.Nodes[0], _curAlpha);
-                    if (Flags1.TestFlag(PlayerFlags1.DrawGunSmoke))
+                    // The arm cannon is camera-attached viewmodel geometry, not
+                    // part of the room. Mark everything emitted here so the
+                    // renderer can use the camera-authored FOV instead of the
+                    // player's widened world FOV. Keeping the same render-item
+                    // path preserves materials, depth, transparency and cel ink.
+                    _scene.BeginViewModelItems();
+                    try
                     {
-                        // todo?: the game uses an alternate projection matrix to draw this
-                        var drawPos = new Vector3(0, 0, Fixed.ToFloat(Values.MuzzleOffset));
-                        drawPos = Matrix.Vec3MultMtx4(drawPos, transform);
-                        transform.Row3.Xyz = drawPos;
-                        UpdateTransforms(_gunSmokeModel, transform, recolor: 0);
-                        GetDrawItems(_gunSmokeModel, _gunSmokeModel.Model.Nodes[0], _smokeAlpha, recolor: 0);
+                        Matrix4 transform = GetTransformMatrix(_aimVec, _upVector, _gunDrawPos);
+                        UpdateTransforms(_gunModel, transform, Recolor);
+                        GetDrawItems(_gunModel, _gunModel.Model.Nodes[0], _curAlpha);
+                        if (Flags1.TestFlag(PlayerFlags1.DrawGunSmoke))
+                        {
+                            var drawPos = new Vector3(0, 0, Fixed.ToFloat(Values.MuzzleOffset));
+                            drawPos = Matrix.Vec3MultMtx4(drawPos, transform);
+                            transform.Row3.Xyz = drawPos;
+                            UpdateTransforms(_gunSmokeModel, transform, recolor: 0);
+                            GetDrawItems(_gunSmokeModel, _gunSmokeModel.Model.Nodes[0], _smokeAlpha, recolor: 0);
+                        }
+                    }
+                    finally
+                    {
+                        _scene.EndViewModelItems();
                     }
                 }
             }
