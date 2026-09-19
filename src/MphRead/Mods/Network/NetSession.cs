@@ -1560,11 +1560,15 @@ namespace MphRead.Mods.Network
             SnapshotHeader header = SnapshotHeader.Read(payload);
             int timeOffset = SnapshotHeader.Size + header.PlayerCount * PlayerState.Size;
             int healthOffset = timeOffset + NetMatchTimeSync.Size;
+            // The snapshot header owns stream identity. Check it before
+            // validating stream-specific tails so an old match/authority is
+            // rejected for the right lifecycle reason and cannot hide behind
+            // a secondary health-tail mismatch.
             if (header.PlayerCount > PlayerEntity.SlotCapacity || healthOffset > payload.Length
-                || !NetMatchTimeSync.Validate(payload.Slice(timeOffset, NetMatchTimeSync.Size))
-                || !NetHealthSync.Validate(payload[healthOffset..])
-                || !NetHealthSync.IsCurrentMatch(payload[healthOffset..])
                 || !MatchesStream(header.MatchId, header.AuthorityEpoch)) return;
+            if (!NetMatchTimeSync.Validate(payload.Slice(timeOffset, NetMatchTimeSync.Size))
+                || !NetHealthSync.Validate(payload[healthOffset..])
+                || !NetHealthSync.IsCurrentMatch(payload[healthOffset..])) return;
             int occupied = 0;
             for (int i = 0; i < header.PlayerCount; i++)
             {
