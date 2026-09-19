@@ -1,3 +1,4 @@
+using MphRead.Mods.Multiplayer;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -728,6 +729,8 @@ namespace MphRead.Entities
 
         public void Spawn(Vector3 pos, Vector3 facing, Vector3 up, NodeRef nodeRef, bool respawn)
         {
+            if (!Mods.Network.NetPlayerLifecycle.CanSpawn) return;
+            Mods.Network.NetPlayerLifecycle.OnSpawn(this);
             Mods.Network.NetSession.ContinuousPhase.ResetSlot(SlotIndex);
             Mods.Network.NetPlayerBridge.NoteSpawn(SlotIndex);
             // Before anything below reads Hunter: a player who asked to come
@@ -1705,6 +1708,7 @@ namespace MphRead.Entities
 
         public void TakeDamage(uint damage, DamageFlags flags, Vector3? direction, EntityBase? source)
         {
+            using var predictedScores = new Mods.Network.NetDamage.PredictionScoreScope(Mods.Network.NetHitPrediction.Predicting);
             if (Mods.Network.NetDamage.Suppress(this, source, flags))
             {
                 return;
@@ -1792,7 +1796,7 @@ namespace MphRead.Entities
             }
             bool ignoreDamage = false;
             if (GameState.SinglePlayer && IsBot && attacker == this || GameState.Teams && !GameState.FriendlyFire
-                && attacker != null && attacker != this && attacker.TeamIndex == TeamIndex)
+                && attacker != null && attacker != this && TeamRules.AreAllies(attacker.TeamIndex, TeamIndex))
             {
                 ignoreDamage = true;
                 damage = 0;
@@ -1881,7 +1885,7 @@ namespace MphRead.Entities
             // *this* player is not -- a fall into the void or a rocket jump at
             // low health kills on the frame it happens.
             // Mods.Network.NetHitPrediction.
-            Mods.Network.NetHitPrediction.NoteHit(this, attacker, flags, ref damage,
+            Mods.Network.NetHitPrediction.NoteHit(this, attacker, ref flags, ref damage,
                 beam?.Beam ?? BeamType.None, beam?.ModLaunchFrame ?? 0, beam?.Age ?? 0);
             bool dead = false;
             if (IsBot && GameState.SinglePlayer && AiData.Flags1 && _health <= AiData.HealthThreshold)
@@ -2284,7 +2288,7 @@ namespace MphRead.Entities
                         }
                         else
                         {
-                            if (attacker.TeamIndex == TeamIndex)
+                            if (TeamRules.AreAllies(attacker.TeamIndex, TeamIndex))
                             {
                                 GameState.FriendlyKills[attacker.SlotIndex]++;
                                 GameState.KillStreak[attacker.SlotIndex] = 0;

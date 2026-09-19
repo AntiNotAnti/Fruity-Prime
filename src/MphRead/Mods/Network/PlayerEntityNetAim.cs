@@ -28,6 +28,8 @@ namespace MphRead.Entities
         /// <summary>Where this player's next beam will be born. Diagnostics only.</summary>
         internal OpenTK.Mathematics.Vector3 ModMuzzlePos => _muzzlePos;
 
+        internal void ModResetNetworkHistory() => _networkPositionHistoryCount = 0;
+
         internal void ModRecordNetworkPosition(uint frame)
         {
             int count = Math.Min(_networkPositionHistoryCount, NetworkHistoryLength - 1);
@@ -1324,7 +1326,7 @@ namespace MphRead.Entities
         /// </summary>
         internal void ModNetDie()
         {
-            TakeDamage(1, DamageFlags.Death | DamageFlags.NoDmgInvuln, null, null);
+            NetDamage.ReplayDeath(this);
         }
 
         /// <summary>

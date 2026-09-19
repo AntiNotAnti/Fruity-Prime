@@ -204,101 +204,11 @@ namespace MphRead.Mods.Network
         /// </summary>
         private static readonly bool[,] _pendingSpent = new bool[Slots, PendingCapacity];
 
-        /// <summary>
-        /// The authority frame applied when a verdict settled that entry.
-        /// <b>Counted, never acted on.</b> A verdict and the health for the
-        /// same hit do not travel together, so a verdict is not evidence the
-        /// hit has been paid; dropping the debit on it put the bar back up to
-        /// a health that still predated the shot.
-        /// </summary>
-        private static readonly uint[,] _pendingSettledAt = new uint[Slots, PendingCapacity];
-
-        /// <summary>
-        /// The authority's health for that victim when the prediction was
-        /// filed. If its number has since fallen by at least this hit's
-        /// damage, the authority has taken it off and the bar must not.
-        /// </summary>
-        private static readonly int[,] _pendingAuthorityAt = new int[Slots, PendingCapacity];
-
-        /// <summary>
-        /// Whether that prediction came from a shot that had been in the air.
-        ///
-        /// <b>The authority answers a travelling shot before it lands here.</b>
-        /// It resolves the whole flight inside the frame the trigger was
-        /// pulled (NetUnlagged's catch-up) while this machine's copy is still
-        /// crossing the room, so the victim's published health usually has the
-        /// damage already by the time NoteHit files this. Charging the debit on
-        /// top takes it off twice -- a Missile removing 64 of a hunter's 99 --
-        /// and <see cref="PaidByAuthority"/> cannot catch it, because the drop
-        /// happened before the filing it compares against. Whether it does
-        /// depends on jitter and on how far the shot flew, which is what makes
-        /// it look random. Same threshold and same reasoning as NoteHit's
-        /// lethal hold; a Power Beam or an Imperialist round arrives in about
-        /// a frame and is unaffected.
-        /// </summary>
+        // A travelling projectile is often resolved by the authority before
+        // the shooter's local copy lands. Its authoritative health already
+        // includes the hit, so charging the local prediction debit again
+        // would double-subtract the same damage from the displayed bar.
         private static readonly bool[,] _pendingTravelled = new bool[Slots, PendingCapacity];
-
-        private static bool SettledAndCarried(int slot, int at)
-        {
-            return _pendingSpent[slot, at]
-                && unchecked((int)(NetSession.AppliedSnapshotFrame - _pendingSettledAt[slot, at])) > 0;
-        }
-
-        /// <summary>
-        /// Whether the authority's number has fallen by at least this hit's
-        /// damage since it was predicted.
-        ///
-        /// <b>Counted, never acted on.</b> The test is per entry and the drop
-        /// it reads is never consumed, so one 32-point hit from somebody else
-        /// satisfies every 6-point prediction outstanding at once -- eighteen
-        /// points released for damage that was not this machine's, and a bar
-        /// that climbs by exactly that. The floor hides it until a respawn
-        /// lifts the floor, which is where it was seen. A release needs
-        /// attribution, and only the snapshot's AttackerSlot carries it --
-        /// which is <see cref="Confirm"/>'s job. <c>_pendingTravelled</c> is
-        /// kept because it is a fact about the shot rather than a reading of
-        /// somebody else's damage.
-        /// </summary>
-        private static bool PaidByAuthority(int slot, int at)
-        {
-            int was = _pendingAuthorityAt[slot, at];
-            return was > 0 && _lastAuthorityHealth[slot] > 0
-                && was - _lastAuthorityHealth[slot] >= _pendingDamage[slot, at];
-        }
-
-        /// <summary>
-        /// Debit that would have been charged to the drawn bar a second time.
-        /// Nothing else here can see it: HealthDisagreed only fires with an
-        /// empty debit, and a double charge is never empty.
-        /// </summary>
-        public static long SettledDebitSamples { get; private set; }
-        public static long SettledDebitPoints { get; private set; }
-
-        /// <summary>
-        /// Hits the authority credited that this machine never predicted, split
-        /// by whether it was moving at the time. Read against
-        /// <see cref="NetDamage.FiredMoving"/>: a share higher than the share
-        /// of shots fired while moving is the local projectile and the
-        /// authority's rewound one parting company because the shooter moved
-        /// between the two resolutions.
-        /// </summary>
-        public static long UnpredictedMoving { get; private set; }
-        public static long UnpredictedStill { get; private set; }
-
-        /// <summary>Whether this machine's own player is moving now.</summary>
-        private static bool MovingNow()
-        {
-            int local = NetHooks.LocalSlot;
-            if (local < 0 || local >= PlayerEntity.Players.Count)
-            {
-                return false;
-            }
-            return PlayerEntity.Players[local].Speed.LengthSquared > 0.0004f;
-        }
-        public static int SettledDebitWorst { get; private set; }
-        public static long PaidDebitSamples { get; private set; }
-        public static long PaidDebitPoints { get; private set; }
-        public static int PaidDebitWorst { get; private set; }
 
         /// <summary>
         /// Whether that entry is a hit on this machine's own player -- its own
@@ -524,6 +434,22 @@ namespace MphRead.Mods.Network
         public static long Unpredicted { get; private set; }
 
         /// <summary>
+        /// Authority-confirmed hits this client did not predict, split by
+        /// whether the local shooter was moving. This preserves upstream's
+        /// diagnostic for spotting divergence between local projectile flight
+        /// and the authority's rewound simulation.
+        /// </summary>
+        public static long UnpredictedMoving { get; private set; }
+        public static long UnpredictedStill { get; private set; }
+
+        private static bool MovingNow()
+        {
+            int local = NetHooks.LocalSlot;
+            return local >= 0 && local < PlayerEntity.Players.Count
+                && PlayerEntity.Players[local].Speed.LengthSquared > 0.0004f;
+        }
+
+        /// <summary>
         /// Kills held back so the authority could make them -- which is what
         /// every lethal prediction did before death was predicted, and what
         /// one still does under <c>-nodeathprediction</c>.
@@ -584,88 +510,51 @@ namespace MphRead.Mods.Network
         /// <summary>Those of them the authority went on to agree with.</summary>
         public static long SelfConfirmed { get; private set; }
 
-        /// <summary>
-        /// Whether a lethal prediction is allowed to kill <b>somebody
-        /// else</b>. Off, and on with <c>-deathprediction</c>.
-        ///
-        /// <b>Off because it was measured wrong on a real line.</b> Against
-        /// Japan a player could kill the same opponent twice for one kill on
-        /// the scoreboard: the body dropped here, the authority disagreed, the
-        /// next snapshot stood it back up, and the second kill was the only
-        /// one anybody else ever saw. A hit shown and taken away is worse than
-        /// a hit shown late, and a *body* shown and taken away is the worst
-        /// case of it. With this off the damage is clamped to leave the victim
-        /// standing on one point of health and the dying waits for the
-        /// authority: the killing shot still *feels* instant, because the
-        /// flinch and the mark are shown on the frame it lands, and only the
-        /// body falling is owed a round trip.
-        ///
-        /// It does not touch a <b>self</b>-kill, which is predicted whatever
-        /// this says -- see <see cref="NoteHit"/>. There is nothing to
-        /// disagree about when the source, the target and the input are all on
-        /// this machine.
-        ///
-        /// Turning it back on is the control for measuring it, the way
-        /// <c>-nohitprediction</c> is for the rest.
-        ///
-        /// <b>And it came back on, because the cause was removed rather than
-        /// tolerated.</b> The reasoning above is about the authority silently
-        /// disagreeing, which was the only thing that could stand a body back
-        /// up. With hit claims (<see cref="NetHitClaims"/>) the authority no
-        /// longer disagrees silently: a kill this machine shows is one the
-        /// authority is told about explicitly, checked against its own history
-        /// and either applied or refused *with a reason*, inside one round
-        /// trip. The two outcomes that used to be indistinguishable are now
-        /// different things -- "the authority resolved it too" and "somebody
-        /// killed you first" -- and the second is a death the player is about
-        /// to watch happen anyway, so the body getting up is no longer the
-        /// surprise it was.
-        ///
-        /// It follows the claims: on wherever they are, and
-        /// <c>-nodeathprediction</c> turns it off. On a server that does not
-        /// speak protocol 7 there are no claims and there is nothing to turn
-        /// on, but that server also refuses this client at Hello, so the case
-        /// does not arise in a match.
-        /// </summary>
-        public static bool DeathEnabled { get; set; } = true;
+        /// <summary>Compatibility option: remote death always waits for authority.</summary>
+        public static bool DeathEnabled { get => false; set { } }
+        private static readonly bool[,] _pendingHeld = new bool[Slots, PendingCapacity];
+        public static long LethalConfirmed { get; private set; }
+        public static long LethalDenied { get; private set; }
 
-        /// <summary>
-        /// Whether a shot that spent time in the air may decide a death.
-        ///
-        /// <b>Off, and measured off.</b> The double charge that used to draw a
-        /// victim tens of points below the truth is gone -- <c>_pendingTravelled</c>
-        /// -- so the arithmetic behind a lethal decision is now sound, and
-        /// turning this on was tried on that reasoning. It was wrong within
-        /// minutes: against Japan at 255 ms, four Missiles from across the
-        /// room took a victim 99 -> 67 -> 35 -> 3 exactly, debit 0 and the
-        /// drawn bar equal to the authority's, and the fourth was predicted
-        /// lethal on a victim the authority never killed -- it finished the
-        /// match on 3 health with no deaths at all.
-        ///
-        /// The arithmetic was never the whole of it. The authority spawns the
-        /// shot into the world the shooter was looking at and walks it forward
-        /// re-reconciling every frame; this machine flies an ordinary
-        /// projectile across the room against puppets held a few frames behind
-        /// by interpolation. The two flights diverge, and they diverge further
-        /// the longer the shot is in the air -- so the long-range Missile is
-        /// the worst case, not an edge one. No amount of debit accounting
-        /// reaches it.
-        ///
-        /// <c>-traveldeaths</c> turns it on for measuring. Read
-        /// <see cref="DeathsUndone"/> against <see cref="DeathsPredicted"/>.
-        /// </summary>
-        public static bool TravelDeaths { get; set; }
+        private static void ResolveHeld(int slot, int at, bool confirmed)
+        {
+            if (!_pendingHeld[slot, at]) return;
+            _pendingHeld[slot, at] = false;
+            if (confirmed) LethalConfirmed++; else LethalDenied++;
+            if (NetLog.Enabled) NetLog.Event($"[predict] lethal {(confirmed ? "confirmed" : "denied")} "
+                + $"slot={slot} generation={NetPlayerLifecycle.Generation(slot)} life={NetPlayerLifecycle.Get(slot)} "
+                + $"frame={NetSession.NetFrame} {LifecycleDetails(slot)}");
+        }
 
-        /// <summary>
-        /// How long a projectile may have been in the air and still have its
-        /// kill predicted, in seconds.
-        ///
-        /// Three frames. A hitscan-ish round -- a Power Beam bolt, an
-        /// Imperialist shot -- covers a duel's range inside one or two, so it
-        /// is resolved on both machines in the same frame and there is no race
-        /// to lose. Past that the authority's catch-up can and does answer
-        /// first. See the clamp in <see cref="NoteHit"/>.
-        /// </summary>
+        private static readonly ushort[] _life = new ushort[Slots];
+        private static readonly ushort[] _generation = new ushort[Slots];
+        private static readonly ushort[,] _pendingLife = new ushort[Slots, PendingCapacity];
+        private static readonly ushort[,] _pendingGeneration = new ushort[Slots, PendingCapacity];
+
+        private static void EnsureLife(int slot)
+        {
+            if (slot < 0 || slot >= Slots) return;
+            if (_life[slot] != NetPlayerLifecycle.Get(slot) || _generation[slot] != NetPlayerLifecycle.Generation(slot))
+            {
+                ForgetSlot(slot);
+                _life[slot] = NetPlayerLifecycle.Get(slot);
+                _generation[slot] = NetPlayerLifecycle.Generation(slot);
+            }
+        }
+
+        public static string LifecycleDetails(int slot) => $"pending={_pendingCount[slot]} "
+            + $"debit={Debit(slot)} authorityHealth={_lastAuthorityHealth[slot]} heldDead={HeldDead(slot)}";
+
+        public static string HealthDetails(int slot)
+        {
+            if (slot < 0 || slot >= Slots) return "invalid slot";
+            if (!NetPlayerLifecycle.Matches(slot, _generation[slot], _life[slot]))
+                return "predictedDebit=0 shownFloor=0 pending=0 lastAuthorityHP=0";
+            return $"predictedDebit={Debit(slot)} shownFloor={_shownHealth[slot]} pending={_pendingCount[slot]} lastAuthorityHP={_lastAuthorityHealth[slot]}";
+        }
+
+        // Three frames: beyond this the authority's catch-up commonly
+        // resolves the projectile before the local copy reaches its target.
         private const float TravelFlight = 3 / 60f;
 
         private static int _markerTimer;
@@ -696,6 +585,10 @@ namespace MphRead.Mods.Network
 
         public static void Reset()
         {
+            Array.Clear(_life);
+            Array.Clear(_generation);
+            Array.Clear(_pendingLife);
+            Array.Clear(_pendingGeneration);
             Array.Clear(_pendingFrame);
             Array.Clear(_pendingDamage);
             Array.Clear(_pendingLethal);
@@ -703,8 +596,6 @@ namespace MphRead.Mods.Network
             Array.Clear(_pendingBeam);
             Array.Clear(_pendingClaim);
             Array.Clear(_pendingSpent);
-            Array.Clear(_pendingSettledAt);
-            Array.Clear(_pendingAuthorityAt);
             Array.Clear(_pendingTravelled);
             Array.Clear(_pendingSelf);
             Array.Clear(_settledCredit);
@@ -727,7 +618,10 @@ namespace MphRead.Mods.Network
             SelfConfirmed = 0;
             Denied = 0;
             Unpredicted = 0;
-            LethalHeld = 0;
+            UnpredictedMoving = 0;
+            UnpredictedStill = 0;
+            LethalHeld = LethalConfirmed = LethalDenied = 0;
+            Array.Clear(_pendingHeld);
             DeathsPredicted = 0;
             SelfDeathsPredicted = 0;
             DeathsUndone = 0;
@@ -870,11 +764,10 @@ namespace MphRead.Mods.Network
         /// How long the projectile behind this hit had been in the air, in
         /// seconds. Zero for everything that is not a beam.
         ///
-        /// <b>This is what decides whether the kill may be predicted.</b> See
-        /// <see cref="TravelFlight"/>.
+        /// Retained for caller compatibility; all remote lethal hits are held.
         /// </param>
         public static void NoteHit(PlayerEntity victim, PlayerEntity? attacker,
-            DamageFlags flags, ref uint damage, BeamType beam = BeamType.None,
+            ref DamageFlags flags, ref uint damage, BeamType beam = BeamType.None,
             uint launchFrame = 0, float flight = 0)
         {
             int local = NetHooks.LocalSlot;
@@ -905,127 +798,30 @@ namespace MphRead.Mods.Network
             }
             if (Predicting && Enabled)
             {
-                // What the shot is actually worth, kept before the holds
-                // below rewrite `damage` to leave the victim standing. The
-                // holds are about this machine's picture; a claim is a
-                // statement of fact to the authority, and the authority is
-                // what decides whether that amount kills.
-                uint dealt = damage;
                 // Lethal even at zero damage when the flag says so: a fall
                 // into the void is TakeDamage(0, DamageFlags.Death), and
                 // reading the number alone would file the one death that is
                 // certainly right as a scratch.
                 bool lethal = victim.Health > 0
                     && (damage >= (uint)victim.Health || flags.TestFlag(DamageFlags.Death));
-                // Not on debited health. The bar is the authority's number
-                // less every hit this machine believes in and has not had
-                // confirmed, and with a fast weapon at 250 ms that is three to
-                // six shots in flight -- tens of points, half a life. Deciding
-                // a death on it bets on every one of them landing. Measured:
-                // "drawn health 3, debit 16, authority last said 19", an
-                // 8-damage round predicted lethal on a player the authority
-                // had nowhere near dead. The flinch, the mark and the bar are
-                // unaffected; only the body falling waits for the authority's
-                // own number to allow it.
-                if (lethal && !self && !flags.TestFlag(DamageFlags.Death)
-                    && _lastAuthorityHealth[victim.SlotIndex] > 0
-                    && damage < (uint)_lastAuthorityHealth[victim.SlotIndex])
+                // Keep feedback immediate while reserving remote death for authority.
+                uint claimedDamage = damage;
+                int weapon = NetShotDiagnostics.Bucket(beam);
+                NetShotDiagnostics.LocalHits[weapon]++;
+                NetShotDiagnostics.Predictions[weapon]++;
+                NetShotDiagnostics.PredictedDamage[weapon] += damage;
+                if (flags.TestFlag(DamageFlags.Headshot)) NetShotDiagnostics.LocalHeadshots[weapon]++;
+                if (attacker != null && NetLog.Enabled) NetShotDiagnostics.Trace("prediction",
+                    ShotKey.For(attacker.SlotIndex, launchFrame), beam, $"victim={victim.SlotIndex} damage={damage}");
+                bool claimedLethal = lethal;
+                if (lethal && !self)
                 {
                     damage = (uint)Math.Max(0, victim.Health - 1);
+                    flags &= ~DamageFlags.Death;
                     LethalHeld++;
                     lethal = false;
-                }
-                // Not for a shot that had to cross the room.
-                //
-                // <b>The one thing three rounds of accounting could not
-                // fix.</b> The authority spawns a shot into the world its
-                // shooter was looking at and walks it forward to the present
-                // in one go (NetUnlagged's catch-up), so it can have the whole
-                // flight resolved inside the frame the trigger was pulled. The
-                // shooter's own copy is an ordinary projectile crossing the
-                // room against puppets held a few frames behind. For anything
-                // that travels, the authority's answer -- and the health that
-                // comes with it -- routinely arrives *first*, and the local
-                // copy then lands on a victim whose bar already contains it.
-                //
-                // The snapshot carries a count of hits and no identity for the
-                // shot behind them, so a client cannot tell its own
-                // already-resolved shot from its next one except by counting
-                // and by time. Three rounds of exactly that (a claim-id
-                // retirement, a preemption credit, an expiring settle credit)
-                // took the undone kills from six in seven to about one in two
-                // and stopped there, which is what a heuristic standing in for
-                // an identity looks like.
-                //
-                // So a travelling shot does not decide a death. The hit is
-                // still instant -- the flinch, the knockback, the mark over
-                // the crosshair and the bar all land on the frame it is fired
-                // -- and only the body falling waits for the authority, which
-                // is exactly what every build before hit claims did and what
-                // -nodeathprediction still does for everything. A Power Beam
-                // or an Imperialist round arrives in about a frame and is
-                // unaffected, which is the split the complaint arrived in:
-                // kills undone with the Missile and the Magmaul, none with
-                // those two.
-                if (lethal && !self && !TravelDeaths && flight > TravelFlight)
-                {
-                    damage = (uint)Math.Max(0, victim.Health - 1);
-                    LethalHeld++;
-                    lethal = false;
-                }
-                // Not through a halfturret. Weavel's lower half takes part of
-                // every hit that reaches him, and how much depends on the
-                // turret's own health -- which lives on the authority and is
-                // in no packet, so this machine is splitting the damage
-                // against a number it made up. The hit is still predicted, and
-                // still claimed, because the flinch and the mark are right
-                // either way; what it must not do is decide a death on
-                // arithmetic the authority will redo differently.
-                if (lethal && !self && flags.TestFlag(DamageFlags.Halfturret)
-                    && victim.Flags2.TestFlag(PlayerFlags2.Halfturret))
-                {
-                    damage = (uint)Math.Max(0, victim.Health - 1);
-                    LethalHeld++;
-                    lethal = false;
-                }
-                // A prediction does not kill somebody else. It did, and on a
-                // real line it was measured killing the same opponent twice
-                // for one kill on the scoreboard: the authority disagreed, the
-                // next snapshot stood the body back up, and the second kill
-                // was the only one anybody else saw. See DeathEnabled.
-                //
-                // A self-kill is the exception and is not DeathEnabled's to
-                // refuse. Source, target and input are all on this machine;
-                // there is no rewind to bet on and no other machine's opinion
-                // of where anybody was. A rocket jump that kills, a recoil
-                // that kills, and above all a fall into the void -- the one
-                // death a player has already watched happen -- resolve on the
-                // frame they happen, and the authority says the same thing a
-                // round trip later.
-                if (lethal && !self && !DeathEnabled)
-                {
-                    // See DeathEnabled: with claims live this branch is not
-                    // taken, because the thing it was protecting against --
-                    // the authority silently disagreeing -- is now answered
-                    // explicitly and within a round trip.
-                    // The victim is left standing on a single point of health
-                    // until the authority says otherwise, which it will within
-                    // a round trip -- and when it does, NetDamage.Replay runs
-                    // the kill in full, with the Death flag.
-                    damage = (uint)Math.Max(0, victim.Health - 1);
-                    LethalHeld++;
-                    lethal = false;
-                }
-                if (lethal && !self && NetLog.Enabled)
-                {
-                    // The one line that separates "the client killed somebody
-                    // the authority had at full health" from "the authority
-                    // simply never reported the death". Both come out as
-                    // DeathsUndone and they are different faults.
-                    NetLog.Event($"[predict] lethal on slot {victim.SlotIndex} with {beam}: "
-                        + $"{damage} damage, drawn health {victim.Health}, debit "
-                        + $"{Debit(victim.SlotIndex)}, authority last said "
-                        + $"{_lastAuthorityHealth[victim.SlotIndex]}");
+                    if (NetLog.Enabled) NetLog.Event($"[predict] lethal held slot={victim.SlotIndex} "
+                        + $"life={NetPlayerLifecycle.Get(victim.SlotIndex)} frame={NetSession.NetFrame}");
                 }
                 bool headshot = flags.TestFlag(DamageFlags.Headshot);
                 if (!self)
@@ -1040,7 +836,12 @@ namespace MphRead.Mods.Network
                         Math.Min((int)damage, Math.Max(0, victim.Health));
                 }
                 int at = Push(victim.SlotIndex, NetSession.NetFrame, (int)damage,
-                    lethal, headshot, beam, self, flight > TravelFlight);
+                    lethal, headshot, beam, self);
+                if (at >= 0)
+                {
+                    _pendingHeld[victim.SlotIndex, at] = claimedLethal && !self;
+                    _pendingTravelled[victim.SlotIndex, at] = !self && flight > TravelFlight;
+                }
                 // And tell the authority, which may not find this hit itself:
                 // its rewind has a ceiling, its copy of the trigger pull may
                 // be stale, and if this machine's player is killed during the
@@ -1056,14 +857,8 @@ namespace MphRead.Mods.Network
                 // See _pendingClaim.
                 if (!self && attacker != null)
                 {
-                    // `dealt`, not `damage`: a hold clamps the bar this
-                    // machine draws, and declaring the clamped number had the
-                    // authority rescue a 32-damage Magmaul as 2 whenever its
-                    // own rewind could not find the shot -- which is the one
-                    // case a claim exists for. Seen in the authority's own
-                    // "predicted 2 ... resolved 32" line.
-                    ushort claimId = NetHitClaims.Declare(victim, attacker, beam, dealt,
-                        flags, lethal, victim.Position, launchFrame);
+                    ushort claimId = NetHitClaims.Declare(victim, attacker, beam, claimedDamage,
+                        flags, claimedLethal, victim.Position, launchFrame);
                     StampClaim(victim.SlotIndex, at, claimId);
                 }
                 if (headshot && !self)
@@ -1125,6 +920,7 @@ namespace MphRead.Mods.Network
         /// </param>
         public static bool Confirm(int slot, int landed = 1, bool authorityHeadshot = false)
         {
+            EnsureLife(slot);
             if (slot < 0 || slot >= Slots)
             {
                 return false;
@@ -1163,20 +959,8 @@ namespace MphRead.Mods.Network
                 if (rest > 0)
                 {
                     Unpredicted += rest;
-                    // Was this machine moving when the authority credited a
-                    // hit it never predicted? Compare the share against
-                    // FiredMoving/FiredStill: a credit rate higher than the
-                    // firing rate is the local projectile and the authority's
-                    // rewound one disagreeing because the shooter moved
-                    // between them.
-                    if (MovingNow())
-                    {
-                        UnpredictedMoving += rest;
-                    }
-                    else
-                    {
-                        UnpredictedStill += rest;
-                    }
+                    if (MovingNow()) UnpredictedMoving += rest;
+                    else UnpredictedStill += rest;
                 }
                 return fromSettled > 0;
             }
@@ -1270,15 +1054,15 @@ namespace MphRead.Mods.Network
                 _pendingFrame[slot, i] = 0;
                 _pendingDamage[slot, i] = 0;
                 _pendingLethal[slot, i] = false;
+                _pendingHeld[slot, i] = false;
                 _pendingHeadshot[slot, i] = false;
                 _pendingBeam[slot, i] = AltBeam;
                 _pendingClaim[slot, i] = 0;
                 _pendingSpent[slot, i] = false;
-                _pendingSettledAt[slot, i] = 0;
-                _pendingAuthorityAt[slot, i] = 0;
                 _pendingTravelled[slot, i] = false;
                 _pendingSelf[slot, i] = false;
             }
+            if (slot == NetHooks.LocalSlot) { _healCount = 0; _healHead = 0; }
             _pendingCount[slot] = 0;
             _pendingHead[slot] = 0;
             _settledCredit[slot] = 0;
@@ -1309,35 +1093,8 @@ namespace MphRead.Mods.Network
             {
                 return;
             }
-            for (int i = 0; i < _pendingCount[slot]; i++)
-            {
-                int at = (_pendingHead[slot] + i) % PendingCapacity;
-                if (_pendingLethal[slot, at])
-                {
-                    DeathsUndone++;
-                    if (NetLog.Enabled)
-                    {
-                        // Only what is known: the authority put this player
-                        // back on the map while a lethal prediction for them
-                        // was still outstanding. Whether it never reported the
-                        // death or reported it too late for the hold is the
-                        // next question, and the age against the hold is what
-                        // answers it.
-                        NetLog.Event($"[predict] kill on slot {slot} undone: the authority "
-                            + $"spawned them with a lethal prediction still outstanding; it was "
-                            + $"{NetSession.NetFrame - _pendingFrame[slot, at]} frame(s) old, "
-                            + $"hold is {HoldFrames}, authority last said "
-                            + $"{_lastAuthorityHealth[slot]}");
-                    }
-                    int bucket = _pendingSelf[slot, at] ? -1 : _pendingBeam[slot, at];
-                    if (bucket >= 0 && bucket < BeamBuckets)
-                    {
-                        _beamUndone[bucket]++;
-                    }
-                    break;
-                }
-            }
-            ForgetSlot(slot);
+            if (slot == NetSession.LocalSlot) ForgetPending();
+            else ForgetSlot(slot);
         }
 
         /// <summary>
@@ -1372,6 +1129,7 @@ namespace MphRead.Mods.Network
             for (int i = 0; i < PendingCapacity; i++)
             {
                 _pendingLethal[slot, i] = false;
+                _pendingHeld[slot, i] = false;
             }
         }
 
@@ -1417,6 +1175,7 @@ namespace MphRead.Mods.Network
             _healAmount[tail] = amount;
             _healCount++;
             DrainPredicted += amount;
+            NetShotDiagnostics.DrainCredit[NetShotDiagnostics.Bucket(BeamType.ShockCoil)] += amount;
         }
 
         /// <summary>
@@ -1425,6 +1184,7 @@ namespace MphRead.Mods.Network
         /// </summary>
         private static int Debit(int slot)
         {
+            EnsureLife(slot);
             if (!Enabled || slot < 0 || slot >= Slots || _pendingCount[slot] == 0)
             {
                 return 0;
@@ -1432,41 +1192,20 @@ namespace MphRead.Mods.Network
             uint now = NetSession.NetFrame;
             int hold = HoldFrames;
             int debit = 0;
-            int settled = 0;
-            int paid = 0;
             for (int i = 0; i < _pendingCount[slot]; i++)
             {
                 int at = (_pendingHead[slot] + i) % PendingCapacity;
-                if (now - _pendingFrame[slot, at] >= (uint)hold)
+                if (NetPlayerLifecycle.Matches(slot, _pendingGeneration[slot, at], _pendingLife[slot, at])
+                    && now - _pendingFrame[slot, at] < (uint)hold)
                 {
-                    continue;
+                    if (_pendingTravelled[slot, at])
+                    {
+                        // Authority usually paid this projectile before the local
+                        // copy arrived; do not show the same damage twice.
+                        continue;
+                    }
+                    debit += _pendingDamage[slot, at];
                 }
-                if (SettledAndCarried(slot, at))
-                {
-                    settled += _pendingDamage[slot, at];
-                }
-                if (PaidByAuthority(slot, at))
-                {
-                    paid += _pendingDamage[slot, at];
-                }
-                if (_pendingTravelled[slot, at])
-                {
-                    paid += _pendingDamage[slot, at];
-                    continue;
-                }
-                debit += _pendingDamage[slot, at];
-            }
-            if (settled > 0)
-            {
-                SettledDebitSamples++;
-                SettledDebitPoints += settled;
-                SettledDebitWorst = Math.Max(SettledDebitWorst, settled);
-            }
-            if (paid > 0)
-            {
-                PaidDebitSamples++;
-                PaidDebitPoints += paid;
-                PaidDebitWorst = Math.Max(PaidDebitWorst, paid);
             }
             return debit;
         }
@@ -1483,6 +1222,7 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static int HealthFor(int slot, int authorityHealth)
         {
+            EnsureLife(slot);
             if (!Enabled || slot < 0 || slot >= Slots)
             {
                 return authorityHealth;
@@ -1625,9 +1365,7 @@ namespace MphRead.Mods.Network
                 + $"lifted {FloorLifted}; disagreed with nothing outstanding "
                 + $"{HealthDisagreed} -- drawn low by {HealthUnderPoints} point(s) "
                 + $"(worst {HealthUnderWorst}), high by {HealthOverPoints} "
-                + $"(worst {HealthOverWorst}); double charges avoided: settled "
-                + $"{SettledDebitSamples}/{SettledDebitPoints}pt/worst {SettledDebitWorst}, "
-                + $"paid {PaidDebitSamples}/{PaidDebitPoints}pt/worst {PaidDebitWorst}";
+                + $"(worst {HealthOverWorst})";
         }
 
         /// <summary>
@@ -1636,6 +1374,7 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static int LocalHealthFor(PlayerEntity player, int authorityHealth)
         {
+            EnsureLife(player.SlotIndex);
             if (!Enabled || authorityHealth <= 0)
             {
                 return authorityHealth;
@@ -1695,6 +1434,7 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static bool HeldDead(int slot)
         {
+            EnsureLife(slot);
             if (!Enabled || slot < 0 || slot >= Slots)
             {
                 return false;
@@ -1705,7 +1445,7 @@ namespace MphRead.Mods.Network
             // says, and a snapshot that has not heard about it yet would stand
             // the body straight back up -- the resurrection this whole switch
             // exists to stop, on the one player who is looking at it.
-            if (!DeathEnabled && slot != NetHooks.LocalSlot)
+            if (slot != NetHooks.LocalSlot)
             {
                 return false;
             }
@@ -1772,8 +1512,9 @@ namespace MphRead.Mods.Network
         /// declared -- the claim is what retires it exactly later.
         /// </summary>
         private static int Push(int slot, uint frame, int damage, bool lethal,
-            bool headshot, BeamType beam, bool self, bool travelled = false)
+            bool headshot, BeamType beam, bool self)
         {
+            EnsureLife(slot);
             if (slot < 0 || slot >= Slots)
             {
                 return -1;
@@ -1784,6 +1525,8 @@ namespace MphRead.Mods.Network
             }
             _predictedFrame[slot] = frame;
             int tail = (_pendingHead[slot] + _pendingCount[slot]) % PendingCapacity;
+            _pendingLife[slot, tail] = NetPlayerLifecycle.Get(slot);
+            _pendingGeneration[slot, tail] = NetPlayerLifecycle.Generation(slot);
             _pendingFrame[slot, tail] = frame;
             _pendingDamage[slot, tail] = Math.Max(0, damage);
             _pendingLethal[slot, tail] = lethal;
@@ -1791,9 +1534,7 @@ namespace MphRead.Mods.Network
             _pendingBeam[slot, tail] = (byte)Bucket(beam);
             _pendingClaim[slot, tail] = 0;
             _pendingSpent[slot, tail] = false;
-            _pendingSettledAt[slot, tail] = 0;
-            _pendingAuthorityAt[slot, tail] = _lastAuthorityHealth[slot];
-            _pendingTravelled[slot, tail] = travelled && !self;
+            _pendingTravelled[slot, tail] = false;
             _pendingSelf[slot, tail] = self;
             _pendingCount[slot]++;
             if (!self)
@@ -1817,6 +1558,7 @@ namespace MphRead.Mods.Network
         private static int RetireHead(int slot, bool confirmed)
         {
             int head = _pendingHead[slot];
+            ResolveHeld(slot, head, confirmed);
             bool spent = _pendingSpent[slot, head] || _pendingSelf[slot, head];
             int bucket = _pendingBeam[slot, head];
             if (!spent && bucket >= 0 && bucket < BeamBuckets)
@@ -1842,9 +1584,6 @@ namespace MphRead.Mods.Network
             }
             _pendingClaim[slot, head] = 0;
             _pendingSpent[slot, head] = false;
-            _pendingSettledAt[slot, head] = 0;
-            _pendingAuthorityAt[slot, head] = 0;
-            _pendingTravelled[slot, head] = false;
             _pendingSelf[slot, head] = false;
             _pendingHead[slot] = (head + 1) % PendingCapacity;
             _pendingCount[slot]--;
@@ -1872,6 +1611,7 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static void Settle(int slot, ushort claimId, bool confirmed)
         {
+            EnsureLife(slot);
             if (!Enabled || slot < 0 || slot >= Slots || claimId == 0
                 || _pendingCount[slot] == 0)
             {
@@ -1884,6 +1624,7 @@ namespace MphRead.Mods.Network
                 {
                     continue;
                 }
+                ResolveHeld(slot, at, confirmed);
                 int bucket = _pendingSelf[slot, at] ? -1 : _pendingBeam[slot, at];
                 if (bucket >= 0 && bucket < BeamBuckets)
                 {
@@ -1940,7 +1681,6 @@ namespace MphRead.Mods.Network
                     // retired by the snapshot that actually carries the health
                     // (Confirm, walking the head) or by ageing out of the hold
                     // window, exactly as it was before claims existed.
-                    _pendingSettledAt[slot, at] = NetSession.AppliedSnapshotFrame;
                     return;
                 }
                 // A refusal is different: the prediction is wrong, and the
@@ -1994,7 +1734,7 @@ namespace MphRead.Mods.Network
             double agreed = Confirmed * 100.0 / Predicted;
             string deaths = DeathEnabled
                 ? $"{DeathsPredicted} kills predicted, {DeathsUndone} undone"
-                : $"{LethalHeld} kills left to the authority";
+                : $"{LethalHeld} lethal hits held ({LethalConfirmed} confirmed, {LethalDenied} denied)";
             if (SelfDeathsPredicted > 0)
             {
                 deaths += $", {SelfDeathsPredicted} self-kills predicted";
