@@ -841,12 +841,16 @@ namespace MphRead.Mods
             string exe = System.IO.Path.GetFileNameWithoutExtension(
                 Environment.ProcessPath) ?? "MphReadServer";
             Console.WriteLine();
-            Console.WriteLine($"{Branding.Name} dedicated server. It needs no game files.");
+            Console.WriteLine($"{Branding.Name} dedicated server. It needs the game files.");
             Console.WriteLine();
             Console.WriteLine($"  {exe} -server -port {NetConfig.DefaultPort} -players 8 "
                 + "-servername \"My server\"");
             Console.WriteLine("      run a server. Maps come from maprotation.txt, written");
             Console.WriteLine("      beside this program on first run.");
+            Console.WriteLine();
+            Console.WriteLine("      canonical replays: on; 25 GiB; 14 days; keep newest 100");
+            Console.WriteLine("      override with -serverreplays on|off, -serverreplaystoragegb N,");
+            Console.WriteLine("      -serverreplayretentiondays N and -serverreplaykeeplast N.");
             Console.WriteLine();
             Console.WriteLine($"  {exe} -masterserver -port {NetMasterConfig.DefaultPort}");
             Console.WriteLine("      run a server directory of your own.");

@@ -27,7 +27,9 @@ dotnet publish src/MphRead/MphRead.csproj -c Release -r win-x64 \
 Notes
 
 - The exe may be locked by a running game; write `MphRead.new.exe` then `mv`.
-- Any protocol change requires server and every client to be the same build. `NetConfig.ProtocolVersion` is **6** in this build (it was 5 in v0.6.0, 6 from v0.7.0) — a mismatched client is refused outright at Hello. Deploy the server before handing out a client built against a new version.
+- Any protocol change requires server and every client to be the same build. `NetConfig.ProtocolVersion` is **8** in this build — a mismatched client is refused outright at Hello. Deploy the server before handing out a client built against a new version.
+
+Standalone authoritative servers record canonical replays by default. Retention defaults to **25 GiB / 14 days / keep newest 100**. Override with `-serverreplays on|off`, `-serverreplaystoragegb N`, `-serverreplayretentiondays N`, and `-serverreplaykeeplast N`; `0` disables the corresponding size/age limit.
 
 ## The fleet
 

@@ -345,6 +345,12 @@ namespace MphRead.Mods.Network
         public bool AutoUpdate { get; set; }
 
         /// <summary>
+        /// Canonical server replay recording/retention. Standalone dedicated servers
+        /// configure this before <see cref="Run"/>; hosted relay instances never use it.
+        /// </summary>
+        public ServerReplayPolicy ReplayPolicy { get; set; } = ServerReplayPolicy.Default;
+
+        /// <summary>
         /// Whether this server runs the match itself.
         ///
         /// <b>True by default, and the standalone <c>-server</c> process never
@@ -411,6 +417,10 @@ namespace MphRead.Mods.Network
             _transport = new NetTransport(_port);
             _running = true;
             Log($"listening on UDP {_transport.LocalPort}, up to {_maxPlayers} players");
+            if (RunsTheMatch)
+            {
+                ServerReplayRecorder.Configure(ReplayPolicy);
+            }
             StartSimulation();
             Log(Simulating
                 ? "this server runs the match itself"
@@ -795,7 +805,8 @@ namespace MphRead.Mods.Network
 
         private void EnsureCanonicalReplay(ReadOnlySpan<byte> snapshot)
         {
-            if (ServerReplayRecorder.IsRecording || _sim == null || _peers.Count == 0)
+            if (!ServerReplayRecorder.Enabled || ServerReplayRecorder.IsRecording
+                || _sim == null || _peers.Count == 0)
             {
                 return;
             }

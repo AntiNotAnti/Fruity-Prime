@@ -15,13 +15,34 @@ namespace MphRead.Mods.Network
     {
         private static ReplayWriterV3? _writer;
         private static uint _startFrame;
+        private static ServerReplayPolicy _policy = ServerReplayPolicy.Default;
 
+        public static string ReplayDirectory => Paths.Combine(
+            Paths.Export, "_demos", "server");
+        public static bool Enabled => _policy.Enabled;
         public static bool IsRecording => _writer != null;
         public static string? CurrentPath { get; private set; }
         public static string? LastError { get; private set; }
 
+        public static void Configure(ServerReplayPolicy policy)
+        {
+            _policy = policy.Normalize();
+            if (!_policy.Enabled)
+            {
+                Console.WriteLine("[replay] canonical server recording disabled");
+                return;
+            }
+
+            Console.WriteLine($"[replay] canonical server recording enabled; "
+                + $"storage {(_policy.StorageLimitGb == 0 ? "unlimited" : _policy.StorageLimitGb + " GB")}, "
+                + $"retention {(_policy.RetentionDays == 0 ? "forever" : _policy.RetentionDays + " days")}, "
+                + $"keep newest {_policy.KeepLast}");
+            ApplyRetention("startup");
+        }
+
         public static bool Start(ReplayMetadata metadata)
         {
+            if (!_policy.Enabled) return false;
             Stop();
             LastError = null;
             try
@@ -30,9 +51,8 @@ namespace MphRead.Mods.Network
                     throw new IOException("The server replay map could not be identified.");
 
                 string room = Sanitize(metadata.RoomKey.Length == 0 ? "match" : metadata.RoomKey);
-                string directory = Paths.Combine(Paths.Export, "_demos", "server");
-                Directory.CreateDirectory(directory);
-                CurrentPath = Path.Combine(directory,
+                Directory.CreateDirectory(ReplayDirectory);
+                CurrentPath = Path.Combine(ReplayDirectory,
                     $"{room}_{DateTime.Now:yyyy-MM-dd_HH-mm-ss-fff}_{Guid.NewGuid():N}{DemoFile.Extension}");
                 _writer = new ReplayWriterV3(CurrentPath, metadata);
                 _startFrame = NetSession.NetFrame;
@@ -102,6 +122,7 @@ namespace MphRead.Mods.Network
             finally
             {
                 CurrentPath = null;
+                if (_policy.Enabled) ApplyRetention("match finalization");
             }
         }
 
@@ -128,6 +149,41 @@ namespace MphRead.Mods.Network
         {
             uint now = NetSession.NetFrame;
             return now >= _startFrame ? now - _startFrame : 0;
+        }
+
+        private static void ApplyRetention(string reason)
+        {
+            try
+            {
+                ServerReplayRetentionResult result = ServerReplayRetention.Apply(
+                    ReplayDirectory, _policy, CurrentPath);
+                if (result.DeletedFiles > 0)
+                {
+                    Console.WriteLine($"[replay] retention after {reason}: deleted "
+                        + $"{result.DeletedFiles}, {FormatBytes(result.BeforeBytes)} -> "
+                        + $"{FormatBytes(result.AfterBytes)}");
+                }
+                if (!result.LimitSatisfied)
+                {
+                    Console.WriteLine($"[replay] retention after {reason}: storage remains "
+                        + $"{FormatBytes(result.AfterBytes)} because {_policy.KeepLast} newest "
+                        + "recordings/favorites are protected");
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                or ArgumentException)
+            {
+                Console.WriteLine($"[replay] retention after {reason} skipped: {ex.Message}");
+            }
+        }
+
+        private static string FormatBytes(long bytes)
+        {
+            const double GiB = 1024d * 1024 * 1024;
+            const double MiB = 1024d * 1024;
+            return bytes >= GiB ? $"{bytes / GiB:0.00} GiB"
+                : bytes >= MiB ? $"{bytes / MiB:0.0} MiB"
+                : $"{bytes / 1024d:0.0} KiB";
         }
 
         private static string Sanitize(string value)

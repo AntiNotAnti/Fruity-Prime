@@ -167,6 +167,55 @@ namespace MphRead.Mods.Network
                 string empty = Path.Combine(directory, "empty.fpdemo");
                 using (var writer = new DemoWriter(empty)) { }
                 Require(ReplayArchive.Validate(empty) == ReplayOpenResult.Empty, "empty replay");
+
+                // Dedicated-server retention is pure file policy and needs no game
+                // assets. Protect favorites/newest first, then age and byte quota.
+                DateTime retentionNow = new DateTime(2026, 1, 31, 12, 0, 0, DateTimeKind.Utc);
+                string retentionDir = Path.Combine(directory, "server-retention-age");
+                Directory.CreateDirectory(retentionDir);
+                string ReplayFile(string name, int daysOld, int bytes = 1024)
+                {
+                    string path = Path.Combine(retentionDir, name + DemoFile.Extension);
+                    File.WriteAllBytes(path, new byte[bytes]);
+                    File.SetLastWriteTimeUtc(path, retentionNow.AddDays(-daysOld));
+                    return path;
+                }
+                string favorite = ReplayFile("favorite-old", 40);
+                File.WriteAllText(favorite + ".favorite", "");
+                string staleA = ReplayFile("stale-a", 30);
+                string staleB = ReplayFile("stale-b", 20);
+                string recentA = ReplayFile("recent-a", 2);
+                string recentB = ReplayFile("recent-b", 1);
+                ServerReplayRetentionResult ageResult = ServerReplayRetention.Apply(
+                    retentionDir, new ServerReplayPolicy(true, 0, 14, 2),
+                    nowUtc: retentionNow);
+                Require(ageResult.DeletedFiles == 2
+                    && File.Exists(favorite)
+                    && !File.Exists(staleA) && !File.Exists(staleB)
+                    && File.Exists(recentA) && File.Exists(recentB),
+                    "server replay age/keep-last/favorite retention");
+
+                string quotaDir = Path.Combine(directory, "server-retention-quota");
+                Directory.CreateDirectory(quotaDir);
+                string QuotaFile(string name, int daysOld)
+                {
+                    string path = Path.Combine(quotaDir, name + DemoFile.Extension);
+                    File.WriteAllBytes(path, new byte[1024]);
+                    File.SetLastWriteTimeUtc(path, retentionNow.AddDays(-daysOld));
+                    return path;
+                }
+                string quotaOldest = QuotaFile("oldest", 4);
+                string quotaOlder = QuotaFile("older", 3);
+                string quotaRecent = QuotaFile("recent", 2);
+                string quotaNewest = QuotaFile("newest", 1);
+                ServerReplayRetentionResult quotaResult = ServerReplayRetention.Apply(
+                    quotaDir, new ServerReplayPolicy(true, 0, 0, 1),
+                    nowUtc: retentionNow, storageLimitBytes: 2300);
+                Require(quotaResult.LimitSatisfied && quotaResult.DeletedFiles == 2
+                    && !File.Exists(quotaOldest) && !File.Exists(quotaOlder)
+                    && File.Exists(quotaRecent) && File.Exists(quotaNewest),
+                    "server replay byte quota preserves newest");
+
                 // Mutate packet/chunk/footer/header bytes without trusting any unverified length.
                 var random = new Random(173);
                 for (int i = 0; i < 80; i++)
