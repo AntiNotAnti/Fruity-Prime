@@ -35,6 +35,9 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly DeckButton _track;
         private readonly DeckButton _collision;
         private readonly DeckButton _first;
+        private readonly ChoiceRow _exportResolution;
+        private readonly ChoiceRow _exportFps;
+        private readonly ToggleRow _exportHud;
         private readonly DispatcherTimer _timer;
         private readonly ReplayHighlight[] _highlights;
         private string _message = "";
@@ -200,6 +203,14 @@ namespace MphRead.Mods.Launcher.Gui
             body.Children.Add(_cameraStatus);
 
             body.Children.Add(new Caption("Analysis & output"));
+            _exportResolution = new ChoiceRow("Export resolution",
+                new[] { "720p", "1080p", "1440p", "4K" }, 1);
+            _exportFps = new ChoiceRow("Export FPS", new[] { "30", "60", "120" }, 1);
+            _exportHud = new ToggleRow("Include game/replay HUD", false);
+            body.Children.Add(_exportResolution);
+            body.Children.Add(_exportFps);
+            body.Children.Add(_exportHud);
+
             var outputGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*") };
             body.Children.Add(outputGrid);
             int outputIndex = 0;
@@ -228,8 +239,11 @@ namespace MphRead.Mods.Launcher.Gui
                 return button;
             }
 
-            AddOutput("EXPORT VIDEO JOB", ExportVideo, Deck.Face.Moss);
+            AddOutput("EXPORT VIDEO", ExportVideo, Deck.Face.Moss);
+            AddOutput("SAVE HIGHLIGHTS", SaveHighlights, Deck.Face.Moss);
             AddOutput("TAKE CONTROL", TakeControl, Deck.Face.Rust);
+            AddOutput("ANALYTICS HUD", () => ReplayHud.ShowAnalytics = !ReplayHud.ShowAnalytics);
+            AddOutput("NETWORK HUD", () => ReplayHud.ShowNetworkDebug = !ReplayHud.ShowNetworkDebug);
 
             _analytics = new TextBlock
             {
@@ -372,6 +386,35 @@ namespace MphRead.Mods.Launcher.Gui
             }
         }
 
+        private void SaveHighlights()
+        {
+            if (DemoPlayback.CurrentPath == null)
+            {
+                _message = "No replay is open.";
+                return;
+            }
+            int saved = 0;
+            try
+            {
+                foreach (ReplayHighlight highlight in _highlights
+                    .OrderByDescending(h => h.Score)
+                    .Take(8))
+                {
+                    ReplayVirtualClips.Save(DemoPlayback.CurrentPath,
+                        highlight.StartFrame, highlight.EndFrame, highlight.Label);
+                    saved++;
+                }
+                _message = saved == 0
+                    ? "No strong automatic highlights were detected."
+                    : $"Saved {saved} non-destructive highlight clip{(saved == 1 ? "" : "s")}.";
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                or ArgumentException)
+            {
+                _message = $"Saved {saved} highlight clips before an error: {ex.Message}";
+            }
+        }
+
         private void ExportVideo()
         {
             if (DemoPlayback.CurrentPath == null)
@@ -386,18 +429,36 @@ namespace MphRead.Mods.Launcher.Gui
                 start = selectedStart;
                 end = selectedEnd;
             }
+
+            ReplayVideoResolution resolution = (ReplayVideoResolution)Math.Clamp(
+                _exportResolution.Index, 0, Enum.GetValues<ReplayVideoResolution>().Length - 1);
+            int fps = _exportFps.Index switch
+            {
+                0 => 30,
+                2 => 120,
+                _ => 60
+            };
             try
             {
                 ReplayVideoExportManifest job = ReplayVideoExport.CreateManifest(
                     DemoPlayback.CurrentPath, start, end,
-                    ReplayVideoResolution.P1080, fps: 60, cleanHud: true,
+                    resolution, fps, cleanHud: !_exportHud.On,
                     director: ReplayCamera.Director, cameraTrack: ReplayCamera.PlayTrack);
-                _message = "Video render job created: " + Path.GetDirectoryName(job.SuggestedOutput);
+                if (ReplayVideoExporter.Start(job))
+                {
+                    _message = "Rendering video frames to "
+                        + Path.GetDirectoryName(job.SuggestedOutput);
+                    ResumeRequested?.Invoke(this, EventArgs.Empty);
+                }
+                else
+                {
+                    _message = ReplayVideoExporter.Status;
+                }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
                 or ArgumentException)
             {
-                _message = "Could not create video job: " + ex.Message;
+                _message = "Could not start video export: " + ex.Message;
             }
         }
 

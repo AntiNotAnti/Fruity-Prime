@@ -285,6 +285,77 @@ namespace MphRead.Mods.Replay
                 .ToArray();
         }
 
+        public static bool IsFavorite(string path) => File.Exists(path + ".favorite");
+
+        public static void ToggleFavorite(string path)
+        {
+            string marker = path + ".favorite";
+            if (File.Exists(marker)) File.Delete(marker);
+            else File.WriteAllText(marker, "");
+        }
+
+        public static bool Rename(string path, string name)
+        {
+            if (!TryLoad(path, out ReplayVirtualClipDocument? clip) || clip == null)
+                return false;
+            string title = String.IsNullOrWhiteSpace(name) ? clip.Name : name.Trim();
+            File.WriteAllText(path, JsonSerializer.Serialize(
+                clip with { Name = title }, JsonOptions));
+            return true;
+        }
+
+        public static void Delete(string path)
+        {
+            File.Delete(path);
+            File.Delete(path + ".favorite");
+            string cache = CachePath(path);
+            File.Delete(cache);
+        }
+
+        public static string? ResolveForPlayback(string path, out ReplayOpenResult result)
+        {
+            result = ReplayOpenResult.Corrupt;
+            if (!TryLoad(path, out ReplayVirtualClipDocument? clip) || clip == null)
+                return null;
+            if (!File.Exists(clip.SourceReplay))
+            {
+                result = ReplayOpenResult.FileMissing;
+                return null;
+            }
+
+            string output = CachePath(path);
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+                var source = new FileInfo(clip.SourceReplay);
+                var descriptor = new FileInfo(path);
+                if (File.Exists(output)
+                    && File.GetLastWriteTimeUtc(output) >= descriptor.LastWriteTimeUtc
+                    && File.GetLastWriteTimeUtc(output) >= source.LastWriteTimeUtc)
+                {
+                    result = ReplayOpenResult.Success;
+                    return output;
+                }
+
+                File.Delete(output);
+                result = ReplayArchive.Extract(clip.SourceReplay,
+                    clip.StartFrame, clip.EndFrame, output);
+                return result == ReplayOpenResult.Success ? output : null;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                or ArgumentException)
+            {
+                return null;
+            }
+        }
+
+        private static string CachePath(string path)
+        {
+            string directory = Path.Combine(DemoLibrary.Directory, ".virtual-cache");
+            string file = Path.GetFileNameWithoutExtension(path) + DemoFile.Extension;
+            return Path.Combine(directory, file);
+        }
+
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
             WriteIndented = true
@@ -398,7 +469,11 @@ namespace MphRead.Mods.Replay
             Directory.CreateDirectory(root);
             string frames = Path.Combine(root, "frame_%08d.png");
             string output = Path.Combine(root, "replay.mp4");
-            string ffmpeg = $"-framerate {fps} -i \"{frames}\" -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p \"{output}\"";
+            int sourceFps = fps <= 30 ? 30 : 60;
+            string filters = $"scale={width}:{height}:flags=lanczos,fps={fps}";
+            string ffmpeg = $"-y -framerate {sourceFps} -i \"{frames}\" "
+                + $"-vf \"{filters}\" -c:v libx264 -preset slow -crf 18 "
+                + $"-pix_fmt yuv420p -movflags +faststart \"{output}\"";
             var manifest = new ReplayVideoExportManifest(1, Path.GetFullPath(replay), startFrame, endFrame,
                 width, height, fps, cleanHud, director, cameraTrack, frames, output, ffmpeg);
             File.WriteAllText(Path.Combine(root, "render.json"),

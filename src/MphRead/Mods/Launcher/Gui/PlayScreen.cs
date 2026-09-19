@@ -17,6 +17,7 @@ using Avalonia.Threading;
 using MphRead.Entities;
 using MphRead.Mods;
 using MphRead.Mods.Network;
+using MphRead.Mods.Replay;
 
 namespace MphRead.Mods.Launcher.Gui
 {
@@ -130,6 +131,8 @@ namespace MphRead.Mods.Launcher.Gui
 
         private DispatcherTimer? _statusTimer;
         private CancellationTokenSource? _statusCancel;
+        private DispatcherTimer? _replayPreviewTimer;
+        private int _replayPreviewIndex;
         private bool _finished;
 
         private ChoiceRow? _hunter;
@@ -851,6 +854,7 @@ namespace MphRead.Mods.Launcher.Gui
         private void Rebuild()
         {
             StopPolling();
+            StopReplayPreview();
             if (_replaySelection != null) { _list.SelectionChanged -= _replaySelection; _replaySelection = null; }
             _list.Clear();
             _list.SetHeader(null);
@@ -1538,6 +1542,19 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 return server.RoomKey.Length > 0 ? server.RoomKey : null;
             }
+            if (Current == Face.Clips
+                && (_list.Selected as UiListRow)?.Choice is string replay)
+            {
+                if (replay.EndsWith(ReplayVirtualClips.Extension, StringComparison.OrdinalIgnoreCase)
+                    && ReplayVirtualClips.TryLoad(replay, out ReplayVirtualClipDocument? virtualClip)
+                    && virtualClip != null)
+                {
+                    replay = virtualClip.SourceReplay;
+                }
+                DemoRecording demo = DemoLibrary.List().FirstOrDefault(d =>
+                    String.Equals(d.Path, replay, StringComparison.OrdinalIgnoreCase));
+                return demo.Path != null && demo.Room.Length > 0 ? demo.Room : null;
+            }
             return SelectedRoom();
         }
 
@@ -1604,6 +1621,16 @@ namespace MphRead.Mods.Launcher.Gui
         private void BuildDemo()
         {
             _go.Label = "watch";
+            WantPreview(true);
+            StartReplayPreview();
+            if (LauncherPrefs.ReplayAutoPrune && LauncherPrefs.ReplayStorageLimitGb > 0)
+            {
+                ReplayStorageManager.Apply(new ReplayStoragePolicy(
+                    MaxBytes: LauncherPrefs.ReplayStorageLimitGb * 1024L * 1024L * 1024L,
+                    DeleteFullMatches: true,
+                    DeleteMaterializedClips: LauncherPrefs.ReplayDeleteClips,
+                    DeleteVirtualClips: false));
+            }
             IReadOnlyList<DemoRecording> demos = DemoLibrary.List();
             foreach (DemoRecording demo in demos)
             {
@@ -1611,7 +1638,21 @@ namespace MphRead.Mods.Launcher.Gui
                     DemoLibrary.Describe(demo))
                 { Choice = demo.Path });
             }
-            if (demos.Count == 0)
+            var virtualClips = new Dictionary<string, ReplayVirtualClipDocument>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (string path in ReplayVirtualClips.List())
+            {
+                if (!ReplayVirtualClips.TryLoad(path, out ReplayVirtualClipDocument? clip)
+                    || clip == null)
+                    continue;
+                virtualClips[path] = clip;
+                string duration = ReplayHud.Time(clip.EndFrame - clip.StartFrame);
+                _list.Add(new UiListRow(
+                    (ReplayVirtualClips.IsFavorite(path) ? "* " : "") + clip.Name,
+                    $"virtual clip · {duration} · source {Path.GetFileName(clip.SourceReplay)}")
+                { Choice = path });
+            }
+            if (demos.Count == 0 && virtualClips.Count == 0)
             {
                 // The folder, spelled out. It is the app's own directory and
                 // no file manager on a modern Android can open it, so a player
@@ -1626,12 +1667,29 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 if ((_list.Selected as UiListRow)?.Choice is string path)
                 {
-                    var selected = demos.FirstOrDefault(d => d.Path == path);
-                    if (selected.Path != null) replayDetails.Text = DemoLibrary.Details(selected);
+                    if (virtualClips.TryGetValue(path, out ReplayVirtualClipDocument? virtualClip))
+                    {
+                        replayDetails.Text = $"{virtualClip.Name}\n"
+                            + $"{ReplayHud.Time(virtualClip.StartFrame)}–{ReplayHud.Time(virtualClip.EndFrame)} "
+                            + $"from {Path.GetFileName(virtualClip.SourceReplay)}\n"
+                            + "Non-destructive virtual clip; source replay data is shared until export/watch.";
+                    }
+                    else
+                    {
+                        var selected = demos.FirstOrDefault(d => d.Path == path);
+                        if (selected.Path != null) replayDetails.Text = DemoLibrary.Details(selected);
+                    }
                     if (recover != null) recover.IsVisible = path.EndsWith(".part", StringComparison.OrdinalIgnoreCase);
                 }
             }
-            _replaySelection = (_, _) => { if (Current == Face.Clips) RefreshReplayDetails(); };
+            _replaySelection = (_, _) =>
+            {
+                if (Current == Face.Clips)
+                {
+                    _replayPreviewIndex = 0;
+                    RefreshReplayDetails();
+                }
+            };
             _list.SelectionChanged += _replaySelection;
             RefreshReplayDetails();
             _options.Children.Add(replayDetails);
@@ -1651,14 +1709,40 @@ namespace MphRead.Mods.Launcher.Gui
                 _options.Children.Add(button);
                 return button;
             }
-            Action("Rename", path => { DemoLibrary.Rename(path, replayName.Value); Rebuild(); });
+            Action("Rename", path =>
+            {
+                if (path.EndsWith(ReplayVirtualClips.Extension, StringComparison.OrdinalIgnoreCase))
+                    ReplayVirtualClips.Rename(path, replayName.Value);
+                else
+                    DemoLibrary.Rename(path, replayName.Value);
+                Rebuild();
+            });
             var validate = new UiWord("Check replay integrity");
             validate.Click += async (_, _) =>
             {
                 if ((_list.Selected as UiListRow)?.Choice is not string path) return;
                 _note.Text = "Checking replay integrity...";
-                var result = await Task.Run(() => ReplayArchive.Validate(path));
-                DemoLibrary.NoteValidation(path, result);
+                string validationPath = path;
+                bool virtualClip = path.EndsWith(ReplayVirtualClips.Extension,
+                    StringComparison.OrdinalIgnoreCase);
+                if (virtualClip)
+                {
+                    (string? resolved, ReplayOpenResult openResult) = await Task.Run(() =>
+                    {
+                        string? output = ReplayVirtualClips.ResolveForPlayback(
+                            path, out ReplayOpenResult result);
+                        return (output, result);
+                    });
+                    if (resolved == null)
+                    {
+                        _note.Text = $"Virtual clip could not be materialized: {openResult}";
+                        return;
+                    }
+                    validationPath = resolved;
+                }
+                ReplayOpenResult result = await Task.Run(() => ReplayArchive.Validate(validationPath));
+                if (!virtualClip)
+                    DemoLibrary.NoteValidation(path, result);
                 Rebuild();
                 _note.Text = $"Replay integrity: {result}";
             };
@@ -1671,25 +1755,52 @@ namespace MphRead.Mods.Launcher.Gui
                 _note.Text = output == null ? $"Recovery failed: {result}" : "Recovered " + Path.GetFileName(output);
             });
             recover.IsVisible = ((_list.Selected as UiListRow)?.Choice as string)?.EndsWith(".part", StringComparison.OrdinalIgnoreCase) == true;
-            Action("Favorite / unfavorite", path => { DemoLibrary.ToggleFavorite(path); Rebuild(); });
+            Action("Favorite / unfavorite", path =>
+            {
+                if (path.EndsWith(ReplayVirtualClips.Extension, StringComparison.OrdinalIgnoreCase))
+                    ReplayVirtualClips.ToggleFavorite(path);
+                else
+                    DemoLibrary.ToggleFavorite(path);
+                Rebuild();
+            });
             string? confirmDelete = null;
             Action("Delete (press twice to confirm)", path =>
             {
                 if (confirmDelete != path) { confirmDelete = path; _note.Text = "Press Delete again to delete " + Path.GetFileName(path); return; }
-                DemoLibrary.Delete(path);
+                if (path.EndsWith(ReplayVirtualClips.Extension, StringComparison.OrdinalIgnoreCase))
+                    ReplayVirtualClips.Delete(path);
+                else
+                    DemoLibrary.Delete(path);
                 Rebuild();
             });
             var export = new UiWord("Export replay");
             export.Click += async (_, _) =>
             {
                 if ((_list.Selected as UiListRow)?.Choice is not string path) return;
+                string exportSource = path;
+                if (path.EndsWith(ReplayVirtualClips.Extension, StringComparison.OrdinalIgnoreCase))
+                {
+                    (string? resolved, ReplayOpenResult openResult) = await Task.Run(() =>
+                    {
+                        string? output = ReplayVirtualClips.ResolveForPlayback(
+                            path, out ReplayOpenResult result);
+                        return (output, result);
+                    });
+                    if (resolved == null)
+                    {
+                        _note.Text = $"Export failed: {openResult}";
+                        return;
+                    }
+                    exportSource = resolved;
+                }
 #if !ANDROID
                 try
                 {
                     string directory = Path.Combine(DemoLibrary.Directory, "exports");
                     Directory.CreateDirectory(directory);
-                    string destination = Path.Combine(directory, Path.GetFileNameWithoutExtension(path) + $"_{Guid.NewGuid():N}.fpdemo");
-                    File.Copy(path, destination, overwrite: false);
+                    string destination = Path.Combine(directory,
+                        Path.GetFileNameWithoutExtension(path) + $"_{Guid.NewGuid():N}.fpdemo");
+                    File.Copy(exportSource, destination, overwrite: false);
                     _note.Text = "Exported to " + destination;
                 }
                 catch (Exception ex) { _note.Text = "Export failed: " + ex.Message; }
@@ -1699,10 +1810,15 @@ namespace MphRead.Mods.Launcher.Gui
                 try
                 {
                     var target = await top.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-                    { Title = "Export replay", SuggestedFileName = Path.GetFileName(path), DefaultExtension = "fpdemo" });
+                    {
+                        Title = "Export replay",
+                        SuggestedFileName = Path.GetFileNameWithoutExtension(path) + ".fpdemo",
+                        DefaultExtension = "fpdemo"
+                    });
                     if (target == null) return;
-                    if (target.TryGetLocalPath() is string local && Path.GetFullPath(local) == Path.GetFullPath(path)) return;
-                    using var input = File.OpenRead(path);
+                    if (target.TryGetLocalPath() is string local
+                        && Path.GetFullPath(local) == Path.GetFullPath(exportSource)) return;
+                    using var input = File.OpenRead(exportSource);
                     await using var output = await target.OpenWriteAsync();
                     await input.CopyToAsync(output);
                     _note.Text = "Replay exported";
@@ -1747,6 +1863,27 @@ namespace MphRead.Mods.Launcher.Gui
         {
             if (path.EndsWith(".part", StringComparison.OrdinalIgnoreCase))
             { _note.Text = "Recover this interrupted recording before watching it."; return; }
+            if (path.EndsWith(ReplayVirtualClips.Extension, StringComparison.OrdinalIgnoreCase))
+            {
+                string virtualPath = path;
+                _go.IsEnabled = false;
+                _go.Label = "preparing";
+                (string? resolved, ReplayOpenResult result) = await Task.Run(() =>
+                {
+                    string? output = ReplayVirtualClips.ResolveForPlayback(
+                        virtualPath, out ReplayOpenResult openResult);
+                    return (output, openResult);
+                });
+                _go.IsEnabled = true;
+                _go.Label = "watch";
+                if (resolved == null)
+                {
+                    _note.Text = $"Could not prepare virtual clip: {result}.";
+                    _note.Foreground = GuiTheme.BadBrush;
+                    return;
+                }
+                path = resolved;
+            }
             // Joined here, not inside MatchStart: a failure has to land back on
             // a screen that is still open to show it on. The Windows build has
             // no console for anything the launcher starts, so the alternative
@@ -1986,27 +2123,68 @@ namespace MphRead.Mods.Launcher.Gui
                 return;
             }
             _preview.Source = null;
-            if (PreviewRoom() is not string room)
-            {
-                return;
-            }
             try
             {
-                string path = ThumbnailGenerator.PathFor(room);
-                if (!File.Exists(path))
+                string? path = null;
+                if (Current == Face.Clips
+                    && (_list.Selected as UiListRow)?.Choice is string replay)
+                {
+                    if (replay.EndsWith(ReplayVirtualClips.Extension, StringComparison.OrdinalIgnoreCase)
+                        && ReplayVirtualClips.TryLoad(replay, out ReplayVirtualClipDocument? virtualClip)
+                        && virtualClip != null)
+                    {
+                        replay = virtualClip.SourceReplay;
+                    }
+                    string[] replayThumbs = ReplayVideoExporter.Thumbnails(replay);
+                    if (replayThumbs.Length > 0)
+                    {
+                        path = replayThumbs[_replayPreviewIndex % replayThumbs.Length];
+                    }
+                }
+
+                if (path == null && PreviewRoom() is string room)
+                {
+                    path = ThumbnailGenerator.PathFor(room);
+                }
+                if (path == null || !File.Exists(path))
                 {
                     return;
                 }
-                // Through a MemoryStream so the file is not held open: the
-                // preview generator rewrites these while the launcher is up.
+
+                // Through a MemoryStream so the file is not held open: replay
+                // stills are written opportunistically while playback runs.
                 using var stream = new MemoryStream(File.ReadAllBytes(path));
                 _preview.Source = new Bitmap(stream);
             }
             catch (Exception)
             {
-                // A truncated PNG from an interrupted batch should show an
+                // A truncated PNG from an interrupted capture should show an
                 // empty frame, not take the screen down.
             }
+        }
+
+        private void StartReplayPreview()
+        {
+            StopReplayPreview();
+            _replayPreviewIndex = 0;
+            _replayPreviewTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(1100)
+            };
+            _replayPreviewTimer.Tick += (_, _) =>
+            {
+                if (Current != Face.Clips) return;
+                _replayPreviewIndex++;
+                RefreshPreview();
+            };
+            _replayPreviewTimer.Start();
+        }
+
+        private void StopReplayPreview()
+        {
+            _replayPreviewTimer?.Stop();
+            _replayPreviewTimer = null;
+            _replayPreviewIndex = 0;
         }
 
         /// <summary>host, or host:port. Leaves both alone on anything else, so a

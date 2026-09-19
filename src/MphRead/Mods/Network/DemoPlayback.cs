@@ -121,6 +121,7 @@ namespace MphRead.Mods.Network
             IsActive = true;
             _frame = 0;
             _started = false;
+            Replay.ReplayNetworkDiagnostics.Reset();
             if (_reader.Metadata is ReplayMetadata metadata)
             {
                 if (metadata.ExpectedHashes.Count > 0 && (metadata.HashSchema != ReplayStateHash.Schema || metadata.HashBuildId != ReplayStateHash.BuildId))
@@ -256,6 +257,7 @@ namespace MphRead.Mods.Network
             _pending = pending;
             _frame = frame;
             _started = true;
+            Replay.ReplayNetworkDiagnostics.Reset();
             LastResult = ReplayOpenResult.Success;
             LastError = null;
             NetSession.PreparePlaybackCheckpoint(netFrame);
@@ -285,6 +287,7 @@ namespace MphRead.Mods.Network
             {
                 while (_pending is DemoRecord record && record.Frame <= _frame)
                 {
+                    Replay.ReplayNetworkDiagnostics.OnPacket(record.Frame, record.Data);
                     NetSession.InjectPlaybackPacket(record.Data, record.Data.Length);
                     _pending = _reader.ReadNext();
                 }

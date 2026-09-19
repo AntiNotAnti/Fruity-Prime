@@ -7483,6 +7483,7 @@ namespace MphRead
             {
                 return;
             }
+            Mods.Replay.ReplayVideoExporter.AfterSceneDraw(Scene);
             // Last, over the finished picture: the pause menu is a scrim over
             // a match that is still being played, and the settings opened from
             // it cover the same rectangle. Nothing is drawn when no screen is

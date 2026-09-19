@@ -99,6 +99,7 @@ namespace MphRead.Mods.Network
         public static IReadOnlyList<DemoRecording> List()
         {
             var found = new List<DemoRecording>();
+            var present = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             try
             {
                 string directory = Directory;
@@ -109,24 +110,46 @@ namespace MphRead.Mods.Network
                 foreach (string path in System.IO.Directory
                     .EnumerateFiles(directory, "*" + DemoFile.Extension + "*"))
                 {
-                    if (!path.EndsWith(DemoFile.Extension, StringComparison.OrdinalIgnoreCase) && !path.EndsWith(DemoFile.Extension + ".part", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!path.EndsWith(DemoFile.Extension, StringComparison.OrdinalIgnoreCase)
+                        && !path.EndsWith(DemoFile.Extension + ".part", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
                     var info = new FileInfo(path);
+                    present.Add(info.Name);
+                    if (ReplayLibraryIndex.TryGet(path, out DemoRecording indexed))
+                    {
+                        found.Add(indexed);
+                        continue;
+                    }
+
                     (string room, DateTime? stamp) = ReadName(info.Name);
-                    using var reader = DemoReader.Open(path, out ReplayOpenResult result, metadataOnly: true);
+                    using var reader = DemoReader.Open(path, out ReplayOpenResult result,
+                        metadataOnly: true);
                     ReplayMetadata? metadata = reader?.Metadata;
-                    if (reader != null && reader.ProtocolVersion != NetConfig.ProtocolVersion) result = ReplayOpenResult.ProtocolMismatch;
-                    found.Add(new DemoRecording(path, metadata?.RoomKey ?? room,
-                        metadata?.RecordedAtUtc.ToLocalTime() ?? stamp ?? info.LastWriteTime, info.Length,
-                        metadata, result, reader?.FormatVersion == 2 && Durations.TryGetValue(path, out var cached) && cached.Bytes == info.Length && cached.Modified == info.LastWriteTimeUtc ? cached.Frames : reader?.DurationFrames ?? 0));
+                    if (reader != null && reader.ProtocolVersion != NetConfig.ProtocolVersion)
+                        result = ReplayOpenResult.ProtocolMismatch;
+                    uint duration = reader?.FormatVersion == 2
+                        && Durations.TryGetValue(path, out var cached)
+                        && cached.Bytes == info.Length
+                        && cached.Modified == info.LastWriteTimeUtc
+                            ? cached.Frames
+                            : reader?.DurationFrames ?? 0;
+                    var recording = new DemoRecording(path, metadata?.RoomKey ?? room,
+                        metadata?.RecordedAtUtc.ToLocalTime() ?? stamp ?? info.LastWriteTime,
+                        info.Length, metadata, result, duration);
+                    found.Add(recording);
+                    ReplayLibraryIndex.Note(path, recording, reader?.FormatVersion ?? 0);
                 }
+                ReplayLibraryIndex.Prune(present);
+                ReplayLibraryIndex.Flush();
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
-                // A folder that cannot be listed is an empty list, not a
-                // screen that refuses to open.
                 Console.WriteLine($"[demo] could not list {Directory}: {ex.Message}");
             }
-            found.Sort((a, b) => a.Favorite == b.Favorite ? b.Recorded.CompareTo(a.Recorded) : b.Favorite.CompareTo(a.Favorite));
+            found.Sort((a, b) => a.Favorite == b.Favorite
+                ? b.Recorded.CompareTo(a.Recorded)
+                : b.Favorite.CompareTo(a.Favorite));
             return found;
         }
 
@@ -194,7 +217,13 @@ namespace MphRead.Mods.Network
             File.Delete(path);
             File.Delete(path + ".name");
             File.Delete(path + ".favorite");
+            File.Delete(path + ".camera");
+            File.Delete(path + ".analytics.json");
+            for (int i = 0; i < 3; i++)
+                File.Delete(path + $".thumb{i}.png");
             Durations.Remove(path);
+            ReplayLibraryIndex.Remove(path);
+            ReplayLibraryIndex.Flush();
         }
         private static string Size(long bytes)
         {

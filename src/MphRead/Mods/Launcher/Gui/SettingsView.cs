@@ -60,6 +60,10 @@ namespace MphRead.Mods.Launcher.Gui
         private ChoiceRow? _windowRow;
         private ChoiceRow? _clipPostRollRow;
         private ChoiceRow? _clipSecondsRow;
+        private ChoiceRow? _replayStorageRow;
+        private ToggleRow? _replayAutoPruneRow;
+        private ToggleRow? _replayDeleteClipsRow;
+        private static readonly int[] _replayStorageStops = { 0, 5, 10, 25, 50 };
         private SliderRow _resolutionScale = null!;
         private ToggleRow _lightingRow = null!;
         private ToggleRow _fogRow = null!;
@@ -644,6 +648,21 @@ namespace MphRead.Mods.Launcher.Gui
             Explain(page, "Full recordings, instant clips and recovered sessions appear under "
                 + "CLIPS on the main screen. Files are stored in:\n"
                 + Mods.Network.DemoLibrary.Directory);
+
+            int storageIndex = Array.FindIndex(_replayStorageStops,
+                value => value == LauncherPrefs.ReplayStorageLimitGb);
+            if (storageIndex < 0) storageIndex = 2;
+            _replayStorageRow = Add(page, new ChoiceRow("Storage limit",
+                Array.ConvertAll(_replayStorageStops,
+                    value => value == 0 ? "Unlimited" : $"{value} GB"),
+                storageIndex));
+            _replayAutoPruneRow = Add(page, new ToggleRow("Auto-manage storage",
+                LauncherPrefs.ReplayAutoPrune));
+            _replayDeleteClipsRow = Add(page, new ToggleRow("Allow old clips to be pruned",
+                LauncherPrefs.ReplayDeleteClips));
+            Explain(page, "When the limit is reached, the oldest full-match recordings are "
+                + "removed first. Favorites are always protected. Clips remain protected unless "
+                + "you explicitly allow them to be pruned.");
         }
 
         /// <summary>Every key row, so Reset can redraw them from whichever page it is on.</summary>
@@ -1177,6 +1196,15 @@ namespace MphRead.Mods.Launcher.Gui
                 Mods.Network.DemoClip.Seconds = Mods.Network.DemoClip.Lengths[
                     Math.Clamp(_clipSecondsRow.Index, 0, Mods.Network.DemoClip.Lengths.Length - 1)];
             }
+            if (_replayStorageRow != null)
+            {
+                LauncherPrefs.ReplayStorageLimitGb = _replayStorageStops[
+                    Math.Clamp(_replayStorageRow.Index, 0, _replayStorageStops.Length - 1)];
+            }
+            if (_replayAutoPruneRow != null)
+                LauncherPrefs.ReplayAutoPrune = _replayAutoPruneRow.On;
+            if (_replayDeleteClipsRow != null)
+                LauncherPrefs.ReplayDeleteClips = _replayDeleteClipsRow.On;
             _settings.ResolutionScale = Math.Max(RenderOptions.MinScale, _resolutionScale.Value)
                 .ToString(CultureInfo.InvariantCulture);
             RenderOptions.FieldOfView = _fovRow.Value;
@@ -1262,6 +1290,14 @@ namespace MphRead.Mods.Launcher.Gui
             LauncherPrefs.AutoUpdate = _autoUpdate.On;
             GameState.CommitSettings(_settings);
             LauncherPrefs.Save();
+            if (LauncherPrefs.ReplayAutoPrune && LauncherPrefs.ReplayStorageLimitGb > 0)
+            {
+                Mods.Replay.ReplayStorageManager.Apply(new Mods.Replay.ReplayStoragePolicy(
+                    MaxBytes: LauncherPrefs.ReplayStorageLimitGb * 1024L * 1024L * 1024L,
+                    DeleteFullMatches: true,
+                    DeleteMaterializedClips: LauncherPrefs.ReplayDeleteClips,
+                    DeleteVirtualClips: false));
+            }
             // Written and *applied*: the volumes, the language and the match
             // rules were only ever put in the file, so a music slider moved
             // here would otherwise leave the music exactly where it was --

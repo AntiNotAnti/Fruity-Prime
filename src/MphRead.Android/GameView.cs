@@ -819,6 +819,7 @@ namespace MphRead.Droid
                     End(scene);
                     return false;
                 }
+                Mods.Replay.ReplayVideoExporter.AfterSceneDraw(scene);
                 scene.AfterRenderFrame();
                 if (_display != null && _eglSurface != null
                     && !EGL14.EglSwapBuffers(_display, _eglSurface))
