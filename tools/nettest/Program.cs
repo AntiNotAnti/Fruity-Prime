@@ -1,10 +1,12 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
+using MphRead.Entities;
 using MphRead.Mods.Network;
 using OpenTK.Mathematics;
 
