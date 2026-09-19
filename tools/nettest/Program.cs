@@ -129,14 +129,17 @@ namespace MphRead.NetTest
             /// </summary>
             public void SendSnapshot(uint frame, int slot, Vector3 position)
             {
-                byte[] payload = new byte[SnapshotHeader.Size + PlayerState.Size];
+                const int timeSyncSize = PlayerEntity.SlotCapacity * sizeof(float) * 2;
+                ushort matchId = LastState?.MatchId ?? 0;
+                int healthOffset = SnapshotHeader.Size + PlayerState.Size + timeSyncSize;
+                byte[] payload = new byte[healthOffset + NetHealthSync.HeaderSize];
                 var header = new SnapshotHeader
                 {
                     Frame = frame,
                     Rng1 = 0,
                     Rng2 = 0,
                     PlayerCount = 1,
-                    MatchId = LastState?.MatchId ?? 0,
+                    MatchId = matchId,
                     AuthorityEpoch = LastState?.AuthorityEpoch ?? 0
                 };
                 header.Write(payload);
@@ -154,6 +157,7 @@ namespace MphRead.NetTest
                     Team = 0
                 };
                 state.Write(payload.AsSpan(SnapshotHeader.Size));
+                BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(healthOffset), matchId);
                 Send(PacketType.Snapshot, payload);
             }
 
