@@ -203,7 +203,8 @@ namespace MphRead.NetTest
             byte[] Snapshot(uint frame, params PlayerState[] states)
             {
                 int playersEnd = SnapshotHeader.Size + states.Length * PlayerState.Size;
-                byte[] body = new byte[playersEnd + NetMatchTimeSync.Size + NetHealthSync.HeaderSize];
+                const int timeSyncSize = PlayerEntity.SlotCapacity * sizeof(float) * 2;
+                byte[] body = new byte[playersEnd + timeSyncSize + NetHealthSync.HeaderSize];
                 ushort matchId = Field<ushort>("_matchId");
                 new SnapshotHeader { MatchId = matchId, AuthorityEpoch = Field<ulong>("_authorityEpoch"),
                     Frame = frame, PlayerCount = (byte)states.Length }.Write(body);
@@ -213,7 +214,7 @@ namespace MphRead.NetTest
                 // Zeroed match clocks are valid; an empty health-spawn section
                 // consists of the current match id plus a zero entry count.
                 BinaryPrimitives.WriteUInt16LittleEndian(
-                    body.AsSpan(playersEnd + NetMatchTimeSync.Size), matchId);
+                    body.AsSpan(playersEnd + timeSyncSize), matchId);
                 return body;
             }
             Hello(owner, 1); Hello(other, 2);
