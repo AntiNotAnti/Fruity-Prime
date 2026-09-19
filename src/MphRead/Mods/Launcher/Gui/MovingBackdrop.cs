@@ -1,5 +1,6 @@
 #if MPHREAD_AVALONIA
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
@@ -65,6 +66,48 @@ namespace MphRead.Mods.Launcher.Gui
         private Bitmap? _bitmap;
         private byte[] _rgba = Array.Empty<byte>();
 
+        /// <summary>
+        /// Every backdrop in the tree, in the order they arrived.
+        ///
+        /// Every screen builds its own, and a screen pushed over the front
+        /// screen does not take the one underneath out of the tree -- it
+        /// covers it with an opaque photograph of its own. So there were two
+        /// of these filling a noise field and blending a full-window layer
+        /// thirty times a second, one of them behind the other where nobody
+        /// could see it. Only the last to arrive steps; the rest keep the
+        /// frame they had and pick the loop up again when they are uncovered.
+        /// </summary>
+        private static readonly List<MovingBackdrop> _live = new();
+
+        private static bool _suspended;
+
+        /// <summary>
+        /// Nothing steps while this is set, wherever it is in the tree.
+        ///
+        /// <see cref="OnDetachedFromVisualTree"/> is the whole cost control
+        /// only while the screens are a tree that comes and goes, and on
+        /// Android they are not: the front screen is the activity's one view
+        /// and a match merely hides the Android view it sits in, which is not
+        /// a detach and not anything Avalonia hears about. So the field went
+        /// on being filled and blended thirty times a second, on the UI thread
+        /// of the process the match is running in, for the whole match -- and
+        /// again alongside a preview run, which wants every core the device
+        /// has. Set while the launcher is off the glass or the device is busy.
+        /// </summary>
+        public static bool Suspended
+        {
+            get => _suspended;
+            set
+            {
+                if (_suspended == value)
+                {
+                    return;
+                }
+                _suspended = value;
+                Arbitrate();
+            }
+        }
+
         public MovingBackdrop()
         {
             // It is the ground, not a control: a press on the backdrop is a
@@ -79,6 +122,7 @@ namespace MphRead.Mods.Launcher.Gui
         protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
         {
             base.OnAttachedToVisualTree(e);
+            _live.Add(this);
             // Nothing moves for a capture: Deck.Still pins every animation on
             // these screens at its resting pose, and this one's is the first
             // frame of the loop. See Deck.Still for why that is a correctness
@@ -87,18 +131,34 @@ namespace MphRead.Mods.Launcher.Gui
             // picture rather than a thirtieth of a second late -- and so a
             // capture, which never starts the timer, has one at all.
             Dispatcher.UIThread.Post(Tick, DispatcherPriority.Loaded);
-            if (!Deck.Still)
-            {
-                _timer.Start();
-            }
+            Arbitrate();
         }
 
         protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
         {
             // A screen that is not on the glass does not get a frame of CPU a
             // thirtieth of a second. This is the whole of the cost control.
+            _live.Remove(this);
             _timer.Stop();
+            Arbitrate();
             base.OnDetachedFromVisualTree(e);
+        }
+
+        /// <summary>Start the frontmost one and stop everything behind it.</summary>
+        private static void Arbitrate()
+        {
+            for (int i = 0; i < _live.Count; i++)
+            {
+                MovingBackdrop layer = _live[i];
+                if (i == _live.Count - 1 && !Deck.Still && !_suspended)
+                {
+                    layer._timer.Start();
+                }
+                else
+                {
+                    layer._timer.Stop();
+                }
+            }
         }
 
         /// <summary>

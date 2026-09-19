@@ -130,7 +130,7 @@ namespace MphRead.Mods.Launcher.Gui
                 return;
             }
             _framePending = true;
-            Deck.NextFrame(Tick);
+            Deck.NextFrame(this, Tick);
         }
 
         private void Tick()
