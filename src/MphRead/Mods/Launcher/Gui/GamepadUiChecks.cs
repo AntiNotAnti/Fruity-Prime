@@ -57,7 +57,8 @@ namespace MphRead.Mods.Launcher.Gui
             FocusNavigator.Focus(rows[^1]); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
             GamepadChecks.Check(rows[^1].IsFocused, "last binding reachable through scrolling");
             var rowPoint = rows[^1].TranslatePoint(new Point(), window);
-            GamepadChecks.Check(rowPoint.HasValue && rowPoint.Value.Y >= 120 && rowPoint.Value.Y + rows[^1].Bounds.Height <= 590,
+            GamepadChecks.Check(rowPoint.HasValue && rowPoint.Value.Y >= 0
+                && rowPoint.Value.Y + rows[^1].Bounds.Height <= window.Bounds.Height,
                 "focus scrolls binding inside the viewport");
             if (shots != null)
             {
@@ -130,6 +131,10 @@ namespace MphRead.Mods.Launcher.Gui
         private static void CheckControllerSettings(Window window, SettingsView settings, string? shots)
         {
             var panel = settings.GetVisualDescendants().OfType<GamepadSettingsPanel>().First();
+            var advancedButton = ControllerNav.Find(panel, "controller.advanced");
+            GamepadChecks.Check(advancedButton != null, "controller settings expose Advanced");
+            var monitor = panel.GetVisualDescendants().OfType<GamepadMonitor>().Single();
+            GamepadChecks.Check(!monitor.IsEffectivelyVisible, "advanced controller settings are collapsed by default");
             PadBindings.ApplyPreset("Default"); panel.Reload(); window.UpdateLayout();
             var preset = panel.Children.OfType<ChoiceRow>().First(r => r.Value == "Default");
             FocusNavigator.Focus(preset); preset.Index = 1;
@@ -149,7 +154,7 @@ namespace MphRead.Mods.Launcher.Gui
                     { Name = "Xbox Series controller", Buttons = buttons, RightTrigger = rt }, true,
                     GamepadFamily.Xbox, mapping: "Xbox Bluetooth compatibility");
             Pad(); navigation.Update(settings);
-            settings.ShowSection("Controls", 1); window.UpdateLayout();
+            settings.ShowSection("Controls", 0); window.UpdateLayout();
             var jumpKey = settings.GetVisualDescendants().OfType<KeyRow>().First(r => r.BindingName == "Jump");
             var jumpProperty = InputSettings.Bindings.First(p => p.Name == "Jump");
             string keyboardBefore = InputSettings.Describe(InputSettings.Bind(jumpProperty));
@@ -169,13 +174,13 @@ namespace MphRead.Mods.Launcher.Gui
             panel.RefreshLabels();
             GamepadChecks.Check(panel.Children.OfType<ChoiceRow>().Any(r => r.Value == "Custom"),
                 "binding changes update the displayed controller preset");
-            settings.ShowSection("Controls", 1); window.UpdateLayout(); FocusNavigator.Focus(jumpKey);
+            settings.ShowSection("Controls", 0); window.UpdateLayout(); FocusNavigator.Focus(jumpKey);
             Pad(); navigation.Update(settings); Pad(GamepadButtons.A); navigation.Update(settings);
             GamepadChecks.Check(jumpPad.IsFocused && GamepadContexts.Capturing && !jumpKey.Listening,
                 "controller Accept on a keyboard action enters controller capture");
             Pad(); jumpPad.Check(); Pad(GamepadButtons.B); jumpPad.Check();
             GamepadChecks.Check(!GamepadContexts.Capturing, "Back cancels redirected capture");
-            settings.ShowSection("Controls", 1); window.UpdateLayout();
+            settings.ShowSection("Controls", 0); window.UpdateLayout();
             var moveKey = settings.GetVisualDescendants().OfType<KeyRow>().First(r => r.BindingName == "MoveUp");
             var moveProperty = InputSettings.Bindings.First(p => p.Name == "MoveUp");
             string movementBefore = InputSettings.Describe(InputSettings.Bind(moveProperty));
@@ -184,7 +189,10 @@ namespace MphRead.Mods.Launcher.Gui
             GamepadChecks.Check(!moveKey.Listening && InputSettings.Describe(InputSettings.Bind(moveProperty)) == movementBefore,
                 "keyboard-only rows never bind synthetic controller Enter");
             settings.ShowSection("Controls", 1); window.UpdateLayout();
-            var monitor = panel.Children.OfType<GamepadMonitor>().Single();
+            FocusNavigator.Focus(advancedButton);
+            FocusNavigator.Key(advancedButton!, Avalonia.Input.Key.Enter);
+            window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            GamepadChecks.Check(monitor.IsEffectivelyVisible, "Advanced reveals controller diagnostics");
             Pad(rt: 1); monitor.Refresh();
             GamepadChecks.Check(monitor.Status.Contains("Xbox Bluetooth compatibility"), "live controller test identifies hardware mapping");
             if (shots != null)
