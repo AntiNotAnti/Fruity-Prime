@@ -259,6 +259,10 @@ namespace MphRead.Mods.Network
             line.Append($"confirmed={NetHitPrediction.Confirmed} ");
             line.Append($"denied={NetHitPrediction.Denied} ");
             line.Append($"unpredicted={NetHitPrediction.Unpredicted}");
+            line.Append($" unpredMoving={NetHitPrediction.UnpredictedMoving}");
+            line.Append($" unpredStill={NetHitPrediction.UnpredictedStill}");
+            line.Append($" firedMoving={NetDamage.FiredMoving}");
+            line.Append($" firedStill={NetDamage.FiredStill}");
             Line(line.ToString());
         }
 

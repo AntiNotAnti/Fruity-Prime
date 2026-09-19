@@ -732,6 +732,7 @@ namespace MphRead.Entities
             if (!Mods.Network.NetPlayerLifecycle.CanSpawn) return;
             Mods.Network.NetPlayerLifecycle.OnSpawn(this);
             Mods.Network.NetSession.ContinuousPhase.ResetSlot(SlotIndex);
+            Mods.Network.NetPlayerBridge.NoteSpawn(SlotIndex);
             // Before anything below reads Hunter: a player who asked to come
             // back as somebody else is changed here, so that the abilities,
             // the energy tank and the HUD this call sets up are the new

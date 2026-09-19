@@ -416,6 +416,13 @@ namespace MphRead.Mods.Network
                 return;
             }
             PlayerControls c = player.Controls;
+            int aimSlot = player.SlotIndex;
+            if (aimSlot >= 0 && aimSlot < _aimHeld.Length && _aimHeld[aimSlot]
+                && (intent.AckFrame >= SpawnFrame[aimSlot]
+                    || NetSession.NetFrame - SpawnFrame[aimSlot] > AimHoldCeiling))
+            {
+                _aimHeld[aimSlot] = false;
+            }
             IntentButtons missed = MissedPresses(player.SlotIndex, intent, out int shootAge);
             if (player.SlotIndex >= 0 && player.SlotIndex < ShootPressAge.Length)
             {
@@ -538,6 +545,66 @@ namespace MphRead.Mods.Network
         /// The frame each entry belongs to is what stops a press being
         /// applied twice when the redundant copies arrive.
         /// </summary>
+        /// <summary>
+        /// A new life starts here: forget the trigger pulls the last one left
+        /// behind.
+        ///
+        /// The press history exists so a one-frame pull survives a lost packet,
+        /// and it is keyed by frame number rather than by life. Holding fire
+        /// while dead is how a player respawns early, so the history is full
+        /// of pulls at the exact moment the authority puts them back on the
+        /// map -- and <see cref="MissedPresses"/> then replays the backlog:
+        /// three Power Beam rounds on three consecutive frames against a
+        /// five-frame cooldown, aimed wherever the last life was looking.
+        /// Clearing the flag re-runs the baseline the first packet from a peer
+        /// already takes, which replays nothing and loses at most one packet's
+        /// worth of real pulls.
+        ///
+        /// Called from <c>PlayerEntity.Spawn</c>, so it runs on the authority
+        /// and on every client alike.
+        /// </summary>
+        public static void NoteSpawn(int slot)
+        {
+            if (slot < 0 || slot >= _pressSeen.Length)
+            {
+                return;
+            }
+            _pressSeen[slot] = false;
+            ShootPressAge[slot] = 0;
+            SpawnFrame[slot] = NetSession.NetFrame;
+            _aimHeld[slot] = true;
+        }
+
+        /// <summary>The frame each slot last spawned on. Diagnostics only.</summary>
+        public static readonly uint[] SpawnFrame = new uint[PlayerEntity.SlotCapacity];
+
+        /// <summary>
+        /// Whether this slot's relayed aim still describes the life that ended.
+        ///
+        /// The intents already in flight when the authority respawns somebody
+        /// were composed before their owner could know, so they carry the aim
+        /// the dead player was holding -- and the authority fires along it from
+        /// the spawn point. Measured against Japan: 20 frames of shots leaving
+        /// on (1.00,0.03,0.06) before the direction snapped to the spawn
+        /// facing (0,0,1), which is one round trip.
+        ///
+        /// Frame numbers cannot tell these packets apart: they are newer than
+        /// anything seen, only stale in wall-clock terms. What separates them
+        /// is <see cref="IntentPacket.AckFrame"/> -- the snapshot its sender
+        /// had applied. Once that reaches the frame the spawn was published on,
+        /// the client has demonstrably seen it and its aim is its own again.
+        /// Until then the spawn facing stands.
+        /// </summary>
+        private static readonly bool[] _aimHeld = new bool[PlayerEntity.SlotCapacity];
+
+        /// <summary>How long the hold may last if an ack never catches up.</summary>
+        private const uint AimHoldCeiling = 90;
+
+        public static bool AimTrusted(int slot)
+        {
+            return slot < 0 || slot >= _aimHeld.Length || !_aimHeld[slot];
+        }
+
         private static IntentButtons MissedPresses(int slot, in IntentPacket intent,
             out int shootAge)
         {
@@ -669,9 +736,15 @@ namespace MphRead.Mods.Network
             if (fresh) BeginRemoteLife(player, state);
             bool spawned = (state.Flags & PlayerState.FlagSpawned) != 0 && state.Health > 0;
             _formSaid[slot] = (byte)((state.Flags & PlayerState.FlagAltForm) != 0 ? 2 : 1);
-            GameState.Points[slot] = state.Points;
-            GameState.Kills[slot] = state.Kills;
-            GameState.Deaths[slot] = state.Deaths;
+            // During room-change settling, snapshots from the finished
+            // match can still arrive. Never seed the fresh match with the old
+            // winning score.
+            if (!NetRoomChange.Settling)
+            {
+                GameState.Points[slot] = state.Points;
+                GameState.Kills[slot] = state.Kills;
+                GameState.Deaths[slot] = state.Deaths;
+            }
             NetDamage.Replay(player, state);
             if (!spawned)
             {
@@ -835,6 +908,8 @@ namespace MphRead.Mods.Network
             Array.Clear(_formSaid);
             Array.Clear(_lastPressFrame);
             Array.Clear(_pressSeen);
+            Array.Clear(_aimHeld);
+            Array.Clear(SpawnFrame);
             Array.Clear(ShootPressAge);
             Array.Clear(_pressHistory);
             _hasLatch = false;
@@ -879,6 +954,8 @@ namespace MphRead.Mods.Network
             _appliedLifeId[slot] = 0;
             _lastPressFrame[slot] = 0;
             _pressSeen[slot] = false;
+            _aimHeld[slot] = false;
+            SpawnFrame[slot] = 0;
             ShootPressAge[slot] = 0;
             _respawnRequested[slot] = false;
             if (slot == NetSession.LocalSlot)

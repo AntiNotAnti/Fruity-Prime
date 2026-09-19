@@ -1381,38 +1381,48 @@ namespace MphRead.Mods.Network
     /// </summary>
     public struct DamageEvent
     {
-        public const int Size = 26;
-        public ushort EventId, VictimLifeId, AttackerLifeId, AttackerGeneration, Damage;
-        public byte VictimSlot, AttackerSlot, Beam, Flags;
+        // Victim identity is implicit in the enclosing PlayerState. Attacker
+        // life is diagnostic-only; generation is enough to reject attribution
+        // after a slot changes hands. Knockback is bounded to +/-1.5, so a
+        // signed 16-bit fixed-point component preserves it to sub-millimetre
+        // precision while cutting the event from 26 bytes to 15.
+        public const int Size = 15;
+        private const float DirectionScale = 16384f;
+
+        public ushort EventId, AttackerGeneration, Damage;
+        public byte AttackerSlot, Beam, Flags;
         public Vector3 Direction;
+
+        private static short PackDirection(float value)
+            => (short)Math.Clamp((int)MathF.Round(value * DirectionScale), short.MinValue, short.MaxValue);
+
+        private static float UnpackDirection(short value) => value / DirectionScale;
 
         public readonly void Write(Span<byte> dest)
         {
             BinaryPrimitives.WriteUInt16LittleEndian(dest, EventId);
-            BinaryPrimitives.WriteUInt16LittleEndian(dest[2..], VictimLifeId);
-            BinaryPrimitives.WriteUInt16LittleEndian(dest[4..], AttackerLifeId);
-            BinaryPrimitives.WriteUInt16LittleEndian(dest[6..], AttackerGeneration);
-            dest[8] = VictimSlot;
-            dest[9] = AttackerSlot;
-            BinaryPrimitives.WriteUInt16LittleEndian(dest[10..], Damage);
-            dest[12] = Beam;
-            dest[13] = Flags;
-            BinaryPrimitives.WriteSingleLittleEndian(dest[14..], Direction.X);
-            BinaryPrimitives.WriteSingleLittleEndian(dest[18..], Direction.Y);
-            BinaryPrimitives.WriteSingleLittleEndian(dest[22..], Direction.Z);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[2..], AttackerGeneration);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[4..], Damage);
+            dest[6] = AttackerSlot;
+            dest[7] = Beam;
+            dest[8] = Flags;
+            BinaryPrimitives.WriteInt16LittleEndian(dest[9..], PackDirection(Direction.X));
+            BinaryPrimitives.WriteInt16LittleEndian(dest[11..], PackDirection(Direction.Y));
+            BinaryPrimitives.WriteInt16LittleEndian(dest[13..], PackDirection(Direction.Z));
         }
 
         public static DamageEvent Read(ReadOnlySpan<byte> src) => new DamageEvent
         {
             EventId = BinaryPrimitives.ReadUInt16LittleEndian(src),
-            VictimLifeId = BinaryPrimitives.ReadUInt16LittleEndian(src[2..]),
-            AttackerLifeId = BinaryPrimitives.ReadUInt16LittleEndian(src[4..]),
-            AttackerGeneration = BinaryPrimitives.ReadUInt16LittleEndian(src[6..]),
-            VictimSlot = src[8], AttackerSlot = src[9],
-            Damage = BinaryPrimitives.ReadUInt16LittleEndian(src[10..]),
-            Beam = src[12], Flags = src[13],
-            Direction = new Vector3(BinaryPrimitives.ReadSingleLittleEndian(src[14..]),
-                BinaryPrimitives.ReadSingleLittleEndian(src[18..]), BinaryPrimitives.ReadSingleLittleEndian(src[22..]))
+            AttackerGeneration = BinaryPrimitives.ReadUInt16LittleEndian(src[2..]),
+            Damage = BinaryPrimitives.ReadUInt16LittleEndian(src[4..]),
+            AttackerSlot = src[6],
+            Beam = src[7],
+            Flags = src[8],
+            Direction = new Vector3(
+                UnpackDirection(BinaryPrimitives.ReadInt16LittleEndian(src[9..])),
+                UnpackDirection(BinaryPrimitives.ReadInt16LittleEndian(src[11..])),
+                UnpackDirection(BinaryPrimitives.ReadInt16LittleEndian(src[13..])))
         };
     }
 
@@ -1420,7 +1430,7 @@ namespace MphRead.Mods.Network
     {
         public ushort SlotGeneration;
         public ushort LifeId;
-        public const int Size = 70 + DamageEvent.Size * DamageHistory;
+        public const int Size = 54 + DamageEvent.Size * DamageHistory;
 
         public byte SlotIndex;
         public byte Flags;          // bit 0 = active, bit 1 = alt form, bit 2 = spawned
@@ -1537,10 +1547,6 @@ namespace MphRead.Mods.Network
 
         public void Write(Span<byte> dest)
         {
-            BinaryPrimitives.WriteUInt16LittleEndian(dest[64..], SlotGeneration);
-            BinaryPrimitives.WriteUInt16LittleEndian(dest[66..], LifeId);
-            BinaryPrimitives.WriteUInt16LittleEndian(dest[68..], DamageEventId);
-            for (int i = 0; i < DamageHistory; i++) EventAt(i).Write(dest[(70 + i * DamageEvent.Size)..]);
             dest[0] = SlotIndex;
             dest[1] = Flags;
             WriteVec(dest[2..], Position);
@@ -1549,22 +1555,22 @@ namespace MphRead.Mods.Network
             BinaryPrimitives.WriteUInt16LittleEndian(dest[38..], Health);
             dest[40] = CurrentWeapon;
             dest[41] = Team;
-            dest[42] = 0; // reserved; event identity is now 16 bits
-            dest[43] = AttackerSlot;
-            dest[44] = DamageBeam;
-            dest[45] = DamageFlags;
-            WriteVec(dest[46..], HitDirection);
-            BinaryPrimitives.WriteInt16LittleEndian(dest[58..], Points);
-            BinaryPrimitives.WriteUInt16LittleEndian(dest[60..], Kills);
-            BinaryPrimitives.WriteUInt16LittleEndian(dest[62..], Deaths);
+            BinaryPrimitives.WriteInt16LittleEndian(dest[42..], Points);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[44..], Kills);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[46..], Deaths);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[48..], SlotGeneration);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[50..], LifeId);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest[52..], DamageEventId);
+            for (int i = 0; i < DamageHistory; i++)
+            {
+                EventAt(i).Write(dest[(54 + i * DamageEvent.Size)..]);
+            }
         }
 
         public static PlayerState Read(ReadOnlySpan<byte> src)
         {
-            return new PlayerState
+            var state = new PlayerState
             {
-                SlotGeneration = BinaryPrimitives.ReadUInt16LittleEndian(src[64..]),
-                LifeId = BinaryPrimitives.ReadUInt16LittleEndian(src[66..]),
                 SlotIndex = src[0],
                 Flags = src[1],
                 Position = ReadVec(src[2..]),
@@ -1573,19 +1579,35 @@ namespace MphRead.Mods.Network
                 Health = BinaryPrimitives.ReadUInt16LittleEndian(src[38..]),
                 CurrentWeapon = src[40],
                 Team = src[41],
-                DamageEventId = BinaryPrimitives.ReadUInt16LittleEndian(src[68..]),
-                Damage0 = DamageEvent.Read(src[70..]),
-                Damage1 = DamageEvent.Read(src[(70 + DamageEvent.Size)..]),
-                Damage2 = DamageEvent.Read(src[(70 + 2 * DamageEvent.Size)..]),
-                Damage3 = DamageEvent.Read(src[(70 + 3 * DamageEvent.Size)..]),
-                AttackerSlot = src[43],
-                DamageBeam = src[44],
-                DamageFlags = src[45],
-                HitDirection = ReadVec(src[46..]),
-                Points = BinaryPrimitives.ReadInt16LittleEndian(src[58..]),
-                Kills = BinaryPrimitives.ReadUInt16LittleEndian(src[60..]),
-                Deaths = BinaryPrimitives.ReadUInt16LittleEndian(src[62..])
+                Points = BinaryPrimitives.ReadInt16LittleEndian(src[42..]),
+                Kills = BinaryPrimitives.ReadUInt16LittleEndian(src[44..]),
+                Deaths = BinaryPrimitives.ReadUInt16LittleEndian(src[46..]),
+                SlotGeneration = BinaryPrimitives.ReadUInt16LittleEndian(src[48..]),
+                LifeId = BinaryPrimitives.ReadUInt16LittleEndian(src[50..]),
+                DamageEventId = BinaryPrimitives.ReadUInt16LittleEndian(src[52..]),
+                Damage0 = DamageEvent.Read(src[54..]),
+                Damage1 = DamageEvent.Read(src[(54 + DamageEvent.Size)..]),
+                Damage2 = DamageEvent.Read(src[(54 + 2 * DamageEvent.Size)..]),
+                Damage3 = DamageEvent.Read(src[(54 + 3 * DamageEvent.Size)..])
             };
+
+            // Keep the existing in-memory convenience fields without paying
+            // for a second copy of the newest damage metadata on the wire.
+            DamageEvent latest = default;
+            for (int i = DamageHistory - 1; i >= 0; i--)
+            {
+                DamageEvent candidate = state.EventAt(i);
+                if (candidate.EventId == state.DamageEventId)
+                {
+                    latest = candidate;
+                    break;
+                }
+            }
+            state.AttackerSlot = latest.EventId == 0 ? (byte)0xFF : latest.AttackerSlot;
+            state.DamageBeam = latest.EventId == 0 ? (byte)0xFF : latest.Beam;
+            state.DamageFlags = latest.Flags;
+            state.HitDirection = latest.Direction;
+            return state;
         }
 
         private static void WriteVec(Span<byte> dest, Vector3 v)
@@ -1905,9 +1927,10 @@ namespace MphRead.Mods.Network
     public static class NetConfig
     {
         public const ushort DefaultPort = 27888;
-        // Combined lifecycle + team clocks + health spawners can exceed a single
-        // Ethernet MTU. This is a buffer bound, not a no-fragmentation guarantee.
-        public const int MaxPacketSize = 2048;
+        // Keep application datagrams within the IPv6 minimum-MTU budget after
+        // UDP/IP headers. Compact PlayerState leaves worst-case 8-player
+        // snapshots comfortably below this bound.
+        public const int MaxPacketSize = 1232;
         /// <summary>
         /// Bumped when the wire format changes in a way an older build would
         /// misread rather than notice. Version 2 added the ping to the roster:
@@ -1990,9 +2013,12 @@ namespace MphRead.Mods.Network
         /// loading a room. Its map-transfer packet IDs remain 32-35.
         /// Version 12 adds the synchronized hidden-opponent-health rule (bit 6),
         /// explicit claim refusal reasons and launch-preserving projectile behavior.
-        /// The packet sizes are unchanged; older SessionState readers reject bit 6.
+        /// Version 13 compacts PlayerState damage history: victim identity is
+        /// implicit in the enclosing state and knockback uses bounded 16-bit
+        /// fixed-point components. Mixed v12/v13 peers must be refused because
+        /// PlayerState and DamageEvent sizes changed.
         /// </summary>
-        public const int ProtocolVersion = 12;
+        public const int ProtocolVersion = 13;
         /// <summary>
         /// Frames between intent packets. One, so every frame.
         ///

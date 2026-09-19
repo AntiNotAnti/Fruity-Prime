@@ -204,6 +204,12 @@ namespace MphRead.Mods.Network
         /// </summary>
         private static readonly bool[,] _pendingSpent = new bool[Slots, PendingCapacity];
 
+        // A travelling projectile is often resolved by the authority before
+        // the shooter's local copy lands. Its authoritative health already
+        // includes the hit, so charging the local prediction debit again
+        // would double-subtract the same damage from the displayed bar.
+        private static readonly bool[,] _pendingTravelled = new bool[Slots, PendingCapacity];
+
         /// <summary>
         /// Whether that entry is a hit on this machine's own player -- its own
         /// splash, a fall. Kept out of the per-weapon tally for the same
@@ -531,6 +537,10 @@ namespace MphRead.Mods.Network
             return $"predictedDebit={Debit(slot)} shownFloor={_shownHealth[slot]} pending={_pendingCount[slot]} lastAuthorityHP={_lastAuthorityHealth[slot]}";
         }
 
+        // Three frames: beyond this the authority's catch-up commonly
+        // resolves the projectile before the local copy reaches its target.
+        private const float TravelFlight = 3 / 60f;
+
         private static int _markerTimer;
 
         /// <summary>
@@ -570,6 +580,7 @@ namespace MphRead.Mods.Network
             Array.Clear(_pendingBeam);
             Array.Clear(_pendingClaim);
             Array.Clear(_pendingSpent);
+            Array.Clear(_pendingTravelled);
             Array.Clear(_pendingSelf);
             Array.Clear(_settledCredit);
             Array.Clear(_settledFrame);
@@ -808,7 +819,11 @@ namespace MphRead.Mods.Network
                 }
                 int at = Push(victim.SlotIndex, NetSession.NetFrame, (int)damage,
                     lethal, headshot, beam, self);
-                if (at >= 0) _pendingHeld[victim.SlotIndex, at] = claimedLethal && !self;
+                if (at >= 0)
+                {
+                    _pendingHeld[victim.SlotIndex, at] = claimedLethal && !self;
+                    _pendingTravelled[victim.SlotIndex, at] = !self && flight > TravelFlight;
+                }
                 // And tell the authority, which may not find this hit itself:
                 // its rewind has a ceiling, its copy of the trigger pull may
                 // be stale, and if this machine's player is killed during the
@@ -1024,6 +1039,7 @@ namespace MphRead.Mods.Network
                 _pendingBeam[slot, i] = AltBeam;
                 _pendingClaim[slot, i] = 0;
                 _pendingSpent[slot, i] = false;
+                _pendingTravelled[slot, i] = false;
                 _pendingSelf[slot, i] = false;
             }
             if (slot == NetHooks.LocalSlot) { _healCount = 0; _healHead = 0; }
@@ -1162,6 +1178,12 @@ namespace MphRead.Mods.Network
                 if (NetPlayerLifecycle.Matches(slot, _pendingGeneration[slot, at], _pendingLife[slot, at])
                     && now - _pendingFrame[slot, at] < (uint)hold)
                 {
+                    if (_pendingTravelled[slot, at])
+                    {
+                        // Authority usually paid this projectile before the local
+                        // copy arrived; do not show the same damage twice.
+                        continue;
+                    }
                     debit += _pendingDamage[slot, at];
                 }
             }
@@ -1492,6 +1514,7 @@ namespace MphRead.Mods.Network
             _pendingBeam[slot, tail] = (byte)Bucket(beam);
             _pendingClaim[slot, tail] = 0;
             _pendingSpent[slot, tail] = false;
+            _pendingTravelled[slot, tail] = false;
             _pendingSelf[slot, tail] = self;
             _pendingCount[slot]++;
             if (!self)

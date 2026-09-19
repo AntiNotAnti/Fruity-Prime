@@ -55,19 +55,20 @@ namespace MphRead.NetTest
 
         private static void Wire()
         {
-            Check(PlayerState.Size == 174, "player wire size includes event history");
+            Check(PlayerState.Size == 114, "compact player wire size includes four event history entries");
             Check(1 + SnapshotHeader.Size + PlayerState.Size * PlayerEntity.SlotCapacity <= NetConfig.MaxPacketSize
                 && NetConfig.MaxPacketSize <= 1472, "eight-player snapshot fits one Ethernet UDP datagram");
             byte[] buffer = new byte[NetConfig.MaxPacketSize];
             var state = State(ushort.MaxValue, 99, 65400);
             state.DamageEventId = 65535;
-            state.Damage3 = new DamageEvent { EventId = 65535, VictimSlot = 1, VictimLifeId = 65535,
-                AttackerSlot = 0, AttackerGeneration = 123, AttackerLifeId = 8, Damage = 32,
+            state.Damage3 = new DamageEvent { EventId = 65535,
+                AttackerSlot = 0, AttackerGeneration = 123, Damage = 32,
                 Beam = 2, Flags = 7, Direction = new Vector3(.25f, .1f, 0) };
             state.Write(buffer);
             PlayerState read = PlayerState.Read(buffer);
             Check(read.LifeId == 65535 && read.SlotGeneration == 65400 && read.Damage3.Damage == 32
-                && read.Damage3.Direction == state.Damage3.Direction && read.Damage3.AttackerGeneration == 123,
+                && (read.Damage3.Direction - state.Damage3.Direction).Length < 0.0002f
+                && read.Damage3.AttackerGeneration == 123 && read.AttackerSlot == 0,
                 "player and damage event round trip");
             var intent = new IntentPacket { MatchId = 51, AuthorityEpoch = 9, SlotGeneration = 22,
                 LifeId = 65535, Frame = uint.MaxValue, Position = state.Position, Aim = state.Facing,

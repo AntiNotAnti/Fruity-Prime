@@ -240,7 +240,11 @@ namespace MphRead.Mods.Network
         public static Vector3 RemoteShotDirection(PlayerEntity player, Vector3 current)
         {
             if (NetSession.IsAuthority && player.SlotIndex != NetSession.LocalSlot
-                && player.SlotIndex >= 0 && player.SlotIndex < NetSession.RemoteIntents.Length)
+                && player.SlotIndex >= 0 && player.SlotIndex < NetSession.RemoteIntents.Length
+                // The one that decides where the shot actually goes. A relayed
+                // aim from before its sender knew it had respawned points at
+                // whatever the last life was looking at.
+                && NetPlayerBridge.AimTrusted(player.SlotIndex))
             {
                 Vector3 aim = NetSession.RemoteIntents[player.SlotIndex].Aim;
                 if (aim.LengthSquared > 0.0001f)

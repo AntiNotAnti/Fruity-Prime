@@ -210,12 +210,43 @@ namespace MphRead.Mods.Launcher.Gui
             // pause menu against the size the window had when the match
             // started.
             surface.Resize(window.FramebufferSize.X, window.FramebufferSize.Y);
+            NotePointerBasis(window);
             if (!surface.Visible)
             {
                 UiOverlay.Visible = false;
                 return;
             }
             surface.Tick();
+        }
+
+        private static int _basisWidth;
+        private static int _basisHeight;
+
+        /// <summary>
+        /// The two sizes the pointer is converted between, once each time they
+        /// change. A vertical bias of a few tens of pixels -- "I have to aim
+        /// slightly above the row I want" -- is this ratio not being one, and
+        /// it is invisible from inside the toolkit, whose own arithmetic is
+        /// consistent either way.
+        /// </summary>
+        private static void NotePointerBasis(RenderWindow window)
+        {
+            int fw = window.FramebufferSize.X;
+            int fh = window.FramebufferSize.Y;
+            if (fw == _basisWidth && fh == _basisHeight)
+            {
+                return;
+            }
+            _basisWidth = fw;
+            _basisHeight = fh;
+            int cw = window.ClientSize.X;
+            int ch = window.ClientSize.Y;
+            double sx = cw > 0 ? fw / (double)cw : 1;
+            double sy = ch > 0 ? fh / (double)ch : 1;
+            Mods.DebugLog.Line("ui", $"pointer basis: framebuffer {fw}x{fh}, "
+                + $"client {cw}x{ch}, pointer scaled by {sx:0.####}x{sy:0.####}"
+                + (Math.Abs(sx - 1) > 0.001 || Math.Abs(sy - 1) > 0.001
+                    ? " -- not 1, so clicks land off by that fraction" : ""));
         }
 
         private static EndPanelView? _endPanel;
@@ -246,22 +277,33 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         internal static void TickEndPanel()
         {
-            UiSurface? surface = UiSurface.Current;
-            bool want = Mods.EndScreen.Available && _menu == null && surface != null;
-            if (want == EndPanelUp)
+            bool want = Mods.EndScreen.Available && _menu == null;
+            if (want && !EndPanelUp)
             {
-                _endPanel?.Refresh();
-                return;
-            }
-            if (want)
-            {
+                // Ensure, not Current: a session that went straight into a
+                // match -- -connect, or anything else that never opened a
+                // screen -- has no surface yet, and reading one that is not
+                // there left the results with the HUD's own arrows and
+                // swatches. Android's TickEndPanel does the same.
+                UiSurface? surface = UiSurface.Ensure();
+                if (surface == null)
+                {
+                    return;
+                }
                 var panel = new EndPanelView();
                 _endPanel = panel;
-                surface!.Show(panel);
+                Mods.EndScreen.PanelUp = true;
+                surface.Show(panel);
                 return;
             }
-            _endPanel = null;
-            UiSurface.Current?.Hide();
+            if (!want && EndPanelUp)
+            {
+                _endPanel = null;
+                Mods.EndScreen.PanelUp = false;
+                UiSurface.Current?.Hide();
+                return;
+            }
+            _endPanel?.Refresh();
         }
 
         // -------------------------------------------------------- the screens
