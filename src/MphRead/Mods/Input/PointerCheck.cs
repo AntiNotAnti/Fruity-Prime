@@ -232,10 +232,13 @@ namespace MphRead.Mods.Input
             Require(!controls.Shoot.IsDown && !controls.AltAttack.IsDown && !controls.Jump.IsDown,
                 "real input pass captures all LMB-bound actions");
             GamepadContexts.Current = GamepadContext.Gameplay;
+            // Establish the default binding revision on a neutral frame first. A binding
+            // change intentionally blocks buttons already held at that transition so
+            // remapping cannot leak the capture press into gameplay.
+            PadBindings.Reset();
             GamepadManager.UpdateDevice("pointercheck", new GamepadState { Connected = true }, mapped: true);
             GamepadInput.BeginFrame();
             GamepadManager.UpdateDevice("pointercheck", new GamepadState { Connected = true, Buttons = GamepadButtons.RightTrigger }, mapped: true);
-            PadBindings.Reset();
             GamepadInput.BeginFrame();
             GamepadInput.Apply(player);
             Require(controls.Shoot.IsDown && controls.AltAttack.IsDown, "real controller contribution survives stylus capture");
