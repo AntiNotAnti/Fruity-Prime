@@ -732,6 +732,23 @@ namespace MphRead.Mods
                 ?? System.IO.Path.Combine(Platform.AppPaths.UserDataDirectory, "maprotation.txt");
             MapRotation rotation = MapRotation.LoadOrCreate(rotationPath);
 
+            bool serverReplays = !HasFlag(args, "noserverreplays");
+            string? serverReplaysValue = ValueAfterAny(args,
+                "serverreplays", "server_replays");
+            if (serverReplaysValue != null
+                && !TryParseOnOff(serverReplaysValue, out serverReplays))
+            {
+                Console.WriteLine($"[server] ignoring replay setting "
+                    + $"{serverReplaysValue} (expected on/off or true/false)");
+                serverReplays = true;
+            }
+            int replayStorageGb = IntOption(args, 25, 0, 1024,
+                "serverreplaystoragegb", "server_replay_storage_gb");
+            int replayRetentionDays = IntOption(args, 14, 0, 36500,
+                "serverreplayretentiondays", "server_replay_retention_days");
+            int replayKeepLast = IntOption(args, 100, 0, 100000,
+                "serverreplaykeeplast", "server_replay_keep_last");
+
             var server = new Network.DedicatedServer(port, maxPlayers, rotation)
             {
                 ServerName = ValueAfter(args, "servername") ?? ValueAfter(args, "name")
@@ -752,7 +769,12 @@ namespace MphRead.Mods
                 AllowMapVotes = !HasFlag(args, "novote"),
                 // This process is the server, so it is the one that may
                 // replace itself. See DedicatedServer.AutoUpdate.
-                AutoUpdate = true
+                AutoUpdate = true,
+                ReplayPolicy = new Network.ServerReplayPolicy(
+                    Enabled: serverReplays,
+                    StorageLimitGb: replayStorageGb,
+                    RetentionDays: replayRetentionDays,
+                    KeepLast: replayKeepLast)
             };
             // Whether this server will also open *extra* matches, on ports of
             // its own, for players who ask. Off unless an admin says a range,
@@ -2027,6 +2049,52 @@ namespace MphRead.Mods
                 }
             }
             return null;
+        }
+
+        private static string? ValueAfterAny(string[] args, params string[] names)
+        {
+            foreach (string name in names)
+            {
+                string? value = ValueAfter(args, name);
+                if (value != null) return value;
+            }
+            return null;
+        }
+
+        private static int IntOption(string[] args, int fallback, int minimum,
+            int maximum, params string[] names)
+        {
+            string? value = ValueAfterAny(args, names);
+            if (value == null) return fallback;
+            if (Int32.TryParse(value, out int parsed) && parsed >= minimum
+                && parsed <= maximum)
+            {
+                return parsed;
+            }
+            Console.WriteLine($"[server] ignoring -{names[0]} {value} "
+                + $"(expected {minimum}-{maximum})");
+            return fallback;
+        }
+
+        private static bool TryParseOnOff(string value, out bool result)
+        {
+            if (Boolean.TryParse(value, out result)) return true;
+            switch (value.Trim().ToLowerInvariant())
+            {
+                case "on":
+                case "yes":
+                case "1":
+                    result = true;
+                    return true;
+                case "off":
+                case "no":
+                case "0":
+                    result = false;
+                    return true;
+                default:
+                    result = false;
+                    return false;
+            }
         }
 
         /// <summary>
