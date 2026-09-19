@@ -87,7 +87,7 @@ namespace MphRead.Mods.Launcher.Gui
             filtering.Index = (int)Mods.Render.TextureQuality.Pixel;
             GamepadChecks.Check(graphics.Value == "Custom", "individual graphics choice returns preset to Custom");
             GamepadChecks.Check(Mods.Render.VisualOptions.Current == originalVisual, "graphics draft does not apply before Save");
-            settings.ShowSection("Controller"); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+            settings.ShowSection("Controls", 1); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
             var rows = settings.GetVisualDescendants().OfType<PadRow>().ToArray();
             GamepadChecks.Check(rows.Length == PadBindings.Actions.Count, "every pad action appears in settings");
             FocusNavigator.Focus(rows[^1]); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
@@ -278,6 +278,13 @@ namespace MphRead.Mods.Launcher.Gui
         private static void CheckControllerSettings(Window window, SettingsView settings, string? shots)
         {
             var panel = settings.GetVisualDescendants().OfType<GamepadSettingsPanel>().First();
+            var advanced = ControllerNav.Find(panel, "controller.advanced");
+            GamepadChecks.Check(advanced != null, "controller settings expose Advanced");
+            GamepadChecks.Check(panel.GetVisualDescendants().OfType<GamepadMonitor>().All(m => !m.IsEffectivelyVisible),
+                "advanced controller diagnostics are collapsed by default");
+            FocusNavigator.Focus(advanced);
+            FocusNavigator.Key(advanced!, Avalonia.Input.Key.Enter);
+            window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
             PadBindings.ApplyPreset("Default"); panel.Reload(); window.UpdateLayout();
             var preset = panel.Children.OfType<ChoiceRow>().First(r => r.Value == "Default");
             FocusNavigator.Focus(preset); preset.Index = 1;
@@ -297,7 +304,7 @@ namespace MphRead.Mods.Launcher.Gui
                     { Name = "Xbox Series controller", Buttons = buttons, RightTrigger = rt }, true,
                     GamepadFamily.Xbox, mapping: "Xbox Bluetooth compatibility");
             Pad(); navigation.Update(settings);
-            settings.ShowSection(OperatingSystem.IsAndroid() ? "Touch and mouse" : "Mouse and stylus"); window.UpdateLayout();
+            settings.ShowSection("Controls", 0); window.UpdateLayout();
             var jumpKey = settings.GetVisualDescendants().OfType<KeyRow>().First(r => r.BindingName == "Jump");
             var jumpProperty = InputSettings.Bindings.First(p => p.Name == "Jump");
             string keyboardBefore = InputSettings.Describe(InputSettings.Bind(jumpProperty));
@@ -317,13 +324,13 @@ namespace MphRead.Mods.Launcher.Gui
             panel.RefreshLabels();
             GamepadChecks.Check(panel.Children.OfType<ChoiceRow>().Any(r => r.Value == "Custom"),
                 "binding changes update the displayed controller preset");
-            settings.ShowSection(OperatingSystem.IsAndroid() ? "Touch and mouse" : "Mouse and stylus"); window.UpdateLayout(); FocusNavigator.Focus(jumpKey);
+            settings.ShowSection("Controls", 0); window.UpdateLayout(); FocusNavigator.Focus(jumpKey);
             Pad(); navigation.Update(settings); Pad(GamepadButtons.A); navigation.Update(settings);
             GamepadChecks.Check(jumpPad.IsFocused && GamepadContexts.Capturing && !jumpKey.Listening,
                 "controller Accept on a keyboard action enters controller capture");
             Pad(); jumpPad.Check(); Pad(GamepadButtons.B); jumpPad.Check();
             GamepadChecks.Check(!GamepadContexts.Capturing, "Back cancels redirected capture");
-            settings.ShowSection(OperatingSystem.IsAndroid() ? "Touch and mouse" : "Mouse and stylus"); window.UpdateLayout();
+            settings.ShowSection("Controls", 0); window.UpdateLayout();
             var moveKey = settings.GetVisualDescendants().OfType<KeyRow>().First(r => r.BindingName == "MoveUp");
             var moveProperty = InputSettings.Bindings.First(p => p.Name == "MoveUp");
             string movementBefore = InputSettings.Describe(InputSettings.Bind(moveProperty));
@@ -331,8 +338,8 @@ namespace MphRead.Mods.Launcher.Gui
             Pad(GamepadButtons.A); navigation.Update(settings);
             GamepadChecks.Check(!moveKey.Listening && InputSettings.Describe(InputSettings.Bind(moveProperty)) == movementBefore,
                 "keyboard-only rows never bind synthetic controller Enter");
-            settings.ShowSection("Controller"); window.UpdateLayout();
-            var monitor = panel.Children.OfType<GamepadMonitor>().Single();
+            settings.ShowSection("Controls", 1); window.UpdateLayout();
+            var monitor = panel.GetVisualDescendants().OfType<GamepadMonitor>().Single();
             Pad(rt: 1); monitor.Refresh();
             GamepadChecks.Check(monitor.Status.Contains("Xbox Bluetooth compatibility"), "live controller test identifies hardware mapping");
             if (shots != null)
@@ -347,7 +354,7 @@ namespace MphRead.Mods.Launcher.Gui
                 bitmap?.Save(Path.Combine(shots, "controller-live-test.png"));
             }
             GamepadOptions.BindingModifier = GamepadButtons.LeftBumper;
-            settings.ShowSection(OperatingSystem.IsAndroid() ? "Touch and mouse" : "Mouse and stylus"); window.UpdateLayout();
+            settings.ShowSection("Controls", 0); window.UpdateLayout();
             var imperialistKey = settings.GetVisualDescendants().OfType<KeyRow>().First(r => r.BindingName == "Imperialist");
             var weaponProperty = InputSettings.Bindings.First(p => p.Name == "Imperialist");
             string weaponKeyBefore = InputSettings.Describe(InputSettings.Bind(weaponProperty));
@@ -359,7 +366,7 @@ namespace MphRead.Mods.Launcher.Gui
             GamepadChecks.Check(InputSettings.Describe(InputSettings.Bind(weaponProperty)) == weaponKeyBefore,
                 "weapon controller capture preserves keyboard weapon key");
             panel.Reload(); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
-            var wheelRow = panel.Children.OfType<ChoiceRow>().First(r => r.Value == "Volt Driver");
+            var wheelRow = panel.GetVisualDescendants().OfType<ChoiceRow>().First(r => r.Value == "Volt Driver");
             FocusNavigator.Focus(wheelRow); FocusNavigator.Key(wheelRow, Avalonia.Input.Key.Right);
             Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
             GamepadChecks.Check(FocusNavigator.Focused(panel) is ChoiceRow wheel && wheel.Value == "Battlehammer"
