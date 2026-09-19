@@ -61,7 +61,7 @@ namespace MphRead.Mods.Launcher.Gui
             InvalidateVisual();
         }
 
-        protected override void Render(DrawingContext context)
+        public override void Render(DrawingContext context)
         {
             base.Render(context);
             double width = Math.Max(1, Bounds.Width);

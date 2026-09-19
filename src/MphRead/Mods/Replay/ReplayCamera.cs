@@ -17,8 +17,8 @@ namespace MphRead.Mods.Replay
         public static float Roll { get; set; }
         public static bool Director { get; set; }
         public static bool TrackCollisionAvoidance { get; set; } = true;
-        public static ReplayCameraInterpolation TrackInterpolation { get; set; } = ReplayCameraInterpolation.Spline;
-        public static ReplayCameraEase TrackEase { get; set; } = ReplayCameraEase.InOut;
+        internal static ReplayCameraInterpolation TrackInterpolation { get; set; } = ReplayCameraInterpolation.Spline;
+        internal static ReplayCameraEase TrackEase { get; set; } = ReplayCameraEase.InOut;
         internal static readonly ReplayCameraTrack Track = new();
         private static string? _trackPath;
         private static int _bookmarkIndex;
