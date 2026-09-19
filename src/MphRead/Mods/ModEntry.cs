@@ -84,6 +84,34 @@ namespace MphRead.Mods
             Update.Updater.Disabled = HasFlag(args, "noupdate");
             ApplyRenderOverrides(args);
 
+            if (HasFlag(args, "pointercheck"))
+            {
+                Environment.ExitCode = Input.PointerCheck.Run();
+                return true;
+            }
+
+
+            Input.AimAssist.AimAssistDebug.Enabled = HasFlag(args, "gamepadassistdebug");
+            Input.AimAssist.AimAssistDebug.UnassistedArm = HasFlag(args, "gamepadassistbaseline");
+            Input.AimAssist.AimAssistTelemetry.Configure(ValueAfter(args, "gamepadassisttelemetry"));
+
+            if (HasFlag(args, "gamepadcheck"))
+            {
+                Environment.ExitCode = Input.GamepadChecks.Run(ValueAfter(args, "shots"));
+                return true;
+            }
+            if (HasFlag(args, "gamepad"))
+            {
+                double seconds = 15;
+                string? given = ValueAfter(args, "seconds");
+                if (given != null && Double.TryParse(given, out double parsed) && parsed > 0)
+                {
+                    seconds = parsed;
+                }
+                Environment.ExitCode = Input.GamepadProbe.Run(seconds, HasFlag(args, "verbose"));
+                return true;
+            }
+
             // Arithmetic and cosmetic-noise checks need no extracted game files.
             if (HasFlag(args, "frametimingcheck"))
             {
