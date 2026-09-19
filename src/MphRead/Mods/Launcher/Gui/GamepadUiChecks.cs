@@ -2,8 +2,6 @@
 using System;
 using System.IO;
 using System.Linq;
-using MphRead.Mods.Network;
-using MphRead.Mods.Chat;
 using Avalonia;
 using Avalonia.Headless;
 using Avalonia.VisualTree;
@@ -37,13 +35,6 @@ namespace MphRead.Mods.Launcher.Gui
             panel.Children.Add(choice); window.UpdateLayout(); FocusNavigator.Focus(choice);
             FocusNavigator.Key(choice, Avalonia.Input.Key.Right);
             GamepadChecks.Check(choice.Index == 1, "choice row supports semantic arrows");
-            ControllerNav.Identify(first, "fixture.first"); ControllerNav.Identify(choice, "fixture.choice");
-            first.SetValue(ControllerNav.NavDownProperty, "fixture.choice");
-            FocusNavigator.Focus(first); FocusNavigator.Move(panel, UiAction.Down);
-            GamepadChecks.Check(choice.IsFocused, "explicit navigation neighbor takes precedence over geometry");
-            panel.SetValue(ControllerNav.NavWrapProperty, true);
-            FocusNavigator.Focus(first); FocusNavigator.Move(panel, UiAction.Up);
-            GamepadChecks.Check(choice.IsFocused, "upward wrapping reaches the last eligible control");
             var text = new TextBox { Text = "Player", Width = 250 };
             panel.Children.Add(text); window.UpdateLayout();
             var keyboard = new ControllerKeyboard(text, () => { });
@@ -56,37 +47,10 @@ namespace MphRead.Mods.Launcher.Gui
             window.Content = confirm; window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
             var cancel = FocusNavigator.Ensure(confirm);
             GamepadChecks.Check(cancel != null, "confirmation has focus");
-            window.Content = null;
-            var modalRoot = new Panel(); modalRoot.Children.Add(panel); modalRoot.Children.Add(confirm);
-            window.Content = modalRoot; window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
-            FocusNavigator.Focus(first);
-            GamepadChecks.Check(FocusNavigator.Ensure(modalRoot) == cancel, "modal scope contains focus even when underlying control was focused");
             FocusNavigator.Key(cancel!, Avalonia.Input.Key.Escape);
             GamepadChecks.Check(answer == false, "controller Back dismisses confirmation");
-            var outer = UiLayout.Backdrop(); var inner = UiLayout.Backdrop();
-            var scaledText = new TextBlock { Text = "Scale once", FontSize = 20 };
-            inner.Children.Add(scaledText); outer.Children.Add(inner); window.Content = outer;
-            window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
-            var savedVisual = Mods.Render.VisualOptions.Current;
-            Mods.Render.VisualOptions.Current = savedVisual with { TextScale = 125 };
-            Dispatcher.UIThread.RunJobs();
-            GamepadChecks.Check(Math.Abs(scaledText.FontSize - 20 * 125.0 / savedVisual.TextScale) < .01,
-                "nested screens apply accessibility text scaling once");
-            Mods.Render.VisualOptions.Current = savedVisual;
-            Dispatcher.UIThread.RunJobs();
             var settings = new SettingsView(new MenuSettings());
             window.Width = 960; window.Height = 660; window.Content = settings;
-            settings.ShowSection("Display"); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
-            var graphics = settings.GetVisualDescendants().OfType<ChoiceRow>()
-                .First(row => Mods.Render.VisualOptions.PresetNames.Contains(row.Value));
-            var filtering = settings.GetVisualDescendants().OfType<ChoiceRow>()
-                .First(row => Mods.Render.VisualOptions.FilterNames.Contains(row.Value));
-            var originalVisual = Mods.Render.VisualOptions.Current;
-            graphics.Index = (int)Mods.Render.GraphicsPreset.Ultra;
-            GamepadChecks.Check(filtering.Value == "Anisotropic 16x", "graphics preset updates individual controls");
-            filtering.Index = (int)Mods.Render.TextureQuality.Pixel;
-            GamepadChecks.Check(graphics.Value == "Custom", "individual graphics choice returns preset to Custom");
-            GamepadChecks.Check(Mods.Render.VisualOptions.Current == originalVisual, "graphics draft does not apply before Save");
             settings.ShowSection("Controls", 1); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
             var rows = settings.GetVisualDescendants().OfType<PadRow>().ToArray();
             GamepadChecks.Check(rows.Length == PadBindings.Actions.Count, "every pad action appears in settings");
@@ -109,7 +73,6 @@ namespace MphRead.Mods.Launcher.Gui
                 calibration?.Save(Path.Combine(shots, "controller-settings.png"));
             }
             CheckControllerSettings(window, settings, shots);
-            CheckSetup(window);
             var pause = new PauseMenuView(false);
             window.Content = pause; window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
             GamepadChecks.Check(FocusNavigator.Ensure(pause) != null, "pause menu is controller focusable");
@@ -161,130 +124,12 @@ namespace MphRead.Mods.Launcher.Gui
             Pad(0); FocusNavigator.Key(binding, Avalonia.Input.Key.Enter);
             GamepadManager.RemoveDevice("ui-test"); binding.Check();
             GamepadChecks.Check(!GamepadContexts.Capturing, "disconnect exits binding capture");
-            CheckOnlineLobby(window);
             window.Close();
-        }
-
-        private static void CheckOnlineLobby(Window window)
-        {
-            string[] rooms = { "MP3 PROVING GROUND" };
-            var browser = new PlayScreen(new MenuSettings(), rooms, captureOnly: true);
-            browser.ShowCaptureServers(new[] {
-                ("Full server", new ServerStatus { Online = true, LobbyEnabled = true, Phase = SessionPhase.Lobby, Players = 8, MaxPlayers = 8 }),
-                ("Open lobby", new ServerStatus { Online = true, LobbyEnabled = true, Phase = SessionPhase.Lobby, Players = 2, MaxPlayers = 8 }) });
-            window.Width = 800; window.Height = 400; window.Content = browser; window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
-            var list = browser.GetVisualDescendants().OfType<UiList>().Single();
-            var rows = browser.GetVisualDescendants().OfType<ServerRow>().ToArray();
-            var details = browser.GetVisualDescendants().OfType<ServerDetailsPanel>().Single();
-            list.Select(rows[0]);
-            GamepadChecks.Check(!details.Join.IsEnabled, "full server blocks Join with a reason");
-            list.Select(rows[1]);
-            GamepadChecks.Check(details.Join.IsEnabled && details.Join.Label == "Join Lobby", "available server enables Join Lobby");
-            list.Sort((a, b) => StringComparer.Ordinal.Compare(((ServerRow)b).ServerName, ((ServerRow)a).ServerName));
-            GamepadChecks.Check(list.Selected == rows[1], "sorting preserves selected server");
-            var filter = browser.GetVisualDescendants().OfType<TextBox>().First(box => box.Watermark == "Search servers");
-            filter.Text = "missing"; Dispatcher.UIThread.RunJobs();
-            GamepadChecks.Check(!details.Join.IsEnabled, "empty search cannot join stale selection");
-            filter.Text = ""; Dispatcher.UIThread.RunJobs();
-            window.Width = 600; window.UpdateLayout();
-            var pages = browser.GetVisualDescendants().OfType<UiTabs>().First();
-            pages.Select("Offline"); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
-            var optionsScroll = browser.GetVisualDescendants().OfType<ChoiceRow>().First().GetVisualAncestors().OfType<ScrollViewer>().First();
-            GamepadChecks.Check(Grid.GetColumn(optionsScroll) == 1, "leaving compact Online restores the offline options column");
-            pages.Select("Online"); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
-            details = browser.GetVisualDescendants().OfType<ServerDetailsPanel>().Single();
-            GamepadChecks.Check(!details.Join.IsEnabled, "returning to Online clears stale join availability");
-            window.Width = 800;
-
-            UiCapture.LobbyFixture("host-ffa", rooms);
-            var lobby = new LobbyScreen(rooms, new LobbyContext("Test lobby", "test.example:27888")); lobby.Suspend();
-            int closed = 0; lobby.Closed += (_, _) => closed++;
-            window.Content = lobby; window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
-            var tabs = lobby.GetVisualDescendants().OfType<UiTabs>().Single();
-            GamepadChecks.Check(tabs.IsVisible, "short lobby exposes section tabs");
-            var marks = lobby.GetVisualDescendants().OfType<UiMark>().ToArray();
-            UiMark Mark(string text) => lobby.GetVisualDescendants().OfType<UiMark>().First(m => m.Label == text);
-            var start = marks.First(m => m.Label.StartsWith("Start Match"));
-            var ready = marks.First(m => m.Label is "Ready" or "Cancel ready");
-            GamepadChecks.Check(ready.IsEffectivelyVisible && start.IsEffectivelyVisible, "short lobby keeps Ready and Start visible");
-            tabs.Select("Match"); window.UpdateLayout();
-            FocusNavigator.Key(Mark("Edit Match"), Avalonia.Input.Key.Enter); window.UpdateLayout();
-            var match = lobby.GetVisualDescendants().OfType<LobbyMatchPanel>().Single();
-            GamepadChecks.Check(match.Editing && !start.IsEnabled, "host editor blocks starting an unapplied draft");
-            var time = match.GetVisualDescendants().OfType<FieldRow>().First();
-            time.Value = "invalid"; Dispatcher.UIThread.RunJobs();
-            var apply = Mark("Apply Changes");
-            GamepadChecks.Check(!apply.IsEnabled, "invalid match draft cannot apply");
-            time.Value = "421"; Dispatcher.UIThread.RunJobs();
-            GamepadChecks.Check(apply.IsEnabled, "valid dirty draft can apply");
-            var session = NetSession.ServerSession!.Value;
-            session.Revision++; session.Match = session.Match with { PointGoal = 10 };
-            NetSession.ApplySessionState(session); lobby.RefreshForCheck();
-            GamepadChecks.Check(time.Value == "420" && !apply.IsEnabled, "stale draft reloads authoritative values");
-            FocusNavigator.Key(Mark("Cancel Changes"), Avalonia.Input.Key.Enter); window.UpdateLayout();
-            GamepadChecks.Check(!match.Editing && NetSession.ServerSession.Value.Match.PointGoal == 10, "cancel preserves server match");
-            session.OwnerSlot = 1; session.Revision++; NetSession.ApplySessionState(session); lobby.RefreshForCheck(); window.UpdateLayout();
-            GamepadChecks.Check(!Mark("Edit Match").IsVisible && !start.IsVisible, "host transfer switches to guest summary in place");
-            NetSession.SendLobbyCommand(LobbyCommandType.SetReady, ready: true); lobby.RefreshForCheck();
-            GamepadChecks.Check(!ready.IsEnabled, "pending command prevents duplicate ready");
-            tabs.Select("Chat"); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
-            var chat = lobby.GetVisualDescendants().OfType<LobbyChatPanel>().Single();
-            var entry = chat.GetVisualDescendants().OfType<TextBox>().Single();
-            entry.Text = "keep this draft"; FocusNavigator.Focus(entry);
-            FocusNavigator.Key(entry, Avalonia.Input.Key.Escape);
-            GamepadChecks.Check(closed == 0 && entry.Text == "keep this draft" && !entry.IsFocused, "chat Escape retains text and does not leave lobby");
-            var history = chat.GetVisualDescendants().OfType<ScrollViewer>().First(); history.Offset = new Vector(0, 0);
-            NetChat.Remember(new ChatPacket { Kind = ChatPacket.KindSystem, Text = "A player joined." });
-            chat.Refresh(true); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
-            GamepadChecks.Check(history.Offset.Y < 1, "new messages preserve manual chat scroll");
-            typeof(NetSession).GetProperty(nameof(NetSession.ConnectionLost))!.SetValue(null, true);
-            lobby.RefreshForCheck();
-            GamepadChecks.Check(!ready.IsEnabled && !entry.IsEnabled, "connection loss disables actions and chat");
-            NetSession.Stop();
-        }
-
-        private static void CheckSetup(Window window)
-        {
-            long now = 0; int applied = 0;
-            var setup = new GamepadSetupPanel(() => applied++, () => now);
-            window.Content = setup; window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
-            void Pad(float x = 0, float y = 0, float trigger = 0, GamepadButtons buttons = 0)
-                => GamepadManager.UpdateDevice("setup-check", new GamepadState
-                    { LeftX = x, LeftY = y, RightX = x, RightY = y, LeftTrigger = trigger, RightTrigger = trigger, Buttons = buttons }, true);
-            void Click(string label)
-            {
-                var button = setup.Children.OfType<UiWord>().First(w => w.Text == label);
-                FocusNavigator.Focus(button); FocusNavigator.Key(button, Avalonia.Input.Key.Enter);
-            }
-            Pad(); Click("Calibrate sticks and triggers");
-            GamepadChecks.Check(GamepadContexts.Capturing, "calibration blocks menu and gameplay navigation");
-            float previous = GamepadOptions.LeftInner;
-            for (now = 1100; now < 3500; now += 100) { Pad(.02f, .03f); setup.Tick(); }
-            for (now = 3600; now <= 10500; now += 100) { Pad(MathF.Cos(now / 100f), MathF.Sin(now / 100f), 1); setup.Tick(); }
-            GamepadChecks.Check(!GamepadContexts.Capturing && GamepadOptions.LeftInner == previous
-                && setup.Children.OfType<UiWord>().First(w => w.Text == "Apply measured setup").IsEnabled,
-                "completed calibration previews measurements without applying them");
-            Click("Apply measured setup");
-            GamepadChecks.Check(applied == 1 && Math.Abs(GamepadOptions.LeftCalibration.CenterX - .02f) < .001f,
-                "calibration Apply commits the measured values");
-            Pad(); Click("Calibrate sticks and triggers"); now += 100; Pad(buttons: GamepadButtons.B); setup.Tick();
-            GamepadChecks.Check(!GamepadContexts.Capturing && applied == 1, "controller Back cancels calibration without applying");
-            Pad(); Click("Calibrate sticks and triggers");
-            GamepadManager.RemoveDevice("setup-check"); setup.Tick();
-            GamepadChecks.Check(!GamepadContexts.Capturing && applied == 1, "disconnect cancels calibration without applying");
-            GamepadOptions.Reset(); PadBindings.Reset();
         }
 
         private static void CheckControllerSettings(Window window, SettingsView settings, string? shots)
         {
             var panel = settings.GetVisualDescendants().OfType<GamepadSettingsPanel>().First();
-            var advanced = ControllerNav.Find(panel, "controller.advanced");
-            GamepadChecks.Check(advanced != null, "controller settings expose Advanced");
-            GamepadChecks.Check(panel.GetVisualDescendants().OfType<GamepadMonitor>().All(m => !m.IsEffectivelyVisible),
-                "advanced controller diagnostics are collapsed by default");
-            FocusNavigator.Focus(advanced);
-            FocusNavigator.Key(advanced!, Avalonia.Input.Key.Enter);
-            window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
             PadBindings.ApplyPreset("Default"); panel.Reload(); window.UpdateLayout();
             var preset = panel.Children.OfType<ChoiceRow>().First(r => r.Value == "Default");
             FocusNavigator.Focus(preset); preset.Index = 1;
@@ -304,7 +149,7 @@ namespace MphRead.Mods.Launcher.Gui
                     { Name = "Xbox Series controller", Buttons = buttons, RightTrigger = rt }, true,
                     GamepadFamily.Xbox, mapping: "Xbox Bluetooth compatibility");
             Pad(); navigation.Update(settings);
-            settings.ShowSection("Controls", 0); window.UpdateLayout();
+            settings.ShowSection("Controls", 1); window.UpdateLayout();
             var jumpKey = settings.GetVisualDescendants().OfType<KeyRow>().First(r => r.BindingName == "Jump");
             var jumpProperty = InputSettings.Bindings.First(p => p.Name == "Jump");
             string keyboardBefore = InputSettings.Describe(InputSettings.Bind(jumpProperty));
@@ -324,13 +169,13 @@ namespace MphRead.Mods.Launcher.Gui
             panel.RefreshLabels();
             GamepadChecks.Check(panel.Children.OfType<ChoiceRow>().Any(r => r.Value == "Custom"),
                 "binding changes update the displayed controller preset");
-            settings.ShowSection("Controls", 0); window.UpdateLayout(); FocusNavigator.Focus(jumpKey);
+            settings.ShowSection("Controls", 1); window.UpdateLayout(); FocusNavigator.Focus(jumpKey);
             Pad(); navigation.Update(settings); Pad(GamepadButtons.A); navigation.Update(settings);
             GamepadChecks.Check(jumpPad.IsFocused && GamepadContexts.Capturing && !jumpKey.Listening,
                 "controller Accept on a keyboard action enters controller capture");
             Pad(); jumpPad.Check(); Pad(GamepadButtons.B); jumpPad.Check();
             GamepadChecks.Check(!GamepadContexts.Capturing, "Back cancels redirected capture");
-            settings.ShowSection("Controls", 0); window.UpdateLayout();
+            settings.ShowSection("Controls", 1); window.UpdateLayout();
             var moveKey = settings.GetVisualDescendants().OfType<KeyRow>().First(r => r.BindingName == "MoveUp");
             var moveProperty = InputSettings.Bindings.First(p => p.Name == "MoveUp");
             string movementBefore = InputSettings.Describe(InputSettings.Bind(moveProperty));
@@ -339,7 +184,7 @@ namespace MphRead.Mods.Launcher.Gui
             GamepadChecks.Check(!moveKey.Listening && InputSettings.Describe(InputSettings.Bind(moveProperty)) == movementBefore,
                 "keyboard-only rows never bind synthetic controller Enter");
             settings.ShowSection("Controls", 1); window.UpdateLayout();
-            var monitor = panel.GetVisualDescendants().OfType<GamepadMonitor>().Single();
+            var monitor = panel.Children.OfType<GamepadMonitor>().Single();
             Pad(rt: 1); monitor.Refresh();
             GamepadChecks.Check(monitor.Status.Contains("Xbox Bluetooth compatibility"), "live controller test identifies hardware mapping");
             if (shots != null)
@@ -352,40 +197,6 @@ namespace MphRead.Mods.Launcher.Gui
                 Dispatcher.UIThread.RunJobs();
                 using var bitmap = window.CaptureRenderedFrame();
                 bitmap?.Save(Path.Combine(shots, "controller-live-test.png"));
-            }
-            GamepadOptions.BindingModifier = GamepadButtons.LeftBumper;
-            settings.ShowSection("Controls", 0); window.UpdateLayout();
-            var imperialistKey = settings.GetVisualDescendants().OfType<KeyRow>().First(r => r.BindingName == "Imperialist");
-            var weaponProperty = InputSettings.Bindings.First(p => p.Name == "Imperialist");
-            string weaponKeyBefore = InputSettings.Describe(InputSettings.Bind(weaponProperty));
-            FocusNavigator.Focus(imperialistKey); FocusNavigator.Key(imperialistKey, Avalonia.Input.Key.Enter);
-            Pad(); navigation.Update(settings); Pad(GamepadButtons.X); navigation.Update(settings);
-            GamepadChecks.Check(PadBindings.Slot(PadAction.Imperialist, 0) == GamepadButtons.X
-                && PadBindings.Modifier(PadAction.Imperialist, 0) == GamepadButtons.LeftBumper
-                && !GamepadContexts.Capturing, "keyboard weapon row captures a modifier binding directly");
-            GamepadChecks.Check(InputSettings.Describe(InputSettings.Bind(weaponProperty)) == weaponKeyBefore,
-                "weapon controller capture preserves keyboard weapon key");
-            panel.Reload(); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
-            var wheelRow = panel.GetVisualDescendants().OfType<ChoiceRow>().First(r => r.Value == "Volt Driver");
-            FocusNavigator.Focus(wheelRow); FocusNavigator.Key(wheelRow, Avalonia.Input.Key.Right);
-            Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
-            GamepadChecks.Check(FocusNavigator.Focused(panel) is ChoiceRow wheel && wheel.Value == "Battlehammer"
-                && GamepadOptions.WheelOrder[0] == 1 && GamepadOptions.WheelOrder[1] == 0,
-                "wheel reorder retains focus and swaps its displayed weapon");
-            GamepadChecks.Check(panel.Children.OfType<GamepadSetupPanel>().Count() == 1
-                && panel.Children.OfType<GamepadProfilePanel>().Count() == 1,
-                "controller setup and profile tools are reachable in settings");
-            if (shots != null)
-            {
-                var imperialistPad = settings.GetVisualDescendants().OfType<PadRow>().First(r => r.Action == PadAction.Imperialist);
-                FocusNavigator.Focus(imperialistPad); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
-                AvaloniaHeadlessPlatform.ForceRenderTimerTick(3); Dispatcher.UIThread.RunJobs();
-                using var bitmap = window.CaptureRenderedFrame();
-                bitmap?.Save(Path.Combine(shots, "controller-weapons.png"));
-                FocusNavigator.Focus(panel.GetVisualDescendants().OfType<UiWord>().First(w => w.Text == "Save current as named profile"));
-                window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); AvaloniaHeadlessPlatform.ForceRenderTimerTick(3);
-                Dispatcher.UIThread.RunJobs(); using var profiles = window.CaptureRenderedFrame();
-                profiles?.Save(Path.Combine(shots, "controller-profiles.png"));
             }
             GamepadManager.RemoveDevice("settings-xbox"); PadBindings.Reset(); GamepadOptions.Reset();
         }

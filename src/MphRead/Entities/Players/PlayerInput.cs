@@ -1,6 +1,5 @@
 using System;
 using MphRead.Formats;
-using MphRead.Mods.Network;
 using OpenTK.Mathematics;
 using OpenTK.Windowing.GraphicsLibraryFramework;
 
@@ -1095,7 +1094,7 @@ namespace MphRead.Entities
             }
             if (AttachedEnemy != null)
             {
-                return NetShotDiagnostics.Finish(this, ShotAttemptResult.AttachedEnemy);
+                return false;
             }
             bool pressed = Controls.Shoot.IsPressed;
             if (pressed || CurrentWeapon != BeamType.PowerBeam)
@@ -1119,12 +1118,11 @@ namespace MphRead.Entities
                 || !pressed && _timeSinceShot < _autofireCooldown)
                 && (!IsBot || !AiData.Flags2.TestFlag(AiFlags2.Bit20)))
             {
-                return NetShotDiagnostics.Finish(this, _timeSinceShot < EquipWeapon.ShotCooldown * 2
-                    ? ShotAttemptResult.Cooldown : ShotAttemptResult.AutofireCooldown);
+                return false;
             }
             if (GunAnimation == GunAnimation.UpDown)
             {
-                return NetShotDiagnostics.Finish(this, ShotAttemptResult.GunLowered);
+                return false;
             }
             Vector3 shotOrigin = Mods.Network.NetHooks.RemoteShotOrigin(this, _muzzlePos);
             Vector3 shotVec = Mods.Network.NetHooks.RemoteShotDirection(this, _aimPosition - _muzzlePos);
@@ -1166,13 +1164,13 @@ namespace MphRead.Entities
             Mods.Network.NetUnlagged.BeginShot(this);
             BeamResultFlags result = BeamProjectileEntity.Spawn(this, EquipInfo, shotOrigin, shotVec, flags, NodeRef, _scene);
             Mods.Network.NetUnlagged.EndShot(this);
+            Mods.Network.NetDamage.NoteFired(this, shotVec, _gunVec1);
             if (result == BeamResultFlags.NoSpawn)
             {
                 EquipInfo.Weapon = curWeapon;
                 PlayBeamEmptySfx(EquipInfo.Weapon.Beam);
-                return NetShotDiagnostics.Finish(this, ShotAttemptResult.NoAmmo);
+                return false;
             }
-            NetShotDiagnostics.Finish(this, ShotAttemptResult.Spawned, shotVec, _gunVec1);
             ModControllerFeedback(EquipWeapon.MinCharge > 0 && EquipInfo.ChargeLevel >= EquipWeapon.MinCharge * 2
                 ? Mods.Input.GamepadFeedback.ChargedShot : Mods.Input.GamepadFeedback.Fire);
             // todo: update license stats

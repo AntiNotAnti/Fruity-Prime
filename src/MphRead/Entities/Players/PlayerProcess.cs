@@ -248,8 +248,7 @@ namespace MphRead.Entities
                                 }
                             }
                         }
-                        if (GameState.SinglePlayer || Controls.Shoot.IsDown
-                            || Mods.Network.NetPlayerBridge.RespawnRequested(SlotIndex) || time <= 0 || IsBot
+                        if (GameState.SinglePlayer || Controls.Shoot.IsDown || time <= 0 || IsBot
                             || Mods.Network.NetHooks.ForceSpawn(this)) // todo: or forced
                         {
                             // todo?: something with wi-fi
