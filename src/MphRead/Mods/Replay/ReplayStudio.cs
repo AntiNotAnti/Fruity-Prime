@@ -426,14 +426,58 @@ namespace MphRead.Mods.Replay
                 .Where(f => !f.Name.EndsWith(".part", StringComparison.OrdinalIgnoreCase))
                 .OrderBy(f => f.LastWriteTimeUtc)
                 .ToArray();
-            long before = files.Sum(f => f.Length);
+
+            string cacheDirectory = Path.Combine(DemoLibrary.Directory, ".virtual-cache");
+            FileInfo[] cacheFiles = Directory.Exists(cacheDirectory)
+                ? new DirectoryInfo(cacheDirectory)
+                    .EnumerateFiles("*" + DemoFile.Extension, SearchOption.TopDirectoryOnly)
+                    .OrderBy(f => f.LastWriteTimeUtc)
+                    .ToArray()
+                : Array.Empty<FileInfo>();
+
+            var protectedSources = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string virtualClip in ReplayVirtualClips.List())
+            {
+                if (ReplayVirtualClips.TryLoad(virtualClip, out ReplayVirtualClipDocument? clip)
+                    && clip != null)
+                {
+                    protectedSources.Add(Path.GetFullPath(clip.SourceReplay));
+                }
+            }
+
+            long before = files.Sum(f => f.Length) + cacheFiles.Sum(f => f.Length);
             long total = before;
             int deleted = 0;
+
+            // Materialized virtual clips are a cache, never the source of truth.
+            // Evict them before deleting a real recording.
+            foreach (FileInfo cache in cacheFiles)
+            {
+                if (total <= policy.MaxBytes) break;
+                try
+                {
+                    long bytes = cache.Length;
+                    cache.Delete();
+                    total = Math.Max(0, total - bytes);
+                    deleted++;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // Continue with other cache entries or recordings.
+                }
+            }
+
             foreach (FileInfo file in files)
             {
                 if (total <= policy.MaxBytes) break;
                 string path = file.FullName;
                 if (File.Exists(path + ".favorite")) continue;
+                if (DemoPlayback.IsActive && DemoPlayback.CurrentPath != null
+                    && String.Equals(Path.GetFullPath(path),
+                        Path.GetFullPath(DemoPlayback.CurrentPath),
+                        StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (protectedSources.Contains(Path.GetFullPath(path))) continue;
                 using DemoReader? reader = DemoReader.Open(path, out _, metadataOnly: true);
                 ReplayType type = reader?.Metadata?.Type ?? ReplayType.FullMatch;
                 if (type == ReplayType.FullMatch && !policy.DeleteFullMatches) continue;
