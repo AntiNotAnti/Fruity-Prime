@@ -189,6 +189,15 @@ namespace MphRead.Mods.Launcher.Gui
             AddCamera("EASING", CycleEase);
             AddCamera("ROLL -5°", () => ReplayCamera.Roll = Math.Clamp(ReplayCamera.Roll - 5, -180, 180));
             AddCamera("ROLL +5°", () => ReplayCamera.Roll = Math.Clamp(ReplayCamera.Roll + 5, -180, 180));
+            AddCamera("FOV -5°", () => ReplayCamera.FieldOfView = Math.Clamp(ReplayCamera.FieldOfView - 5, 20, 140));
+            AddCamera("FOV +5°", () => ReplayCamera.FieldOfView = Math.Clamp(ReplayCamera.FieldOfView + 5, 20, 140));
+            AddCamera("LOOK AT PLAYER", () =>
+            {
+                int slot = PlayerEntity.MainPlayerIndex;
+                ReplayCamera.LookAtSlot = ReplayCamera.LookAtSlot == slot ? -1 : slot;
+            });
+            AddCamera("CONSTANT SPEED", () =>
+                ReplayCamera.TrackConstantSpeed = !ReplayCamera.TrackConstantSpeed);
             _collision = AddCamera("PATH COLLISION", () =>
                 ReplayCamera.TrackCollisionAvoidance = !ReplayCamera.TrackCollisionAvoidance);
 
@@ -509,14 +518,18 @@ namespace MphRead.Mods.Launcher.Gui
                 + $"{mode} camera  ·  {marks}  ·  zoom {_timeline.Zoom:0.0}x"
                 + (_message.Length == 0 ? "" : "\n" + _message);
 
+            ReplayCamera.EnsureTrack();
             _timeline.Update(ReplayController.DurationFrames, ReplayController.CurrentFrame,
-                ReplayController.ClipIn, ReplayController.ClipOut, DemoPlayback.Events, _highlights);
+                ReplayController.ClipIn, ReplayController.ClipOut, DemoPlayback.Events, _highlights,
+                ReplayCamera.Track.Keys.Select(key => key.Frame).ToArray());
 
             _cameraStatus.Text =
                 $"{ReplayCamera.KeyframeCount} keys · {ReplayCamera.TrackInterpolation} · "
-                + $"{ReplayCamera.TrackEase} · roll {ReplayCamera.Roll:0}° · "
+                + $"{ReplayCamera.TrackEase} · {(ReplayCamera.TrackConstantSpeed ? "constant" : "timed")} speed · "
+                + $"FOV {ReplayCamera.FieldOfView:0}° · roll {ReplayCamera.Roll:0}° · "
+                + $"look-at {(ReplayCamera.LookAtSlot < 0 ? "off" : $"P{ReplayCamera.LookAtSlot + 1}")} · "
                 + $"director {ReplayDirector.Reason} ({ReplayDirector.CurrentScore:0}) · "
-                + $"{ReplayCheckpointManager.Count} verified checkpoint candidates";
+                + $"{ReplayCheckpointManager.Count} checkpoint candidates";
 
             ReplayAnalyticsSnapshot analytics = ReplayStudio.Analytics();
             var names = DemoPlayback.Metadata?.Players.ToDictionary(p => p.Slot, p => p.Name);

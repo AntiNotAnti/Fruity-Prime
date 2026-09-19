@@ -84,7 +84,8 @@ namespace MphRead.Mods.Replay
             return true;
         }
 
-        public bool Sample(uint frame, out ReplayCameraKeyframe sample)
+        public bool Sample(uint frame, out ReplayCameraKeyframe sample,
+            bool constantSpeed = false)
         {
             sample = default;
             if (_keys.Count == 0) return false;
@@ -102,17 +103,18 @@ namespace MphRead.Mods.Replay
                 ReplayCameraKeyframe left = _keys[i - 1];
                 float raw = (frame - left.Frame) / (float)Math.Max(1u, right.Frame - left.Frame);
                 float t = ApplyEase(raw, left.Ease);
+                Vector3 p0 = i >= 2 ? _keys[i - 2].Position : left.Position;
+                Vector3 p3 = i + 1 < _keys.Count ? _keys[i + 1].Position : right.Position;
+                if (constantSpeed && left.Interpolation == ReplayCameraInterpolation.Spline)
+                {
+                    t = ArcLengthParameter(p0, left.Position, right.Position, p3, t);
+                }
                 Vector3 position = left.Interpolation switch
                 {
                     ReplayCameraInterpolation.Linear => Vector3.Lerp(left.Position, right.Position, t),
                     ReplayCameraInterpolation.Smooth => Vector3.Lerp(left.Position, right.Position,
                         t * t * (3 - 2 * t)),
-                    _ => CatmullRom(
-                        i >= 2 ? _keys[i - 2].Position : left.Position,
-                        left.Position,
-                        right.Position,
-                        i + 1 < _keys.Count ? _keys[i + 1].Position : right.Position,
-                        t)
+                    _ => CatmullRom(p0, left.Position, right.Position, p3, t)
                 };
 
                 sample = new ReplayCameraKeyframe(
@@ -165,6 +167,32 @@ namespace MphRead.Mods.Replay
                 + (-p0 + p2) * t
                 + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2
                 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3);
+        }
+
+        private static float ArcLengthParameter(Vector3 p0, Vector3 p1,
+            Vector3 p2, Vector3 p3, float fraction)
+        {
+            const int Steps = 16;
+            Span<float> lengths = stackalloc float[Steps + 1];
+            Vector3 previous = p1;
+            float total = 0;
+            for (int step = 1; step <= Steps; step++)
+            {
+                float t = step / (float)Steps;
+                Vector3 current = CatmullRom(p0, p1, p2, p3, t);
+                total += (current - previous).Length;
+                lengths[step] = total;
+                previous = current;
+            }
+            if (total <= 0.00001f) return fraction;
+
+            float target = Math.Clamp(fraction, 0, 1) * total;
+            int index = 1;
+            while (index < Steps && lengths[index] < target) index++;
+            float before = lengths[index - 1];
+            float after = lengths[index];
+            float local = after <= before ? 0 : (target - before) / (after - before);
+            return ((index - 1) + local) / Steps;
         }
 
         private static bool Finite(float value) => float.IsFinite(value);

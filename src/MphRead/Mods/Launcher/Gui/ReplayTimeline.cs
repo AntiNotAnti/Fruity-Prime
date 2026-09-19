@@ -25,11 +25,13 @@ namespace MphRead.Mods.Launcher.Gui
         private static readonly IBrush HighlightBrush = new SolidColorBrush(Deck.Fade(0x7a6130, 0.34));
         private static readonly IBrush PlayheadBrush = new SolidColorBrush(Deck.Rgb(0xf0efe8));
         private static readonly IBrush MarkBrush = new SolidColorBrush(Deck.Rgb(0xd8b45d));
+        private static readonly IBrush CameraBrush = new SolidColorBrush(Deck.Rgb(0x6fb7c8));
         private static readonly Pen EventPen = new(EventBrush, 1);
         private static readonly Pen KillPen = new(KillBrush, 2);
         private static readonly Pen ObjectivePen = new(ObjectiveBrush, 2);
         private static readonly Pen PlayheadPen = new(PlayheadBrush, 2);
         private static readonly Pen MarkPen = new(MarkBrush, 2);
+        private static readonly Pen CameraPen = new(CameraBrush, 2);
 
         private bool _dragging;
         private uint _duration;
@@ -38,6 +40,7 @@ namespace MphRead.Mods.Launcher.Gui
         private uint? _markOut;
         private IReadOnlyList<ReplayEvent> _events = Array.Empty<ReplayEvent>();
         private IReadOnlyList<ReplayHighlight> _highlights = Array.Empty<ReplayHighlight>();
+        private IReadOnlyList<uint> _cameraKeys = Array.Empty<uint>();
 
         public Action<uint>? FrameRequested { get; set; }
         public double Zoom { get; private set; } = 1;
@@ -50,7 +53,8 @@ namespace MphRead.Mods.Launcher.Gui
         }
 
         public void Update(uint duration, uint current, uint? markIn, uint? markOut,
-            IReadOnlyList<ReplayEvent> events, IReadOnlyList<ReplayHighlight> highlights)
+            IReadOnlyList<ReplayEvent> events, IReadOnlyList<ReplayHighlight> highlights,
+            IReadOnlyList<uint>? cameraKeys = null)
         {
             _duration = duration;
             _current = Math.Min(current, duration);
@@ -58,6 +62,7 @@ namespace MphRead.Mods.Launcher.Gui
             _markOut = markOut;
             _events = events;
             _highlights = highlights;
+            _cameraKeys = cameraKeys ?? Array.Empty<uint>();
             InvalidateVisual();
         }
 
@@ -105,6 +110,12 @@ namespace MphRead.Mods.Launcher.Gui
 
             DrawMark(context, _markIn, first, last, span, width, height);
             DrawMark(context, _markOut, first, last, span, width, height);
+            foreach (uint key in _cameraKeys)
+            {
+                if (key < first || key > last) continue;
+                double x = X(key, first, span, width);
+                context.DrawLine(CameraPen, new Point(x, 3), new Point(x, 11));
+            }
 
             if (_current >= first && _current <= last)
             {

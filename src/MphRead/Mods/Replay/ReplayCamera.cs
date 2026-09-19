@@ -17,6 +17,7 @@ namespace MphRead.Mods.Replay
         public static float Roll { get; set; }
         public static bool Director { get; set; }
         public static bool TrackCollisionAvoidance { get; set; } = true;
+        public static bool TrackConstantSpeed { get; set; } = true;
         internal static ReplayCameraInterpolation TrackInterpolation { get; set; } = ReplayCameraInterpolation.Spline;
         internal static ReplayCameraEase TrackEase { get; set; } = ReplayCameraEase.InOut;
         internal static readonly ReplayCameraTrack Track = new();
@@ -164,10 +165,19 @@ namespace MphRead
             }
             if (Mods.Replay.ReplayCamera.Profile == Mods.Replay.ReplayPresentationProfile.Presentation
                 && Mods.Replay.ReplayCamera.PlayTrack
-                && Mods.Replay.ReplayCamera.Track.Sample(Mods.Network.ReplayController.CurrentFrame, out var trackFrame))
+                && Mods.Replay.ReplayCamera.Track.Sample(
+                    Mods.Network.ReplayController.CurrentFrame,
+                    out var trackFrame,
+                    Mods.Replay.ReplayCamera.TrackConstantSpeed))
             {
                 ApplyReplayKeyframe(trackFrame);
                 return;
+            }
+            if (mode == Mods.Replay.ReplayCameraMode.Free
+                && Mods.Replay.ReplayCamera.Profile == Mods.Replay.ReplayPresentationProfile.Presentation)
+            {
+                _cameraFov = MathHelper.DegreesToRadians(Math.Clamp(
+                    Mods.Replay.ReplayCamera.FieldOfView, 20, 140));
             }
             if (mode is not (Mods.Replay.ReplayCameraMode.Chase or Mods.Replay.ReplayCameraMode.Orbit)) return;
             var player = PlayerEntity.Main;
