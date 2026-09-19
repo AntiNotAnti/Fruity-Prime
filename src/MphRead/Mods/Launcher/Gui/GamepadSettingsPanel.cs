@@ -16,6 +16,8 @@ namespace MphRead.Mods.Launcher.Gui
         private GamepadFamily _shownFamily;
         private long _shownBindings = -1, _profileRevision;
         private long _runtimeRevision = -1;
+        private StackPanel? _target;
+        private bool _advancedOpen;
         private static readonly string[] Presets = { "Default", "Bumper Jumper", "Southpaw", "Classic", "Custom" };
         public GamepadSettingsPanel()
         {
@@ -37,55 +39,101 @@ namespace MphRead.Mods.Launcher.Gui
             _profileRevision = GamepadProfiles.Revision;
             _runtimeRevision = GamepadManager.Snapshot.Revision;
             RefreshDevices();
-            Children.Add(new GamepadMonitor());
-            Choice("controller.button_labels", "Button labels", new[] { "Automatic", "Xbox", "PlayStation", "Nintendo", "Generic" }, (int)GamepadOptions.GlyphStyle,
-                i => GamepadOptions.GlyphStyle = (GamepadFamily)i);
+
             Choice("controller.control_layout", "Control layout", Presets, Array.IndexOf(Presets, PadBindings.Preset),
                 i => { PadBindings.ApplyPreset(Presets[i]); RefreshLabels(); Dispatcher.UIThread.Post(Reload); });
-            Children.Add(new TextBlock
+            Number("controller.horizontal_sensitivity", "Horizontal sensitivity", GamepadOptions.LookX, .1f, 5,
+                v => GamepadOptions.LookX = v);
+            Number("controller.vertical_sensitivity", "Vertical sensitivity", GamepadOptions.LookY, .1f, 5,
+                v => GamepadOptions.LookY = v);
+            Number("controller.stick_deadzone", "Stick dead zone",
+                Math.Max(GamepadOptions.LeftInner, GamepadOptions.RightInner), 0, .9f,
+                v => GamepadOptions.LeftInner = GamepadOptions.RightInner = v);
+            Flag("controller.invert_vertical", "Invert vertical aim", GamepadOptions.InvertY,
+                v => GamepadOptions.InvertY = v);
+            Flag("controller.vibration", "Vibration", GamepadOptions.Vibration,
+                v => { GamepadOptions.Vibration = v; if (!v) GamepadHaptics.Stop(); });
+
+            var advanced = new StackPanel { Spacing = 8, IsVisible = _advancedOpen };
+            var advancedButton = new DeckButton("Advanced", Deck.Face.Slate,
+                sizeEms: .9, padXEms: .8, padYEms: .38, lip: 3)
             {
-                Text = "Presets change button actions and swap sticks for Southpaw. Your aim calibration is retained.",
-                FontSize = 11, Foreground = GuiTheme.TextDimBrush, TextWrapping = Avalonia.Media.TextWrapping.Wrap
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left
+            };
+            ControllerNav.Identify(advancedButton, "controller.advanced");
+            advancedButton.Click += (_, _) =>
+            {
+                _advancedOpen = !_advancedOpen;
+                advanced.IsVisible = _advancedOpen;
+                if (_advancedOpen)
+                    Dispatcher.UIThread.Post(() => FocusNavigator.Ensure(advanced), DispatcherPriority.Background);
+            };
+            Children.Add(advancedButton);
+            Children.Add(advanced);
+            _target = advanced;
+
+            advanced.Children.Add(new GamepadMonitor());
+            Choice("controller.button_labels", "Button labels",
+                new[] { "Automatic", "Xbox", "PlayStation", "Nintendo", "Generic" },
+                (int)GamepadOptions.GlyphStyle, i => GamepadOptions.GlyphStyle = (GamepadFamily)i);
+            advanced.Children.Add(new TextBlock
+            {
+                Text = "Advanced settings are per controller. Calibration, profiles and mappings stay with the selected device.",
+                FontSize = 11, Foreground = GuiTheme.TextDimBrush,
+                TextWrapping = Avalonia.Media.TextWrapping.Wrap
             });
-            Number("controller.horizontal_sensitivity", "Horizontal sensitivity", GamepadOptions.LookX, .1f, 5, v => GamepadOptions.LookX = v);
-            Number("controller.vertical_sensitivity", "Vertical sensitivity", GamepadOptions.LookY, .1f, 5, v => GamepadOptions.LookY = v);
-            Number("controller.scoped_horizontal_multiplier", "Scoped horizontal multiplier", GamepadOptions.ScopedX, .1f, 3, v => GamepadOptions.ScopedX = v);
-            Number("controller.scoped_vertical_multiplier", "Scoped vertical multiplier", GamepadOptions.ScopedY, .1f, 3, v => GamepadOptions.ScopedY = v);
-            Flag("controller.toggle_weapon_wheel", "Toggle weapon wheel", GamepadOptions.WheelToggle, v => GamepadOptions.WheelToggle = v);
-            Number("controller.wheel_selection_threshold", "Wheel selection threshold", GamepadOptions.WheelThreshold, .1f, .95f, v => GamepadOptions.WheelThreshold = v);
+            Number("controller.scoped_horizontal_multiplier", "Scoped horizontal multiplier", GamepadOptions.ScopedX, .1f, 3,
+                v => GamepadOptions.ScopedX = v);
+            Number("controller.scoped_vertical_multiplier", "Scoped vertical multiplier", GamepadOptions.ScopedY, .1f, 3,
+                v => GamepadOptions.ScopedY = v);
+            Flag("controller.toggle_weapon_wheel", "Toggle weapon wheel", GamepadOptions.WheelToggle,
+                v => GamepadOptions.WheelToggle = v);
+            Number("controller.wheel_selection_threshold", "Wheel selection threshold", GamepadOptions.WheelThreshold, .1f, .95f,
+                v => GamepadOptions.WheelThreshold = v);
             var modifiers = Enum.GetValues<GamepadButtons>();
-            Choice("controller.modifier_for_new_bindings", "Modifier for new bindings", modifiers.Select(PadBindings.Describe).ToArray(),
-                Array.IndexOf(modifiers, GamepadOptions.BindingModifier), i => GamepadOptions.BindingModifier = modifiers[i]);
-            Children.Add(new Note("Choose a modifier before rebinding. Modifiers used in combinations are reserved during gameplay. Hold the modifier first, then press the action button."));
+            Choice("controller.modifier_for_new_bindings", "Modifier for new bindings",
+                modifiers.Select(PadBindings.Describe).ToArray(), Array.IndexOf(modifiers, GamepadOptions.BindingModifier),
+                i => GamepadOptions.BindingModifier = modifiers[i]);
+            advanced.Children.Add(new Note("Hold the modifier first, then press the action button. Modifier combinations are reserved during gameplay."));
             string[] weapons = { "Volt Driver", "Battlehammer", "Imperialist", "Judicator", "Magmaul", "Shock Coil" };
             for (int position = 0; position < 6; position++)
             {
                 int index = position;
-                Choice("controller.wheel." + position, "Wheel position " + (position + 1), weapons, GamepadOptions.WheelOrder[position],
+                Choice("controller.wheel." + position, "Wheel position " + (position + 1), weapons,
+                    GamepadOptions.WheelOrder[position],
                     slot => { GamepadOptions.SetWheelSlot(index, slot); Dispatcher.UIThread.Post(Reload); });
             }
-            Children.Add(new Note("Wheel positions run clockwise from the top. Choosing an occupied position swaps the two weapons."));
-            Number("controller.left_inner_deadzone", "Left inner deadzone", GamepadOptions.LeftInner, 0, .9f, v => GamepadOptions.LeftInner = v);
-            Number("controller.left_outer_deadzone", "Left outer deadzone", GamepadOptions.LeftOuter, 0, .5f, v => GamepadOptions.LeftOuter = v);
-            Number("controller.right_inner_deadzone", "Right inner deadzone", GamepadOptions.RightInner, 0, .9f, v => GamepadOptions.RightInner = v);
-            Number("controller.right_outer_deadzone", "Right outer deadzone", GamepadOptions.RightOuter, 0, .5f, v => GamepadOptions.RightOuter = v);
-            Choice("controller.aim_curve", "Aim curve", Enum.GetNames<GamepadCurve>(), (int)GamepadOptions.Curve, i => GamepadOptions.Curve = (GamepadCurve)i);
-            Flag("controller.invert_horizontal", "Invert horizontal", GamepadOptions.InvertX, v => GamepadOptions.InvertX = v);
-            Flag("controller.invert_vertical", "Invert vertical", GamepadOptions.InvertY, v => GamepadOptions.InvertY = v);
-            Flag("controller.southpaw", "Southpaw", GamepadOptions.Southpaw, v => GamepadOptions.Southpaw = v);
-            Number("controller.trigger_actuation", "Trigger actuation", GamepadOptions.TriggerThreshold, .05f, .95f, v => GamepadOptions.TriggerThreshold = v);
-            Number("controller.device_activity_threshold", "Device activity threshold", GamepadOptions.ActivityThreshold, .2f, .95f, v => GamepadOptions.ActivityThreshold = v);
-            Flag("controller.vibration", "Vibration", GamepadOptions.Vibration, v => { GamepadOptions.Vibration = v; if (!v) GamepadHaptics.Stop(); });
+            Number("controller.left_inner_deadzone", "Left inner deadzone", GamepadOptions.LeftInner, 0, .9f,
+                v => GamepadOptions.LeftInner = v);
+            Number("controller.left_outer_deadzone", "Left outer deadzone", GamepadOptions.LeftOuter, 0, .5f,
+                v => GamepadOptions.LeftOuter = v);
+            Number("controller.right_inner_deadzone", "Right inner deadzone", GamepadOptions.RightInner, 0, .9f,
+                v => GamepadOptions.RightInner = v);
+            Number("controller.right_outer_deadzone", "Right outer deadzone", GamepadOptions.RightOuter, 0, .5f,
+                v => GamepadOptions.RightOuter = v);
+            Choice("controller.aim_curve", "Aim curve", Enum.GetNames<GamepadCurve>(), (int)GamepadOptions.Curve,
+                i => GamepadOptions.Curve = (GamepadCurve)i);
+            Flag("controller.invert_horizontal", "Invert horizontal aim", GamepadOptions.InvertX,
+                v => GamepadOptions.InvertX = v);
+            Flag("controller.southpaw", "Southpaw sticks", GamepadOptions.Southpaw,
+                v => GamepadOptions.Southpaw = v);
+            Number("controller.trigger_actuation", "Gameplay trigger actuation", GamepadOptions.TriggerThreshold, .05f, .95f,
+                v => GamepadOptions.TriggerThreshold = v);
+            Number("controller.device_activity_threshold", "Device activity threshold", GamepadOptions.ActivityThreshold, .2f, .95f,
+                v => GamepadOptions.ActivityThreshold = v);
             Number("controller.vibration_strength", "Vibration strength", GamepadOptions.VibrationStrength, 0, 1,
                 v => { GamepadOptions.VibrationStrength = v; if (v <= 0) GamepadHaptics.Stop(); });
-            Children.Add(new GamepadSetupPanel(() => Dispatcher.UIThread.Post(Reload)));
-            Children.Add(new GamepadProfilePanel(() => Dispatcher.UIThread.Post(Reload)));
+            advanced.Children.Add(new GamepadSetupPanel(() => Dispatcher.UIThread.Post(Reload)));
+            advanced.Children.Add(new GamepadProfilePanel(() => Dispatcher.UIThread.Post(Reload)));
+            _target = null;
+
             if (focusedId != null)
             {
                 TopLevel.GetTopLevel(this)?.UpdateLayout();
                 FocusNavigator.Focus(ControllerNav.Find(this, focusedId));
             }
         }
+
         private void RefreshDevices()
         {
             var devices = GamepadManager.Devices;
@@ -124,14 +172,14 @@ namespace MphRead.Mods.Launcher.Gui
                 labelWidth: 210, min: (int)(min * 100), max: (int)(max * 100), keyStep: 1);
             row.ValueChanged += (_, _) => { changed(row.Value / 100f); };
             ControllerNav.Identify(row, id);
-            Children.Add(row);
+            (_target?.Children ?? Children).Add(row);
         }
         private void Flag(string id, string label, bool value, Action<bool> changed)
         {
             var row = new ToggleRow(label, value);
             row.Changed += (_, _) => { changed(row.On); };
             ControllerNav.Identify(row, id);
-            Children.Add(row);
+            (_target?.Children ?? Children).Add(row);
         }
         private void Choice(string id, string label, string[] options, int selected, Action<int> changed)
         {
@@ -139,7 +187,7 @@ namespace MphRead.Mods.Launcher.Gui
             if (label == "Control layout") _presetRow = row;
             row.Changed += (_, _) => { if (_refreshing) return; changed(row.Index); };
             ControllerNav.Identify(row, id);
-            Children.Add(row);
+            (_target?.Children ?? Children).Add(row);
         }
     }
 }
