@@ -21,7 +21,7 @@ namespace MphRead.Mods.Launcher.Gui
     /// of its own menu.
     ///
     /// Now it is a stack of screens over a transparent root, rendered by
-    /// <see cref="UiSurface"/> and composited onto the frame. The match is
+    /// <c>UiSurface</c> and composited onto the frame. The match is
     /// still running behind it -- a networked one cannot be paused -- which is
     /// what the scrim is for, and which is now literally true of the picture
     /// rather than a property of a window flag.

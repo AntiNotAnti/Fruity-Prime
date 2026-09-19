@@ -99,6 +99,18 @@ namespace MphRead.Entities
             {
                 return;
             }
+#if MPHREAD_SHELL
+            // The deck panel is up over this: it asks the same two questions
+            // -- where next, and who you are coming back as -- with the rest
+            // of the program's own controls rather than with arrows and
+            // swatches beside a 32x32 sprite. The scoreboard to the left of
+            // here is untouched either way; it is the engine's screen and a
+            // scoreboard is not a place to put a theme.
+            if (Mods.Launcher.Gui.Shell.EndPanelUp)
+            {
+                return;
+            }
+#endif
             float aspect = HudAspectFix;
             float scale = EndScale;
             float right = 254;

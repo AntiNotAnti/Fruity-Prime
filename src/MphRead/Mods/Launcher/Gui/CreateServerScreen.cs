@@ -728,6 +728,8 @@ namespace MphRead.Mods.Launcher.Gui
         private string _value = "";
         private bool _hot;
 
+        private readonly Tap _tap = new();
+
         public PickRow(string label)
         {
             _label = label;
@@ -752,19 +754,39 @@ namespace MphRead.Mods.Launcher.Gui
         protected override void OnPointerExited(PointerEventArgs e)
         {
             _hot = false;
+            _tap.Cancel();
             InvalidateVisual();
             base.OnPointerExited(e);
         }
 
+        protected override void OnPointerPressed(PointerPressedEventArgs e)
+        {
+            _tap.Press(e, this);
+            base.OnPointerPressed(e);
+        }
+
+        protected override void OnPointerMoved(PointerEventArgs e)
+        {
+            _tap.Moved(e, this);
+            base.OnPointerMoved(e);
+        }
+
         protected override void OnPointerReleased(PointerReleasedEventArgs e)
         {
-            Point p = e.GetPosition(this);
-            if (p.X >= 0 && p.Y >= 0 && p.X <= Bounds.Width && p.Y <= Bounds.Height)
+            // See Tap: the press has to have landed here and stayed, or a
+            // scroll that ends over this row opens its page.
+            if (_tap.Release(e, this))
             {
                 Focus();
                 Clicked?.Invoke(this, EventArgs.Empty);
             }
             base.OnPointerReleased(e);
+        }
+
+        protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+        {
+            _tap.Cancel();
+            base.OnPointerCaptureLost(e);
         }
 
         protected override void OnKeyDown(KeyEventArgs e)
@@ -778,13 +800,13 @@ namespace MphRead.Mods.Launcher.Gui
             base.OnKeyDown(e);
         }
 
-        protected override void OnGotFocus(GotFocusEventArgs e)
+        protected override void OnGotFocus(FocusChangedEventArgs e)
         {
             InvalidateVisual();
             base.OnGotFocus(e);
         }
 
-        protected override void OnLostFocus(Avalonia.Interactivity.RoutedEventArgs e)
+        protected override void OnLostFocus(FocusChangedEventArgs e)
         {
             InvalidateVisual();
             base.OnLostFocus(e);

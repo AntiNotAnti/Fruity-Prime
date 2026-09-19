@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Embedding;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Input;
@@ -65,11 +66,24 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 return null;
             }
-            _current = new UiSurface();
+            try
+            {
+                _current = new UiSurface();
+            }
+            catch (Exception ex)
+            {
+                // The surface is the launcher: without one there are no
+                // screens to show, and the text launcher is the fallback --
+                // the same one a machine with no display gets.
+                Console.WriteLine($"[launcher] the screens could not be built: {ex.Message}");
+                Mods.DebugLog.Exception("ui", ex);
+                return null;
+            }
             return _current;
         }
 
-        private readonly Window _window;
+        private readonly UiTopLevelImpl _impl;
+        private readonly EmbeddableControlRoot _window;
         private readonly LayoutTransformControl _host;
         private int _pixelWidth = 1280;
         private int _pixelHeight = 768;
@@ -104,11 +118,16 @@ namespace MphRead.Mods.Launcher.Gui
                 HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch
             };
-            _window = new Window
+            // Our own top level rather than a Window on the headless backend.
+            // See UiTopLevel.cs: the backend it replaces allocates and frees a
+            // full-window bitmap per redraw, copies every finished frame a
+            // second time, and forces two extra rasterisations per input
+            // event. Everything else about the arrangement is unchanged --
+            // same controls, same Skia, same layout, same pixels out.
+            _impl = new UiTopLevelImpl(new Avalonia.Rendering.Composition.Compositor(null));
+            _impl.SetClientSize(new Size(_pixelWidth, _pixelHeight));
+            _window = new EmbeddableControlRoot(_impl)
             {
-                Width = _pixelWidth,
-                Height = _pixelHeight,
-                SystemDecorations = SystemDecorations.None,
                 // Transparent, because the pause menu is a scrim over a match
                 // that is still being played: what this renders is composited
                 // onto the frame, so anything the screens do not paint has to
@@ -119,7 +138,12 @@ namespace MphRead.Mods.Launcher.Gui
                 RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Dark,
                 Content = _host
             };
-            _window.Show();
+            // Prepare is the initial layout pass a window gets from being
+            // shown, and StartRendering is what attaches the tree to the
+            // compositor: without the second one the render timer ticks and
+            // nothing is ever drawn.
+            _window.Prepare();
+            _window.StartRendering();
         }
 
         /// <summary>
@@ -157,6 +181,22 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         public double Scale => _factor;
 
+        /// <summary>
+        /// The surface's own pixels, which are stretched over the whole
+        /// window by the GL blit.
+        ///
+        /// A rectangle expressed as a fraction of these is therefore the same
+        /// fraction of the window, whatever the raster cap did -- which is
+        /// what anything drawing *under* the screens needs, and why this is
+        /// published rather than the window's own size.
+        /// </summary>
+        public int WindowWidth => _pixelWidth;
+
+        public int WindowHeight => _pixelHeight;
+
+        /// <summary>The top level a control measures its position against.</summary>
+        public Visual Root => _window;
+
         /// <summary>Put a screen up, or replace the one that is up.</summary>
         public void Show(Control view)
         {
@@ -175,14 +215,10 @@ namespace MphRead.Mods.Launcher.Gui
             // cleared the transform *by*. See ApplyScale.
             ApplyScale();
             // Focus is what makes the keyboard reach the screen at all: a
-            // headless top-level is never activated by a window manager, so
-            // nothing would otherwise give the content focus and every key
-            // would land on nobody.
-            Dispatcher.UIThread.Post(() =>
-            {
-                _window.Activate();
-                view.Focus();
-            }, DispatcherPriority.Input);
+            // top level with no windowing system above it is never activated
+            // by anything, so nothing would otherwise give the content focus
+            // and every key would land on nobody.
+            Dispatcher.UIThread.Post(() => view.Focus(), DispatcherPriority.Input);
             Tick();
         }
 
@@ -278,8 +314,7 @@ namespace MphRead.Mods.Launcher.Gui
             // LayoutTransformControl watches the LayoutTransform property, and
             // mutating the object it already holds changes nothing it can see.
             ApplyScale();
-            _window.Width = surfaceWidth;
-            _window.Height = surfaceHeight;
+            _impl.SetClientSize(new Size(surfaceWidth, surfaceHeight));
             // The layout the new size implies, now rather than on the frame
             // after: a resize that is one frame late is a screen drawn at the
             // old size over a window that is already the new one.
@@ -383,8 +418,25 @@ namespace MphRead.Mods.Launcher.Gui
         /// One-shot, like the thing it replaces: whatever still has somewhere
         /// to go asks again.
         /// </summary>
-        public static void RequestFrame(Action step)
+        /// <param name="idling">
+        /// True when the only thing moving is something that never stops --
+        /// see <see cref="IdleAnimGap"/>. A spring, a slide or a hop must not
+        /// pass this: they are short, and they are what the player is looking
+        /// at while they run.
+        /// </param>
+        public static void RequestFrame(Action step, bool idling = false)
         {
+            UiSurface? surface = _current;
+            if (surface == null)
+            {
+                // No surface to be drawn into -- -uishot renders one frame and
+                // stops, and the harness screens are built before Ensure. The
+                // dispatcher is the only clock there is then, and a step left
+                // on the list below would never run at all: whatever asked for
+                // the frame would wait for it forever.
+                Dispatcher.UIThread.Post(step, DispatcherPriority.Render);
+                return;
+            }
             lock (_pending)
             {
                 _pending.Add(step);
@@ -392,7 +444,7 @@ namespace MphRead.Mods.Launcher.Gui
             // Whatever it is, it is moving something: the glide would
             // otherwise step the scroller and then wait up to IdleGap to be
             // drawn, which is a 20 fps animation.
-            _current?.Invalidate();
+            surface.Invalidate(animation: true, idling: idling);
         }
 
         private static readonly List<Action> _pending = new();
@@ -465,19 +517,62 @@ namespace MphRead.Mods.Launcher.Gui
 
         /// <summary>
         /// The fastest the screens are redrawn when something *is* happening:
-        /// as fast as the window draws.
+        /// sixty a second.
         ///
-        /// This was 60 Hz on the reasoning that a menu at 60 and a menu at 144
-        /// are the same menu. They are not, and the thing that shows it is the
-        /// one place in the launcher where a lot of pixels move at once: a
-        /// list being scrolled. Capped at 60 on a 144 Hz screen, a glide that
-        /// covers three rows in a tenth of a second does it in six steps of
-        /// fifteen pixels, and six steps is something you can count. The cost
-        /// is only ever paid while something is actually changing, which is
-        /// exactly when it is worth paying -- a still menu still costs
-        /// nothing, which is what the dirty flag is for.
+        /// This was uncapped -- as fast as the window draws -- on the
+        /// reasoning that a glide capped at 60 on a 144 Hz screen covers three
+        /// rows in six steps of fifteen pixels, and six steps is something you
+        /// can count. That reasoning was about a *glide*, an animation this
+        /// surface drives itself, and it is now capped separately by
+        /// <see cref="AnimGap"/>. What was left uncapped by it was every
+        /// redraw of every kind, and a redraw here is the whole window
+        /// rasterised by Skia on the CPU: on a 144 Hz monitor that is 144 of
+        /// them a second for a menu that cannot look different at 60.
+        ///
+        /// Sixty, and no lower, because this is also the path a wheel notch
+        /// and a keystroke take and those must not feel delayed. On a 60 Hz
+        /// window nothing here changes at all.
+        ///
+        /// The springs keep sixty too, and that is deliberate: they run for a
+        /// fifth of a second at a time and they are what the player is looking
+        /// at while they run. Dropping them to thirty to save frames was tried
+        /// and put back -- it buys almost nothing (a spring is not on for long
+        /// enough to matter to the average) and it is exactly the sluggishness
+        /// that was reported in the first place. What costs is the animation
+        /// that never stops; see <see cref="IdleAnimGap"/>.
         /// </summary>
-        private const double BusyGap = 0;
+        private const double BusyGap = 16;
+
+        /// <summary>
+        /// The fastest an animation that drives *itself* is redrawn: sixty a
+        /// second.
+        ///
+        /// Not <see cref="BusyGap"/>, and the difference is the whole reason
+        /// there are two numbers. A wheel notch or a keystroke is a redraw
+        /// because something outside asked for one, and there are only as many
+        /// of those as the player makes; a spring or a bob asks again every
+        /// frame it is still moving, for as long as it moves -- and the front
+        /// screen's one idle button never stops. Uncapped on a 144 Hz monitor
+        /// that is 144 full-surface rasterisations a second for a two-and-a-
+        /// half point bob, which is most of a core spent on a menu nobody is
+        /// touching. Sixty is past the point where a spring looks any smoother
+        /// and is less than half the work.
+        /// </summary>
+        private const double AnimGap = 16;
+
+        /// <summary>
+        /// The gap for an animation that is only *idling*: the front screen's
+        /// bob, and nothing else so far.
+        ///
+        /// It moves one button two and a half points over three and a half
+        /// seconds. At fifteen frames a second that is a sixth of a point
+        /// between frames, which nobody can see -- and the difference matters
+        /// because this is the one animation that never stops: the front
+        /// screen would otherwise pay a full-window rasterisation thirty times
+        /// a second for ever, which measured at about a third of a core doing
+        /// nothing.
+        /// </summary>
+        private const double IdleAnimGap = 66;
 
         private bool _dirty = true;
         private double _drawnAt = -1000;
@@ -526,11 +621,45 @@ namespace MphRead.Mods.Launcher.Gui
         /// Something happened; draw on the next tick. Every input entry point
         /// calls this, and so does anything waiting on a frame.
         /// </summary>
-        public void Invalidate()
+        public void Invalidate(bool animation = false, bool idling = false)
         {
             _dirty = true;
-            _touchedAt = _frameClock.Elapsed.TotalMilliseconds;
+            if (animation && _animOnly && !idling)
+            {
+                // Anything that is actually moving outranks the bob: one
+                // button idling must not hold the whole surface down to
+                // fifteen frames while a spring is running beside it.
+                _animIdle = false;
+            }
+            if (!animation)
+            {
+                // An animation is not a touch. Counting it as one would hold
+                // the short backstop open for ever on the front screen, whose
+                // idle button asks for a frame three times a second even when
+                // the spring is asleep.
+                _touchedAt = _frameClock.Elapsed.TotalMilliseconds;
+                _animOnly = false;
+                return;
+            }
+            if (!_animOnly)
+            {
+                _animOnly = true;
+                _animIdle = idling;
+            }
+            else if (!idling)
+            {
+                _animIdle = false;
+            }
         }
+
+        /// <summary>True when every animation asking for this frame is an idle one.</summary>
+        private bool _animIdle;
+
+        /// <summary>
+        /// True when the only thing that has asked for this frame is something
+        /// animating itself. Cleared by anything that arrives from outside.
+        /// </summary>
+        private bool _animOnly;
 
         public void Tick()
         {
@@ -541,21 +670,26 @@ namespace MphRead.Mods.Launcher.Gui
             }
             RunPending();
             ApplyScale();
+            // Always running, not only while the debug log is: the calibration
+            // below reads it, and a launcher that only kept up for the people
+            // who had switched logging on would be the strangest bug in here.
+            // It is one Stopwatch a frame against a redraw measured in
+            // milliseconds.
             bool measuring = Mods.DebugLog.Active;
-            var clock = measuring ? System.Diagnostics.Stopwatch.StartNew() : null;
+            var clock = System.Diagnostics.Stopwatch.StartNew();
             // Always, and cheap: this is what makes everything posted between
             // frames actually happen -- a click's handler, a preview that has
             // finished loading, the update check answering. Skipping it would
             // not save a redraw, it would stop the screen changing at all.
             Dispatcher.UIThread.RunJobs();
-            if (clock != null)
+            if (measuring)
             {
                 _jobs += clock.Elapsed.TotalMilliseconds;
                 _ticks++;
             }
             double now = _frameClock.Elapsed.TotalMilliseconds;
             double since = now - _drawnAt;
-            double gap = _dirty ? BusyGap
+            double gap = _dirty ? (_animOnly ? (_animIdle ? IdleAnimGap : AnimGap) : BusyGap)
                 : now - _touchedAt < SettleMs ? IdleGap : RestingGap;
             if (since < gap)
             {
@@ -565,27 +699,24 @@ namespace MphRead.Mods.Launcher.Gui
                 return;
             }
             _dirty = false;
+            _animOnly = false;
+            _animIdle = false;
             _drawnAt = now;
             _redraws++;
             Report(now);
-            clock?.Restart();
-            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
-            WriteableBitmap? frame = _window.GetLastRenderedFrame();
-            if (clock != null)
+            clock.Restart();
+            int drawn = _impl.Drawn;
+            UiRenderTimer.Pump();
+            _drawMs += clock.Elapsed.TotalMilliseconds;
+            clock.Restart();
+            // Only when the compositor actually put something in the buffer.
+            // It draws nothing when nothing is dirty -- which is most of the
+            // backstop redraws -- and the texture already on the card is then
+            // still the right one. This is the last full-surface copy in the
+            // path and it is skipped on the frames that do not need it.
+            if (_impl.Drawn != drawn && _impl.Pixels != IntPtr.Zero)
             {
-                _drawMs += clock.Elapsed.TotalMilliseconds;
-                clock.Restart();
-            }
-            if (frame == null)
-            {
-                return;
-            }
-            using (ILockedFramebuffer buffer = frame.Lock())
-            {
-                UiOverlay.Upload(buffer.Address, buffer.Size.Width, buffer.Size.Height);
-            }
-            if (clock != null)
-            {
+                UiOverlay.Upload(_impl.Pixels, _impl.PixelWidth, _impl.PixelHeight);
                 _uploadMs += clock.Elapsed.TotalMilliseconds;
             }
             UiOverlay.Visible = true;
@@ -609,6 +740,7 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         public void PointerMoved(double x, double y)
         {
+            Deck.DrivingByPointer();
             Invalidate();
             if (_view == null)
             {
@@ -619,11 +751,12 @@ namespace MphRead.Mods.Launcher.Gui
             // pointer handed straight through would land low and right of
             // where the player pressed -- by a quarter of the screen at 4K.
             _pointer = new Point(x * _raster, y * _raster);
-            _window.MouseMove(_pointer, _modifiers);
+            _impl.MouseMove(_pointer, _modifiers);
         }
 
         public void PointerButton(MouseButton button, bool down)
         {
+            Deck.DrivingByPointer();
             Invalidate();
             if (_view == null)
             {
@@ -638,12 +771,12 @@ namespace MphRead.Mods.Launcher.Gui
             if (down)
             {
                 _modifiers |= flag;
-                _window.MouseDown(_pointer, button, _modifiers);
+                _impl.MouseDown(_pointer, button, _modifiers);
             }
             else
             {
                 _modifiers &= ~flag;
-                _window.MouseUp(_pointer, button, _modifiers);
+                _impl.MouseUp(_pointer, button, _modifiers);
             }
         }
 
@@ -673,6 +806,16 @@ namespace MphRead.Mods.Launcher.Gui
                 Point? centre = control.TranslatePoint(
                     new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), _view);
                 if (centre == null)
+                {
+                    continue;
+                }
+                // Is it actually the thing at that point? A control can be in
+                // the tree and under something else -- the setup panel covers
+                // the front screen's whole menu on a fresh install -- and a
+                // check that reported a press it did not make would be worse
+                // than no check. Asked of the toolkit, in the same
+                // coordinates the toolkit lays out in.
+                if (!Covers(control, centre.Value))
                 {
                     continue;
                 }
@@ -716,6 +859,10 @@ namespace MphRead.Mods.Launcher.Gui
                 {
                     continue;
                 }
+                if (!Covers(control, centre.Value))
+                {
+                    continue;
+                }
                 PointerMoved(centre.Value.X * _factor / _raster,
                     centre.Value.Y * _factor / _raster);
                 return true;
@@ -723,18 +870,43 @@ namespace MphRead.Mods.Launcher.Gui
             return false;
         }
 
+        /// <summary>
+        /// Whether a press at that point reaches that control: the topmost
+        /// input element there is it, or something inside it (a button's own
+        /// label is what a press on a button actually lands on).
+        /// </summary>
+        private bool Covers(Control control, Point point)
+        {
+            if (_view == null)
+            {
+                return false;
+            }
+            IInputElement? hit = _view.InputHitTest(point);
+            for (Visual? visual = hit as Visual; visual != null;
+                visual = visual.GetVisualParent())
+            {
+                if (ReferenceEquals(visual, control))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         public void PointerWheel(double deltaX, double deltaY)
         {
+            Deck.DrivingByPointer();
             Invalidate();
             if (_view == null)
             {
                 return;
             }
-            _window.MouseWheel(_pointer, new Vector(deltaX, deltaY), _modifiers);
+            _impl.MouseWheel(_pointer, new Vector(deltaX, deltaY), _modifiers);
         }
 
         public void KeyDown(Keys key, RawInputModifiers modifiers)
         {
+            Deck.DrivingByKeyboard();
             Invalidate();
             if (_view == null)
             {
@@ -749,7 +921,7 @@ namespace MphRead.Mods.Launcher.Gui
                 // None is honest here -- GLFW's key *is* a physical one, but
                 // the character it produced arrives separately as text input
                 // (see TextInput), which is the only form a text box can use.
-                _window.KeyPress(mapped, _modifiers, PhysicalKey.None, "");
+                _impl.KeyPress(mapped, _modifiers, PhysicalKey.None, "");
             }
         }
 
@@ -764,7 +936,7 @@ namespace MphRead.Mods.Launcher.Gui
             Key mapped = Translate(key);
             if (mapped != Key.None)
             {
-                _window.KeyRelease(mapped, _modifiers, PhysicalKey.None, "");
+                _impl.KeyRelease(mapped, _modifiers, PhysicalKey.None, "");
             }
         }
 
@@ -781,7 +953,7 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 return;
             }
-            _window.KeyTextInput(text);
+            _impl.TextInput(text);
         }
 
         /// <summary>

@@ -435,6 +435,17 @@ namespace MphRead.Mods
             Choose((Hunter)hunter, suit);
         }
 
+        /// <summary>
+        /// Set both, from a screen that offers them as rows rather than as
+        /// arrows and swatches.
+        ///
+        /// The deck panel over the results asks the question with a stepper
+        /// and a turntable, which is the same question this screen has always
+        /// asked; what it does not have is the HUD's own hit rectangles, so it
+        /// needs a way in that is not "pretend the player clicked a swatch".
+        /// </summary>
+        public static void Pick(Hunter hunter, int suit) => Choose(hunter, suit);
+
         private static void Choose(Hunter hunter, int suit)
         {
             RespawnChoice.Request(hunter, suit);

@@ -33,6 +33,7 @@ loading everything.
 - testing/TEST-HARD-CASES.md — disconnects, blackouts, latency, loss, capacity, spectators, the Pi's ceiling
 - testing/TEST-METRICS.md — reading results, common traps, last verified status
 - build-deploy/BUILD-WORKFLOW.md — CI workflows, tagging and the bump, release notes, binaries, asset guard
+- build-deploy/MACOS.md — native builds, signing, bundles, smoke tests and user-data paths
 - build-deploy/DEPLOY-SERVERS.md — deploy script and publish commands
 
 Usage: these are the token-optimised detail store for CLAUDE.md. Keep them

@@ -16,6 +16,20 @@ namespace MphRead.Entities
 
         private void ProcessInput()
         {
+            if (Mods.Network.NetSession.Active && !IsBot)
+            {
+                bool local = SlotIndex == Mods.Network.NetSession.LocalSlot
+                    && Mods.Network.NetSession.LocalSlot >= 0;
+                bool fresh = local || (SlotIndex >= 0
+                    && SlotIndex < Mods.Network.NetSession.RemoteIntentValid.Length
+                    && Mods.Network.NetSession.RemoteIntentValid[SlotIndex]
+                    && Mods.Network.NetSession.RemoteIntents[SlotIndex].Frame != 0
+                    && Mods.Network.NetSession.RemoteIntentAge(SlotIndex)
+                        <= Mods.Network.ContinuousWeaponPhase.MaxIntentAge);
+                Mods.Network.NetSession.ContinuousPhase.Observe(SlotIndex, _scene.FrameCount,
+                    EquipWeapon.Flags.TestFlag(WeaponFlags.Continuous) && Controls.Shoot.IsDown,
+                    fresh);
+            }
             if (_health > 0)
             {
                 if (Flags1.TestFlag(PlayerFlags1.FreeLook))

@@ -21,13 +21,36 @@ namespace MphRead.Mods.Launcher.Gui
     /// rather than as one entry among five that are all refused. A menu whose
     /// entries do nothing is a program that looks broken; one screen asking
     /// for one file is a program waiting for you.
+    ///
+    /// <para>
+    /// <b>One way to answer it: the platform's own file dialog.</b> There used
+    /// to be a path to type beside the button, on the reading that somebody
+    /// who knows where their dump is would rather paste it than walk a tree to
+    /// it. That is one offer too many on the one screen that has exactly one
+    /// thing to do -- a text box beside a button makes a player decide which
+    /// half of the screen the answer is in before they can give it -- and on a
+    /// phone it cannot work at all, since the picker hands back a
+    /// <c>content://</c> document with no path behind it (see
+    /// <see cref="RunSetup"/>) and the keyboard covers half the screen to ask
+    /// for one. It is gone on every platform.
+    /// </para>
+    ///
+    /// <para>
+    /// The cost is stated rather than worked around: a Linux box with neither
+    /// zenity nor kdialog has no dialog for the button to open (see
+    /// <see cref="NativeFilePicker"/>, and note the desktop heads draw these
+    /// screens with Avalonia's headless backend, so the toolkit's own
+    /// <c>StorageProvider</c> is not available to them). The button says so
+    /// and names what to install, which is a sentence a player can act on;
+    /// every other platform, including Android, has one.
+    /// </para>
     /// </summary>
     internal sealed class SetupScreen : UserControl
     {
         /// <summary>Raised when the files are there, or when the player backed out.</summary>
         public event EventHandler? Closed;
 
-        private readonly Note _log = new("");
+        private readonly Note _log = new("", lines: 0);
         private readonly ProgressRow _progress = new();
         private readonly UiMark _choose;
         private readonly UiMark _back;
@@ -42,13 +65,13 @@ namespace MphRead.Mods.Launcher.Gui
             body.Children.Add(new Note(Mods.Branding.Name
                 + " needs your own Metroid Prime Hunters cartridge dump. It unpacks what "
                 + "it needs next to this program and leaves the file alone. No game data "
-                + "is included in this download, and none is downloaded."));
+                + "is included in this download, and none is downloaded.", lines: 0));
             if (GameFiles.InProcessSetup)
             {
                 body.Children.Add(new Note("The unpacked files land in " + GameFiles.Root
                     + " -- this device's own folder for the app, which shows up over USB "
                     + "under Android/data. Files already copied there are found without "
-                    + "picking anything.", GuiTheme.TextDim));
+                    + "picking anything.", GuiTheme.TextDim, lines: 0));
             }
             // Previews are rendered here, from the files that are here. A run
             // can be interrupted and files can arrive after one, so asking for
@@ -101,11 +124,40 @@ namespace MphRead.Mods.Launcher.Gui
             base.OnKeyDown(e);
         }
 
+        /// <summary>
+        /// Ask for the cartridge dump, however this platform can be asked.
+        ///
+        /// Android has a real windowing backend and so a real
+        /// <c>StorageProvider</c>. The desktop heads draw their screens with
+        /// the headless one and have none, so they ask the operating system
+        /// directly -- see <see cref="NativeFilePicker"/>, which is also where
+        /// what happened before this is written down.
+        /// </summary>
         private async Task ChooseRom()
         {
             TopLevel? top = TopLevel.GetTopLevel(this);
             if (top == null)
             {
+                return;
+            }
+            if (!top.StorageProvider.CanOpen)
+            {
+                if (!NativeFilePicker.Available)
+                {
+                    // The one thing this screen cannot answer for itself.
+                    // There is no typed path to fall back on any more -- see
+                    // the class note -- so it says what to install and stops.
+                    _log.Text = "This desktop has no file dialog to open. "
+                        + "Install zenity or kdialog and press this again.";
+                    return;
+                }
+                string? chosen = await NativeFilePicker.OpenFile(
+                    "Your Metroid Prime Hunters cartridge dump",
+                    "Nintendo DS ROM", "nds");
+                if (chosen != null)
+                {
+                    await RunSetup(chosen, null);
+                }
                 return;
             }
             var options = new FilePickerOpenOptions
@@ -130,15 +182,31 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 return;
             }
+            await RunSetup(picked[0].TryGetLocalPath(), picked[0]);
+        }
+
+        /// <summary>
+        /// Unpack the file that was picked, however it was picked.
+        ///
+        /// <paramref name="path"/> is a real path when there is one;
+        /// <paramref name="file"/> is the toolkit's handle, which on Android
+        /// is a content:// document with no path behind it and has to be
+        /// copied before the extractor can read it.
+        /// </summary>
+        private async Task RunSetup(string? path, IStorageFile? file)
+        {
+            if (path == null && file == null)
+            {
+                return;
+            }
             _choose.IsEnabled = false;
             _choose.Label = "working...";
             _log.Text = "";
             var progress = new SetupProgress();
             _progress.IsVisible = true;
             _progress.Set(0, "Starting");
-            string? path = picked[0].TryGetLocalPath();
             string? scratch = null;
-            if (path == null)
+            if (path == null && file != null)
             {
                 // Android hands back a content:// document with no path behind
                 // it. Copying is the only way to give the extractor a file, and
@@ -148,7 +216,7 @@ namespace MphRead.Mods.Launcher.Gui
                 try
                 {
                     scratch = Path.Combine(GameFiles.Root, "picked.nds");
-                    await using (Stream source = await picked[0].OpenReadAsync())
+                    await using (Stream source = await file.OpenReadAsync())
                     await using (var target = File.Create(scratch))
                     {
                         await source.CopyToAsync(target);
@@ -162,10 +230,17 @@ namespace MphRead.Mods.Launcher.Gui
                     return;
                 }
             }
+            if (path == null)
+            {
+                _log.Text = "That file could not be opened.";
+                Ready();
+                return;
+            }
+            string romPath = path;
             // Extraction takes minutes. Off the UI thread, or the screen stops
             // answering at the exact moment it is doing the one thing a fresh
             // install needs.
-            bool ok = await Task.Run(() => GameFiles.RunSetup(path, line =>
+            bool ok = await Task.Run(() => GameFiles.RunSetup(romPath, line =>
                 Dispatcher.UIThread.Post(() =>
                 {
                     _log.Text = Tail(_log.Text, line);

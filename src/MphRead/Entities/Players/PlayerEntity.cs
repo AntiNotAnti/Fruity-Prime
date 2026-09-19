@@ -728,6 +728,7 @@ namespace MphRead.Entities
 
         public void Spawn(Vector3 pos, Vector3 facing, Vector3 up, NodeRef nodeRef, bool respawn)
         {
+            Mods.Network.NetSession.ContinuousPhase.ResetSlot(SlotIndex);
             if (IsMainPlayer)
             {
                 _scene.NoteRenderLifecycle("spawn begin");

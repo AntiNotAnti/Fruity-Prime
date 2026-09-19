@@ -163,7 +163,7 @@ namespace MphRead.Mods.Launcher
                     Console.WriteLine($"  {Mods.Credits.Summary}");
                     Console.WriteLine();
                     string only = Ask("  Choose", "1").ToLowerInvariant();
-                    if (only == "q" || only == "quit")
+                    if (only == "q" || only == "quit" || InputEnded)
                     {
                         return false;
                     }
@@ -197,7 +197,7 @@ namespace MphRead.Mods.Launcher
                 Console.WriteLine($"  {Mods.Credits.Summary} -credits for the full list.");
                 Console.WriteLine();
                 string choice = Ask("  Choose", "1").ToLowerInvariant();
-                if (choice == "q" || choice == "quit")
+                if (choice == "q" || choice == "quit" || InputEnded)
                 {
                     return false;
                 }
@@ -416,7 +416,7 @@ namespace MphRead.Mods.Launcher
                 Console.WriteLine("  [b] Back");
                 Console.WriteLine();
                 string choice = Ask("  Choose a slot", "1").ToLowerInvariant();
-                if (choice == "b" || choice == "back")
+                if (choice == "b" || choice == "back" || InputEnded)
                 {
                     return false;
                 }
@@ -813,10 +813,23 @@ namespace MphRead.Mods.Launcher
         }
 
         /// <summary>
+        /// Whether stdin has ended.
+        ///
+        /// Taking EOF as the default answer is right for one question and
+        /// wrong for a menu: the default there is an entry, the entry comes
+        /// back to the menu, and the menu asks again -- a process with nobody
+        /// at it printing its front screen forever. That is what a Windows or
+        /// Linux build does today when the graphical launcher fails to open
+        /// and the fall-back inherits a stdin that is a pipe. Every menu reads
+        /// this and leaves.
+        /// </summary>
+        public static bool InputEnded { get; private set; }
+
+        /// <summary>
         /// Prompt, showing the remembered answer, and take a blank line to mean
         /// "keep it". A null from ReadLine means stdin closed -- a piped or
         /// backgrounded run -- and must not become an endless loop over EOF, so
-        /// it reads as the default too.
+        /// it reads as the default too, and <see cref="InputEnded"/> says so.
         /// </summary>
         private static string Ask(string prompt, string fallback)
         {
@@ -824,6 +837,7 @@ namespace MphRead.Mods.Launcher
             string? line = Console.ReadLine();
             if (line == null)
             {
+                InputEnded = true;
                 Console.WriteLine();
                 return fallback;
             }
