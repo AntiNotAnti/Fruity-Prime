@@ -58,12 +58,44 @@ namespace MphRead.Mods.Replay
         private const uint HighlightPreRoll = 4 * 60;
         private const uint HighlightPostRoll = 3 * 60;
         private const uint MultiKillWindow = 8 * 60;
+        private static string? _cachePath;
+        private static int _cacheEventCount = -1;
+        private static uint _cacheDuration;
+        private static IReadOnlyList<ReplayHighlight>? _cachedHighlights;
+        private static ReplayAnalyticsSnapshot? _cachedAnalytics;
+
+        private static bool DefaultCacheValid(int eventCount, uint duration)
+            => String.Equals(_cachePath, DemoPlayback.CurrentPath, StringComparison.OrdinalIgnoreCase)
+                && _cacheEventCount == eventCount
+                && _cacheDuration == duration;
+
+        private static void NoteDefaultCache(int eventCount, uint duration)
+        {
+            string? path = DemoPlayback.CurrentPath;
+            if (!String.Equals(_cachePath, path, StringComparison.OrdinalIgnoreCase)
+                || _cacheEventCount != eventCount || _cacheDuration != duration)
+            {
+                _cachePath = path;
+                _cacheEventCount = eventCount;
+                _cacheDuration = duration;
+                _cachedHighlights = null;
+                _cachedAnalytics = null;
+            }
+        }
 
         public static IReadOnlyList<ReplayHighlight> Highlights(
             IReadOnlyList<ReplayEvent>? events = null, uint? duration = null)
         {
+            bool useCache = events == null && !duration.HasValue;
             events ??= DemoPlayback.Events;
             uint length = duration ?? DemoPlayback.LastFrame;
+            if (useCache)
+            {
+                NoteDefaultCache(events.Count, length);
+                if (DefaultCacheValid(events.Count, length) && _cachedHighlights != null)
+                    return _cachedHighlights;
+            }
+
             var result = new List<ReplayHighlight>();
             var recentKills = new Dictionary<byte, Queue<ReplayEvent>>();
 
@@ -117,16 +149,27 @@ namespace MphRead.Mods.Replay
                     focus.ActorSlot, focus.TargetSlot, Math.Min(80, 45 + damage / 6), "Heavy duel"));
             }
 
-            return result
+            ReplayHighlight[] highlights = result
                 .OrderByDescending(h => h.Score)
                 .ThenBy(h => h.FocusFrame)
                 .ToArray();
+            if (useCache) _cachedHighlights = highlights;
+            return highlights;
         }
 
         public static ReplayAnalyticsSnapshot Analytics(
             IReadOnlyList<ReplayEvent>? events = null, uint? duration = null)
         {
+            bool useCache = events == null && !duration.HasValue;
             events ??= DemoPlayback.Events;
+            uint length = duration ?? DemoPlayback.LastFrame;
+            if (useCache)
+            {
+                NoteDefaultCache(events.Count, length);
+                if (DefaultCacheValid(events.Count, length) && _cachedAnalytics != null)
+                    return _cachedAnalytics;
+            }
+
             var rows = new Dictionary<byte, MutableAnalytics>();
             MutableAnalytics Row(byte slot)
             {
@@ -168,14 +211,16 @@ namespace MphRead.Mods.Replay
                     p.Value.Damage, p.Value.ScoreEvents, p.Value.Objectives,
                     p.Value.Spawns, p.Value.Joins, p.Value.Leaves))
                 .ToArray();
-            return new ReplayAnalyticsSnapshot
+            var snapshot = new ReplayAnalyticsSnapshot
             {
                 Players = players,
                 TotalKills = totalKills,
                 TotalDamage = totalDamage,
                 ObjectiveEvents = objectives,
-                DurationFrames = duration ?? DemoPlayback.LastFrame
+                DurationFrames = length
             };
+            if (useCache) _cachedAnalytics = snapshot;
+            return snapshot;
         }
 
         private static ReplayHighlight Make(uint frame, uint duration, ReplayHighlightKind kind,

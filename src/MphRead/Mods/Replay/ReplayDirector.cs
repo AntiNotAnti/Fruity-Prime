@@ -17,8 +17,13 @@ namespace MphRead.Mods.Replay
         private const float SwitchMargin = 12;
 
         private static uint _lastSwitchFrame;
+        private static uint _lastFrame;
+        private static int _eventStart;
+        private static int _eventEnd;
         private static int _currentSlot = -1;
         private static float _currentScore;
+        private static readonly float[] EventScores = new float[RosterPacket.MaxSlots];
+        private static readonly string?[] EventReasons = new string?[RosterPacket.MaxSlots];
 
         public static int CurrentSlot => _currentSlot;
         public static float CurrentScore => _currentScore;
@@ -27,8 +32,13 @@ namespace MphRead.Mods.Replay
         public static void Reset()
         {
             _lastSwitchFrame = 0;
+            _lastFrame = 0;
+            _eventStart = 0;
+            _eventEnd = 0;
             _currentSlot = -1;
             _currentScore = 0;
+            Array.Clear(EventScores);
+            Array.Clear(EventReasons);
             Reason = "idle";
         }
 
@@ -38,6 +48,53 @@ namespace MphRead.Mods.Replay
                 return;
 
             uint frame = ReplayController.CurrentFrame;
+            IReadOnlyList<ReplayEvent> events = DemoPlayback.Events;
+            if (frame < _lastFrame || _eventEnd > events.Count)
+            {
+                _eventStart = 0;
+                _eventEnd = 0;
+            }
+            _lastFrame = frame;
+            while (_eventEnd < events.Count && events[_eventEnd].Frame <= frame)
+                _eventEnd++;
+            uint cutoff = frame > EventLookbackFrames ? frame - EventLookbackFrames : 0;
+            while (_eventStart < _eventEnd && events[_eventStart].Frame < cutoff)
+                _eventStart++;
+
+            Array.Clear(EventScores);
+            Array.Clear(EventReasons);
+            for (int i = _eventStart; i < _eventEnd; i++)
+            {
+                ReplayEvent e = events[i];
+                float age = 1 - (frame - e.Frame) / (float)Math.Max(1u, EventLookbackFrames);
+                void Add(byte slot, float value, string reason)
+                {
+                    if (slot >= EventScores.Length || value <= 0) return;
+                    if (value >= EventScores[slot])
+                        EventReasons[slot] = reason;
+                    EventScores[slot] += value;
+                }
+
+                switch (e.Type)
+                {
+                    case ReplayEventType.Kill:
+                        Add(e.ActorSlot, 70 * age, "recent kill");
+                        Add(e.TargetSlot, 34 * age, "kill aftermath");
+                        break;
+                    case ReplayEventType.Objective:
+                        Add(e.ActorSlot, 78 * age, "objective pressure");
+                        break;
+                    case ReplayEventType.Damage:
+                        float damage = Math.Min(26, Math.Max(0, e.Value) * 0.22f) * age;
+                        Add(e.ActorSlot, damage, "damage exchange");
+                        Add(e.TargetSlot, damage * 0.5f, "under pressure");
+                        break;
+                    case ReplayEventType.ScoreChanged:
+                        Add(e.ActorSlot, 22 * age, "score change");
+                        break;
+                }
+            }
+
             int bestSlot = -1;
             float bestScore = float.MinValue;
             string bestReason = "quiet";
@@ -76,33 +133,11 @@ namespace MphRead.Mods.Replay
                     if (closest <= 5) score += 8;
                 }
 
-                foreach (ReplayEvent e in DemoPlayback.Events)
+                if (player.SlotIndex >= 0 && player.SlotIndex < EventScores.Length)
                 {
-                    if (e.Frame > frame || frame - e.Frame > EventLookbackFrames)
-                        continue;
-                    float age = 1 - (frame - e.Frame) / (float)Math.Max(1u, EventLookbackFrames);
-                    bool actor = e.ActorSlot == player.SlotIndex;
-                    bool target = e.TargetSlot == player.SlotIndex;
-                    if (!actor && !target) continue;
-                    switch (e.Type)
-                    {
-                        case ReplayEventType.Kill:
-                            score += (actor ? 70 : 34) * age;
-                            reason = actor ? "recent kill" : "kill aftermath";
-                            break;
-                        case ReplayEventType.Objective:
-                            score += 78 * age;
-                            reason = "objective pressure";
-                            break;
-                        case ReplayEventType.Damage:
-                            score += Math.Min(26, Math.Max(0, e.Value) * 0.22f) * age;
-                            reason = "damage exchange";
-                            break;
-                        case ReplayEventType.ScoreChanged:
-                            score += 22 * age;
-                            reason = "score change";
-                            break;
-                    }
+                    score += EventScores[player.SlotIndex];
+                    if (EventReasons[player.SlotIndex] is string eventReason)
+                        reason = eventReason;
                 }
 
                 if (DemoPlayback.LastFrame > frame && DemoPlayback.LastFrame - frame <= 60 * 60)
