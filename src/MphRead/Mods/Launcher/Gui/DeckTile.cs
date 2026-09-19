@@ -175,6 +175,29 @@ namespace MphRead.Mods.Launcher.Gui
                     + $"({at.X:0},{at.Y:0}), local ({local.X:0},{local.Y:0}) "
                     + $"of {Bounds.Width:0}x{Bounds.Height:0}, its box is "
                     + $"({origin.X:0},{origin.Y:0})-({far.X:0},{far.Y:0})");
+                // Which tile's own box really holds that point, asked of the
+                // same rectangles the draw uses.
+                IInputElement? asked = top.InputHitTest(at);
+                Mods.DebugLog.Line("ui", $"   InputHitTest says "
+                    + $"{(asked as DeckTile)?.RoomKey ?? asked?.GetType().Name ?? "nothing"}");
+                if (Parent is Panel siblings)
+                {
+                    foreach (Control child in siblings.Children)
+                    {
+                        if (child is not DeckTile other)
+                        {
+                            continue;
+                        }
+                        Point a = other.TranslatePoint(new Point(0, 0), top) ?? default;
+                        Point b = other.TranslatePoint(
+                            new Point(other.Bounds.Width, other.Bounds.Height), top) ?? a;
+                        if (at.X >= a.X && at.X <= b.X && at.Y >= a.Y && at.Y <= b.Y)
+                        {
+                            Mods.DebugLog.Line("ui", $"   the point is really in "
+                                + $"\"{other.RoomKey}\" ({a.X:0},{a.Y:0})-({b.X:0},{b.Y:0})");
+                        }
+                    }
+                }
             }
             _tap.Press(e, this);
             Focus();
@@ -783,8 +806,13 @@ namespace MphRead.Mods.Launcher.Gui
                 child.Measure(slot);
             }
             int rows = (Children.Count + columns - 1) / columns;
+            _measuredWidth = width;
+            _measuredCell = cell;
             return new Size(width, rows * high + Math.Max(0, rows - 1) * gap);
         }
+
+        private double _measuredWidth;
+        private double _measuredCell;
 
         protected override Size ArrangeOverride(Size finalSize)
         {
@@ -792,6 +820,12 @@ namespace MphRead.Mods.Launcher.Gui
             double gap = Gap;
             double cell = Math.Max(1, (finalSize.Width - gap * (columns - 1)) / columns);
             double high = Math.Round(cell / Math.Max(0.1, Ratio));
+            if (Math.Abs(_measuredCell - cell) > 0.5)
+            {
+                Mods.DebugLog.Line("ui", $"ballot measured at {_measuredWidth:0.#} "
+                    + $"(cell {_measuredCell:0.#}) and arranged at {finalSize.Width:0.#} "
+                    + $"(cell {cell:0.#}, row pitch {high + gap:0.#})");
+            }
             for (int i = 0; i < Children.Count; i++)
             {
                 int row = i / columns, column = i % columns;

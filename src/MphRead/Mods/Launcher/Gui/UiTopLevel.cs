@@ -293,6 +293,12 @@ namespace MphRead.Mods.Launcher.Gui
 
         public void TouchBegin(Point point, long id)
         {
+            // Settle the layout first. Hit-testing reads the composition tree,
+            // which is only brought up to date by a tick -- so a press that
+            // arrives between two of them is resolved against the layout as it
+            // stood before the last change, and lands on whatever used to be
+            // under the finger. One removed row is one row of error.
+            UiRenderTimer.Pump();
             Raise(new RawTouchEventArgs(_touch, Timestamp, InputRoot!,
                 RawPointerEventType.TouchBegin, point, RawInputModifiers.None, id));
         }
