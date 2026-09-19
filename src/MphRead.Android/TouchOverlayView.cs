@@ -185,10 +185,11 @@ namespace MphRead.Droid
             switch (e.ActionMasked)
             {
             case MotionEventActions.Down:
-                // A move first, so the toolkit knows where the press is
-                // landing: a pointer that has never moved has hit nothing,
-                // and a press with no hit under it goes to the root.
-                surface.TouchMove(x, y);
+                // No preparatory move: a touch contact carries its own
+                // position and TouchBegin is the first thing Avalonia may
+                // hear about this id. An update ahead of it is an update for
+                // a contact that does not exist yet, and the press that
+                // followed landed wherever that resolved to.
                 surface.TouchDown(x, y);
                 break;
             case MotionEventActions.Move:

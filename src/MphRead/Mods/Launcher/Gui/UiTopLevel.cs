@@ -145,6 +145,7 @@ namespace MphRead.Mods.Launcher.Gui
     {
         private readonly IKeyboardDevice _keyboard;
         private readonly MouseDevice _mouse;
+        private readonly TouchDevice _touch = new();
         private readonly Surface _surface;
         private readonly System.Diagnostics.Stopwatch _clock =
             System.Diagnostics.Stopwatch.StartNew();
@@ -284,6 +285,34 @@ namespace MphRead.Mods.Launcher.Gui
         {
             Raise(new RawMouseWheelEventArgs(_mouse, Timestamp, InputRoot!,
                 point, delta, modifiers));
+        }
+
+        // A finger, not the mouse. Avalonia's ScrollGestureRecognizer only
+        // engages for a touch pointer, so a drag delivered as a mouse button
+        // scrolls nothing and a list can only be moved by its scrollbar.
+
+        public void TouchBegin(Point point, long id)
+        {
+            // Settle the layout first. Hit-testing reads the composition tree,
+            // which is only brought up to date by a tick -- so a press that
+            // arrives between two of them is resolved against the layout as it
+            // stood before the last change, and lands on whatever used to be
+            // under the finger. One removed row is one row of error.
+            UiRenderTimer.Pump();
+            Raise(new RawTouchEventArgs(_touch, Timestamp, InputRoot!,
+                RawPointerEventType.TouchBegin, point, RawInputModifiers.None, id));
+        }
+
+        public void TouchUpdate(Point point, long id)
+        {
+            Raise(new RawTouchEventArgs(_touch, Timestamp, InputRoot!,
+                RawPointerEventType.TouchUpdate, point, RawInputModifiers.None, id));
+        }
+
+        public void TouchEnd(Point point, long id)
+        {
+            Raise(new RawTouchEventArgs(_touch, Timestamp, InputRoot!,
+                RawPointerEventType.TouchEnd, point, RawInputModifiers.None, id));
         }
 
         public void KeyPress(Key key, RawInputModifiers modifiers,

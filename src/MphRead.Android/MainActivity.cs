@@ -714,6 +714,7 @@ namespace MphRead.Droid
             {
                 _launcherView.Visibility = ViewStates.Visible;
             }
+            MphRead.Mods.Launcher.Gui.Deck.Asleep = false;
             AndroidApp.Home?.Reset();
             Window?.ClearFlags(WindowManagerFlags.KeepScreenOn);
             GoImmersive(true);
@@ -739,6 +740,9 @@ namespace MphRead.Droid
             // blending a full-window bitmap for the whole match, on the UI
             // thread of the process running it.
             MovingBackdrop.Suspended = true;
+            // And neither would any of the other animations on it. Deck.Still
+            // is what each of them already checks.
+            MphRead.Mods.Launcher.Gui.Deck.Asleep = true;
             if (note != null)
             {
                 Console.WriteLine($"[android] starting the match anyway: {note}");
@@ -875,6 +879,7 @@ namespace MphRead.Droid
 
         private MphRead.Mods.Launcher.Gui.EndPanelView? _endPanel;
         private Action? _endPanelTick;
+        private bool _endPanelWanted;
 
         /// <summary>
         /// Put the results panel up while the results are up, and take it down
@@ -904,6 +909,21 @@ namespace MphRead.Droid
                 return;
             }
             bool want = MphRead.Mods.EndScreen.Available && !_pauseMenuOpen;
+            // The panel going up and down mid-results is what "the 3D model
+            // appears and disappears" is: the HUD draws its own picker the
+            // moment PanelUp clears. Say which of Available's six clauses moved.
+            if (want != _endPanelWanted)
+            {
+                _endPanelWanted = want;
+                MphRead.Mods.DebugLog.Line("ui", $"end panel {(want ? "up" : "down")}"
+                    + $": state={MphRead.GameState.MatchState}"
+                    + $" main={MphRead.Entities.PlayerEntity.Main != null}"
+                    + $" mp={MphRead.GameState.Multiplayer}"
+                    + $" menupause={MphRead.GameState.MenuPause}"
+                    + $" spectating={MphRead.Mods.SpectatorMode.IsSpectating}"
+                    + $" freecam={MphRead.Mods.SpectatorMode.FreeCamera}"
+                    + $" pausemenu={_pauseMenuOpen}");
+            }
             if (want && _endPanel == null)
             {
                 AndroidUiSurface? surface = AndroidUiSurface.Ensure();
@@ -913,6 +933,9 @@ namespace MphRead.Droid
                     surface.Resize(_gameView.Width, _gameView.Height);
                     _endPanel = new MphRead.Mods.Launcher.Gui.EndPanelView();
                     MphRead.Mods.EndScreen.PanelUp = true;
+                    // On the glass, even though the launcher's own view is
+                    // not: this panel is composited into the game's frame.
+                    MphRead.Mods.Launcher.Gui.Deck.Asleep = false;
                     surface.Show(_endPanel);
                     _controls.ReleaseEverything();
                     _overlay?.Invalidate();
@@ -940,6 +963,7 @@ namespace MphRead.Droid
             }
             _endPanel = null;
             MphRead.Mods.EndScreen.PanelUp = false;
+            MphRead.Mods.Launcher.Gui.Deck.Asleep = InMatch;
             AndroidUiSurface.Current?.Hide();
             _controls.ReleaseEverything();
             _overlay?.Invalidate();
@@ -998,6 +1022,7 @@ namespace MphRead.Droid
             {
                 _launcherView.Visibility = ViewStates.Visible;
             }
+            MphRead.Mods.Launcher.Gui.Deck.Asleep = false;
             GoImmersive(true);
             AndroidApp.Home?.ShowPauseMenu(ClosePauseMenu, EndMatch, () => Finish());
         }
@@ -1013,6 +1038,7 @@ namespace MphRead.Droid
             {
                 _launcherView.Visibility = ViewStates.Gone;
             }
+            MphRead.Mods.Launcher.Gui.Deck.Asleep = true;
             if (_gameView != null)
             {
                 _gameView.Visibility = ViewStates.Visible;
@@ -1068,6 +1094,7 @@ namespace MphRead.Droid
             {
                 _launcherView.Visibility = ViewStates.Visible;
             }
+            MphRead.Mods.Launcher.Gui.Deck.Asleep = false;
             // The front screen is on the glass again, so its ground may move
             // -- unless the device is still rendering previews.
             MovingBackdrop.Suspended = _renderingPreviews;

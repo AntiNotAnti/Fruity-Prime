@@ -82,6 +82,11 @@ namespace MphRead
         /// </summary>
         public static bool PreviewDrawnLastFrame { get; private set; }
 
+        /// <summary>Who that frame actually had in it. See HunterPreviewEntity.Shown.</summary>
+        public static Hunter PreviewDrawnHunter { get; private set; } = Hunter.Random;
+
+        public static int PreviewDrawnSuit { get; private set; } = -1;
+
         /// <summary>
         /// Turn the model, once a simulation step. Called from the step rather
         /// than the draw for the reason everything else here is: a picture with
@@ -318,6 +323,8 @@ namespace MphRead
             GL.Uniform1(_shaderLocations.UseFog, _hasFog && FogOn ? 1 : 0);
             GL.PolygonMode(TriangleFace.FrontAndBack, OpenTK.Graphics.OpenGL.PolygonMode.Fill);
             PreviewDrawnLastFrame = true;
+            PreviewDrawnHunter = _preview?.Shown ?? Hunter.Random;
+            PreviewDrawnSuit = _preview?.ShownSuit ?? -1;
         }
     }
 }

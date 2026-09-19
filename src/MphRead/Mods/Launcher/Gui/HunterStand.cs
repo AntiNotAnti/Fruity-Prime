@@ -271,6 +271,33 @@ namespace MphRead.Mods.Launcher.Gui
 
         private string _who = "Samus";
 
+        private MphRead.Hunter Asked => Enum.TryParse(_who, ignoreCase: true,
+            out MphRead.Hunter which) ? which : MphRead.Hunter.Samus;
+
+        /// <summary>
+        /// Whether the engine has *this* hunter in the box, rather than one
+        /// it has not managed to swap yet. Turning the picker faster than a
+        /// model loads, or onto a hunter whose model is missing, leaves the
+        /// previous one standing -- and a hole cut for it shows the wrong
+        /// character with no sign that anything went wrong.
+        ///
+        /// A disagreement has to last to count. The engine publishes what it
+        /// drew from the GL thread and this is read from the toolkit's, so
+        /// they are a frame out of step routinely; falling back on the first
+        /// one flickers the picker between the model and the portrait every
+        /// time it is turned. Half a second of it is a model that is not
+        /// coming.
+        /// </summary>
+        private bool EnginePainting => Scene.PreviewDrawnLastFrame
+            && (_swapping < SwapGrace
+                || (Scene.PreviewDrawnHunter == Asked
+                    && Scene.PreviewDrawnSuit == _suit));
+
+        /// <summary>Beats of disagreement before the portrait takes over.</summary>
+        private const int SwapGrace = 15;
+
+        private int _swapping;
+
         /// <summary>Turns on its own until somebody takes hold of it.</summary>
         private double _spin;
         private bool _dragging;
@@ -410,6 +437,8 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         private void Beat()
         {
+            _swapping = Scene.PreviewDrawnHunter == Asked
+                && Scene.PreviewDrawnSuit == _suit ? 0 : _swapping + 1;
 #if MPHREAD_SHELL
             if (!IsEffectivelyVisible)
             {
@@ -417,6 +446,14 @@ namespace MphRead.Mods.Launcher.Gui
                 return;
             }
             Publish();
+            // Render draws nothing at all while the engine is painting this
+            // box, so asking for it again is a whole-window raster thirty
+            // times a second for an identical picture. The desktop pays it
+            // too: its own Render has the same early return.
+            if (EnginePainting)
+            {
+                return;
+            }
 #else
             if (Mods.Render.HunterShot.InFrame)
             {
@@ -429,6 +466,14 @@ namespace MphRead.Mods.Launcher.Gui
             else
             {
                 AskForShot();
+            }
+            // Render draws nothing at all while the engine is painting this
+            // box, so asking for it again is a whole-window raster and a
+            // whole-window upload, thirty times a second, for an identical
+            // picture -- which is half the frame rate while the panel is up.
+            if (Mods.Render.HunterShot.InFrame && EnginePainting)
+            {
+                return;
             }
 #endif
             InvalidateVisual();
@@ -461,8 +506,6 @@ namespace MphRead.Mods.Launcher.Gui
             Point origin = this.TranslatePoint(new Point(0, 0), top) ?? new Point(0, 0);
             Point far = this.TranslatePoint(new Point(Bounds.Width, Bounds.Height), top)
                 ?? origin;
-            origin = new Point(origin.X * scale, origin.Y * scale);
-            far = new Point(far.X * scale, far.Y * scale);
             if (width <= 0 || height <= 0 || far.X <= origin.X || far.Y <= origin.Y
                 || origin.X < 0 || origin.Y < 0 || far.X > width || far.Y > height)
             {
@@ -470,6 +513,9 @@ namespace MphRead.Mods.Launcher.Gui
                 // on, and what the engine paints into one is a black box over
                 // whatever is really there.
                 Mods.Render.HunterShot.HoleWanted = false;
+                Mods.DebugLog.Line("ui", $"hunter hole refused: "
+                    + $"({origin.X:0},{origin.Y:0})-({far.X:0},{far.Y:0}) "
+                    + $"in {width:0}x{height:0} at {scale:0.###}x");
                 return;
             }
             Mods.Render.HunterShot.HoleHunter = Enum.TryParse(_who, ignoreCase: true,
@@ -615,7 +661,7 @@ namespace MphRead.Mods.Launcher.Gui
             // the screens afterwards, by LauncherHunter. A model that will
             // not load, or the frames before it has, fall through to the
             // boxes below.
-            if (Scene.PreviewDrawnLastFrame)
+            if (EnginePainting)
             {
                 return;
             }
@@ -623,7 +669,7 @@ namespace MphRead.Mods.Launcher.Gui
             // The same rule on the head whose screens are composited into the
             // frame: what goes in this box is painted after the texture is
             // down, so leaving it empty is leaving the hole for it.
-            if (Mods.Render.HunterShot.InFrame && Scene.PreviewDrawnLastFrame)
+            if (Mods.Render.HunterShot.InFrame && EnginePainting)
             {
                 return;
             }
