@@ -26,6 +26,11 @@ namespace MphRead.Mods.Replay
 
         public static bool Start(ReplayVideoExportManifest job)
         {
+            if (Active)
+            {
+                Status = "A video export is already active.";
+                return false;
+            }
             if (!DemoPlayback.IsActive || DemoPlayback.CurrentPath == null
                 || !Path.GetFullPath(DemoPlayback.CurrentPath).Equals(
                     Path.GetFullPath(job.Replay), StringComparison.OrdinalIgnoreCase))
@@ -73,6 +78,11 @@ namespace MphRead.Mods.Replay
         public static void AfterSceneDraw(Scene scene)
         {
             CaptureReplayThumbnails(scene);
+            if (_job != null && !DemoPlayback.IsActive)
+            {
+                Cancel();
+                return;
+            }
 
             ReplayVideoExportManifest? job = _job;
             if (job == null || ReplayController.IsSeeking)

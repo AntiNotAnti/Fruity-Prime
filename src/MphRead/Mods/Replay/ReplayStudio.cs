@@ -64,6 +64,15 @@ namespace MphRead.Mods.Replay
         private static IReadOnlyList<ReplayHighlight>? _cachedHighlights;
         private static ReplayAnalyticsSnapshot? _cachedAnalytics;
 
+        internal static void ResetCache()
+        {
+            _cachePath = null;
+            _cacheEventCount = -1;
+            _cacheDuration = 0;
+            _cachedHighlights = null;
+            _cachedAnalytics = null;
+        }
+
         private static bool DefaultCacheValid(int eventCount, uint duration)
             => String.Equals(_cachePath, DemoPlayback.CurrentPath, StringComparison.OrdinalIgnoreCase)
                 && _cacheEventCount == eventCount

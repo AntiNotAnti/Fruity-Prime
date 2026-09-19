@@ -1625,11 +1625,18 @@ namespace MphRead.Mods.Launcher.Gui
             StartReplayPreview();
             if (LauncherPrefs.ReplayAutoPrune && LauncherPrefs.ReplayStorageLimitGb > 0)
             {
-                ReplayStorageManager.Apply(new ReplayStoragePolicy(
-                    MaxBytes: LauncherPrefs.ReplayStorageLimitGb * 1024L * 1024L * 1024L,
-                    DeleteFullMatches: true,
-                    DeleteMaterializedClips: LauncherPrefs.ReplayDeleteClips,
-                    DeleteVirtualClips: false));
+                try
+                {
+                    ReplayStorageManager.Apply(new ReplayStoragePolicy(
+                        MaxBytes: LauncherPrefs.ReplayStorageLimitGb * 1024L * 1024L * 1024L,
+                        DeleteFullMatches: true,
+                        DeleteMaterializedClips: LauncherPrefs.ReplayDeleteClips,
+                        DeleteVirtualClips: false));
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    Console.WriteLine($"[replay] storage auto-management skipped: {ex.Message}");
+                }
             }
             IReadOnlyList<DemoRecording> demos = DemoLibrary.List();
             foreach (DemoRecording demo in demos)

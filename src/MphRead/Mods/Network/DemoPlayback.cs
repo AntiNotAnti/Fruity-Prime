@@ -329,6 +329,8 @@ namespace MphRead.Mods.Network
                 _reader?.Dispose();
                 _reader = null;
                 _pending = null;
+                if (Replay.ReplayVideoExporter.Active) Replay.ReplayVideoExporter.Cancel();
+                Replay.ReplayStudio.ResetCache();
                 IsActive = false;
                 ReplayController.Stop();
                 Replay.ReplayHud.Reset();
@@ -351,6 +353,8 @@ namespace MphRead.Mods.Network
         public static void Stop()
         {
             ReplayVerification.Reset();
+            if (Replay.ReplayVideoExporter.Active) Replay.ReplayVideoExporter.Cancel();
+            Replay.ReplayStudio.ResetCache();
             IsActive = false;
             ReplayController.Stop();
             Replay.ReplayHud.Reset();
