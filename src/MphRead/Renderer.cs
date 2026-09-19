@@ -965,18 +965,6 @@ namespace MphRead
                 if (mesh.ListId != 0)
                 {
                     continue;
-                    if (Mods.SpectatorMode.IsSpectating && !Mods.PauseMenu.Open)
-                    {
-                        var spectator = Mods.Input.SpectatorInput.ReadController();
-                        spectator.ApplyView();
-                        Mods.SpectatorMode.NoteScoreboard(_keyboardState.IsKeyDown(Keys.Tab) || spectator.Scoreboard);
-                        if (_freeCam)
-                        {
-                            _cameraPosition += _cameraFacing * spectator.MoveY * .15f + _cameraRight * spectator.MoveX * .15f;
-                            _cameraPosition.Y += (spectator.Ascend - spectator.Descend) * .15f;
-                            UpdateCameraRotation(MathHelper.DegreesToRadians(spectator.LookX), MathHelper.DegreesToRadians(spectator.LookY));
-                        }
-                    }
                 }
                 if (!tempListIds.TryGetValue(mesh.DlistId, out int listId))
                 {
