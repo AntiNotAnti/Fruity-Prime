@@ -31,13 +31,13 @@ namespace MphRead.Mods.Network
 
         public static bool TryGet(short id, out HealthSpawnState state) => _states.TryGetValue(id, out state);
         public static bool IsCurrentMatch(ReadOnlySpan<byte> src) => src.Length >= HeaderSize
-            && BinaryPrimitives.ReadUInt16LittleEndian(src) == (NetSession.ServerSession?.MatchId ?? 0);
+            && BinaryPrimitives.ReadUInt16LittleEndian(src) == NetSession.CurrentMatchId;
 
         public static int Write(Span<byte> dest)
         {
             int length = HeaderSize + EntrySize * _spawns.Count;
             if (dest.Length < length) throw new ProgramException("Health state exceeds snapshot capacity.");
-            BinaryPrimitives.WriteUInt16LittleEndian(dest, NetSession.ServerSession?.MatchId ?? 0);
+            BinaryPrimitives.WriteUInt16LittleEndian(dest, NetSession.CurrentMatchId);
             dest[2] = (byte)_spawns.Count;
             int offset = HeaderSize;
             foreach (ItemSpawnEntity spawn in _spawns)
