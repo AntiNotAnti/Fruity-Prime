@@ -561,13 +561,23 @@ namespace MphRead
                 }
             }
             // todo: probably revisit this
-            foreach (PlayerEntity player in PlayerEntity.Players)
+            //
+            // Not on a side scene: that one has no room and no world, and the
+            // roster it would be initialising against is *static*. On a head
+            // that renders map previews in the game's own process there is a
+            // slot-active player left over from the last one, so standing the
+            // launcher's preview scene up ran PlayerEntity.Initialize with no
+            // sound loaded under it and took the thread down.
+            if (!SideScene)
             {
-                if (player.LoadFlags.TestFlag(LoadFlags.SlotActive))
+                foreach (PlayerEntity player in PlayerEntity.Players)
                 {
-                    player.Initialize();
-                    InitEntity(player);
-                    InitEntity(player.Halfturret);
+                    if (player.LoadFlags.TestFlag(LoadFlags.SlotActive))
+                    {
+                        player.Initialize();
+                        InitEntity(player);
+                        InitEntity(player.Halfturret);
+                    }
                 }
             }
             if (!Mods.Headless.Active && !SideScene)

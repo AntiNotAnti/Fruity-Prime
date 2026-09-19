@@ -388,26 +388,36 @@ namespace MphRead.Mods.Launcher.Gui
             // A fresh install has nothing to play, so the one thing it needs is
             // the whole screen rather than one refused entry among three.
             //
-            // **After the attachment, not during it.** Pushing a screen from
-            // inside this method builds its tree while this one is still being
-            // attached, and a control added then never inherits
-            // <see cref="Deck.EmProperty"/> from the <see cref="DeckStage"/>
-            // above it: it is laid out on the property's own default -- 10.81,
-            // which happens to be the capture's em and is why nothing on the
-            // desktop showed it -- and the panel comes out a column of text a
-            // dozen characters wide with no card behind it. That is exactly
-            // what a fresh install on a phone opened onto, while the same
-            // screen reached from PLAY a second later was correct, because by
-            // then the tree was up. One dispatcher turn is the whole fix.
+            // **After the first frame, not during the attachment.** Two things
+            // go wrong when a screen is pushed from inside this method, and
+            // the second is worse than the first.
+            //
+            // A control added to the tree while an ancestor is still being
+            // attached never inherits <see cref="Deck.EmProperty"/> from the
+            // <see cref="DeckStage"/> above it: it is laid out on the
+            // property's own default -- 10.81, which happens to be the
+            // capture's em and is why nothing on the desktop showed it -- and
+            // the panel comes out a column of text a dozen characters wide
+            // with no card behind it.
+            //
+            // And on Android the tree is swapped before the toolkit has put
+            // anything on the glass at all, which leaves a window that never
+            // draws: the compositor does not come back to a control whose
+            // first render drew nothing, so the app sits on the activity's
+            // background colour until some input forces a pass. That is what
+            // "black screen on the first launch, and back gets past it" was,
+            // and a dispatcher turn is not enough for it -- <see
+            // cref="Deck.NextFrame"/> is, because it is the one hook here that
+            // waits for a *frame* rather than for the queue to drain.
             if (!GameFiles.Ready && _stack.Count == 0)
             {
-                Dispatcher.UIThread.Post(() =>
+                Deck.NextFrame(this, () =>
                 {
                     if (!GameFiles.Ready && _stack.Count == 0)
                     {
                         OpenSetup();
                     }
-                }, DispatcherPriority.Loaded);
+                });
             }
         }
 
@@ -685,6 +695,15 @@ namespace MphRead.Mods.Launcher.Gui
         /// <summary>
         /// Pick a map and put it to the room -- the same screen a match is
         /// chosen from, with the strip of sources taken away.
+        ///
+        /// The list is read again here rather than taken from the one this
+        /// screen was built with. On the head that shows the pause menu on
+        /// this stack the front screen is built once, before the game files
+        /// have necessarily been found, and it is still that same object
+        /// during every match afterwards -- so a launch that started with no
+        /// rooms opened a ballot with nothing on it, which is what "there is
+        /// no map vote on Android" was. <see cref="InGameMenu.OpenVote"/> does
+        /// the same and this is the other half of it.
         /// </summary>
         private void OpenVote()
         {
@@ -695,9 +714,29 @@ namespace MphRead.Mods.Launcher.Gui
                 // one sentence, the player is about to go back to the match,
                 // and a dialog for it is a second thing to dismiss.
                 Chat.ChatBox.System(why);
+                Pop();
                 return;
             }
-            var view = new PlayScreen(_settings, _rooms, PlayScreen.Face.Vote,
+            IReadOnlyList<string> rooms = _rooms;
+            if (rooms.Count == 0)
+            {
+                try
+                {
+                    rooms = ThumbnailGenerator.MultiplayerRooms();
+                }
+                catch (Exception ex)
+                {
+                    Mods.DebugLog.Exception("pause", ex);
+                    rooms = Array.Empty<string>();
+                }
+            }
+            if (rooms.Count == 0)
+            {
+                Chat.ChatBox.System("no maps to vote for");
+                Pop();
+                return;
+            }
+            var view = new PlayScreen(_settings, rooms, PlayScreen.Face.Vote,
                 overGame: true);
             view.Closed += (_, _) => Pop();
             view.Voted += (_, room) =>
