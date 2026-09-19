@@ -186,14 +186,33 @@ namespace MphRead.Mods.Launcher.Gui
         /// surface has to be told the picture changed, or the step runs and is
         /// then not drawn until the backstop comes round.
         /// </summary>
-        public static void NextFrame(Action step, bool idling = false)
+        /// <param name="asker">
+        /// The control the animation belongs to. It is how the head with a
+        /// real compositor finds the clock to step on; the shell ignores it,
+        /// having exactly one surface.
+        /// </param>
+        public static void NextFrame(Visual asker, Action step, bool idling = false)
         {
 #if MPHREAD_SHELL
             UiSurface.RequestFrame(step, idling);
 #else
-            // The Android head's screens are in a real window with a real
-            // compositor behind them; there is no surface to invalidate and
-            // the dispatcher is the frame.
+            // The compositor's own animation tick, not a bare dispatcher post.
+            // A post at Render priority is run whenever the queue reaches that
+            // priority, which is not a frame: a step that asks for the next
+            // one -- and the idle bob asks for ever -- goes round again as
+            // fast as the dispatcher can turn, ahead of the touch events a
+            // drag is made of. RequestAnimationFrame is throttled on the
+            // compositor and its callbacks are drained from a queue that has
+            // already been swapped out, so re-asking from inside one lands on
+            // the frame after rather than on this one.
+            TopLevel? top = TopLevel.GetTopLevel(asker);
+            if (top != null)
+            {
+                top.RequestAnimationFrame(_ => step());
+                return;
+            }
+            // Not in a tree yet: no clock to ask, and the step still has to
+            // land between passes rather than inside one.
             Avalonia.Threading.Dispatcher.UIThread.Post(step,
                 Avalonia.Threading.DispatcherPriority.Render);
 #endif

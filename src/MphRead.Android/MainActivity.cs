@@ -11,6 +11,7 @@ using Avalonia.Android;
 using MphRead.Mods;
 using MphRead.Mods.Launcher;
 using MphRead.Mods.Network;
+using MovingBackdrop = MphRead.Mods.Launcher.Gui.MovingBackdrop;
 
 namespace MphRead.Droid
 {
@@ -92,6 +93,8 @@ namespace MphRead.Droid
         {
             Instance = this;
             base.OnCreate(savedInstanceState);
+            GamepadBridge.Start(this);
+            MphRead.Mods.Input.GamepadContexts.MenuVisible = true;
             // The desktop builds missing map binaries from ModEntry.TryHandle;
             // this head has no Main for that to live in. Off the UI thread:
             // it reads the extracted game files and writes three binaries per
@@ -121,11 +124,17 @@ namespace MphRead.Droid
             }
             _renderingPreviews = true;
             void Report(string line) => RunOnUiThread(() => report(line));
+            // A preview run is every core the device has, in worker processes
+            // with GL contexts of their own; the front screen's moving layer
+            // is the one thing this process does a frame while it waits, and
+            // it is what made the run take minutes.
+            RunOnUiThread(() => MovingBackdrop.Suspended = true);
             // The workers are ordinary services, and a device that goes to
             // sleep throttles them; the run is long enough for that to matter.
             RunOnUiThread(() => Window?.AddFlags(WindowManagerFlags.KeepScreenOn));
             return Task.Run(() =>
             {
+                var clock = System.Diagnostics.Stopwatch.StartNew();
                 try
                 {
                     ThumbnailGenerator.EnsureCacheDirectory();
@@ -141,8 +150,14 @@ namespace MphRead.Droid
                     }
                     if (left.Count > 0)
                     {
+                        // The workers were killed or would not start. One room
+                        // at a time from here, which is why it is worth saying
+                        // how many ended up on this path.
+                        Report($"[thumbnails] {left.Count} left to render here");
                         written += RenderHere(left, Report);
                     }
+                    Report($"[thumbnails] {written}/{rooms.Count} in "
+                        + $"{clock.Elapsed.TotalSeconds:0.0}s");
                     return written;
                 }
                 catch (Exception ex)
@@ -158,6 +173,7 @@ namespace MphRead.Droid
                     {
                         if (!InMatch)
                         {
+                            MovingBackdrop.Suspended = false;
                             Window?.ClearFlags(WindowManagerFlags.KeepScreenOn);
                         }
                     });
@@ -403,6 +419,13 @@ namespace MphRead.Droid
         /// controls away for it would be taking them away from a phone with a
         /// pad in a drawer. See <c>GamepadInput.InUse</c>.
         /// </summary>
+        public override bool DispatchTouchEvent(MotionEvent? e)
+        {
+            if (e?.ActionMasked == MotionEventActions.Down)
+                MphRead.Mods.Input.InputSourceTracker.Note(MphRead.Mods.Input.InputSource.Touch);
+            return base.DispatchTouchEvent(e);
+        }
+
         public override bool DispatchGenericMotionEvent(MotionEvent? e)
         {
             if (GamepadBridge.HandleMotion(e))
@@ -428,6 +451,8 @@ namespace MphRead.Droid
         public override void OnWindowFocusChanged(bool hasFocus)
         {
             base.OnWindowFocusChanged(hasFocus);
+            MphRead.Mods.Input.GamepadContexts.Focused = hasFocus;
+            if (!hasFocus) GamepadBridge.Clear();
             if (hasFocus)
             {
                 GoImmersive(true);
@@ -451,6 +476,7 @@ namespace MphRead.Droid
             // to shut itself down on its own thread, which is what
             // Scene.DoCleanup does at the end of the loop.
             _gameView?.Stop();
+            GamepadBridge.Stop();
             base.OnDestroy();
         }
 
@@ -689,6 +715,7 @@ namespace MphRead.Droid
             if (_launcherView != null)
             {
                 _launcherView.Visibility = ViewStates.Visible;
+                MphRead.Mods.Input.GamepadContexts.MenuVisible = true;
             }
             AndroidApp.Home?.Reset();
             Window?.ClearFlags(WindowManagerFlags.KeepScreenOn);
@@ -709,7 +736,13 @@ namespace MphRead.Droid
             if (_launcherView != null)
             {
                 _launcherView.Visibility = ViewStates.Gone;
+                MphRead.Mods.Input.GamepadContexts.MenuVisible = false;
             }
+            // An Android view going away is not a detach, so the front
+            // screen's moving layer would go on filling a noise field and
+            // blending a full-window bitmap for the whole match, on the UI
+            // thread of the process running it.
+            MovingBackdrop.Suspended = true;
             if (note != null)
             {
                 Console.WriteLine($"[android] starting the match anyway: {note}");
@@ -893,6 +926,7 @@ namespace MphRead.Droid
             if (_launcherView != null)
             {
                 _launcherView.Visibility = ViewStates.Visible;
+                MphRead.Mods.Input.GamepadContexts.MenuVisible = true;
             }
             GoImmersive(true);
             AndroidApp.Home?.ShowPauseMenu(ClosePauseMenu, EndMatch, () => Finish());
@@ -908,6 +942,7 @@ namespace MphRead.Droid
             if (_launcherView != null)
             {
                 _launcherView.Visibility = ViewStates.Gone;
+                MphRead.Mods.Input.GamepadContexts.MenuVisible = false;
             }
             if (_gameView != null)
             {
@@ -961,7 +996,11 @@ namespace MphRead.Droid
             if (_launcherView != null)
             {
                 _launcherView.Visibility = ViewStates.Visible;
+                MphRead.Mods.Input.GamepadContexts.MenuVisible = true;
             }
+            // The front screen is on the glass again, so its ground may move
+            // -- unless the device is still rendering previews.
+            MovingBackdrop.Suspended = _renderingPreviews;
             // The desktop builds a fresh front screen each time round its loop;
             // this one is the same object across a match, so it is told the
             // match is over rather than left believing it already answered.
