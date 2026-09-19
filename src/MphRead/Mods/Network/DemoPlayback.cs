@@ -303,6 +303,48 @@ namespace MphRead.Mods.Network
             }
         }
 
+        public static bool TakeControl(int slot, out string? branchPath)
+        {
+            branchPath = null;
+            if (!IsActive || CurrentPath == null
+                || slot < 0 || slot >= Entities.PlayerEntity.Players.Count)
+                return false;
+
+            Entities.PlayerEntity player = Entities.PlayerEntity.Players[slot];
+            if (!player.LoadFlags.TestFlag(Entities.LoadFlags.Active)
+                || !player.LoadFlags.TestFlag(Entities.LoadFlags.Spawned))
+                return false;
+
+            string source = CurrentPath;
+            uint frame = CurrentFrame;
+            try
+            {
+                NetSession.DetachPlaybackForLab(slot);
+                if (!SpectatorMode.TakeReplayControl(slot))
+                    return false;
+
+                _reader?.Dispose();
+                _reader = null;
+                _pending = null;
+                IsActive = false;
+                ReplayController.Stop();
+                Replay.ReplayHud.Reset();
+                Replay.ReplayCamera.Reset();
+                ReplayVerification.Reset();
+                Replay.ReplayCheckpointManager.NoteReplay(null);
+                branchPath = Replay.ReplayLab.WriteBranch(source, frame, slot);
+                Console.WriteLine($"[replay] replay lab branch created at frame {frame}: {branchPath}");
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                or InvalidOperationException or ArgumentException)
+            {
+                LastError = "Could not take control of replay: " + ex.Message;
+                Console.WriteLine("[replay] " + LastError);
+                return false;
+            }
+        }
+
         public static void Stop()
         {
             ReplayVerification.Reset();

@@ -77,6 +77,7 @@ namespace MphRead.Mods.Network
             byte Actor(int slot) => slot is >= 0 and < RosterPacket.MaxSlots ? (byte)slot : byte.MaxValue;
             var e = new ReplayEvent(NetSession.NetFrame, type, Actor(actor), Actor(target), value);
             DemoRecorder.RecordEvent(e);
+            ServerReplayRecorder.RecordEvent(e);
             DemoClip.AddEvent(e);
         }
 

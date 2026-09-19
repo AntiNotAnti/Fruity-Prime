@@ -247,6 +247,24 @@ namespace MphRead.Mods
         /// left exactly where it was, and only a positive one goes back to
         /// zero.
         /// </summary>
+        internal static bool TakeReplayControl(int slot)
+        {
+            if (!IsSpectating || slot < 0 || slot >= PlayerEntity.Players.Count)
+                return false;
+            PlayerEntity target = PlayerEntity.Players[slot];
+            if (!target.LoadFlags.TestFlag(LoadFlags.Active)
+                || !target.LoadFlags.TestFlag(LoadFlags.Spawned))
+                return false;
+
+            PlayerEntity.MainPlayerIndex = slot;
+            target.ModSetSpectating(false);
+            target.CameraInfo.NodeRef = target.NodeRef;
+            IsSpectating = false;
+            ShowScoreboard = false;
+            _cameraRequest = false;
+            return true;
+        }
+
         public static void Rejoin()
         {
             if (!IsSpectating)

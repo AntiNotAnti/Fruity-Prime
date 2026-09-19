@@ -331,6 +331,34 @@ namespace MphRead.Mods.Network
             NetFrame = netFrame;
         }
 
+        /// <summary>
+        /// Leave the playback-only transport attached to no server while preserving the
+        /// reconstructed scene. Replay Lab uses this instead of Stop(), whose job is to
+        /// erase the entire network/match session.
+        /// </summary>
+        internal static void DetachPlaybackForLab(int localSlot)
+        {
+            if (Role != NetRole.Client || _hostEndPoint != null)
+                throw new InvalidOperationException("Only a socket-free replay session can be detached.");
+
+            _transport?.Dispose();
+            _transport = null;
+            _hostEndPoint = null;
+            _peers.Clear();
+            IsAuthority = false;
+            _snapshotSink = null;
+            _serverMatchEnded = null;
+            Role = NetRole.Offline;
+            LocalSlot = Math.Clamp(localSlot, 0, PlayerEntity.SlotCapacity - 1);
+            ConnectionLost = false;
+            Refused = false;
+            _authorityNeedsStateApply = false;
+            NetUnlagged.Reset();
+            NetHitPrediction.Reset();
+            NetHitClaims.Reset();
+            NetSmoothing.Reset();
+        }
+
         public static void RewindPlayback()
         {
             ContinuousPhase.Reset();
