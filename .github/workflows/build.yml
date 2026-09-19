@@ -84,6 +84,10 @@ jobs:
           --self-contained true -p:PublishSingleFile=true
           -o publish/${{ matrix.id }}
 
+      - name: replay format and server-retention regressions
+        if: matrix.id == 'linux-x64'
+        run: publish/linux-x64/FruityPrime -replayformatcheck
+
       - name: bounded thumbnail worker regression
         if: matrix.id == 'linux-x64'
         run: dotnet run --project tools/thumbnail-batch-check/thumbnail-batch-check.csproj -c Release
