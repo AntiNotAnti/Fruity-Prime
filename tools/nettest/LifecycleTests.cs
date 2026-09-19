@@ -202,10 +202,18 @@ namespace MphRead.NetTest
             }
             byte[] Snapshot(uint frame, params PlayerState[] states)
             {
-                byte[] body = new byte[SnapshotHeader.Size + states.Length * PlayerState.Size];
-                new SnapshotHeader { MatchId = Field<ushort>("_matchId"), AuthorityEpoch = Field<ulong>("_authorityEpoch"),
+                int playersEnd = SnapshotHeader.Size + states.Length * PlayerState.Size;
+                byte[] body = new byte[playersEnd + NetMatchTimeSync.Size + NetHealthSync.HeaderSize];
+                ushort matchId = Field<ushort>("_matchId");
+                new SnapshotHeader { MatchId = matchId, AuthorityEpoch = Field<ulong>("_authorityEpoch"),
                     Frame = frame, PlayerCount = (byte)states.Length }.Write(body);
-                for (int i = 0; i < states.Length; i++) states[i].Write(body.AsSpan(SnapshotHeader.Size + i * PlayerState.Size));
+                for (int i = 0; i < states.Length; i++)
+                    states[i].Write(body.AsSpan(SnapshotHeader.Size + i * PlayerState.Size));
+                // The relay validates the same snapshot tails production sends.
+                // Zeroed match clocks are valid; an empty health-spawn section
+                // consists of the current match id plus a zero entry count.
+                BinaryPrimitives.WriteUInt16LittleEndian(
+                    body.AsSpan(playersEnd + NetMatchTimeSync.Size), matchId);
                 return body;
             }
             Hello(owner, 1); Hello(other, 2);
