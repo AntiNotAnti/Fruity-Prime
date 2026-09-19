@@ -145,6 +145,10 @@ Commands:
 - `-replayrecover FILE`: recover complete chunks into a new replay.
 - `-replaydeterminism FILE`: real engine linear/reconstructed seek comparisons and
   every-frame gameplay comparisons at all playback rates; needs extracted game assets.
+- `-replayclipcheck SOURCE -clip CLIP -start FRAME`: replays the source range and
+  extracted clip separately, normalizes source `FRAME` to clip frame 0, then compares
+  the explicit gameplay hash every frame and reports the first divergence. This is the
+  clip-fidelity check; it needs extracted game assets.
 - `-replaydeterminism FILE -replayhashout OUTPUT.fpdemo`: after all comparisons pass,
   creates a separate v3 copy with expected gameplay hashes every 300 frames and at
   EOF. The source and packet contents are preserved. A matching engine build/hash

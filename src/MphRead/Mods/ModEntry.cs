@@ -1594,6 +1594,19 @@ namespace MphRead.Mods
                 Environment.ExitCode = Network.ReplayDeterminism.Run(replayPath, ValueAfter(args, "replayhashout"));
                 return true;
             }
+            if (ValueAfter(args, "replayclipcheck") is string clipSource
+                && ValueAfter(args, "clip") is string clipPath)
+            {
+                if (!UInt32.TryParse(ValueAfter(args, "start"), out uint sourceStart))
+                {
+                    Console.WriteLine("[replayclipcheck] -start FRAME is required.");
+                    Environment.ExitCode = 1;
+                    return true;
+                }
+                Environment.ExitCode = Network.ReplayClipFidelity.Run(
+                    clipSource, clipPath, sourceStart);
+                return true;
+            }
             // What a recorded match actually contains. Reads the file and
             // nothing else -- no room, no window, no game files.
             string? demoInfo = ValueAfter(args, "demoinfo");

@@ -16,11 +16,17 @@ namespace MphRead.Mods.Network
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown";
 
         internal static string Compute(Scene scene)
+            => Compute(scene, DemoPlayback.CurrentFrame);
+
+        // Clip-fidelity comparisons normalize a source frame range to clip frame 0.
+        // Expected-hash playback continues to call the overload above, so its schema
+        // and on-disk meaning are unchanged.
+        internal static string Compute(Scene scene, uint normalizedFrame)
         {
             using var stream = new MemoryStream(4096);
             using var writer = new BinaryWriter(stream);
             writer.Write(Schema);
-            writer.Write(DemoPlayback.CurrentFrame);
+            writer.Write(normalizedFrame);
             writer.Write((int)GameState.Mode);
             writer.Write((int)GameState.MatchState);
             writer.Write(GameState.MatchTime);
