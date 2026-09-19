@@ -875,6 +875,7 @@ namespace MphRead.Droid
 
         private MphRead.Mods.Launcher.Gui.EndPanelView? _endPanel;
         private Action? _endPanelTick;
+        private bool _endPanelWanted;
 
         /// <summary>
         /// Put the results panel up while the results are up, and take it down
@@ -904,6 +905,21 @@ namespace MphRead.Droid
                 return;
             }
             bool want = MphRead.Mods.EndScreen.Available && !_pauseMenuOpen;
+            // The panel going up and down mid-results is what "the 3D model
+            // appears and disappears" is: the HUD draws its own picker the
+            // moment PanelUp clears. Say which of Available's six clauses moved.
+            if (want != _endPanelWanted)
+            {
+                _endPanelWanted = want;
+                MphRead.Mods.DebugLog.Line("ui", $"end panel {(want ? "up" : "down")}"
+                    + $": state={MphRead.GameState.MatchState}"
+                    + $" main={MphRead.Entities.PlayerEntity.Main != null}"
+                    + $" mp={MphRead.GameState.Multiplayer}"
+                    + $" menupause={MphRead.GameState.MenuPause}"
+                    + $" spectating={MphRead.Mods.SpectatorMode.IsSpectating}"
+                    + $" freecam={MphRead.Mods.SpectatorMode.FreeCamera}"
+                    + $" pausemenu={_pauseMenuOpen}");
+            }
             if (want && _endPanel == null)
             {
                 AndroidUiSurface? surface = AndroidUiSurface.Ensure();

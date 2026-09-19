@@ -806,6 +806,10 @@ namespace MphRead.Droid
 
             private byte[] _uiPixels = Array.Empty<byte>();
             private int _uiVersion;
+            private int _uiDrawn;
+            private int _uiSkipped;
+            private int _uiHole;
+            private long _uiSaid;
 
             /// <summary>
             /// The launcher's own picture, over the finished frame -- which on
@@ -817,14 +821,48 @@ namespace MphRead.Droid
             /// pixels; an unchanged version means the texture already on the
             /// card is still the right one, which is most frames.
             /// </summary>
+            // Frames the panel was composited on against frames it was not,
+            // while the engine says it is up: the split "the model appears and
+            // disappears" is a report of.
+            private void SayUi()
+            {
+                if (!MphRead.Mods.EndScreen.PanelUp)
+                {
+                    return;
+                }
+                long now = Environment.TickCount64;
+                if (_uiSaid == 0)
+                {
+                    _uiSaid = now;
+                    return;
+                }
+                if (now - _uiSaid < 1000)
+                {
+                    return;
+                }
+                _uiSaid = now;
+                MphRead.Mods.DebugLog.Line("ui", $"end panel drawn {_uiDrawn}, "
+                    + $"skipped {_uiSkipped}, hole {_uiHole}");
+                _uiDrawn = 0;
+                _uiSkipped = 0;
+                _uiHole = 0;
+            }
+
             private void DrawUi()
             {
                 AndroidUiSurface? surface = AndroidUiSurface.Current;
+                SayUi();
                 if (surface == null || !surface.Visible)
                 {
+                    _uiSkipped++;
                     AndroidUiOverlay.Visible = false;
                     MphRead.Scene.LauncherPreview = false;
                     return;
+                }
+                _uiDrawn++;
+                if (MphRead.Mods.Render.HunterShot.HoleWanted)
+                {
+                    _uiHole++;
                 }
                 if (surface.TakeFrame(ref _uiPixels, ref _uiVersion, out int w, out int h))
                 {

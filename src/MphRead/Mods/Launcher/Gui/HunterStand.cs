@@ -461,8 +461,6 @@ namespace MphRead.Mods.Launcher.Gui
             Point origin = this.TranslatePoint(new Point(0, 0), top) ?? new Point(0, 0);
             Point far = this.TranslatePoint(new Point(Bounds.Width, Bounds.Height), top)
                 ?? origin;
-            origin = new Point(origin.X * scale, origin.Y * scale);
-            far = new Point(far.X * scale, far.Y * scale);
             if (width <= 0 || height <= 0 || far.X <= origin.X || far.Y <= origin.Y
                 || origin.X < 0 || origin.Y < 0 || far.X > width || far.Y > height)
             {
@@ -470,6 +468,9 @@ namespace MphRead.Mods.Launcher.Gui
                 // on, and what the engine paints into one is a black box over
                 // whatever is really there.
                 Mods.Render.HunterShot.HoleWanted = false;
+                Mods.DebugLog.Line("ui", $"hunter hole refused: "
+                    + $"({origin.X:0},{origin.Y:0})-({far.X:0},{far.Y:0}) "
+                    + $"in {width:0}x{height:0} at {scale:0.###}x");
                 return;
             }
             Mods.Render.HunterShot.HoleHunter = Enum.TryParse(_who, ignoreCase: true,

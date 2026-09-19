@@ -247,17 +247,20 @@ namespace MphRead.Droid
 
         public void TouchDown(double x, double y)
         {
-            _impl.MouseDown(new Point(x, y), MouseButton.Left, RawInputModifiers.LeftMouseButton);
+            _impl.TouchBegin(new Point(x, y), TouchId);
         }
 
         public void TouchMove(double x, double y)
         {
-            _impl.MouseMove(new Point(x, y), RawInputModifiers.LeftMouseButton);
+            _impl.TouchUpdate(new Point(x, y), TouchId);
         }
 
         public void TouchUp(double x, double y)
         {
-            _impl.MouseUp(new Point(x, y), MouseButton.Left, RawInputModifiers.None);
+            _impl.TouchEnd(new Point(x, y), TouchId);
         }
+
+        // One finger is all the overlay hands over, so one is all this needs.
+        private const long TouchId = 1;
     }
 }
