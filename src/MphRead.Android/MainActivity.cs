@@ -132,6 +132,7 @@ namespace MphRead.Droid
             RunOnUiThread(() => Window?.AddFlags(WindowManagerFlags.KeepScreenOn));
             return Task.Run(() =>
             {
+                var clock = System.Diagnostics.Stopwatch.StartNew();
                 try
                 {
                     ThumbnailGenerator.EnsureCacheDirectory();
@@ -147,8 +148,14 @@ namespace MphRead.Droid
                     }
                     if (left.Count > 0)
                     {
+                        // The workers were killed or would not start. One room
+                        // at a time from here, which is why it is worth saying
+                        // how many ended up on this path.
+                        Report($"[thumbnails] {left.Count} left to render here");
                         written += RenderHere(left, Report);
                     }
+                    Report($"[thumbnails] {written}/{rooms.Count} in "
+                        + $"{clock.Elapsed.TotalSeconds:0.0}s");
                     return written;
                 }
                 catch (Exception ex)
