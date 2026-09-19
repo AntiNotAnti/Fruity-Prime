@@ -203,6 +203,15 @@ namespace MphRead.Mods.Launcher.Gui
             // the column shrinks to carry them.
             yield return ("pausemenu-small", new PauseMenuView(offerWindowMode: true),
                 new Size(560, 320));
+            // The same menu where Android shows it: on the front screen's own
+            // stack rather than in the game window. It is the one screen that
+            // draws no ground of its own, so what is behind it is whatever the
+            // front screen left there -- which is how the main menu's
+            // photograph, its moving layer and its three faces ended up behind
+            // a pause menu on that head and on no other.
+            var paused = new StartScreen(settings, rooms);
+            paused.ShowPauseMenu(() => { }, () => { }, () => { });
+            yield return ("pausemenu-phone", paused, _phoneLandscape);
             yield return ("serverbrowser", ServerList(), _windowSize);
         }
 

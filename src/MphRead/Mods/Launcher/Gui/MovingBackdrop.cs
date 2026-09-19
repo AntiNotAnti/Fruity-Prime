@@ -79,6 +79,35 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         private static readonly List<MovingBackdrop> _live = new();
 
+        private static bool _suspended;
+
+        /// <summary>
+        /// Nothing steps while this is set, wherever it is in the tree.
+        ///
+        /// <see cref="OnDetachedFromVisualTree"/> is the whole cost control
+        /// only while the screens are a tree that comes and goes, and on
+        /// Android they are not: the front screen is the activity's one view
+        /// and a match merely hides the Android view it sits in, which is not
+        /// a detach and not anything Avalonia hears about. So the field went
+        /// on being filled and blended thirty times a second, on the UI thread
+        /// of the process the match is running in, for the whole match -- and
+        /// again alongside a preview run, which wants every core the device
+        /// has. Set while the launcher is off the glass or the device is busy.
+        /// </summary>
+        public static bool Suspended
+        {
+            get => _suspended;
+            set
+            {
+                if (_suspended == value)
+                {
+                    return;
+                }
+                _suspended = value;
+                Arbitrate();
+            }
+        }
+
         public MovingBackdrop()
         {
             // It is the ground, not a control: a press on the backdrop is a
@@ -121,7 +150,7 @@ namespace MphRead.Mods.Launcher.Gui
             for (int i = 0; i < _live.Count; i++)
             {
                 MovingBackdrop layer = _live[i];
-                if (i == _live.Count - 1 && !Deck.Still)
+                if (i == _live.Count - 1 && !Deck.Still && !_suspended)
                 {
                     layer._timer.Start();
                 }

@@ -47,10 +47,14 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly TextBlock _version;
         private readonly Border _versionBox;
         private readonly StackPanel _menu;
+        private readonly Panel _root;
+        private readonly Control[] _ground;
+        private readonly Border _dark;
 
         private bool _finished;
         private bool _updatable;
         private bool _updating;
+        private bool _groundShown = true;
 
         /// <summary>What the screen decided. Kind None means it was closed.</summary>
         public LaunchPlan Plan { get; private set; }
@@ -68,6 +72,13 @@ namespace MphRead.Mods.Launcher.Gui
             // one bitmap a frame instead of four full-window layers. See
             // BakedBackdrop.
             Panel root = UiLayout.Backdrop(wash: UiLayout.BackdropWash.Light);
+            _root = root;
+            // The photograph, the moving layer and the washes, kept so they
+            // can be taken out of the tree again. See ShowGround.
+            _ground = new Control[root.Children.Count];
+            root.Children.CopyTo(_ground, 0);
+            _dark = new Border { Background = GuiTheme.InkBrush, IsVisible = false };
+            root.Children.Insert(0, _dark);
 
             // Centred, like every screen behind it. The corner layout was this
             // screen's own and the rest of the program has been rebuilt around
@@ -424,6 +435,7 @@ namespace MphRead.Mods.Launcher.Gui
             {
                 Pop();
             }
+            ShowGround(true);
             // Android keeps one of these for the life of the app, so this is
             // where a launch begins there -- the roll behind "Random" is held
             // for exactly one launch.
@@ -453,6 +465,55 @@ namespace MphRead.Mods.Launcher.Gui
 
         // -------------------------------------------------------------- stack
 
+        /// <summary>
+        /// Take the front screen's own backdrop out of the tree, or put it
+        /// back.
+        ///
+        /// Every screen pushed onto the stack draws an opaque backdrop of its
+        /// own, so what is underneath has never mattered -- except for the one
+        /// screen that deliberately draws none. The pause menu is a scrim and
+        /// nothing else, so on the head that shows it here it was read against
+        /// the front screen's photograph and its moving layer: the main menu's
+        /// background, over a match, with the layer still costing a field and
+        /// a full-window blend thirty times a second behind a menu. The
+        /// desktop never showed it because there the same menu goes into the
+        /// game window through <see cref="InGameMenu"/>, where there is no
+        /// front screen to show through to.
+        ///
+        /// Removed rather than hidden: <see cref="MovingBackdrop"/> stops on
+        /// a detach and IsVisible is not one.
+        /// </summary>
+        private void ShowGround(bool show)
+        {
+            if (_groundShown == show)
+            {
+                return;
+            }
+            _groundShown = show;
+            _dark.IsVisible = !show;
+            // The foot goes with it. Push hides the wordmark and the version
+            // line and nothing else, because every other screen covers what is
+            // left; the profile, the three faces and the support mark were
+            // still on the glass behind a menu that covers nothing.
+            if (_foot != null)
+            {
+                _foot.IsVisible = show;
+            }
+            if (_heartCorner != null)
+            {
+                _heartCorner.IsVisible = show && _bar?.Orientation == Orientation.Vertical;
+            }
+            if (show)
+            {
+                _root.Children.InsertRange(1, _ground);
+                return;
+            }
+            for (int i = 0; i < _ground.Length; i++)
+            {
+                _root.Children.Remove(_ground[i]);
+            }
+        }
+
         private void Push(Control view)
         {
             _stack.Add(view);
@@ -481,6 +542,7 @@ namespace MphRead.Mods.Launcher.Gui
             _overlay.IsVisible = false;
             _menu.IsVisible = true;
             _versionBox.IsVisible = true;
+            ShowGround(true);
             RefreshVersionLine();
             Dispatcher.UIThread.Post(() => Focus(), DispatcherPriority.Background);
         }
@@ -576,6 +638,9 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         public void ShowPauseMenu(Action onResume, Action onLeave, Action onQuit)
         {
+            // Everything on this stack is read over the match: the menu, the
+            // settings it opens and the map vote all ask for the scrim alone.
+            ShowGround(false);
             var view = new PauseMenuView(offerWindowMode: false);
             view.Resumed += (_, _) => { Pop(); onResume(); };
             view.LeaveRequested += (_, _) => { Pop(); onLeave(); };
