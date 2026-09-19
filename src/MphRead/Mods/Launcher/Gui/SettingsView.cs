@@ -282,10 +282,10 @@ namespace MphRead.Mods.Launcher.Gui
                 {
                     _tabs.Index = i;
                     ShowPage(i);
-                    if (sub != 0 && _controlTabs != null
+                    if (_controlTabs != null
                         && String.Equals(name, "Controls", StringComparison.OrdinalIgnoreCase))
                     {
-                        _controlTabs.Index = sub;
+                        _controlTabs.Index = Math.Clamp(sub, 0, 2);
                     }
                     return;
                 }
