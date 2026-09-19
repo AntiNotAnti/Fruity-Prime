@@ -72,6 +72,8 @@ $BIN -masterserver -port "$MASTER_PORT" >"$WORK/master.log" 2>&1 &
 MASTER_PID=$!
 $BIN -server -port "$SERVER_PORT" -players 8 \
      -servername "CI smoke test" \
+     -serverreplays on -serverreplaystoragegb 7 \
+     -serverreplayretentiondays 3 -serverreplaykeeplast 9 \
      -master 127.0.0.1 -masterport "$MASTER_PORT" \
      -rotation "$(topath "$WORK/maprotation.txt")" >"$WORK/server.log" 2>&1 &
 SERVER_PID=$!
@@ -89,6 +91,9 @@ kill -0 "$MASTER_PID" 2>/dev/null || fail "the directory exited immediately"
 grep -q "listening on UDP $MASTER_PORT" "$WORK/master.log" || fail "the directory never bound its port"
 grep -q "listening on UDP $SERVER_PORT" "$WORK/server.log" \
   || fail "the server never reached its startup check"
+grep -q "canonical server recording enabled; storage 7 GB, retention 3 days, keep newest 9" "$WORK/server.log" \
+  && pass "server replay retention flags reached the recorder policy" \
+  || fail "server replay retention flags did not reach the recorder policy"
 grep -q "cannot run the match:" "$WORK/server.log" \
   && pass "the server explained that it cannot run without game files" \
   || fail "the server did not explain why it refused to start"
