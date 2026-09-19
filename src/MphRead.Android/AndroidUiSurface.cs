@@ -247,20 +247,25 @@ namespace MphRead.Droid
 
         public void TouchDown(double x, double y)
         {
-            _impl.TouchBegin(new Point(x, y), TouchId);
+            _touchId++;
+            _impl.TouchBegin(new Point(x, y), _touchId);
         }
 
         public void TouchMove(double x, double y)
         {
-            _impl.TouchUpdate(new Point(x, y), TouchId);
+            _impl.TouchUpdate(new Point(x, y), _touchId);
         }
 
         public void TouchUp(double x, double y)
         {
-            _impl.TouchEnd(new Point(x, y), TouchId);
+            _impl.TouchEnd(new Point(x, y), _touchId);
         }
 
-        // One finger is all the overlay hands over, so one is all this needs.
-        private const long TouchId = 1;
+        // A fresh id per contact, never reused. Avalonia keys a pointer --
+        // and the capture a control takes on it -- by this number, so a
+        // constant meant every tap inherited the capture the tap before it
+        // took: the press went to the tile last touched rather than the one
+        // under the finger, whatever the position said.
+        private long _touchId;
     }
 }

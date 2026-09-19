@@ -242,8 +242,10 @@ namespace MphRead.Mods.Launcher.Gui
                     var tile = new DeckTile(room, code)
                     {
                         Blurb = MapPick.NameOf(room),
-                        Verb = "Pick",
-                        ChosenVerb = "Picked",
+                        // No slab: the whole card is the button, and on a
+                        // ballot of 27 it was a third of every one of them.
+                        Verb = "",
+                        ChosenVerb = "",
                         Ratio = 16 / 9.0
                     };
                     tile.Click += (_, _) =>
@@ -267,10 +269,18 @@ namespace MphRead.Mods.Launcher.Gui
                     continue;
                 }
                 int votes = MapPick.VotesFor(tile.RoomKey);
-                tile.Tally = votes;
-                tile.Leader = best > 0 && votes == best;
+                bool leader = best > 0 && votes == best;
+                // Only when one of them moved. This runs ten times a second
+                // off TickEndPanel, and an invalidation here re-rasterises
+                // the whole window and re-uploads it: unconditionally, that
+                // was half the frame rate for as long as the panel was up.
+                if (tile.Tally != votes || tile.Leader != leader)
+                {
+                    tile.Tally = votes;
+                    tile.Leader = leader;
+                    tile.InvalidateVisual();
+                }
                 tile.Chosen = tile.RoomKey == MapPick.Picked;
-                tile.InvalidateVisual();
             }
 
             int wantHunter = HunterIndex();

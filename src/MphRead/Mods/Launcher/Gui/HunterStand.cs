@@ -417,6 +417,14 @@ namespace MphRead.Mods.Launcher.Gui
                 return;
             }
             Publish();
+            // Render draws nothing at all while the engine is painting this
+            // box, so asking for it again is a whole-window raster thirty
+            // times a second for an identical picture. The desktop pays it
+            // too: its own Render has the same early return.
+            if (Scene.PreviewDrawnLastFrame)
+            {
+                return;
+            }
 #else
             if (Mods.Render.HunterShot.InFrame)
             {
@@ -429,6 +437,14 @@ namespace MphRead.Mods.Launcher.Gui
             else
             {
                 AskForShot();
+            }
+            // Render draws nothing at all while the engine is painting this
+            // box, so asking for it again is a whole-window raster and a
+            // whole-window upload, thirty times a second, for an identical
+            // picture -- which is half the frame rate while the panel is up.
+            if (Mods.Render.HunterShot.InFrame && Scene.PreviewDrawnLastFrame)
+            {
+                return;
             }
 #endif
             InvalidateVisual();

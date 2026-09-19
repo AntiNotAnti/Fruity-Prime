@@ -234,6 +234,10 @@ namespace MphRead.Mods.Launcher.Gui
         /// </summary>
         public void Wear(Deck.Face face, bool selected)
         {
+            if (_face == face && _selected == selected)
+            {
+                return;
+            }
             _face = face;
             _selected = selected;
             InvalidateVisual();
