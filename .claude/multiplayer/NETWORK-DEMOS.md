@@ -26,18 +26,22 @@ rate/camera/player controls, event filter/navigation, clip In/Out, and export.
 Gamepad input uses the existing abstraction; Android uses the shared menu and
 its scene-reconstruction path. B/N save/preview camera keyframes. Up to 64
 frame-indexed keys persist in a checksummed `.fpdemo.camera` sidecar, atomically
-replaced and bound to the replay's size and modification time. Position/FOV
-interpolate linearly; orientation uses quaternion interpolation. Optional
-look-at targets follow a player while that player is spawned. Keys survive
-seek/restart. The shared desktop/Android menu can save, preview or remove a
-key at the current frame, and explicitly enable track playback.
+replaced and bound to the replay's size and modification time. Track v2 stores
+linear/smooth/Catmull-Rom spline interpolation, ease-in/ease-out/ease-in-out,
+roll, optional constant-speed arc-length remapping and look-at targets.
+Orientation uses quaternion interpolation. Presentation mode can collision-test
+the interpolated free-camera path before applying a key. Keys survive
+seek/restart and are drawn on the Replay Studio timeline. The shared
+desktop/Android menu can save, preview or remove a key at the current frame,
+adjust FOV/roll/interpolation/easing/look-at, and explicitly enable track
+playback.
 
 Faithful is the default camera profile; Presentation optionally smooths the
-chase camera and enables camera tracks. Neither profile changes packets,
-entity state, simulation timing or network smoothing. The optional director
-changes focus on kill/objective annotations only. Camera tracks are bounded
-presentation tools, without spline editing or collision avoidance along
-interpolated free-camera paths.
+chase camera and enables authored tracks. Neither profile changes packets,
+entity state, simulation timing or network smoothing. The director scores
+recent kills, objectives, damage exchanges, proximity, low-health pressure and
+late-match action, then applies a minimum shot hold and switch margin so focus
+does not thrash between players.
 
 The replay HUD shows time, duration, rate, watched player/camera, event marks,
 and stopped/error state; it dims after inactivity. Presentation is suppressed
@@ -49,8 +53,9 @@ and audio is muted/stopped during fast-forward seek batches.
 The uncompressed dispatch prefix remains `FPDM`, format byte, protocol byte.
 It is followed by length/CRC-protected metadata: tick rate, build identity,
 UTC date, full-match/clip type, room, mode, content hash, roster, and bootstrap.
-Bootstrap packets reuse SessionState, MatchState, Roster and Snapshot structs.
-The initial scene therefore needs no forward packet search or reopen/rewind.
+Bootstrap packets reuse the current MatchState, Roster and Snapshot wire
+structs. The initial scene therefore needs no lobby-only protocol dependency,
+forward packet search or reopen/rewind.
 V2 retains its old bounded match/roster search and duration scan/cache.
 
 Packet chunks normally cover 120 simulation frames and are independently
@@ -103,16 +108,29 @@ point. It never re-records engine output.
 
 The Replays library displays v3 metadata and offers watch, display rename,
 favorite, delete, export, folder reveal on desktop, and `.part` recovery.
-Display names/favorites are sidecars. Imported files stay in place. Desktop
-export uses the app's exports folder rather than the headless Avalonia native
-storage provider; Android uses its platform document provider.
+A persistent size/mtime-keyed index avoids reopening every replay header on
+each library rebuild. Up to three gameplay stills are captured opportunistically
+while a replay is watched/exported; the map thumbnail is the immediate fallback.
+Display names/favorites are sidecars. Imported files stay in place.
+
+`.fpclip` virtual clips store only source replay + frame range + display name.
+They share packet data with the source until watch/export needs a materialized
+`.fpdemo`, which is cached separately. Automatic highlights can create these
+non-destructive clips in one action. The replay settings page exposes a storage
+limit and pruning policy; favorites are always protected and materialized clips
+are protected unless the user explicitly allows clip pruning.
 
 ## Reset, seek and verification
 
-Seeking destroys/reconstructs the scene, restores bootstrap, and runs every
-packet/simulation frame from zero to the requested frame in bounded batches.
-It never jumps a reader offset into a live world. Replay session startup resets
-both RNG streams and the otherwise process-global item rotation seed. Playback
+Forward seeking advances from the exact world already in memory instead of
+throwing that state away. Backward seeking first tries an in-memory checkpoint
+captured every ten seconds. A checkpoint records value-type/array engine state,
+RNG state and exact entity membership; v3 packet playback then repositions
+through the footer chunk index. The restored gameplay hash is checked
+immediately and on subsequent frames against the original linear pass. Any
+mismatch permanently rejects that checkpoint for the session and falls back to
+the proven frame-zero reconstruction path. Replay session startup resets both
+RNG streams and the otherwise process-global item rotation seed. Playback
 uses a socket-free transport; connection-control packets cannot assign a local
 slot, promote authority, or terminate the spectator session. Normal recorded
 bursts are retained; pathological single-frame queues fail explicitly at 65,536
@@ -155,24 +173,38 @@ recovered files intentionally require their own reference pass.
 Desktop and dedicated-server builds were clean. Android builds passed with
 existing binding/XML warnings; device interaction remains unverified.
 
-## Remaining roadmap work
+## Replay Studio additions and remaining validation
 
-This is not the complete P0-P3 roadmap. In particular:
+This branch adds the editor/presentation layer on top of packet-faithful replay:
 
-- Full-world checkpoint DTO capture/restore and checkpoint-assisted indexed seeks
-  are absent. Current seeking replays from frame zero and can be slow on long matches.
-- Reference hashes require the offline verification command; live recording does
-  not run a second engine alongside gameplay. The explicit gameplay hash is not
-  a complete serialization of all hidden simulation state.
+- Dedicated servers that simulate the match create canonical recordings from
+  accepted slot intents plus their own authoritative snapshots, roster and
+  match-state stream. Recording failure is isolated from the match and rotation
+  closes the prior map's replay.
+- Replay Studio provides a zoomable draggable timeline, event/highlight markers,
+  clip In/Out, automatic highlights, per-player analytics, replay/network debug
+  overlays, cinematic camera authoring and Replay Lab's "Take Control" branch
+  handoff.
+- Video export walks deterministic replay simulation frames and writes clean
+  scene-target PNGs or HUD-inclusive window captures. It supports 720p/1080p/
+  1440p/4K output jobs and 30/60/120 fps encoding; when `ffmpeg` is available
+  it starts H.264 MP4 encoding, otherwise it preserves the image sequence and
+  exact `encode.txt` command.
+
+Important limits remain deliberate:
+
+- Checkpoints are an optimization, not a new replay truth source. They are
+  in-memory, conservative, and may reject themselves when hidden networking or
+  entity state cannot be reproduced exactly. The fallback remains deterministic
+  frame-zero reconstruction.
+- The explicit gameplay hash is not a complete serialization of every hidden
+  engine field. Reference hashes still require the offline verifier.
 - Packet bootstraps capture packet-visible match/player state, not every live
-  projectile, pickup, flag or other world-entity timer at a mid-match clip start.
-  The broad mode/map/network-loss/8-player matrix and clip-versus-source world
-  equivalence still need validation before declaring checkpoint/clip fidelity complete.
-- Camera tracks provide bounded persistent keys and frame interpolation, without
-  spline editing or interpolated-path collision avoidance. Faithful/Presentation
-  profiles affect cameras only. The director follows annotated events; it does
-  not implement the proposed proximity/damage/lead-change scoring model.
-- Server-side canonical replay capture is absent. Client recordings remain the source.
+  projectile/pickup/entity timer at an arbitrary mid-match cut. Broad
+  mode/map/network-loss/8-player and clip-versus-source equivalence testing is
+  still valuable before treating every custom-map edge case as proven.
+- The MP4 exporter currently captures video frames only; it does not mux a
+  deterministic game-audio track.
 
 ## V2 implementation history
 

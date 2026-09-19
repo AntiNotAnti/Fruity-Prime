@@ -23,7 +23,7 @@ namespace MphRead.Mods.Launcher.Gui
     /// the same strip of names across the top, the same two marks in the
     /// bottom corners.
     ///
-    /// Five pages: Display, Audio, Controls, Profile, Credits. There is no
+    /// Six pages: Display, Audio, Controls, Replays, Profile, Credits. There is no
     /// "Match rules" page -- point goal, time limit, damage, team play,
     /// friendly fire, hunter radar, affinity weapons and shadow freeze are
     /// not exposed here at all any more, and stay at whatever
