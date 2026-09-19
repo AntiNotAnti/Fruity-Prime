@@ -309,10 +309,15 @@ namespace MphRead.NetTest
 
         private static byte[] Packet(uint frame, PlayerState state, ushort match = 51, ulong epoch = 4)
         {
-            byte[] bytes = new byte[1 + SnapshotHeader.Size + PlayerState.Size];
+            const int timeSyncSize = PlayerEntity.SlotCapacity * sizeof(float) * 2;
+            int payloadSize = SnapshotHeader.Size + PlayerState.Size + timeSyncSize + NetHealthSync.HeaderSize;
+            byte[] bytes = new byte[1 + payloadSize];
             bytes[0] = (byte)PacketType.Snapshot;
-            new SnapshotHeader { MatchId = match, AuthorityEpoch = epoch, Frame = frame, PlayerCount = 1 }.Write(bytes.AsSpan(1));
+            new SnapshotHeader { MatchId = match, AuthorityEpoch = epoch, Frame = frame, PlayerCount = 1 }
+                .Write(bytes.AsSpan(1));
             state.Write(bytes.AsSpan(1 + SnapshotHeader.Size));
+            int healthOffset = 1 + SnapshotHeader.Size + PlayerState.Size + timeSyncSize;
+            BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(healthOffset), match);
             return bytes;
         }
         private static void Deliver(byte[] bytes)
