@@ -12,7 +12,6 @@ namespace MphRead.Entities
     {
         private readonly AimAssistState _controllerAssist = new();
         private long _assistDeviceRevision = -1, _assistContextRevision = -1;
-        private ushort _assistLife;
         private long _aimSourceRevision = -1;
         private object? _assistRoom;
 
@@ -39,10 +38,8 @@ namespace MphRead.Entities
         {
             var snapshot = GamepadInput.FrameSnapshot;
             long context = GamepadContexts.Revision;
-            ushort life = NetPlayerLifecycle.Get(SlotIndex);
-            if (_assistDeviceRevision != snapshot.Revision || _assistContextRevision != context || _assistLife != life
-                || _aimSourceRevision != AimInputSourceTracker.Revision || !ReferenceEquals(_assistRoom, _scene.Room))
-            { _controllerAssist.Reset(); _assistDeviceRevision = snapshot.Revision; _assistContextRevision = context; _assistLife = life; }
+            if (_assistDeviceRevision != snapshot.Revision || _assistContextRevision != context                || _aimSourceRevision != AimInputSourceTracker.Revision || !ReferenceEquals(_assistRoom, _scene.Room))
+            { _controllerAssist.Reset(); _assistDeviceRevision = snapshot.Revision; _assistContextRevision = context; }
             _aimSourceRevision = AimInputSourceTracker.Revision; _assistRoom = _scene.Room;
             AimInputSourceTracker.Pointer(Input.MouseDeltaX, Input.MouseDeltaY,
                 PointerDevice.Active && PointerDevice.Current.Device != PointerDeviceType.Mouse, Environment.TickCount64);
@@ -82,7 +79,7 @@ namespace MphRead.Entities
                 if (!visible) continue;
                 var headError = AssistAngles(head);
                 bool headVisible = !target.IsAltForm && profile.Head && headError.Length() < 1.5f && AssistVisible(head);
-                long targetLife = ((long)NetPlayerLifecycle.Generation(target.SlotIndex) << 16) | NetPlayerLifecycle.Get(target.SlotIndex);
+                long targetLife = 0;
                 candidates[count++] = new(target.SlotIndex, targetLife, bodyError, headError, distance, visible, headVisible,
                     BodyPointType: target.IsAltForm ? AimAssistPointType.CenterMass : AimAssistPointType.UpperChest);
                 if (count == candidates.Length) break;

@@ -18,7 +18,7 @@ namespace MphRead.Mods.Input
         {
             if (NextPlayer) SpectatorMode.CycleNext();
             if (PreviousPlayer) SpectatorMode.CyclePrevious();
-            if (ToggleView) { if (replay) Replay.ReplayCamera.ToggleFree(); else SpectatorMode.ToggleView(); }
+            if (ToggleView) SpectatorMode.ToggleView();
         }
     }
 }

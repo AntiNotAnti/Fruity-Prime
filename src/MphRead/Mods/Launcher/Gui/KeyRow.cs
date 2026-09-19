@@ -349,7 +349,6 @@ namespace MphRead.Mods.Launcher.Gui
 
         public override void Render(DrawingContext context)
         {
-            using var opacity = context.PushOpacity(IsEffectivelyEnabled ? 1 : UiMetrics.DisabledOpacity);
             // A row on a sub-page that is not showing is attached to the tree
             // and rendered once all the same, and a control that has never
             // been arranged has zero Bounds -- which makes Box four points
@@ -389,7 +388,6 @@ namespace MphRead.Mods.Launcher.Gui
             value.Trimming = TextTrimming.CharacterEllipsis;
             context.DrawText(value, new Point(box.X + (box.Width - value.Width) / 2,
                 box.Y + (box.Height - value.Height) / 2));
-            UiMetrics.DrawFocus(context, this);
         }
     }
 }

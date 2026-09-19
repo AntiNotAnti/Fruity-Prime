@@ -82,7 +82,7 @@ namespace MphRead.Mods.Launcher.Gui
             _target.DetachedFromVisualTree -= TargetDetached;
             if (accept) _target.SetCurrentValue(TextBox.TextProperty, _text);
             _popup.Close(); _popup.Child = null; _parent?.Children.Remove(_popup);
-            if (_target.GetVisualRoot() != null) _target.Focus();
+            if (TopLevel.GetTopLevel(_target) != null) _target.Focus();
             _closed();
         }
     }

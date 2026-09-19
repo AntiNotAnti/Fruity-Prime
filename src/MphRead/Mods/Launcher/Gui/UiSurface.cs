@@ -104,7 +104,7 @@ namespace MphRead.Mods.Launcher.Gui
 
         private UiSurface()
         {
-            _gamepad.Changed += Invalidate;
+            _gamepad.Changed += () => Invalidate();
             // Stretched, and the screen inside it is given no size of its own.
             // LayoutTransformControl measures its child through the inverse of
             // its own transform, so a host that fills the window measures the
