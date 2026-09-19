@@ -11,6 +11,14 @@ namespace MphRead.Mods.Input
             float angle = MathF.Atan2(x, y);
             return Math.Clamp((int)(angle / (MathF.PI / 12)), 0, 5);
         }
+        public static int ControllerSlot(float x, float y)
+        {
+            float threshold = GamepadOptions.WheelThreshold;
+            if (x * x + y * y < threshold * threshold) return -1;
+            float angle = MathF.Atan2(x, y);
+            if (angle < 0) angle += 2 * MathF.PI;
+            return GamepadOptions.WheelOrder[Math.Clamp((int)(angle / (MathF.PI / 3)), 0, 5)];
+        }
         public static (float X, float Y) FromStick(float x, float y)
         {
             if (x * x + y * y < .20f) return (0, 0);

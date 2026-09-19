@@ -28,6 +28,13 @@ namespace MphRead.Mods.Input
         public readonly int ButtonLeftThumb;
         public readonly int ButtonRightThumb;
 
+        internal GamepadCapabilities Capabilities(int axes)
+        {
+            bool Has(int axis) => axis >= 0 && axis < axes;
+            return (Has(AxisLeftX) && Has(AxisLeftY) ? GamepadCapabilities.AnalogLeftStick : 0)
+                | (Has(AxisRightX) && Has(AxisRightY) ? GamepadCapabilities.AnalogRightStick : 0)
+                | (Has(AxisLeftTrigger) && Has(AxisRightTrigger) ? GamepadCapabilities.AnalogTriggers : 0);
+        }
         private GamepadLayout(int axisLeftX, int axisLeftY, int axisRightX, int axisRightY,
             int axisLeftTrigger, int axisRightTrigger, int buttonA, int buttonB, int buttonX,
             int buttonY, int buttonLeftBumper, int buttonRightBumper, int buttonLeftTrigger,

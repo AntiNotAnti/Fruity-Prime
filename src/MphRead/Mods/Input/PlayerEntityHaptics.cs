@@ -6,14 +6,16 @@ namespace MphRead.Entities
         private void ModControllerFeedback(GamepadFeedback feedback)
         {
             if (IsMainPlayer && !IsBot && !Mods.SpectatorMode.IsSpectating
+                && feedback is GamepadFeedback.Fire or GamepadFeedback.ChargedShot)
+                Mods.Input.AimAssist.AimAssistTelemetry.Shot(CurrentWeapon);
+            if (IsMainPlayer && !IsBot && !Mods.SpectatorMode.IsSpectating
                 && GamepadContexts.Current == GamepadContext.Gameplay)
                 GamepadHaptics.Play(feedback);
         }
         private int ModControllerWeaponSelection()
         {
             var stick = GamepadInput.AimStick;
-            var direction = WeaponSelectionDirection.FromStick(stick.X, stick.Y);
-            int slot = WeaponSelectionDirection.Resolve(direction.X, direction.Y);
+            int slot = WeaponSelectionDirection.ControllerSlot(stick.X, stick.Y);
             return ModResolveWeaponSlot(slot);
         }
         private int ModResolveWeaponSlot(int slot)

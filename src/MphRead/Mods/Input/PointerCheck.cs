@@ -231,12 +231,15 @@ namespace MphRead.Mods.Input
             PlayerEntity.ProcessInput(keyboard, mouse, false);
             Require(!controls.Shoot.IsDown && !controls.AltAttack.IsDown && !controls.Jump.IsDown,
                 "real input pass captures all LMB-bound actions");
-            GamepadInput.State = new GamepadState { Connected = true, Buttons = GamepadButtons.RightTrigger };
+            GamepadContexts.Current = GamepadContext.Gameplay;
+            GamepadManager.UpdateDevice("pointercheck", new GamepadState { Connected = true }, mapped: true);
+            GamepadInput.BeginFrame();
+            GamepadManager.UpdateDevice("pointercheck", new GamepadState { Connected = true, Buttons = GamepadButtons.RightTrigger }, mapped: true);
             PadBindings.Reset();
             GamepadInput.BeginFrame();
             GamepadInput.Apply(player);
             Require(controls.Shoot.IsDown && controls.AltAttack.IsDown, "real controller contribution survives stylus capture");
-            GamepadInput.State = default;
+            GamepadManager.RemoveDevice("pointercheck");
             GamepadInput.BeginFrame();
             foreach (StylusZone.Button button in StylusZone.Buttons)
             {

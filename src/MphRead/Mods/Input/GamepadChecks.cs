@@ -21,6 +21,23 @@ namespace MphRead.Mods.Input
             try
             {
                 GamepadPlatformChecks.Run();
+                string install = Path.Combine(Path.GetTempPath(), "mapping fixture", "Fruity Prime.app", "Contents", "MacOS");
+                string resources = Platform.AppPaths.GetResourceDirectory(install, macOS: true);
+                string settings = Path.Combine(Path.GetTempPath(), "mapping user settings");
+                string[] mappingPaths = GamepadMappings.Paths(resources, settings);
+                Check(mappingPaths.Length == 2
+                    && mappingPaths[0] == Path.Combine(Path.GetDirectoryName(install)!, "Resources", GamepadMappings.FileName)
+                    && mappingPaths[1] == Path.Combine(settings, GamepadMappings.FileName), "macOS mappings load resources then user overrides");
+                mappingPaths = GamepadMappings.Paths(Platform.AppPaths.GetResourceDirectory(install, macOS: false), install);
+                Check(mappingPaths.Length == 1 && mappingPaths[0] == Path.Combine(install, GamepadMappings.FileName),
+                    "portable mapping paths remain beside executable without duplicate loads");
+                mappingPaths = GamepadMappings.Paths(Platform.AppPaths.GetResourceDirectory(settings, macOS: true), install);
+                Check(mappingPaths.Length == 2 && mappingPaths[0] == Path.Combine(settings, GamepadMappings.FileName),
+                    "unbundled macOS mapping path remains portable");
+                GamepadPlatformChecks.Run();
+                GamepadEnhancementChecks.Run();
+                AimAssist.AimAssistChecks.Run();
+                ControllerRuntimeChecks.Run();
                 GamepadOptions.Reset();
                 var dead = GamepadAnalog.ApplyRadialDeadZone(.1f, .1f, .2f);
                 Check(dead == (0, 0), "radial inner deadzone");
