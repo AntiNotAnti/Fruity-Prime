@@ -232,9 +232,9 @@ namespace MphRead.Mods.Launcher.Gui
             var hints = new DispatcherTimer(TimeSpan.FromMilliseconds(250), DispatcherPriority.Background, (_, _) =>
             {
                 string prompt = Mods.Input.InputSourceTracker.Current == Mods.Input.InputSource.Gamepad
-                    ? $"{Mods.Input.GamepadGlyphs.Resolve(Mods.Input.GamepadButtons.A)} Select   "
-                        + $"{Mods.Input.GamepadGlyphs.Resolve(Mods.Input.GamepadButtons.B)} Back   "
-                        + $"{Mods.Input.GamepadGlyphs.Resolve(Mods.Input.GamepadButtons.LeftBumper)}/{Mods.Input.GamepadGlyphs.Resolve(Mods.Input.GamepadButtons.RightBumper)} Tabs"
+                    ? $"{Mods.Input.InputPrompt.For(Mods.Input.UiAction.Accept).Glyph} Select   "
+                        + $"{Mods.Input.InputPrompt.For(Mods.Input.UiAction.Back).Glyph} Back   "
+                        + $"{Mods.Input.InputPrompt.For(Mods.Input.UiAction.PreviousTab).Glyph}/{Mods.Input.InputPrompt.For(Mods.Input.UiAction.NextTab).Glyph} Tabs"
                     : "Enter Select   Esc Back";
                 if (prompt != _controllerPrompt) { help.Text = prompt; _controllerPrompt = prompt; }
             });
