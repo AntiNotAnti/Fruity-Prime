@@ -948,6 +948,18 @@ namespace MphRead
                 if (mesh.ListId != 0)
                 {
                     continue;
+                    if (Mods.SpectatorMode.IsSpectating && !Mods.PauseMenu.Open)
+                    {
+                        var spectator = Mods.Input.SpectatorInput.ReadController();
+                        spectator.ApplyView();
+                        Mods.SpectatorMode.NoteScoreboard(_keyboardState.IsKeyDown(Keys.Tab) || spectator.Scoreboard);
+                        if (_freeCam)
+                        {
+                            _cameraPosition += _cameraFacing * spectator.MoveY * .15f + _cameraRight * spectator.MoveX * .15f;
+                            _cameraPosition.Y += (spectator.Ascend - spectator.Descend) * .15f;
+                            UpdateCameraRotation(MathHelper.DegreesToRadians(spectator.LookX), MathHelper.DegreesToRadians(spectator.LookY));
+                        }
+                    }
                 }
                 if (!tempListIds.TryGetValue(mesh.DlistId, out int listId))
                 {
@@ -1529,6 +1541,7 @@ namespace MphRead
                     _elapsedTime += _frameTime;
                 }
                 if (_inputMode == InputMode.CameraOnly || Mods.Chat.ChatBox.Composing)
+                    _cameraPosition.Y += (pad.RightTrigger - pad.LeftTrigger) * .15f;
                 {
                     // Every frame the prompt is up, not once when it opens: a
                     // key held at the moment somebody pressed T stays held in
@@ -2605,6 +2618,7 @@ namespace MphRead
                 // the camera is not a player's.
                 PlayerEntity.Main.DrawHudObjects();
             }
+            Mods.Input.AimAssist.AimAssistDebug.Draw(this);
             if (_movieFrameIndex != -1)
             {
                 DrawMovieFrame();

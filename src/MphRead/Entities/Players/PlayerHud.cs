@@ -835,7 +835,7 @@ namespace MphRead.Entities
 
         private void UpdateHealthbars()
         {
-            if (_health < 25)
+            if (ModHudHealth < 25)
             {
                 if (!_healthbarChangedColor)
                 {
@@ -1906,17 +1906,19 @@ namespace MphRead.Entities
 
         private void DrawHealthbars()
         {
+            if (!ModHudHealthVisible) return;
+            int displayHealth = ModHudHealth;
             _healthbarMainMeter.TankAmount = Values.EnergyTank;
             _healthbarMainMeter.TankCount = _healthMax / Values.EnergyTank;
             DrawMeter(_hudObjects.HealthMainPosX + _objShiftX, _hudObjects.HealthMainPosY + _healthbarYOffset + _objShiftY,
-                Values.EnergyTank - 1, _health, _healthbarPalette, _healthbarMainMeter,
+                Values.EnergyTank - 1, displayHealth, _healthbarPalette, _healthbarMainMeter,
                 drawText: true, drawTanks: GameState.SinglePlayer, Features.HudOpacity);
             if (GameState.Multiplayer)
             {
                 int amount = 0;
-                if (_health >= Values.EnergyTank)
+                if (displayHealth >= Values.EnergyTank)
                 {
-                    amount = _health - Values.EnergyTank;
+                    amount = displayHealth - Values.EnergyTank;
                 }
                 _healthbarSubMeter.TankAmount = Values.EnergyTank;
                 _healthbarSubMeter.TankCount = _healthMax / Values.EnergyTank;
@@ -3080,6 +3082,7 @@ namespace MphRead.Entities
             int current = 0;
             string? text = null;
             int lowHealth = 0;
+            bool showHealth = true;
             if (target.Type == EntityType.EnemyInstance)
             {
                 var enemy = (EnemyInstanceEntity)target;
@@ -3120,7 +3123,8 @@ namespace MphRead.Entities
             {
                 var player = (PlayerEntity)target;
                 max = player.HealthMax;
-                current = player.Health;
+                current = ModOpponentHudHealth(player);
+                showHealth = Mods.Network.NetHudHealth.Visible(player.SlotIndex);
                 text = _hunterNames[(int)player.Hunter];
                 lowHealth = 25;
             }
@@ -3129,14 +3133,15 @@ namespace MphRead.Entities
                 var turret = (HalfturretEntity)target;
                 max = turret.Owner.HealthMax / 2;
                 current = turret.Health;
+                showHealth = Mods.Network.NetHudHealth.Visible(turret.Owner.SlotIndex);
                 text = _altAttackNames[(int)Hunter.Weavel];
                 lowHealth = 25;
             }
-            int palette = current > lowHealth ? 0 : 2;
+            int palette = !showHealth || current > lowHealth ? 0 : 2;
             _enemyHealthMeter.TankAmount = max;
             _enemyHealthMeter.TankCount = 0;
             _enemyHealthMeter.Length = HudElements.SubHealthbars[0].Length; // should not vary with hunter values
-            DrawMeter(_hudObjects.EnemyHealthPosX + _objShiftX, _hudObjects.EnemyHealthPosY + _objShiftY, max, current,
+            if (showHealth) DrawMeter(_hudObjects.EnemyHealthPosX + _objShiftX, _hudObjects.EnemyHealthPosY + _objShiftY, max, current,
                 palette, _enemyHealthMeter, drawText: false, drawTanks: false);
             int scanId = target.GetScanId();
             if (scanId != 0 && GameState.SinglePlayer && !GameState.StorySave.CheckLogbook(scanId))
@@ -3214,14 +3219,18 @@ namespace MphRead.Entities
             _scene.DrawHudObject(portrait, mode: 1);
             posX += 18;
             posY -= 26;
-            int remainingAmount = opponent.Health >= Values.EnergyTank ? opponent.Health - Values.EnergyTank : 0;
-            _enemyHealthMeter.TankAmount = Values.EnergyTank;
-            _enemyHealthMeter.TankCount = opponent.HealthMax / Values.EnergyTank;
-            _enemyHealthMeter.Length = 72;
-            DrawMeter(posX, posY, Values.EnergyTank - 1, opponent.Health, 0, _enemyHealthMeter,
-                drawText: false, drawTanks: false);
-            DrawMeter(posX, posY + 5, Values.EnergyTank - 1, remainingAmount, 0, _enemyHealthMeter,
-                drawText: false, drawTanks: false);
+            if (Mods.Network.NetHudHealth.Visible(opponent.SlotIndex))
+            {
+                int displayHealth = ModOpponentHudHealth(opponent);
+                int remainingAmount = displayHealth >= Values.EnergyTank ? displayHealth - Values.EnergyTank : 0;
+                _enemyHealthMeter.TankAmount = Values.EnergyTank;
+                _enemyHealthMeter.TankCount = opponent.HealthMax / Values.EnergyTank;
+                _enemyHealthMeter.Length = 72;
+                DrawMeter(posX, posY, Values.EnergyTank - 1, displayHealth, 0, _enemyHealthMeter,
+                    drawText: false, drawTanks: false);
+                DrawMeter(posX, posY + 5, Values.EnergyTank - 1, remainingAmount, 0, _enemyHealthMeter,
+                    drawText: false, drawTanks: false);
+            }
             string score = FormatModeScore(opponent.SlotIndex);
             DrawText2D(posX + 5, posY + 14, Align.Left, 0, score);
         }

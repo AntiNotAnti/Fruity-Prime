@@ -1704,6 +1704,9 @@ namespace MphRead.Entities
 
         public void TakeDamage(uint damage, DamageFlags flags, Vector3? direction, EntityBase? source)
         {
+            if (Mods.Network.NetLog.Enabled && source is BeamProjectileEntity collisionBeam)
+                Mods.Network.NetShotDiagnostics.Trace("collision", collisionBeam.ModLaunchKey, collisionBeam.Beam,
+                    $"victim={SlotIndex} damage={damage}");
             if (Mods.Network.NetDamage.Suppress(this, source, flags))
             {
                 return;
@@ -1872,7 +1875,7 @@ namespace MphRead.Entities
             // same shot can be paired however long the projectile was in the
             // air. Mods.Network.NetHitClaims.
             Mods.Network.NetDamage.Note(this, attacker, beam?.Beam ?? BeamType.None, flags, direction,
-                damage, bomb != null, beam?.ModLaunchFrame ?? 0);
+                damage, bomb != null, beam?.ModLaunchFrame ?? 0, beam?.ModLaunchKey);
             // The last point at which the damage is final and the death has
             // not been decided: a hit this machine's own player has landed is
             // marked here, and a predicted one on somebody else is clamped
@@ -1882,6 +1885,7 @@ namespace MphRead.Entities
             // Mods.Network.NetHitPrediction.
             Mods.Network.NetHitPrediction.NoteHit(this, attacker, flags, ref damage,
                 beam?.Beam ?? BeamType.None, beam?.ModLaunchFrame ?? 0, beam?.Age ?? 0);
+            if (attacker != this) Mods.Input.AimAssist.AimAssistTelemetry.Hit(attacker, beam?.Beam ?? BeamType.None, damage);
             bool dead = false;
             if (IsBot && GameState.SinglePlayer && AiData.Flags1 && _health <= AiData.HealthThreshold)
             {
