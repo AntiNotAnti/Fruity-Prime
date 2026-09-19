@@ -595,6 +595,36 @@ looked like the layer simply not existing:
   the first bitmap in `ArrangeOverride` — before the first render — is what
   makes it draw at all.
 
+And one about how many of them are running. **Leaving the tree is not the only
+way a backdrop stops being looked at.** Every screen builds its own, and
+`StartScreen.Push` does not detach the screen underneath — it covers it with an
+opaque photograph. So a player on Play or Settings, which are the two pages
+anybody scrolls, had *two* of these filling a noise field and blending a
+full-window layer thirty times a second, one of them behind the other.
+`MovingBackdrop` now keeps a list of the live ones and only the last to arrive
+steps; the rest hold the frame they had and pick the loop up when they are
+uncovered.
+
+## Animations step on the compositor's clock, not on the dispatcher
+
+`Deck.NextFrame` is what every self-driving animation in `Mods/Launcher/Gui`
+asks for its next step through — the button pop, the idle bob, the sheet's
+spring, a tile settling. On the desktop it goes to `UiSurface.RequestFrame`,
+which is the game's own frame. Here it was a bare
+`Dispatcher.UIThread.Post(step, DispatcherPriority.Render)`, and a dispatcher
+post is not a frame: it runs as soon as the queue reaches that priority, so a
+step that asks for the next one — and the idle bob asks for ever — goes round
+as fast as the dispatcher can turn, with the touch events a drag is made of
+queued behind it.
+
+It takes `TopLevel.RequestAnimationFrame` now. That is throttled on the
+compositor (`MediaContext.CommitCompositorsWithThrottling`), and its callbacks
+are drained from a queue that has already been swapped out — so re-asking from
+inside one lands on the frame *after*, which is what the `_framePending` flag
+on each control was trying to arrange by hand. It needs the asking control to
+find its top level, which is why the method takes one; the shell ignores it,
+having exactly one surface.
+
 ## Custom maps
 
 They reach the phone as **`.fpmap` bundles** and could not reach it any other
