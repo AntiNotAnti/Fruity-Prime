@@ -74,10 +74,37 @@ namespace MphRead.Mods.Network
         public static void Seek(uint frame, bool? resume = null)
         {
             if (!DemoPlayback.IsActive) return;
+            uint target = Math.Min(frame, DurationFrames);
             _resumeAfterSeek = resume ?? State == ReplayState.Playing;
-            _rebuild = Math.Min(frame, DurationFrames);
+            if (target == CurrentFrame)
+            {
+                _target = null;
+                _rebuild = null;
+                State = _resumeAfterSeek ? ReplayState.Playing : ReplayState.Paused;
+                NoteInput();
+                return;
+            }
+
+            if (target > CurrentFrame && State != ReplayState.Ended)
+            {
+                _target = target;
+                _rebuild = null;
+            }
+            else
+            {
+                _target = null;
+                _rebuild = target;
+            }
             State = ReplayState.Seeking;
             NoteInput();
+        }
+
+        internal static void RequestFullRebuild(uint frame, bool resume)
+        {
+            _target = null;
+            _rebuild = Math.Min(frame, DurationFrames);
+            _resumeAfterSeek = resume;
+            State = ReplayState.Seeking;
         }
         // Hosts must destroy and recreate the scene before completing this request.
         public static bool TakeRebuild(out uint frame, out bool resume)
@@ -90,9 +117,17 @@ namespace MphRead.Mods.Network
         }
         public static void ContinueSeek(uint frame, bool resume)
         {
-            _target = frame;
             _resumeAfterSeek = resume;
-            State = ReplayState.Seeking;
+            if (CurrentFrame >= frame)
+            {
+                _target = null;
+                State = resume ? ReplayState.Playing : ReplayState.Paused;
+            }
+            else
+            {
+                _target = frame;
+                State = ReplayState.Seeking;
+            }
         }
         internal static int FramesDue()
         {

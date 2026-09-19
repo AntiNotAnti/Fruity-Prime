@@ -11,7 +11,7 @@ namespace MphRead.Mods.Network
     // identities and reflection-discovered fields are intentionally not part of it.
     internal static class ReplayStateHash
     {
-        internal const ushort Schema = 1;
+        internal const ushort Schema = 2;
         internal static readonly string BuildId = typeof(ReplayStateHash).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown";
 
@@ -75,10 +75,22 @@ namespace MphRead.Mods.Network
         internal static Action<Scene>? ObserveFrame;
         private static int _nextHash;
         internal static void Reset() => _nextHash = 0;
+        internal static void SeekTo(uint frame)
+        {
+            _nextHash = 0;
+            ReplayMetadata? metadata = DemoPlayback.Metadata;
+            if (metadata == null) return;
+            while (_nextHash < metadata.ExpectedHashes.Count
+                && metadata.ExpectedHashes[_nextHash].Frame <= frame)
+            {
+                _nextHash++;
+            }
+        }
 
         internal static void AfterFrame(Scene scene)
         {
             ObserveFrame?.Invoke(scene);
+            Replay.ReplayCheckpointManager.AfterFrame(scene);
             ReplayMetadata? metadata = DemoPlayback.Metadata;
             if (metadata == null || metadata.HashSchema != ReplayStateHash.Schema
                 || metadata.HashBuildId != ReplayStateHash.BuildId || _nextHash >= metadata.ExpectedHashes.Count) return;

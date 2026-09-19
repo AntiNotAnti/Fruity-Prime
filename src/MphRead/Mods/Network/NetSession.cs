@@ -325,6 +325,12 @@ namespace MphRead.Mods.Network
         /// streams would otherwise refuse every rewound packet as stale,
         /// which is a worse version of the problem the rewind is fixing.
         /// </summary>
+        internal static void PreparePlaybackCheckpoint(uint netFrame)
+        {
+            RewindPlayback();
+            NetFrame = netFrame;
+        }
+
         public static void RewindPlayback()
         {
             ContinuousPhase.Reset();

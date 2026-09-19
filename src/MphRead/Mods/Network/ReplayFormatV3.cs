@@ -453,6 +453,37 @@ namespace MphRead.Mods.Network
             _hasFooter = true;
         }
 
+        public DemoRecord? SeekAfter(uint frame)
+        {
+            if (_metadataOnly) throw new InvalidOperationException("Metadata-only readers cannot seek packets.");
+
+            _chunk?.Dispose();
+            _chunk = null;
+            _remaining = 0;
+            _previous = 0;
+            _ended = false;
+            LastResult = ReplayOpenResult.Success;
+
+            int index = _index.FindIndex(entry => entry.LastFrame > frame);
+            if (index < 0)
+            {
+                _stream.Position = _dataEnd;
+                _chunkNumber = _index.Count;
+                _ended = true;
+                return null;
+            }
+
+            _stream.Position = _index[index].Offset;
+            _chunkNumber = index;
+            DemoRecord? record;
+            do
+            {
+                record = ReadNext();
+            }
+            while (record is DemoRecord value && value.Frame <= frame);
+            return record;
+        }
+
         public DemoRecord? ReadNext()
         {
             if (_metadataOnly) throw new InvalidOperationException("Metadata-only readers cannot read packets.");

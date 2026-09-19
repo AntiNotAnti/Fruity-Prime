@@ -7371,22 +7371,32 @@ namespace MphRead
             if (Mods.Network.DemoPlayback.IsActive
                 && Mods.Network.ReplayController.TakeRebuild(out uint target, out bool resume))
             {
-                string path = Mods.Network.DemoPlayback.CurrentPath!;
-                EndScene();
-                Mods.Network.DemoPlayback.Stop();
-                Mods.SpectatorMode.Reset();
-                var plan = new Mods.Launcher.LaunchPlan
+                if (Mods.Replay.ReplayCheckpointManager.TryRestore(
+                    Scene, target, resume, out uint checkpointFrame))
                 {
-                    Kind = Mods.Launcher.LaunchKind.Demo,
-                    DemoPath = path
-                };
-                if (!Mods.Launcher.MatchStart.Begin(this, new MenuSettings(), plan))
-                {
-                    EndOrClose();
-                    return;
+                    Console.WriteLine($"[replay] restored checkpoint {checkpointFrame} for seek to {target}");
+                    Mods.Network.ReplayController.ContinueSeek(target, resume);
+                    Mods.Render.FrameTiming.Reset();
                 }
-                Mods.Network.ReplayController.ContinueSeek(target, resume);
-                Mods.Render.FrameTiming.Reset();
+                else
+                {
+                    string path = Mods.Network.DemoPlayback.CurrentPath!;
+                    EndScene();
+                    Mods.Network.DemoPlayback.Stop();
+                    Mods.SpectatorMode.Reset();
+                    var plan = new Mods.Launcher.LaunchPlan
+                    {
+                        Kind = Mods.Launcher.LaunchKind.Demo,
+                        DemoPath = path
+                    };
+                    if (!Mods.Launcher.MatchStart.Begin(this, new MenuSettings(), plan))
+                    {
+                        EndOrClose();
+                        return;
+                    }
+                    Mods.Network.ReplayController.ContinueSeek(target, resume);
+                    Mods.Render.FrameTiming.Reset();
+                }
             }
             // The pause menu wants the pointer back, and so does the results
             // screen: its hunter picker is something you click, and a grabbed

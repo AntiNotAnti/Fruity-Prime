@@ -115,6 +115,7 @@ namespace MphRead.Mods.Network
             Entities.SpinningEntityBase.ResetReplayRotation();
             if (CurrentPath != path) { ReplayController.ClearSelection(); Replay.ReplayCamera.ClearBookmarks(); }
             CurrentPath = path;
+            Replay.ReplayCheckpointManager.NoteReplay(path);
             LastFrame = _reader.FormatVersion == 3 ? _reader.DurationFrames : DemoLibrary.Duration(path);
             NetSession.StartPlayback();
             IsActive = true;
@@ -222,6 +223,43 @@ namespace MphRead.Mods.Network
             _pending = _reader.ReadNext();
             NetSession.RewindPlayback();
             ReplayController.Begin();
+            return true;
+        }
+
+        /// <summary>
+        /// Reposition packet playback after an in-memory world checkpoint.
+        /// V3 lands directly on the indexed chunk; v2 falls back to a sequential scan.
+        /// No packets at or before the checkpoint are re-applied because the checkpoint
+        /// already contains their resulting world state.
+        /// </summary>
+        internal static bool Reposition(uint frame, uint netFrame)
+        {
+            if (!IsActive || CurrentPath == null) return false;
+            DemoReader? next = DemoReader.Open(CurrentPath, out ReplayOpenResult result);
+            if (next == null || next.ProtocolVersion != NetConfig.ProtocolVersion)
+            {
+                next?.Dispose();
+                LastResult = next == null ? result : ReplayOpenResult.ProtocolMismatch;
+                return false;
+            }
+
+            DemoRecord? pending = next.SeekAfter(frame);
+            if (pending == null && next.LastResult != ReplayOpenResult.Success && frame < LastFrame)
+            {
+                LastResult = next.LastResult;
+                next.Dispose();
+                return false;
+            }
+
+            _reader?.Dispose();
+            _reader = next;
+            _pending = pending;
+            _frame = frame;
+            _started = true;
+            LastResult = ReplayOpenResult.Success;
+            LastError = null;
+            NetSession.PreparePlaybackCheckpoint(netFrame);
+            ReplayVerification.SeekTo(frame);
             return true;
         }
 

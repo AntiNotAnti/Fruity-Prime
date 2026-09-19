@@ -241,6 +241,22 @@ namespace MphRead.Mods.Network
             else _deflate = new DeflateStream(stream, CompressionMode.Decompress, leaveOpen: true);
         }
 
+        /// <summary>
+        /// Position a freshly opened reader at the first packet after <paramref name="frame"/>.
+        /// V3 uses its footer chunk index; legacy v2 remains sequential.
+        /// </summary>
+        public DemoRecord? SeekAfter(uint frame)
+        {
+            if (_v3 != null) return _v3.SeekAfter(frame);
+            DemoRecord? record;
+            do
+            {
+                record = ReadNext();
+            }
+            while (record is DemoRecord value && value.Frame <= frame);
+            return record;
+        }
+
         /// <summary>The next record, or null at end of file.</summary>
         public DemoRecord? ReadNext()
         {

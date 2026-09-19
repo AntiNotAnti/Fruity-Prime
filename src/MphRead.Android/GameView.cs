@@ -783,15 +783,25 @@ namespace MphRead.Droid
                 Scene scene = Scene!;
                 if (Mods.Network.DemoPlayback.IsActive && Mods.Network.ReplayController.TakeRebuild(out uint target, out bool resume))
                 {
-                    scene.DoCleanup();
-                    scene.UnloadGl();
-                    Mods.Network.DemoPlayback.Stop();
-                    Mods.SpectatorMode.Reset();
-                    BuildScene();
-                    if (Scene == null || _ended) return false;
-                    scene = Scene;
-                    Mods.Network.ReplayController.ContinueSeek(target, resume);
-                    FrameTiming.Reset();
+                    if (Mods.Replay.ReplayCheckpointManager.TryRestore(
+                        scene, target, resume, out uint checkpointFrame))
+                    {
+                        Console.WriteLine($"[replay] restored checkpoint {checkpointFrame} for seek to {target}");
+                        Mods.Network.ReplayController.ContinueSeek(target, resume);
+                        FrameTiming.Reset();
+                    }
+                    else
+                    {
+                        scene.DoCleanup();
+                        scene.UnloadGl();
+                        Mods.Network.DemoPlayback.Stop();
+                        Mods.SpectatorMode.Reset();
+                        BuildScene();
+                        if (Scene == null || _ended) return false;
+                        scene = Scene;
+                        Mods.Network.ReplayController.ContinueSeek(target, resume);
+                        FrameTiming.Reset();
+                    }
                 }
                 double elapsed = WaitForTick();
                 GameState.ApplyPause();
