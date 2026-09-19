@@ -82,6 +82,13 @@ namespace MphRead.Mods.Network
         /// means it is firing into the wrong place.
         /// </summary>
         public static readonly int[] Fired = new int[Slots];
+
+        /// <summary>
+        /// This machine's own shots, split by whether it was moving. The
+        /// denominator for NetHitPrediction.UnpredictedMoving.
+        /// </summary>
+        public static long FiredMoving;
+        public static long FiredStill;
         public static readonly int[] PlayerChecks = new int[Slots];
         public static readonly int[] PlayerOverlaps = new int[Slots];
         public static readonly int[] PlayerAccepted = new int[Slots];
@@ -160,6 +167,53 @@ namespace MphRead.Mods.Network
                 return;
             }
             Fired[slot]++;
+            if (slot == NetHooks.LocalSlot)
+            {
+                if (shooter.Speed.LengthSquared > 0.0004f)
+                {
+                    FiredMoving++;
+                }
+                else
+                {
+                    FiredStill++;
+                }
+            }
+            if (NetLog.Enabled)
+            {
+                // A beam is born at the muzzle, and the muzzle is derived from
+                // CameraInfo rather than from Position -- so a respawn that
+                // leaves the camera behind fires from wherever the player used
+                // to be standing. Reported as "phantom shots from my position
+                // before I died". Three units is far more than the offset can
+                // legitimately be.
+                Vector3 muzzle = shooter.ModMuzzlePos;
+                float gap = (muzzle - shooter.Position).Length;
+                if (gap > 3f)
+                {
+                    NetLog.Event($"[muzzle] slot {slot} fired from "
+                        + $"({muzzle.X:F2},{muzzle.Y:F2},{muzzle.Z:F2}) while standing at "
+                        + $"({shooter.Position.X:F2},{shooter.Position.Y:F2},{shooter.Position.Z:F2})"
+                        + $" -- {gap:F1} units apart");
+                }
+                // And every shot in the first second of a life, with where it
+                // left from. A beam leaving the spot this player died on is the
+                // previous life still holding the trigger; one leaving the spawn
+                // point is the game working as designed.
+                uint spawned = NetPlayerBridge.SpawnFrame[slot];
+                if (spawned != 0 && NetSession.NetFrame - spawned < 60)
+                {
+                    NetLog.Event($"[spawnfire] slot {slot} fired "
+                        + $"{NetSession.NetFrame - spawned} frame(s) after spawning, from "
+                        + $"({shooter.Position.X:F2},{shooter.Position.Y:F2},"
+                        + $"{shooter.Position.Z:F2}) hp={shooter.Health}"
+                        // The direction is the last unmeasured quantity: a shot
+                        // that lands 23 units away seven frames after a spawn
+                        // is either aimed there or carrying the aim of the life
+                        // that just ended.
+                        + $" shot=({shotVec.X:F2},{shotVec.Y:F2},{shotVec.Z:F2})"
+                        + $" aim=({aimVec.X:F2},{aimVec.Y:F2},{aimVec.Z:F2})");
+                }
+            }
             if (shotVec.LengthSquared > 0.0001f && aimVec.LengthSquared > 0.0001f)
             {
                 float dot = Math.Clamp(Vector3.Dot(shotVec.Normalized(), aimVec.Normalized()), -1f, 1f);
@@ -263,6 +317,30 @@ namespace MphRead.Mods.Network
             _everSeen[slot] = false;
             Resolved[slot] = 0;
             Replayed[slot] = 0;
+        }
+
+        /// <summary>
+        /// A new life starts here: take the authority's counter as the baseline
+        /// instead of replaying the difference.
+        ///
+        /// A hit that landed in the last moments of the previous life reaches
+        /// this machine a round trip after the respawn has already been
+        /// applied, so the difference is non-zero while the health in the same
+        /// snapshot is the fresh 99. <see cref="Replay"/> then floors the
+        /// amount at one point -- and adds NoDmgInvuln, so spawn
+        /// invulnerability does not stop it. That is the single point of
+        /// damage a player takes a second after coming back, with nothing
+        /// having hit them. The counter is per slot and survives the death; a
+        /// life that is over owes the new one nothing.
+        /// </summary>
+        public static void NoteRespawn(int slot, byte sequence)
+        {
+            if (slot < 0 || slot >= Slots)
+            {
+                return;
+            }
+            _everSeen[slot] = true;
+            _lastSeen[slot] = sequence;
         }
 
         public static void Reset()
@@ -444,7 +522,18 @@ namespace MphRead.Mods.Network
                 // and the authority's silence cannot be read from outside.
                 NetLog.Event($"[resolve] slot {(attacker != null ? attacker.SlotIndex : -1)} "
                     + $"hit slot {slot} for {amount} with {beam} (launch {launchFrame}), "
-                    + $"health {victim.Health} -> {Math.Max(0, victim.Health - (int)amount)}");
+                    + $"health {victim.Health} -> {Math.Max(0, victim.Health - (int)amount)}"
+                    // Where both of them were standing when the authority
+                    // resolved it. A shooter that just respawned and is still
+                    // reported at the spot it died on is a stale intent
+                    // undoing the spawn, and nothing else in this log can tell
+                    // that from a legitimate hit.
+                    + (attacker != null
+                        ? $" | shooter ({attacker.Position.X:F2},{attacker.Position.Y:F2},"
+                            + $"{attacker.Position.Z:F2}) hp={attacker.Health}"
+                        : "")
+                    + $" | victim ({victim.Position.X:F2},{victim.Position.Y:F2},"
+                    + $"{victim.Position.Z:F2})");
             }
             // The world-frame this hit was aimed at, for the kill
             // arbitration: two players who killed each other are separated by
