@@ -426,9 +426,9 @@ namespace MphRead.NetTest
             var player = Player(1, 0); // already down: count events without rendering feedback
             NetDamage.BeginLife(1, state);
             state.DamageEventId = 3;
-            state.Damage1 = new DamageEvent { EventId = 1, VictimLifeId = 7, VictimSlot = 1 };
-            state.Damage2 = new DamageEvent { EventId = 2, VictimLifeId = 7, VictimSlot = 1 };
-            state.Damage3 = new DamageEvent { EventId = 3, VictimLifeId = 7, VictimSlot = 1 };
+            state.Damage1 = new DamageEvent { EventId = 1 };
+            state.Damage2 = new DamageEvent { EventId = 2 };
+            state.Damage3 = new DamageEvent { EventId = 3 };
             NetDamage.Replay(player, state);
             NetDamage.Replay(player, state);
             Check(NetDamage.Replayed[1] == 3, "three hits replay exactly once despite duplicate snapshot");
