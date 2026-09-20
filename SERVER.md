@@ -4,8 +4,9 @@ You do not need any of this to play online. **Host → Where: Online** in the la
 machine to run the match and joins you to it, with nothing to open on your router. This page is for
 running a machine of your own that is always up.
 
-A server **runs the match itself**, so it needs the game files. It keeps nothing
-else on disk, and a Raspberry Pi is still enough.
+A server **runs the match itself**, so it needs the game files. It also records
+canonical match replays by default, with bounded retention, and a Raspberry Pi
+is still enough.
 
 ```bash
 # Linux
@@ -55,6 +56,50 @@ existing systemd unit or launch script keeps working unchanged.
 | `-friendlyfire` | team damage on |
 | `-nomaster` | stay off every server list |
 | `-master HOST` `-masterport N` | use a server list other than `net.livetek.fr:27889` |
+| `-serverreplays on\|off` | canonical authoritative replay recording. Default on |
+| `-noserverreplays` | shorthand to disable canonical server replay recording |
+| `-serverreplaystoragegb N` | replay storage soft cap in GiB. Default 25; 0 = unlimited |
+| `-serverreplayretentiondays N` | delete eligible recordings older than N days. Default 14; 0 = forever |
+| `-serverreplaykeeplast N` | always protect the newest N finalized recordings. Default 100 |
+
+## Canonical server replays
+
+A standalone authoritative server records the stream it treats as canonical:
+accepted player intents, its authoritative snapshots, roster/match state and
+replay events. Recording starts when a player is present and the server produces
+its first authoritative snapshot. Map rotation finalizes the previous replay.
+
+The default policy is:
+
+```
+server replays:   on
+storage cap:      25 GiB
+retention:        14 days
+keep newest:      100
+```
+
+Cleanup runs at server startup and after each finalized match. The newest
+`-serverreplaykeeplast` files and any replay with a `.favorite` sidecar are
+protected first. Age pruning runs next, then the storage cap removes the oldest
+remaining eligible files. If protected files alone exceed the cap, they are
+kept and the server logs the remaining overage.
+
+Canonical files live under the server export tree in `_demos/server/`; the
+server logs the exact replay path when recording starts. Interrupted `.part`
+files are not automatically deleted by retention.
+
+The compact flags above also accept the configuration-style aliases
+`-server_replays`, `-server_replay_storage_gb`,
+`-server_replay_retention_days`, and `-server_replay_keep_last`.
+
+Example for a smaller public server:
+
+```bash
+./FruityPrime -server -players 8 \
+  -serverreplaystoragegb 10 \
+  -serverreplayretentiondays 7 \
+  -serverreplaykeeplast 50
+```
 
 ## Ports
 

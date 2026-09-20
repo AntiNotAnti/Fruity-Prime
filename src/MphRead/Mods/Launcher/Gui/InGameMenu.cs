@@ -101,6 +101,7 @@ namespace MphRead.Mods.Launcher.Gui
                 Pop();
             };
             view.SettingsRequested += (_, _) => OpenSettings();
+            view.ReplayControlsRequested += (_, _) => OpenReplayControls();
             view.VoteMapRequested += (_, _) => OpenVote();
             view.SpectateRequested += (_, _) => { SpectatorMode.Start(); Pop(); };
             view.RejoinRequested += (_, _) => { SpectatorMode.Rejoin(); Pop(); };
@@ -121,6 +122,18 @@ namespace MphRead.Mods.Launcher.Gui
             view.QuitRequested += (_, _) => { PauseMenu.RequestQuit(); Pop(); };
             Push(view);
             view.FocusResume();
+        }
+
+        private void OpenReplayControls()
+        {
+            var view = new ReplayControlsView();
+            view.Closed += (_, _) => Pop();
+            view.ResumeRequested += (_, _) =>
+            {
+                Pop(); // replay controls
+                Pop(); // pause menu
+            };
+            Push(view);
         }
 
         private void OpenSettings()
