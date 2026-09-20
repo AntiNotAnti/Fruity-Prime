@@ -141,7 +141,9 @@ namespace MphRead.Entities
             // is room for. "Most wins" is worth the words: without it a list
             // reads as "click a map and it happens", which is what it does
             // with nobody else in the room and not what it does with seven.
-            string title = MapPick.Eligible > 1 ? "VOTE NEXT MAP  MOST WINS" : "VOTE NEXT MAP";
+            string title = MapPick.HasReturnToLobbyOption
+                ? (MapPick.Eligible > 1 ? "CHOOSE NEXT  MOST WINS" : "CHOOSE NEXT")
+                : (MapPick.Eligible > 1 ? "VOTE NEXT MAP  MOST WINS" : "VOTE NEXT MAP");
             if (Mods.Input.InputSourceTracker.Current == Mods.Input.InputSource.Gamepad)
                 title = Mods.Input.GamepadGlyphs.Resolve(Mods.Input.GamepadButtons.RightBumper).ToUpperInvariant() + " VOTE  UP/DOWN SELECT";
             DrawText2D(centre, top + 1.5f * scale, Align.Center, palette: 0, title,
@@ -225,7 +227,9 @@ namespace MphRead.Entities
             // empty slot with an outline reads as "no picture" rather than as
             // a hole in the panel.
             _scene.DrawHudFlatBox(thumbLeft, top, thumbRight, bottom, _pickWell);
-            int texture = MphRead.Mods.Render.MapThumbnail.For(key, _scene);
+            int texture = MapPick.IsReturnToLobby(key)
+                ? 0
+                : MphRead.Mods.Render.MapThumbnail.For(key, _scene);
             if (texture > 0)
             {
                 _scene.DrawHudTexture(thumbLeft, top, thumbRight, bottom, texture);
@@ -254,7 +258,9 @@ namespace MphRead.Entities
                 string tally = MapPick.Eligible > 1 ? $"{votes} OF {MapPick.Eligible}"
                     : votes == 1 ? "1 VOTE" : $"{votes} VOTES";
                 DrawText2D(textLeft, top + 7 * scale, Align.Left, palette: 0,
-                    leading ? $"{tally}  NEXT" : tally,
+                    leading
+                        ? MapPick.IsReturnToLobby(key) ? $"{tally}  LOBBY" : $"{tally}  NEXT"
+                        : tally,
                     color: leading ? _pickCarried : _pickTally,
                     fontSpacing: 8, scale: 0.36f * scale);
             }

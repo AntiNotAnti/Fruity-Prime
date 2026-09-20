@@ -20,6 +20,10 @@ namespace MphRead.Mods.Network
         public bool LockTeams { get; private set; }
         private ushort _sessionRevision = 1;
         private uint _lobbyOwnerClientId;
+        // Only a lobby owner authenticated with the launcher-generated owner token
+        // may terminate the server process itself. An ordinary first-player owner on
+        // a persistent dedicated server may close/reset the current lobby, not the daemon.
+        private uint _processOwnerClientId;
         private byte _expectedLoadedSlots, _loadedSlots;
         private double _startDeadline;
 
@@ -100,6 +104,8 @@ namespace MphRead.Mods.Network
                 && new Guid(hello.Slice(6, 16)) == OwnerToken;
             if (OwnerToken != Guid.Empty && !tokenMatches) return;
             _lobbyOwnerClientId = peer.ClientId;
+            if (tokenMatches)
+                _processOwnerClientId = peer.ClientId;
             OwnerToken = Guid.Empty;
             TouchLobbyRevision($"owner = slot {peer.SlotIndex}");
         }
@@ -122,6 +128,13 @@ namespace MphRead.Mods.Network
             }
             result.Write(_scratch);
             _transport?.Send(peer.EndPoint, PacketType.LobbyCommandResult, _scratch.AsSpan(0, LobbyCommandResultPacket.Size));
+            if (result.ResultCode == LobbyResultCode.Ok && command.Type == LobbyCommandType.CloseLobby)
+            {
+                // Acknowledge first. Otherwise the owner sees a disconnect and cannot
+                // distinguish a successful close from the server simply disappearing.
+                CloseLobbySession(peer);
+                return;
+            }
             // Also repairs a lost state/roster even if the original command succeeded.
             BroadcastSessionState();
             BroadcastRoster();
@@ -176,34 +189,12 @@ namespace MphRead.Mods.Network
                 case LobbyCommandType.StartMatch:
                     var start = LobbyRules.Validate(_lobbyMatch, BuildRoster(), RequireReady, out reason);
                     if (start != LobbyResultCode.Ok) return start;
-                    _frozenMatch = _lobbyMatch;
-                    _frozenWorldProfile = LobbyRules.ResolveWorldProfile(_frozenMatch, _maxPlayers);
-                    // Build before publishing Starting. A failure must not strand clients in loading.
-                    double buildStarted = NetSession.Clock;
-                    ushort previousMatch = _matchId;
-                    _matchId = NetLifecycleTracker.Next(_matchId);
-                    try { StartSimulation(); }
-                    catch (Exception ex)
-                    {
-                        _matchId = previousMatch;
-                        _sim?.Stop(); _sim = null;
-                        Log($"[lobby] map load failed: {ex.Message}");
-                        reason = "The server could not load this map.";
+                    if (!BeginLobbyMatch(_lobbyMatch, now, out reason))
                         return LobbyResultCode.MapUnavailable;
-                    }
-                    _snapshotSeen = false;
-                    Array.Clear(_slotLives);
-                    foreach (Peer connected in _peers) connected.LastIntentFrame = 0;
-                    _matchEndedAt = -1;
-                    _lastSnapshot = null;
-                    _expectedLoadedSlots = 0; _loadedSlots = 0;
-                    foreach (Peer participant in _peers)
-                    { _expectedLoadedSlots |= (byte)(1 << participant.SlotIndex); participant.PostMatchReady = false; }
-                    _startDeadline = _now + (NetSession.Clock - buildStarted) + 15;
-                    SetPhase(SessionPhase.Starting);
-                    SyncSimulationState(_now);
-                    Log($"[lobby] waiting for slots mask {_expectedLoadedSlots:X2}");
-                    return LobbyResultCode.Ok;
+                    break;
+                case LobbyCommandType.CloseLobby:
+                    // The actual close runs after the command result is sent.
+                    break;
                 case LobbyCommandType.KickPlayer:
                 case LobbyCommandType.TransferOwner:
                     Peer? selected = _peers.Find(p => p.SlotIndex == command.TargetSlot);
@@ -218,6 +209,155 @@ namespace MphRead.Mods.Network
             }
             TouchLobbyRevision($"slot {peer.SlotIndex}: {command.Type}");
             return LobbyResultCode.Ok;
+        }
+
+        /// <summary>
+        /// Build and publish a new match while retaining the lobby session/socket.
+        /// Used both by the owner's initial Start Match and by the automatic
+        /// post-match continuation. The latter deliberately bypasses lobby Ready:
+        /// the results ballot is already the between-match decision point.
+        /// </summary>
+        private bool BeginLobbyMatch(MatchDefinition match, double now, out string reason)
+        {
+            reason = "";
+            _sim?.Stop();
+            _sim = null;
+            _lastSnapshot = null;
+            _frozenMatch = match;
+            _frozenWorldProfile = LobbyRules.ResolveWorldProfile(_frozenMatch, _maxPlayers);
+
+            double buildStarted = NetSession.Clock;
+            ushort previousMatch = _matchId;
+            _matchId = NetLifecycleTracker.Next(_matchId);
+            try
+            {
+                StartSimulation();
+            }
+            catch (Exception ex)
+            {
+                _matchId = previousMatch;
+                _sim?.Stop();
+                _sim = null;
+                Log($"[lobby] map load failed: {ex.Message}");
+                reason = "The server could not load this map.";
+                return false;
+            }
+
+            _snapshotSeen = false;
+            Array.Clear(_slotLives);
+            foreach (Peer connected in _peers)
+                connected.LastIntentFrame = 0;
+            _matchEndedAt = -1;
+            _expectedLoadedSlots = 0;
+            _loadedSlots = 0;
+            foreach (Peer participant in _peers)
+                _expectedLoadedSlots |= (byte)(1 << participant.SlotIndex);
+
+            _startDeadline = now + (NetSession.Clock - buildStarted) + 15;
+            SetPhase(SessionPhase.Starting);
+            SyncSimulationState(now);
+            Log($"[lobby] waiting for slots mask {_expectedLoadedSlots:X2}");
+            return true;
+        }
+
+        /// <summary>
+        /// Start another match directly from the post-match ballot. Settings come
+        /// from the frozen match, not rotation defaults; only the selected room
+        /// changes. That keeps mode, limits and every rules toggle stable across
+        /// rounds.
+        /// </summary>
+        private void ContinueLobbyMatch(double now)
+        {
+            if (_phase != SessionPhase.PostMatch)
+                return;
+            if (_peers.Count == 0)
+            {
+                // Do not spin up a new world for an empty persistent lobby.
+                ReturnToLobby();
+                return;
+            }
+
+            RotationEntry next = _rotation.Advance();
+            _lobbyMatch = _frozenMatch with { RoomKey = next.RoomKey };
+            CloseBallot();
+            BroadcastMapChoices();
+
+            if (!BeginLobbyMatch(_lobbyMatch, now, out string reason))
+            {
+                Log($"[lobby] next match could not start: {reason}; returning to lobby");
+                EnterLobby(_lobbyMatch);
+            }
+        }
+
+        private void EnterLobby(MatchDefinition match)
+        {
+            _sim?.Stop();
+            _sim = null;
+            _lastSnapshot = null;
+            _lobbyMatch = match;
+            _matchEndedAt = -1;
+            _expectedLoadedSlots = 0;
+            _loadedSlots = 0;
+            CloseBallot();
+            BroadcastMapChoices();
+            InvalidateLobbyReady();
+
+            // Normalize against the match players will actually configure next.
+            SessionPhase previous = _phase;
+            _phase = SessionPhase.Lobby;
+            NormalizeTeams();
+            _phase = previous;
+            SetPhase(SessionPhase.Lobby);
+        }
+
+        /// <summary>
+        /// Close the current persistent lobby for every connected player.
+        /// A launcher-authenticated owner also owns the local server process and
+        /// may terminate it. On a standalone dedicated server, closing a lobby
+        /// resets it to an empty lobby so the first player to join cannot kill
+        /// the daemon.
+        /// </summary>
+        private void CloseLobbySession(Peer owner)
+        {
+            bool stopProcess = _processOwnerClientId != 0
+                && owner.ClientId == _processOwnerClientId;
+            Log($"[lobby] slot {owner.SlotIndex} closed the lobby"
+                + (stopProcess ? " and its local server" : ""));
+
+            foreach (Peer connected in _peers)
+                _transport?.Send(connected.EndPoint, PacketType.Bye, ReadOnlySpan<byte>.Empty);
+
+            _sim?.Stop();
+            _sim = null;
+            _lastSnapshot = null;
+            CloseBallot();
+            _rotation.ClearPending();
+            _peers.Clear();
+            _authority = null;
+            _lobbyOwnerClientId = 0;
+            _processOwnerClientId = 0;
+            _expectedLoadedSlots = 0;
+            _loadedSlots = 0;
+            _startDeadline = 0;
+            _matchEndedAt = -1;
+            _snapshotSeen = false;
+            Array.Clear(_slotLives);
+
+            if (stopProcess)
+            {
+                _running = false;
+                return;
+            }
+
+            // Standalone dedicated lobby: close this room, then present a fresh,
+            // ownerless lobby to the next connection.
+            _authorityEpoch++;
+            _matchId = NetLifecycleTracker.Next(_matchId);
+            _lobbyMatch = DefinitionFor(_rotation.Current);
+            _frozenMatch = _lobbyMatch;
+            _frozenWorldProfile = default;
+            _phase = SessionPhase.Lobby;
+            _sessionRevision = NetLifecycleTracker.Next(_sessionRevision);
         }
 
         private void HandleMatchLoaded(ReceivedPacket packet, double now)
@@ -254,24 +394,11 @@ namespace MphRead.Mods.Network
 
         private void ReturnToLobby()
         {
-            _sim?.Stop(); _sim = null; _lastSnapshot = null;
-            _lobbyMatch = DefinitionFor(_rotation.Advance()) with
-            {
-                Format = _frozenMatch.Format, CustomTeams = _frozenMatch.CustomTeams, FriendlyFire = _frozenMatch.FriendlyFire,
-                AffinityWeapons = _frozenMatch.AffinityWeapons, ShadowFreeze = _frozenMatch.ShadowFreeze
-            };
-            // Rotation may change between team and FFA modes; keep the pending format legal.
-            if (LobbyRules.ValidateDefinition(_lobbyMatch, out _) != LobbyResultCode.Ok)
-                _lobbyMatch = _lobbyMatch with { Format = MatchFormat.Auto };
-            _matchEndedAt = -1;
-            _expectedLoadedSlots = _loadedSlots = 0;
-            CloseBallot(); BroadcastMapChoices();
-            InvalidateLobbyReady();
-            SessionPhase previous = _phase;
-            _phase = SessionPhase.Lobby;
-            NormalizeTeams();
-            _phase = previous;
-            SetPhase(SessionPhase.Lobby);
+            RotationEntry next = _rotation.Advance();
+            // Preserve the complete configured match. Only the room advances.
+            // Rebuilding from RotationEntry here was the source of time/goal/mode
+            // and other rule toggles silently snapping back to defaults.
+            EnterLobby(_frozenMatch with { RoomKey = next.RoomKey });
         }
 
         private void LobbyPeerRemoved(Peer peer)

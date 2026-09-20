@@ -69,7 +69,7 @@ namespace MphRead.Mods.Launcher.Gui
             VerticalContentAlignment = VerticalAlignment.Center
         };
         private readonly UiMark _ready, _start;
-        private readonly DeckButton _moveButton;
+        private readonly DeckButton _moveButton, _closeLobby;
         private readonly Image _preview = new() { Height = 104, Stretch = Stretch.UniformToFill };
         private readonly string[] _rooms;
         private readonly List<byte> _targetSlots = new();
@@ -82,7 +82,7 @@ namespace MphRead.Mods.Launcher.Gui
         private SessionRules _shownRules;
         private string _draftRoom = "";
         private TeamLayout _customLayout = new(2, 2, 2);
-        private bool _syncing, _suspended, _closed, _draftDirty;
+        private bool _syncing, _suspended, _closed, _draftDirty, _closingLobby;
         private double _draftChangedAt;
         private Bitmap? _bitmap;
 
@@ -197,6 +197,16 @@ namespace MphRead.Mods.Launcher.Gui
             adminButtons.Children.Add(SmallButton("Kick", Deck.Face.Rust,
                 () => Admin(LobbyCommandType.KickPlayer)));
             administration.Children.Add(adminButtons);
+            _closeLobby = SmallButton("Close lobby", Deck.Face.Rust, () =>
+            {
+                if (NetSession.SendLobbyCommand(LobbyCommandType.CloseLobby))
+                {
+                    _closingLobby = true;
+                    _status.Text = "Closing lobby...";
+                }
+            });
+            _closeLobby.HorizontalAlignment = HorizontalAlignment.Center;
+            administration.Children.Add(_closeLobby);
             left.Children.Add(administration);
 
             var columns = new Grid
@@ -382,12 +392,21 @@ namespace MphRead.Mods.Launcher.Gui
             NetSession.Pump();
             if (NetSession.Refused || NetSession.SessionTimedOut || !NetSession.Active)
             {
-                Leave(NetSession.Refused
-                    ? NetSession.RefusedReason.Describe("Server")
-                    : "The connection to the server was lost.");
+                Leave(_closingLobby && !NetSession.Active
+                    ? "Lobby closed."
+                    : NetSession.Refused
+                        ? NetSession.RefusedReason.Describe("Server")
+                        : "The connection to the server was lost.");
                 return;
             }
             Refresh();
+            if (_closingLobby && !NetSession.LobbyCommandPending
+                && NetSession.LobbyMessage.Length > 0)
+            {
+                // A denied close leaves the lobby alive. Keep the server's reason
+                // visible and restore normal disconnect semantics.
+                _closingLobby = false;
+            }
             TryAutoApply();
             if (NetSession.ShouldLoadMatch)
             {
@@ -473,6 +492,7 @@ namespace MphRead.Mods.Launcher.Gui
             }
 
             _ownerControls.IsEnabled = NetSession.CanEditLobby && !NetSession.LobbyCommandPending;
+            _closeLobby.IsEnabled = NetSession.CanEditLobby && !NetSession.LobbyCommandPending;
             TeamLayout activeLayout = LobbyRules.ResolveTeamLayout(session.Match);
             bool chooseTeams = PlayerChoosesTeam(session.Match);
             _team.IsVisible = chooseTeams;

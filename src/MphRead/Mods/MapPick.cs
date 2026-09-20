@@ -68,6 +68,18 @@ namespace MphRead.Mods
     /// </summary>
     public static class MapPick
     {
+        /// <summary>
+        /// Reserved ballot value for leaving the results screen in the persistent lobby
+        /// instead of immediately starting another match. It travels through the existing
+        /// MapPick packet so the wire format stays compatible with the other pending PRs.
+        /// </summary>
+        public const string ReturnToLobbyKey = PostMatchChoice.ReturnToLobbyKey;
+
+        public static bool HasReturnToLobbyOption => NetSession.PersistentLobby;
+
+        public static bool IsReturnToLobby(string roomKey) =>
+            PostMatchChoice.IsReturnToLobby(roomKey);
+
         /// <summary>Every map that can be voted for, most-wanted first.</summary>
         private static readonly List<string> _order = new();
 
@@ -151,6 +163,10 @@ namespace MphRead.Mods
 
         private static string PlainName(string roomKey)
         {
+            if (IsReturnToLobby(roomKey))
+            {
+                return "Return to lobby";
+            }
             try
             {
                 (RoomMetadata? meta, _) = Metadata.GetRoomByName(roomKey);
@@ -227,6 +243,10 @@ namespace MphRead.Mods
             catch (Exception)
             {
                 // No game files, no list. The results screen still works.
+            }
+            if (NetSession.PersistentLobby)
+            {
+                _rooms.Add(ReturnToLobbyKey);
             }
             BuildLabels();
             Open = open && _rooms.Count > 0;
@@ -458,8 +478,10 @@ namespace MphRead.Mods
         /// </summary>
         public static void Resend()
         {
-            if (Picked.Length > 0 && NetSession.Active)
+            if (Open && NetSession.Active)
             {
+                // Empty is a real answer: it withdraws a previous pick. Re-send it too,
+                // otherwise one lost withdrawal datagram leaves a stale vote on the server.
                 NetSession.SendMapPick(Picked);
             }
         }

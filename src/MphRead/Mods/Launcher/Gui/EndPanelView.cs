@@ -35,9 +35,8 @@ namespace MphRead.Mods.Launcher.Gui
     ///
     /// <para>
     /// It decides nothing itself. Every press goes to the same places the
-    /// HUD's own picker went: <see cref="MapPick.Choose"/>,
-    /// <see cref="Mods.EndScreen.Pick"/> and
-    /// <see cref="Mods.EndScreen.ToggleReady"/>. The server owns the rotation
+    /// HUD's own picker went: <see cref="MapPick.Choose"/> and
+    /// <see cref="Mods.EndScreen.Pick"/>. The server owns the rotation
     /// and the respawn, and a second opinion held in a menu is how two screens
     /// come to disagree about what you picked.
     /// </para>
@@ -51,7 +50,6 @@ namespace MphRead.Mods.Launcher.Gui
         private readonly HunterStand _stand;
         private readonly ChoiceRow _hunter;
         private readonly ChoiceRow _suit;
-        private readonly DeckButton _ready;
         private readonly Note _count = new("");
 
         /// <summary>What the ballot face says before the server has sent one.</summary>
@@ -73,7 +71,7 @@ namespace MphRead.Mods.Launcher.Gui
             IsHitTestVisible = true;
 
             _hunters = HunterStand.Names;
-            _tabs = new UiTabs(new[] { "Vote map", "Change hunter" });
+            _tabs = new UiTabs(new[] { "Next match", "Change hunter" });
             _tabs.Changed += (_, _) => ShowFace();
 
             _ballotScroll = new ScrollViewer
@@ -104,25 +102,14 @@ namespace MphRead.Mods.Launcher.Gui
             _hunterPane.Children.Add(_suit);
             _hunterPane.IsVisible = false;
 
-            _ready = new DeckButton("READY", Deck.Face.Slate,
-                sizeEms: 1.25, padXEms: 1.3, padYEms: 0.45, lip: 5);
-            _ready.Click += (_, _) =>
-            {
-                Mods.EndScreen.ToggleReady();
-                Refresh();
-            };
-
             var body = new Panel();
             body.Children.Add(_ballotScroll);
             body.Children.Add(_empty);
             body.Children.Add(_hunterPane);
 
-            var foot = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+            var foot = new Grid();
             _count.VerticalAlignment = VerticalAlignment.Center;
-            Grid.SetColumn(_count, 0);
             foot.Children.Add(_count);
-            Grid.SetColumn(_ready, 1);
-            foot.Children.Add(_ready);
 
             var stack = new Grid
             {
@@ -220,11 +207,9 @@ namespace MphRead.Mods.Launcher.Gui
         /// <summary>
         /// Read the match's own state back into the panel, once a frame.
         ///
-        /// Everything here is somebody else's: the ballot is the server's, the
-        /// hunter is <c>RespawnChoice</c>'s, and READY is a state the intent
-        /// packet reads off this screen rather than a button that does
-        /// something. So this pulls rather than pushing, and the only writes
-        /// are the three in <see cref="Commit"/>.
+        /// Everything here is somebody else's: the ballot is the server's and the
+        /// hunter is <c>RespawnChoice</c>'s. So this pulls rather than pushing;
+        /// the only writes are the choices made through this panel.
         /// </summary>
         public void Refresh()
         {
@@ -239,8 +224,10 @@ namespace MphRead.Mods.Launcher.Gui
                 _ballot.Children.Clear();
                 foreach (string room in order)
                 {
-                    string code = room.Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                        is { Length: > 0 } parts ? parts[0] : room;
+                    string code = MapPick.IsReturnToLobby(room)
+                        ? "LOBBY"
+                        : room.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                            is { Length: > 0 } parts ? parts[0] : room;
                     var tile = new DeckTile(room, code)
                     {
                         Blurb = MapPick.NameOf(room),
@@ -298,8 +285,6 @@ namespace MphRead.Mods.Launcher.Gui
             _stand.Name2 = _hunter.Value;
             _stand.Suit = wantSuit;
 
-            bool ready = Mods.EndScreen.Ready;
-            _ready.Wear(ready ? Deck.Face.Moss : Deck.Face.Slate, selected: false);
             _count.Text = MapPick.Eligible > 1
                 ? $"{MapPick.Eligible} in the room"
                 : "";

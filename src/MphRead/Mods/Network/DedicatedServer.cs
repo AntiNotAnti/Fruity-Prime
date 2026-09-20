@@ -227,43 +227,13 @@ namespace MphRead.Mods.Network
         private const double EndSequenceSeconds = 3.0 + GameState.MatchEndingSeconds + 1.0;
 
         /// <summary>
-        /// How long the results screen stays up when nobody has said they are
-        /// ready, and how long when everybody has.
-        ///
-        /// The long one is a wait, not a pause: it is the time somebody needs
-        /// to read the scoreboard, pick a hunter and pick a suit without being
-        /// hurried. The short one is what that wait is for -- a room that has
-        /// all answered does not need the other twenty-five seconds, and
-        /// making them sit through it is the part people actually complain
-        /// about.
-        ///
-        /// Both are floors under the end sequence rather than replacements for
-        /// it: the winner's camera and the results screen still have to run.
+        /// Post-match is a fixed decision window. Map selection is itself the
+        /// action players take between rounds; requiring a second Ready step
+        /// made the ballot feel stuck and could stretch every match by thirty
+        /// seconds. The floor above already covers the complete results
+        /// sequence, hunter/suit choice and the ballot.
         /// </summary>
-        private const double ReadyWaitSeconds = 30.0;
-        private const double AllReadySeconds = 5.0;
-
-        /// <summary>
-        /// How long to hold the results screen, given who has said they are
-        /// ready. An empty room takes the short answer: there is nobody to
-        /// wait for.
-        /// </summary>
-        private double EndSequenceFor()
-        {
-            bool all = true;
-            int counted = 0;
-            for (int i = 0; i < _peers.Count; i++)
-            {
-                counted++;
-                if (!_peers[i].PostMatchReady)
-                {
-                    all = false;
-                    break;
-                }
-            }
-            double wait = counted == 0 || all ? AllReadySeconds : ReadyWaitSeconds;
-            return Math.Max(EndSequenceSeconds, wait);
-        }
+        private static double EndSequenceFor() => EndSequenceSeconds;
 
         /// <summary>
         /// What this server calls itself on a browser's list. Defaults to the
@@ -469,7 +439,11 @@ namespace MphRead.Mods.Network
                     }
                     else if (_matchEndedAt >= 0 && now - _matchEndedAt >= EndSequenceFor())
                     {
-                        if (SessionPolicy == ServerSessionPolicy.Lobby) ReturnToLobby();
+                        if (SessionPolicy == ServerSessionPolicy.Lobby)
+                        {
+                            if (_returnToLobbyPending) ReturnToLobby();
+                            else ContinueLobbyMatch(now);
+                        }
                         else AdvanceMap(now);
                     }
                     // Repeated rather than sent once: UDP drops, and a client that
@@ -718,7 +692,7 @@ namespace MphRead.Mods.Network
                 MatchId = _matchId,
                 AuthorityEpoch = _authorityEpoch,
                 RoomKey = entry.RoomKey,
-                NextRoomKey = _rotation.Next.RoomKey
+                NextRoomKey = _returnToLobbyPending ? "" : _rotation.Next.RoomKey
             };
         }
 
@@ -984,6 +958,12 @@ namespace MphRead.Mods.Network
         /// the room may say where it goes next.
         /// </summary>
         private bool _ballotOpen;
+        /// <summary>
+        /// The post-match plurality currently prefers returning to the
+        /// persistent lobby instead of immediately starting another match.
+        /// This is a ballot outcome, not a second ready gate.
+        /// </summary>
+        private bool _returnToLobbyPending;
 
         /// <summary>
         /// The tally, rebuilt from the peers' picks whenever one changes.
@@ -1001,6 +981,7 @@ namespace MphRead.Mods.Network
         /// </summary>
         private void OpenBallot()
         {
+            _returnToLobbyPending = false;
             _ballotOpen = AllowMapVotes;
             _tallyRooms.Clear();
             _tallyVotes.Clear();
@@ -1012,6 +993,7 @@ namespace MphRead.Mods.Network
 
         private void CloseBallot()
         {
+            _returnToLobbyPending = false;
             _ballotOpen = false;
             _tallyRooms.Clear();
             _tallyVotes.Clear();
@@ -1047,17 +1029,22 @@ namespace MphRead.Mods.Network
             string key = MapPickPacket.Read(packet.Payload).RoomKey;
             if (key.Length > 0)
             {
-                string? resolved = ResolveRoomKey(key);
-                if (resolved == null || String.Equals(resolved, CurrentDefinition.RoomKey,
-                    StringComparison.OrdinalIgnoreCase))
+                bool returnToLobby = SessionPolicy == ServerSessionPolicy.Lobby
+                    && PostMatchChoice.IsReturnToLobby(key);
+                if (!returnToLobby)
                 {
-                    // No map, or the one they are standing in. Answered
-                    // privately rather than announced, StartVote's rule.
-                    Tell(peer, resolved == null ? $"no map called \"{key}\""
-                        : "that is the map you are on");
-                    return;
+                    string? resolved = ResolveRoomKey(key);
+                    if (resolved == null || String.Equals(resolved, CurrentDefinition.RoomKey,
+                        StringComparison.OrdinalIgnoreCase))
+                    {
+                        // No map, or the one they are standing in. Answered
+                        // privately rather than announced, StartVote's rule.
+                        Tell(peer, resolved == null ? $"no map called \"{key}\""
+                            : "that is the map you are on");
+                        return;
+                    }
+                    key = resolved;
                 }
-                key = resolved;
             }
             if (String.Equals(peer.Pick, key, StringComparison.OrdinalIgnoreCase))
             {
@@ -1073,14 +1060,19 @@ namespace MphRead.Mods.Network
                 // to agree with them is a number on a screen everybody is
                 // already looking at.
                 string who = peer.Name.Length > 0 ? peer.Name : $"Player{peer.SlotIndex + 1}";
-                Announce($"{who} wants {key} next -- pick it to agree; "
-                    + "the map with the most votes is the one loaded");
+                string choice = PostMatchChoice.IsReturnToLobby(key)
+                    ? "to return to the lobby" : $"{key} next";
+                Announce($"{who} wants {choice} -- pick it to agree; "
+                    + "the choice with the most votes wins");
             }
             else if (key.Length == 0 && was.Length > 0)
             {
                 Log($"slot {peer.SlotIndex} took back its pick of {was}");
             }
             ApplyLeader();
+            // NextRoomKey is carried in match state. Publish it with the tally so
+            // the NEXT line cannot lag behind the ballot by the periodic one-second tick.
+            BroadcastMatchState(now);
             BroadcastMapChoices();
         }
 
@@ -1164,12 +1156,21 @@ namespace MphRead.Mods.Network
         /// </summary>
         private void ApplyLeader()
         {
+            _returnToLobbyPending = false;
             if (_tallyRooms.Count == 0 || _tallyVotes[0] <= 0)
             {
                 _rotation.ClearPending();
                 return;
             }
-            _rotation.PlayNext(_tallyRooms[0], ModeForRoom(_tallyRooms[0]));
+            string leader = _tallyRooms[0];
+            if (SessionPolicy == ServerSessionPolicy.Lobby
+                && PostMatchChoice.IsReturnToLobby(leader))
+            {
+                _returnToLobbyPending = true;
+                _rotation.ClearPending();
+                return;
+            }
+            _rotation.PlayNext(leader, ModeForRoom(leader));
         }
 
         /// <summary>The ballot and its tally, to everybody.</summary>
@@ -1217,6 +1218,7 @@ namespace MphRead.Mods.Network
             }
             Recount();
             ApplyLeader();
+            BroadcastMatchState(_now);
             BroadcastMapChoices();
         }
 
