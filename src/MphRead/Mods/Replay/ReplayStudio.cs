@@ -463,6 +463,16 @@ namespace MphRead.Mods.Replay
             foreach (FileInfo cache in cacheFiles)
             {
                 if (total <= policy.MaxBytes) break;
+                if (DemoPlayback.IsActive && DemoPlayback.CurrentPath != null
+                    && String.Equals(Path.GetFullPath(cache.FullName),
+                        Path.GetFullPath(DemoPlayback.CurrentPath),
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    // A virtual clip plays from this materialized cache file.
+                    // Deleting an open file is legal on Unix, but a later
+                    // checkpoint fallback/rebuild has to reopen CurrentPath.
+                    continue;
+                }
                 try
                 {
                     long bytes = cache.Length;
