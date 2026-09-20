@@ -355,6 +355,8 @@ namespace MphRead.Mods.Network
             ReplayVerification.Reset();
             if (Replay.ReplayVideoExporter.Active) Replay.ReplayVideoExporter.Cancel();
             Replay.ReplayStudio.ResetCache();
+            Replay.ReplayCheckpointManager.NoteReplay(null);
+            Replay.ReplayNetworkDiagnostics.Reset();
             IsActive = false;
             ReplayController.Stop();
             Replay.ReplayHud.Reset();
