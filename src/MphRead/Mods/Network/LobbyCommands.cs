@@ -117,7 +117,7 @@ namespace MphRead.Mods.Network
             peer.LastSeen = now;
             if (!peer.Commands.TryGetValue(command.CommandId, out var result))
             {
-                var code = ExecuteLobbyCommand(peer, command, out string reason);
+                var code = ExecuteLobbyCommand(peer, command, now, out string reason);
                 result = new LobbyCommandResultPacket { CommandId = command.CommandId,
                     ResultCode = code, CurrentRevision = _sessionRevision, Reason = reason };
                 // Cache is attached to ClientId's peer, so socket rebinding does not repeat a command.
@@ -140,7 +140,7 @@ namespace MphRead.Mods.Network
             BroadcastRoster();
         }
 
-        private LobbyResultCode ExecuteLobbyCommand(Peer peer, LobbyCommandPacket command, out string reason)
+        private LobbyResultCode ExecuteLobbyCommand(Peer peer, LobbyCommandPacket command, double now, out string reason)
         {
             reason = "";
             if (SessionPolicy != ServerSessionPolicy.Lobby || _phase != SessionPhase.Lobby)
