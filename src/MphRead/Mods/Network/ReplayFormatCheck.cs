@@ -21,7 +21,8 @@ namespace MphRead.Mods.Network
             try
             {
                 var match = new MatchStatePacket { RoomKey = "MP1 SANCTORUS", NextRoomKey = "",
-                    Mode = (byte)GameMode.Battle, TimeRemaining = 300, Flags = MatchStatePacket.FlagInProgress };
+                    Mode = (byte)GameMode.Battle, TimeRemaining = 300, Flags = MatchStatePacket.FlagInProgress,
+                    MatchId = 1, AuthorityEpoch = 1 };
                 var matchBytes = new byte[1 + MatchStatePacket.Size];
                 matchBytes[0] = (byte)PacketType.MatchState; match.Write(matchBytes.AsSpan(1));
                 var metadata = new ReplayMetadata { RoomKey = match.RoomKey, Mode = GameMode.Battle,
