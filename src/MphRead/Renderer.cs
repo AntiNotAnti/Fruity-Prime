@@ -1547,8 +1547,12 @@ namespace MphRead
             {
                 Mods.Input.GamepadDesktop.Poll();
             }
+            // The replay may contain its own results screen, but that is part of
+            // the recording, not an interactive local Results UI. Keep replay camera
+            // aiming in Gameplay context while still honoring actual shell menus and
+            // binding capture through Resolve().
             Mods.Input.GamepadContexts.Current = Mods.Input.GamepadContexts.Resolve(
-                Mods.Chat.ChatBox.Composing, Mods.EndScreen.Available);
+                textEntry: false, results: false);
             Mods.Input.GamepadInput.BeginFrame();
             Mods.Replay.ReplayInput.PollGamepad();
             Mods.SpectatorMode.NoteScoreboard(_keyboardState.IsKeyDown(Keys.Tab)
