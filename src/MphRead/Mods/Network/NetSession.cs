@@ -1502,7 +1502,6 @@ namespace MphRead.Mods.Network
                 GameState.Nicknames[slot] = roster.Names[i];
                 if (Enum.IsDefined(typeof(Hunter), roster.Hunters[i]))
                 {
-                    ReplayCapture.AcceptedState(state);
                     SlotHunter[slot] = (Hunter)roster.Hunters[i];
                 }
                 // What they asked for. PlayerColors decides what they get,
@@ -1669,6 +1668,7 @@ namespace MphRead.Mods.Network
                 offset += PlayerState.Size;
                 if (state.SlotIndex < RemoteStates.Length && NetPlayerLifecycle.AcceptState(state, header.Frame))
                 {
+                    ReplayCapture.AcceptedState(state);
                     RemoteStates[state.SlotIndex] = state;
                     RemoteStateValid[state.SlotIndex] = true;
                     if (count < _snapshotScratch.Length)
