@@ -1543,6 +1543,102 @@ namespace MphRead
         /// </summary>
         public void OnSimulationFrame()
         {
+            // A lobby/start barrier must remain authoritative even during playback.
+            // Do not advance replay presentation time while the network session is
+            // deliberately holding the simulation at a transition boundary.
+            if (Mods.Network.NetSession.FreezeGameplay)
+            {
+                RunSimulationFrame();
+                return;
+            }
+            if (!Mods.Network.DemoPlayback.IsActive)
+            {
+                RunSimulationFrame();
+                return;
+            }
+
+            // Replay controls are presentation-time input. They remain responsive
+            // while the recorded simulation is paused or seeking, but are sampled
+            // only once per rendered frame rather than once per replay simulation step.
+            _frameTime = 1 / 60f;
+            if (!Mods.Headless.Active)
+            {
+                Mods.Input.GamepadDesktop.Poll();
+            }
+            Mods.Input.GamepadContexts.Current = Mods.Input.GamepadContexts.Resolve(
+                Mods.Chat.ChatBox.Composing, Mods.EndScreen.Available);
+            Mods.Input.GamepadInput.BeginFrame();
+            Mods.Replay.ReplayInput.PollGamepad();
+            Mods.SpectatorMode.NoteScoreboard(_keyboardState.IsKeyDown(Keys.Tab)
+                || Mods.Input.GamepadInput.State.Down(Mods.Input.GamepadButtons.Back));
+
+            bool? camera = Mods.SpectatorMode.TakeCameraRequest();
+            if (camera.HasValue)
+            {
+                SetFreeCamera(camera.Value);
+            }
+            if (!Mods.PauseMenu.Open)
+            {
+                OnKeyHeld();
+                if (_freeCam && Mods.Input.GamepadInput.Active)
+                {
+                    var pad = Mods.Input.GamepadInput.State;
+                    if (Math.Abs(pad.LeftY) > 0.2f)
+                    {
+                        _cameraPosition += _cameraFacing * pad.LeftY * 0.15f;
+                    }
+                    if (Math.Abs(pad.LeftX) > 0.2f)
+                    {
+                        _cameraPosition += _cameraRight * pad.LeftX * 0.15f;
+                    }
+                    UpdateCameraRotation(
+                        MathHelper.DegreesToRadians(Mods.Input.GamepadInput.AimDeltaX),
+                        MathHelper.DegreesToRadians(Mods.Input.GamepadInput.AimDeltaY));
+                }
+            }
+
+            int frames = Mods.Network.ReplayController.FramesDue();
+            float volume = Sound.Sfx.Volume;
+            float musicVolume = Music.UserVolume;
+            bool mute = Mods.Network.ReplayController.IsSeeking && !Mods.Headless.Active;
+            if (mute)
+            {
+                Sound.Sfx.Volume = 0;
+                Music.SetUserVolume(0);
+            }
+            try
+            {
+                for (int i = 0; i < frames && !Mods.Network.DemoPlayback.AtEnd; i++)
+                {
+                    bool seeking = Mods.Network.ReplayController.IsSeeking;
+                    RunSimulationFrame();
+                    // A transition barrier may become active while replay packets are
+                    // being consumed. Do not count that blocked step as replay progress.
+                    if (Mods.Network.NetSession.FreezeGameplay)
+                    {
+                        break;
+                    }
+                    Mods.Network.ReplayVerification.AfterFrame(this);
+                    Mods.Network.ReplayController.AfterFrame();
+                    if (seeking && !Mods.Network.ReplayController.IsSeeking)
+                    {
+                        break;
+                    }
+                }
+            }
+            finally
+            {
+                if (mute)
+                {
+                    Sound.Sfx.Instance.StopAllSound();
+                    Sound.Sfx.Volume = volume;
+                    Music.SetUserVolume(musicVolume);
+                }
+            }
+        }
+
+        private void RunSimulationFrame()
+        {
             if (Mods.Network.NetSession.FreezeGameplay)
             {
                 if (Mods.Network.NetSession.IsStarting) Mods.Network.NetSession.MarkMatchLoaded();
@@ -1585,7 +1681,8 @@ namespace MphRead
                 Mods.Network.DemoPlayback.PumpFrame();
                 Mods.Network.NetSession.Update(_globalElapsedTime);
                 if (Mods.Network.NetSession.FreezeGameplay) return;
-                if (Mods.Network.DemoPlayback.IsActive && !Mods.SpectatorMode.IsSpectating)
+                if (Mods.Network.DemoPlayback.IsActive && !Mods.Headless.Active
+                    && !Mods.SpectatorMode.IsSpectating)
                 {
                     // No local player to spawn as during playback -- watch
                     // as soon as anyone recorded becomes available, rather
@@ -1610,11 +1707,15 @@ namespace MphRead
                 // binds ProcessInput has just filled in. Suppressed by exactly
                 // the things that suppress a keyboard, and by spectating,
                 // where PlayerEntity.Main is somebody else's hunter.
-                Mods.Input.GamepadDesktop.Poll();
-                Mods.Input.GamepadContexts.Current = Mods.Input.GamepadContexts.Resolve(
-                    Mods.Chat.ChatBox.Composing, Mods.EndScreen.Available);
-                Mods.Input.GamepadInput.BeginFrame();
-                if (Mods.SpectatorMode.IsSpectating && !Mods.PauseMenu.Open)
+                if (!Mods.Network.DemoPlayback.IsActive)
+                {
+                    Mods.Input.GamepadDesktop.Poll();
+                    Mods.Input.GamepadContexts.Current = Mods.Input.GamepadContexts.Resolve(
+                        Mods.Chat.ChatBox.Composing, Mods.EndScreen.Available);
+                    Mods.Input.GamepadInput.BeginFrame();
+                }
+                if (!Mods.Network.DemoPlayback.IsActive
+                    && Mods.SpectatorMode.IsSpectating && !Mods.PauseMenu.Open)
                 {
                     var spectator = Mods.Input.SpectatorInput.ReadController();
                     spectator.ApplyView();
@@ -1634,7 +1735,10 @@ namespace MphRead
                 // consumes them. A pad has no key events to hook, so the
                 // results screen's picker has to be polled, and it takes the
                 // d-pad presses it acts on so nothing downstream sees them.
-                Mods.EndScreen.PollGamepad();
+                if (!Mods.Network.DemoPlayback.IsActive)
+                {
+                    Mods.EndScreen.PollGamepad();
+                }
                 bool noPlayerInput = _inputMode == InputMode.CameraOnly
                     || Mods.PauseMenu.Open || Mods.Chat.ChatBox.Composing;
                 PlayerEntity.ProcessInput(_keyboardState, _mouseState, noPlayerInput);
@@ -1645,7 +1749,10 @@ namespace MphRead
                 Mods.Network.NetHooks.AfterInput(this);
                 _room?.UpdateTransition();
             }
-            OnKeyHeld();
+            if (!Mods.Network.DemoPlayback.IsActive)
+            {
+                OnKeyHeld();
+            }
             if (ProcessFrame && _room != null)
             {
                 GameState.ProcessFrame(this);
@@ -1715,7 +1822,7 @@ namespace MphRead
                 Mods.Render.FrameTiming.MaxCatchUpSteps);
             _pendingFadeSteps = Math.Min(_pendingFadeSteps + 1,
                 Mods.Render.FrameTiming.MaxCatchUpSteps);
-            if (Mods.Headless.Active)
+            if (Mods.Headless.Active || Mods.Network.DemoPlayback.IsActive)
             {
                 ModStepDrawPassTimers();
             }
@@ -1833,6 +1940,7 @@ namespace MphRead
             _singleParticleCount = 0;
             if (ProcessFrame || CameraMode != CameraMode.Player)
             {
+                ModReplayCamera();
                 TransformCamera();
                 UpdateCameraPosition();
             }
@@ -2661,6 +2769,10 @@ namespace MphRead
                 // the camera is not a player's.
                 PlayerEntity.Main.DrawHudObjects();
             }
+            // Replay controls and timeline belong to the presentation, not to
+            // a particular hunter's visor. Keep them visible in chase, orbit
+            // and free-camera modes as well as first-person playback.
+            Mods.Replay.ReplayHud.Draw(this);
             Mods.Input.AimAssist.AimAssistDebug.Draw(this);
             if (_movieFrameIndex != -1)
             {
@@ -6248,7 +6360,10 @@ namespace MphRead
         {
             if (_keyboardState.IsKeyDown(Keys.LeftAlt) || _keyboardState.IsKeyDown(Keys.RightAlt))
             {
-                Selection.OnKeyHeld(_keyboardState);
+                if (!Mods.Network.DemoPlayback.IsActive)
+                {
+                    Selection.OnKeyHeld(_keyboardState);
+                }
                 return;
             }
             if (!AllowCameraMovement || _inputMode == InputMode.PlayerOnly)
@@ -6268,7 +6383,8 @@ namespace MphRead
                 {
                     _cameraPosition -= _cameraFacing * moveStep;
                 }
-                if (_keyboardState.IsKeyDown(Keys.Space)) // move up
+                if (_keyboardState.IsKeyDown(
+                    Mods.Network.DemoPlayback.IsActive ? Keys.E : Keys.Space)) // move up
                 {
                     _cameraPosition = _cameraPosition.WithY(_cameraPosition.Y + moveStep);
                 }
@@ -7452,6 +7568,36 @@ namespace MphRead
                 return;
             }
 #endif
+            if (Mods.Network.DemoPlayback.IsActive
+                && Mods.Network.ReplayController.TakeRebuild(out uint target, out bool resume))
+            {
+                if (Mods.Replay.ReplayCheckpointManager.TryRestore(
+                    Scene, target, resume, out uint checkpointFrame))
+                {
+                    Console.WriteLine($"[replay] restored checkpoint {checkpointFrame} for seek to {target}");
+                    Mods.Network.ReplayController.ContinueSeek(target, resume);
+                    Mods.Render.FrameTiming.Reset();
+                }
+                else
+                {
+                    string path = Mods.Network.DemoPlayback.CurrentPath!;
+                    EndScene();
+                    Mods.Network.DemoPlayback.Stop();
+                    Mods.SpectatorMode.Reset();
+                    var plan = new Mods.Launcher.LaunchPlan
+                    {
+                        Kind = Mods.Launcher.LaunchKind.Demo,
+                        DemoPath = path
+                    };
+                    if (!Mods.Launcher.MatchStart.Begin(this, new MenuSettings(), plan))
+                    {
+                        EndOrClose();
+                        return;
+                    }
+                    Mods.Network.ReplayController.ContinueSeek(target, resume);
+                    Mods.Render.FrameTiming.Reset();
+                }
+            }
             // The pause menu wants the pointer back, and so does the results
             // screen: its hunter picker is something you click, and a grabbed
             // cursor has no position on screen to click with.
@@ -7532,11 +7678,16 @@ namespace MphRead
             {
                 Mods.Chat.ChatBox.Open(swallowOpeningChar: false);
             }
+            if (Mods.Network.ReplayController.IsSeeking)
+            {
+                return;
+            }
             Scene.OnDrawFrame();
             if (!Scene.OnRenderFrame())
             {
                 return;
             }
+            Mods.Replay.ReplayVideoExporter.AfterSceneDraw(Scene);
             // Last, over the finished picture: the pause menu is a scrim over
             // a match that is still being played, and the settings opened from
             // it cover the same rectangle. Nothing is drawn when no screen is
@@ -7698,6 +7849,13 @@ namespace MphRead
         protected override void OnMouseDown(MouseButtonEventArgs e)
         {
             Mods.Input.InputSourceTracker.Note(Mods.Input.InputSource.KeyboardMouse);
+            if (Mods.Network.DemoPlayback.IsActive && !Mods.PauseMenu.Open
+                && e.Button == MouseButton.Right)
+            {
+                Mods.SpectatorMode.CyclePrevious();
+                Mods.Network.ReplayController.NoteInput();
+                return;
+            }
 #if MPHREAD_SHELL
             // A screen is up in this window -- the launcher, the pause menu,
             // the settings. It gets the whole of the input while it is, the
@@ -8020,7 +8178,8 @@ namespace MphRead
                 string? clip = Mods.Network.DemoClip.Save();
                 if (clip != null)
                 {
-                    Mods.Chat.ChatBox.System($"saved the last {held:0} s to "
+                    Mods.Chat.ChatBox.System(
+                        $"{(Mods.Network.DemoClip.IsSaving ? "saving" : "saved")} the last {held:0} s to "
                         + System.IO.Path.GetFileName(clip));
                 }
                 else
@@ -8036,27 +8195,22 @@ namespace MphRead
                 base.OnKeyDown(e);
                 return;
             }
-            // Space, while watching rather than playing: the free no-clip
-            // camera instead of riding along with whoever spectator mode has
-            // the camera on, and back again. Not a real control in either
-            // case -- a demo freezes every player's input for the whole
-            // session, and a spectator's own input is dropped by
-            // PlayerInput.ProcessInput -- so there is nothing this can
-            // conflict with, and it is how a spectator gets back to the
-            // overview they started in.
-            if (e.Key == Keys.Space
-                && (Mods.Network.DemoPlayback.IsActive || Mods.SpectatorMode.IsSpectating))
+            if (Mods.Replay.ReplayInput.HandleKey(e.Key))
             {
-                if (Mods.Network.DemoPlayback.IsActive)
-                {
-                    Scene.ToggleFreeCamera();
-                }
-                else
-                {
-                    // Spectating a live match: the map or a player, never the
-                    // hidden body you left behind. See SpectatorMode.
-                    Mods.SpectatorMode.ToggleView();
-                }
+                base.OnKeyDown(e);
+                return;
+            }
+            if (Mods.Network.DemoPlayback.IsActive && e.Key != Keys.Escape)
+            {
+                base.OnKeyDown(e);
+                return;
+            }
+            // Space, while spectating a live match: toggle between the map/free
+            // camera and the player view. Replay Space is handled above as
+            // play/pause.
+            if (e.Key == Keys.Space && Mods.SpectatorMode.IsSpectating)
+            {
+                Mods.SpectatorMode.ToggleView();
                 base.OnKeyDown(e);
                 return;
             }

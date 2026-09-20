@@ -1,4 +1,5 @@
-# The game server people join. One binary, no game files.
+# The game server people join. It runs the match, needs the game files, and
+# records bounded canonical replays by default.
 #
 # __USER__ and __DIR__ are placeholders: deploy-server.sh fills them in when
 # it installs this. By hand:

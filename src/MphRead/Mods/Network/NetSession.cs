@@ -312,7 +312,7 @@ namespace MphRead.Mods.Network
         {
             Stop();
             _playback = true;
-            _transport = new NetTransport(0);
+            _transport = new NetTransport(0, playbackOnly: true);
             Role = NetRole.Client;
             LocalSlot = -1;
             NetFrame = 0;
@@ -333,6 +333,40 @@ namespace MphRead.Mods.Network
         /// streams would otherwise refuse every rewound packet as stale,
         /// which is a worse version of the problem the rewind is fixing.
         /// </summary>
+        internal static void PreparePlaybackCheckpoint(uint netFrame)
+        {
+            RewindPlayback();
+            NetFrame = netFrame;
+        }
+
+        /// <summary>
+        /// Leave the playback-only transport attached to no server while preserving the
+        /// reconstructed scene. Replay Lab uses this instead of Stop(), whose job is to
+        /// erase the entire network/match session.
+        /// </summary>
+        internal static void DetachPlaybackForLab(int localSlot)
+        {
+            if (Role != NetRole.Client || _hostEndPoint != null)
+                throw new InvalidOperationException("Only a socket-free replay session can be detached.");
+
+            _transport?.Dispose();
+            _transport = null;
+            _hostEndPoint = null;
+            _peers.Clear();
+            IsAuthority = false;
+            _snapshotSink = null;
+            _serverMatchEnded = null;
+            Role = NetRole.Offline;
+            LocalSlot = Math.Clamp(localSlot, 0, PlayerEntity.SlotCapacity - 1);
+            ConnectionLost = false;
+            Refused = false;
+            _authorityNeedsStateApply = false;
+            NetUnlagged.Reset();
+            NetHitPrediction.Reset();
+            NetHitClaims.Reset();
+            NetSmoothing.Reset();
+        }
+
         public static void RewindPlayback()
         {
             ContinuousPhase.Reset();
@@ -396,6 +430,7 @@ namespace MphRead.Mods.Network
             NetPlayerSetup.Reset();
             SpectatorMode.Reset();
             DemoRecorder.Stop();
+            ReplayCapture.Reset();
             NetMatchSync.Reset();
             NetSlotManager.Reset();
             NetDamage.Reset();
@@ -600,6 +635,7 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static void Update(double time)
         {
+            DemoClip.Tick();
             if (Role == NetRole.Client && !DemoPlayback.IsActive) time = Clock;
             if (Role == NetRole.Server)
             {
@@ -742,6 +778,13 @@ namespace MphRead.Mods.Network
 
         private static void Handle(ReceivedPacket packet, double time)
         {
+            // Connection-control packets belong to the recorded client's original
+            // session, not to the spectator replaying it.
+            if (DemoPlayback.IsActive && packet.Type is PacketType.Welcome or PacketType.Authority
+                or PacketType.Bye or PacketType.Refused)
+            {
+                return;
+            }
             // Reconnects/authority handovers belong to the recording client's connection,
             // never to the spectator watching it. In particular Welcome must not assign a
             // local player, and Bye must not destroy the final replay scene.
@@ -1397,6 +1440,19 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static void ApplyRoster(RosterPacket roster)
         {
+            for (int slot = 0; slot < SlotOccupied.Length; slot++)
+            {
+                bool present = false;
+                for (int i = 0; i < roster.Count; i++)
+                {
+                    present |= roster.Slots[i] == slot;
+                }
+                if (present != SlotOccupied[slot])
+                {
+                    ReplayCapture.Event(present ? ReplayEventType.PlayerJoined
+                        : ReplayEventType.PlayerLeft, slot);
+                }
+            }
             if (!MatchesStream(roster.MatchId, roster.AuthorityEpoch)
                 || (_hasRoster && !NetLifecycleTracker.Newer(roster.Revision, _rosterRevision))) return;
             if (roster.Count > SlotOccupied.Length) return;
@@ -1446,6 +1502,7 @@ namespace MphRead.Mods.Network
                 GameState.Nicknames[slot] = roster.Names[i];
                 if (Enum.IsDefined(typeof(Hunter), roster.Hunters[i]))
                 {
+                    ReplayCapture.AcceptedState(state);
                     SlotHunter[slot] = (Hunter)roster.Hunters[i];
                 }
                 // What they asked for. PlayerColors decides what they get,
@@ -1474,6 +1531,14 @@ namespace MphRead.Mods.Network
         /// </summary>
         public static void ApplyMatchState(MatchStatePacket state, bool rotated)
         {
+            if (ServerMatch?.MatchId != state.MatchId)
+            {
+                ReplayCapture.Event(ReplayEventType.MatchStarted);
+            }
+            if (state.Ending && ServerMatch?.Ending != true)
+            {
+                ReplayCapture.Event(ReplayEventType.MatchEnded);
+            }
             if (state.MatchId == 0 || state.AuthorityEpoch == 0) return;
             MatchStatePacket? previous = ServerMatch;
             if (previous.HasValue)
@@ -1584,6 +1649,7 @@ namespace MphRead.Mods.Network
             _hasSnapshot = true;
             _lastSnapshotFrame = header.Frame;
             SnapshotArrived = Math.Max(NetFrame, 1);
+            ReplayCapture.Observe(packet.Data.AsSpan(0, packet.Length));
             SnapshotsReceived++;
             // Rng.cs reproduces the game's original LCG and its state is
             // global, so adopting the host's words keeps every random
@@ -1831,6 +1897,7 @@ namespace MphRead.Mods.Network
                 state.Kills = (ushort)Math.Clamp(GameState.Kills[i], 0, UInt16.MaxValue);
                 state.Deaths = (ushort)Math.Clamp(GameState.Deaths[i], 0, UInt16.MaxValue);
                 NetDamage.Write(i, ref state);
+                ReplayCapture.AcceptedState(state);
                 NetPlayerLifecycle.AcceptState(state, NetFrame);
                 state.Write(_scratch.AsSpan(offset));
                 offset += PlayerState.Size;

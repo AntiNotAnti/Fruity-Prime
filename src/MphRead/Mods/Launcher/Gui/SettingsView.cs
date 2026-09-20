@@ -23,7 +23,7 @@ namespace MphRead.Mods.Launcher.Gui
     /// the same strip of names across the top, the same two marks in the
     /// bottom corners.
     ///
-    /// Five pages: Display, Audio, Controls, Profile, Credits. There is no
+    /// Six pages: Display, Audio, Controls, Replays, Profile, Credits. There is no
     /// "Match rules" page -- point goal, time limit, damage, team play,
     /// friendly fire, hunter radar, affinity weapons and shadow freeze are
     /// not exposed here at all any more, and stay at whatever
@@ -58,7 +58,12 @@ namespace MphRead.Mods.Launcher.Gui
         public event EventHandler? GameFilesRequested;
 
         private ChoiceRow? _windowRow;
+        private ChoiceRow? _clipPostRollRow;
         private ChoiceRow? _clipSecondsRow;
+        private ChoiceRow? _replayStorageRow;
+        private ToggleRow? _replayAutoPruneRow;
+        private ToggleRow? _replayDeleteClipsRow;
+        private static readonly int[] _replayStorageStops = { 0, 5, 10, 25, 50 };
         private SliderRow _resolutionScale = null!;
         private ToggleRow _lightingRow = null!;
         private ToggleRow _fogRow = null!;
@@ -336,13 +341,14 @@ namespace MphRead.Mods.Launcher.Gui
         }
 
         /// <summary>
-        /// Five pages: display, audio, controls, profile and credits.
+        /// Six pages: display, audio, controls, replays, profile and credits.
         /// </summary>
         private void BuildPages()
         {
             BuildDisplay(AddSection("Display"));
             BuildAudio(AddSection("Audio"));
             BuildControls(AddSection("Controls"));
+            BuildReplays(AddSection("Replays"));
             BuildLauncher(AddSection("Profile"));
             BuildCredits(AddSection("Credits"));
         }
@@ -611,15 +617,48 @@ namespace MphRead.Mods.Launcher.Gui
                 () => InputSettings.ChatKey, k => InputSettings.ChatKey = k)));
             rows.Add(Add(page, new KeyRow("Save clip",
                 () => InputSettings.ClipKey, k => InputSettings.ClipKey = k)));
-            _clipSecondsRow = Add(page, new ChoiceRow("Clip length",
-                Array.ConvertAll(Mods.Network.DemoClip.Lengths, n => $"{n} seconds"),
-                Math.Max(0, Array.IndexOf(Mods.Network.DemoClip.Lengths,
-                    Mods.Network.DemoClip.Seconds))));
             foreach (PropertyInfo property in InputSettings.Bindings)
             {
                 rows.Add(Add(page, new KeyRow(property)));
             }
             _keyRows = rows;
+        }
+
+        // -------------------------------------------------------------- replays
+
+        private void BuildReplays(StackPanel page)
+        {
+            Heading(page, "Instant clips");
+            Explain(page, "Save the moments around the clip key without recording a full match. "
+                + "The rolling buffer stays in memory and only writes when you ask for a clip.");
+            _clipSecondsRow = Add(page, new ChoiceRow("Clip length",
+                Array.ConvertAll(Mods.Network.DemoClip.Lengths, n => $"{n} seconds"),
+                Math.Max(0, Array.IndexOf(Mods.Network.DemoClip.Lengths,
+                    Mods.Network.DemoClip.Seconds))));
+            _clipPostRollRow = Add(page, new ChoiceRow("Clip post-roll",
+                Array.ConvertAll(Mods.Network.DemoClip.PostRollLengths, n => $"{n} seconds"),
+                Math.Max(0, Array.IndexOf(Mods.Network.DemoClip.PostRollLengths,
+                    Mods.Network.DemoClip.PostRollSeconds))));
+
+            Heading(page, "Replay library");
+            Explain(page, "Full recordings, instant clips and recovered sessions appear under "
+                + "REPLAYS on the main screen. Files are stored in:\n"
+                + Mods.Network.DemoLibrary.Directory);
+
+            int storageIndex = Array.FindIndex(_replayStorageStops,
+                value => value == LauncherPrefs.ReplayStorageLimitGb);
+            if (storageIndex < 0) storageIndex = 2;
+            _replayStorageRow = Add(page, new ChoiceRow("Storage limit",
+                Array.ConvertAll(_replayStorageStops,
+                    value => value == 0 ? "Unlimited" : $"{value} GB"),
+                storageIndex));
+            _replayAutoPruneRow = Add(page, new ToggleRow("Auto-manage storage",
+                LauncherPrefs.ReplayAutoPrune));
+            _replayDeleteClipsRow = Add(page, new ToggleRow("Allow old clips to be pruned",
+                LauncherPrefs.ReplayDeleteClips));
+            Explain(page, "When the limit is reached, the oldest full-match recordings are "
+                + "removed first. Favorites are always protected. Clips remain protected unless "
+                + "you explicitly allow them to be pruned.");
         }
 
         /// <summary>Every key row, so Reset can redraw them from whichever page it is on.</summary>
@@ -1145,6 +1184,12 @@ namespace MphRead.Mods.Launcher.Gui
                 Mods.Input.StylusZone.Opacity = Math.Clamp(_stylusOpacity.Value / 100f, 0.02f, 1f);
             }
             InputSettings.ScrollAllWeapons = _scrollAllWeapons.On;
+            if (_clipPostRollRow != null)
+                Mods.Network.DemoClip.PostRollSeconds = Mods.Network.DemoClip.PostRollLengths[
+                    Math.Clamp(_clipPostRollRow.Index, 0, Mods.Network.DemoClip.PostRollLengths.Length - 1)];
+            if (_clipSecondsRow != null)
+                Mods.Network.DemoClip.Seconds = Mods.Network.DemoClip.Lengths[
+                    Math.Clamp(_clipSecondsRow.Index, 0, Mods.Network.DemoClip.Lengths.Length - 1)];
             if (_touchButtonsRow != null)
             {
                 Mods.Input.TouchSettings.ButtonsVisible = _touchButtonsRow.On;
@@ -1188,8 +1233,25 @@ namespace MphRead.Mods.Launcher.Gui
                 LauncherPrefs.MasterPort = masterPort;
             }
             LauncherPrefs.AutoUpdate = _autoUpdate.On;
+            if (_replayStorageRow != null)
+            {
+                LauncherPrefs.ReplayStorageLimitGb = _replayStorageStops[
+                    Math.Clamp(_replayStorageRow.Index, 0, _replayStorageStops.Length - 1)];
+            }
+            if (_replayAutoPruneRow != null)
+                LauncherPrefs.ReplayAutoPrune = _replayAutoPruneRow.On;
+            if (_replayDeleteClipsRow != null)
+                LauncherPrefs.ReplayDeleteClips = _replayDeleteClipsRow.On;
             GameState.CommitSettings(_settings);
             LauncherPrefs.Save();
+            if (LauncherPrefs.ReplayAutoPrune && LauncherPrefs.ReplayStorageLimitGb > 0)
+            {
+                Mods.Replay.ReplayStorageManager.Apply(new Mods.Replay.ReplayStoragePolicy(
+                    MaxBytes: LauncherPrefs.ReplayStorageLimitGb * 1024L * 1024L * 1024L,
+                    DeleteFullMatches: true,
+                    DeleteMaterializedClips: LauncherPrefs.ReplayDeleteClips,
+                    DeleteVirtualClips: false));
+            }
             // Written and *applied*: the volumes, the language and the match
             // rules were only ever put in the file, so a music slider moved
             // here would otherwise leave the music exactly where it was --

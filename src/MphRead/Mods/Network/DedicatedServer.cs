@@ -2,6 +2,7 @@ using System;
 using MphRead.Entities;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Threading;
@@ -326,6 +327,12 @@ namespace MphRead.Mods.Network
         public bool AutoUpdate { get; set; }
 
         /// <summary>
+        /// Canonical server replay recording/retention. Standalone dedicated servers
+        /// configure this before <see cref="Run"/>; hosted relay instances never use it.
+        /// </summary>
+        public ServerReplayPolicy ReplayPolicy { get; set; } = ServerReplayPolicy.Default;
+
+        /// <summary>
         /// Whether this server runs the match itself.
         ///
         /// <b>True by default, and the standalone <c>-server</c> process never
@@ -392,6 +399,10 @@ namespace MphRead.Mods.Network
             _transport = new NetTransport(_port);
             _running = true;
             Log($"listening on UDP {_transport.LocalPort}, up to {_maxPlayers} players");
+            if (RunsTheMatch)
+            {
+                ServerReplayRecorder.Configure(ReplayPolicy);
+            }
             _lobbyMatch = DefinitionFor(_rotation.Current);
             _phase = SessionPolicy == ServerSessionPolicy.Lobby ? SessionPhase.Lobby : SessionPhase.InMatch;
             if (_phase == SessionPhase.InMatch) StartSimulation();
@@ -586,6 +597,7 @@ namespace MphRead.Mods.Network
             // torn down. Stop() also ends the NetSession this process held as
             // the authority, which is what a restarting server has to have
             // done before it starts another.
+            ServerReplayRecorder.Stop();
             _sim?.Stop();
             _sim = null;
             NetHitClaims.VerdictSink = null;
@@ -618,6 +630,7 @@ namespace MphRead.Mods.Network
 
         private void AdvanceMap(double now)
         {
+            ServerReplayRecorder.Stop(matchEnded: true);
             RotationEntry entry = _rotation.Advance();
             _phase = SessionPhase.InMatch;
             NormalizeTeams();
@@ -707,11 +720,13 @@ namespace MphRead.Mods.Network
             {
                 NetSession.ApplyMatchState(state, rotated: false);
             }
+            state.Write(_scratch);
+            ServerReplayRecorder.Record(PacketType.MatchState,
+                _scratch.AsSpan(0, MatchStatePacket.Size));
             if (_peers.Count == 0)
             {
                 return;
             }
-            state.Write(_scratch);
             for (int i = 0; i < _peers.Count; i++)
             {
                 _transport?.Send(_peers[i].EndPoint, PacketType.MatchState,
@@ -781,9 +796,61 @@ namespace MphRead.Mods.Network
         private void SendSnapshot(ReadOnlySpan<byte> payload)
         {
             _lastSnapshot = payload.ToArray();
+            EnsureCanonicalReplay(payload);
+            ServerReplayRecorder.Record(PacketType.Snapshot, payload);
             for (int i = 0; i < _peers.Count; i++)
             {
                 _transport?.Send(_peers[i].EndPoint, PacketType.Snapshot, payload);
+            }
+        }
+
+        private void EnsureCanonicalReplay(ReadOnlySpan<byte> snapshot)
+        {
+            if (!ServerReplayRecorder.Enabled || ServerReplayRecorder.IsRecording
+                || _sim == null || _peers.Count == 0)
+            {
+                return;
+            }
+
+            try
+            {
+                MatchStatePacket state = BuildState(_now);
+                RosterPacket roster = BuildRoster();
+                byte[] statePacket = new byte[1 + MatchStatePacket.Size];
+                statePacket[0] = (byte)PacketType.MatchState;
+                state.Write(statePacket.AsSpan(1));
+                byte[] rosterPacket = new byte[1 + RosterPacket.Size];
+                rosterPacket[0] = (byte)PacketType.Roster;
+                roster.Write(rosterPacket.AsSpan(1));
+                byte[] snapshotPacket = new byte[1 + snapshot.Length];
+                snapshotPacket[0] = (byte)PacketType.Snapshot;
+                snapshot.CopyTo(snapshotPacket.AsSpan(1));
+
+                var players = new List<ReplayPlayerInfo>(roster.Count);
+                for (int i = 0; i < roster.Count; i++)
+                {
+                    players.Add(new ReplayPlayerInfo(roster.Slots[i], roster.Hunters[i], -1,
+                        roster.Names[i]));
+                }
+
+                var metadata = new ReplayMetadata
+                {
+                    Type = ReplayType.FullMatch,
+                    RoomKey = _rotation.Current.RoomKey,
+                    Mode = _rotation.Current.Mode,
+                    MapHash = ReplayMapIdentity.Compute(_rotation.Current.RoomKey),
+                    Players = players,
+                    Bootstrap = new ReplayBootstrap
+                    {
+                        Packets = new[] { statePacket, rosterPacket, snapshotPacket }
+                    }
+                };
+                ServerReplayRecorder.Start(metadata);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                or InvalidDataException or KeyNotFoundException)
+            {
+                Log($"canonical replay unavailable: {ex.Message}");
             }
         }
 
@@ -2045,11 +2112,13 @@ namespace MphRead.Mods.Network
                 NetSession.ApplyMatchState(BuildState(_now), rotated: false);
                 NetSession.ApplyRoster(roster);
             }
+            roster.Write(_scratch);
+            ServerReplayRecorder.Record(PacketType.Roster,
+                _scratch.AsSpan(0, RosterPacket.Size));
             if (_peers.Count == 0)
             {
                 return;
             }
-            roster.Write(_scratch);
             for (int i = 0; i < _peers.Count; i++)
             {
                 _transport?.Send(_peers[i].EndPoint, PacketType.Roster,
@@ -2109,6 +2178,7 @@ namespace MphRead.Mods.Network
                     return;
                 }
                 peer.LastIntentFrame = intent.Frame;
+                ServerReplayRecorder.RecordSlotIntent(peer.SlotIndex, packet.Payload);
                 // Only meaningful between the end of one match and the start
                 // of the next; read unconditionally because it costs nothing
                 // and a client that sets it early is simply ready early.

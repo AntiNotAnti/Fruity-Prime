@@ -165,6 +165,12 @@ namespace MphRead.Mods.Launcher
         /// </summary>
         public static bool DebugLogs { get; set; } = true;
 
+        /// <summary>Replay library soft limit. Zero means unlimited.</summary>
+        public static int ReplayStorageLimitGb { get; set; } = 10;
+        public static bool ReplayAutoPrune { get; set; } = true;
+        /// <summary>Full recordings prune first; clips remain protected unless opted in.</summary>
+        public static bool ReplayDeleteClips { get; set; }
+
 
         public static void Load()
         {
@@ -300,6 +306,26 @@ namespace MphRead.Mods.Launcher
                                 DebugLogs = debugLogs;
                             }
                             break;
+                        case "replay_storage_gb":
+                            if (Int32.TryParse(value, NumberStyles.Integer,
+                                CultureInfo.InvariantCulture, out int replayStorage)
+                                && replayStorage is >= 0 and <= 1024)
+                            {
+                                ReplayStorageLimitGb = replayStorage;
+                            }
+                            break;
+                        case "replay_auto_prune":
+                            if (Boolean.TryParse(value, out bool replayPrune))
+                            {
+                                ReplayAutoPrune = replayPrune;
+                            }
+                            break;
+                        case "replay_delete_clips":
+                            if (Boolean.TryParse(value, out bool replayDeleteClips))
+                            {
+                                ReplayDeleteClips = replayDeleteClips;
+                            }
+                            break;
                         case "last_kind":
                             if (Int32.TryParse(value, NumberStyles.Integer,
                                 CultureInfo.InvariantCulture, out int kind))
@@ -365,6 +391,9 @@ namespace MphRead.Mods.Launcher
                     $"last_kind={LastKind.ToString(CultureInfo.InvariantCulture)}",
                     $"auto_update={AutoUpdate.ToString().ToLowerInvariant()}",
                     $"debug_logs={DebugLogs.ToString().ToLowerInvariant()}",
+                    $"replay_storage_gb={ReplayStorageLimitGb.ToString(CultureInfo.InvariantCulture)}",
+                    $"replay_auto_prune={ReplayAutoPrune.ToString().ToLowerInvariant()}",
+                    $"replay_delete_clips={ReplayDeleteClips.ToString().ToLowerInvariant()}",
                     $"window_mode={(WindowMode == WindowStartMode.BorderlessFullscreen ? "borderless" : "windowed")}",
                     $"window_size={WindowWidth.ToString(CultureInfo.InvariantCulture)}x"
                         + WindowHeight.ToString(CultureInfo.InvariantCulture),
