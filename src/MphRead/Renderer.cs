@@ -88,6 +88,7 @@ namespace MphRead
         private Matrix4 _viewInvRotMatrix = Matrix4.Identity;
         private Matrix4 _viewInvRotYMatrix = Matrix4.Identity;
         private Matrix4 _perspectiveMatrix = Matrix4.Identity;
+        private Matrix4 _viewModelPerspectiveMatrix = Matrix4.Identity;
         public Matrix4 PerspectiveMatrix => _perspectiveMatrix;
 
         private CameraMode _cameraMode = CameraMode.Pivot;
@@ -113,6 +114,10 @@ namespace MphRead
         private Vector3 _cameraUp = Vector3.UnitY;
         private Vector3 _cameraRight = Vector3.UnitX;
         private float _cameraFov = MathHelper.DegreesToRadians(78);
+        // Camera-authored FOV before the player's world-FOV preference is
+        // applied. First-person geometry uses this so a wider room view does
+        // not stretch the arm cannon into a fisheye viewmodel.
+        private float _viewModelFov = MathHelper.DegreesToRadians(78);
         private bool _leftMouse = false;
         private int _activeCutscene = -1;
         private Vector3 _priorCameraPos = Vector3.Zero;
@@ -1845,6 +1850,7 @@ namespace MphRead
         {
             // todo: update this only when the viewport or camera values change
             _perspectiveMatrix = GetPerspectiveMatrix(_cameraFov);
+            _viewModelPerspectiveMatrix = GetPerspectiveMatrix(_viewModelFov);
             GL.UniformMatrix4(_shaderLocations.ProjectionMatrix, transpose: false, ref _perspectiveMatrix);
             // update frustum info
             Vector3 camPos = PlayerEntity.Main.CameraInfo.Position;
@@ -2787,12 +2793,13 @@ namespace MphRead
                     float fov = PlayerEntity.Main.CameraInfo.Fov > 0
                         ? PlayerEntity.Main.CameraInfo.Fov
                         : Mods.RenderOptions.DefaultFov;
-                    // The player's own setting, as a multiplier rather than a
-                    // number: what the camera asked for may be a zoom, a scope
-                    // or a scripted shot, and each of those keeps the
-                    // proportion it had on the cartridge. See
-                    // RenderOptions.FieldOfView.
-                    fov = Math.Clamp(fov * Mods.RenderOptions.FovScale, 1f, 175f);
+                    // Keep the camera-authored projection for first-person
+                    // geometry. The player's FOV widens the world, not the arm
+                    // cannon attached to the camera.
+                    _viewModelFov = MathHelper.DegreesToRadians(Math.Clamp(fov, 1f, 175f));
+                    // Preserve zoom/scope magnification in projection space,
+                    // where tan(FOV / 2) is the quantity that scales linearly.
+                    fov = Mods.RenderOptions.ScaleCameraFov(fov);
                     _cameraFov = MathHelper.DegreesToRadians(fov);
                 }
                 else
@@ -3671,6 +3678,25 @@ namespace MphRead
         private readonly List<RenderItem> _nonDecalItems = new List<RenderItem>();
         private readonly List<RenderItem> _translucentItems = new List<RenderItem>();
 
+        private bool _collectingViewModelItems;
+
+        /// <summary>
+        /// Mark render items emitted by the first-person weapon as camera
+        /// viewmodel geometry. The items stay in the normal material/depth
+        /// passes so transparency, decals and cel outlines keep working; only
+        /// their projection differs.
+        /// </summary>
+        internal void BeginViewModelItems()
+        {
+            Debug.Assert(!_collectingViewModelItems);
+            _collectingViewModelItems = true;
+        }
+
+        internal void EndViewModelItems()
+        {
+            _collectingViewModelItems = false;
+        }
+
         private RenderItem GetRenderItem()
         {
             if (_freeRenderItems.Count > 0)
@@ -3895,6 +3921,10 @@ namespace MphRead
 
         private void AddRenderItem(RenderItem item)
         {
+            // RenderItem instances are pooled. Always overwrite this flag so a
+            // recycled gun item cannot turn ordinary world geometry into a
+            // viewmodel on a later frame.
+            item.ViewModel = _collectingViewModelItems;
             // The results screen's hunter preview is drawn in a pass of its
             // own, with its own camera and its own depth buffer, so its items
             // must not join the world's three lists. See ModCollectPreview.
@@ -4409,6 +4439,11 @@ namespace MphRead
 
         private void RenderItem(RenderItem item)
         {
+            if (item.ViewModel)
+            {
+                GL.UniformMatrix4(_shaderLocations.ProjectionMatrix, transpose: false,
+                    ref _viewModelPerspectiveMatrix);
+            }
             UseLight1(item.LightInfo.Light1Vector, item.LightInfo.Light1Color);
             UseLight2(item.LightInfo.Light2Vector, item.LightInfo.Light2Color);
 
@@ -4504,6 +4539,12 @@ namespace MphRead
             else if (item.Type == RenderItemType.TrailStack)
             {
                 RenderTrailStack(item);
+            }
+            if (item.ViewModel)
+            {
+                // Nothing after this item should inherit the viewmodel lens.
+                GL.UniformMatrix4(_shaderLocations.ProjectionMatrix, transpose: false,
+                    ref _perspectiveMatrix);
             }
         }
 
@@ -4827,6 +4868,39 @@ namespace MphRead
             GL.UniformMatrix4(_shaderLocations.ProjectionMatrix, transpose: false, ref _perspectiveMatrix);
         }
 
+        private float _hudDrawScale = 1f;
+
+        internal float PushHudScale(float scale)
+        {
+            float previous = _hudDrawScale;
+            _hudDrawScale = Math.Clamp(scale, 0.5f, 1.5f);
+            return previous;
+        }
+
+        internal void RestoreHudScale(float scale)
+        {
+            _hudDrawScale = scale;
+        }
+
+        private float DiegeticHudFovScale(LayerInfo info)
+        {
+            bool visorOrHelmet = ReferenceEquals(info, Layer1Info)
+                || ReferenceEquals(info, Layer2Info)
+                || ReferenceEquals(info, Layer3Info);
+            if (!visorOrHelmet
+                || Features.ProHud
+                || PlayerEntity.Main?.ScanVisor == true
+                || _cameraMode != CameraMode.Player
+                || GameState.MenuPause
+                || GameState.DialogPause
+                || GameState.MatchState != MatchState.InProgress
+                || PlayerEntity.Main?.Flags1.TestFlag(PlayerFlags1.WeaponMenuOpen) == true)
+            {
+                return 1f;
+            }
+            return Mods.RenderOptions.HudFovScale;
+        }
+
         private void DrawHudLayer(LayerInfo info)
         {
             if (info.BindingId == -1)
@@ -4858,19 +4932,24 @@ namespace MphRead
                 width = viewWidth * info.ScaleX / 2 / (viewWidth / 2);
                 height = viewHeight * info.ScaleY / 2 / (viewHeight / 2);
             }
+            float fovScale = DiegeticHudFovScale(info);
+            width *= fovScale;
+            height *= fovScale;
+            float shiftX = info.ShiftX * fovScale;
+            float shiftY = info.ShiftY * fovScale;
             GL.Begin(PrimitiveType.TriangleStrip);
             // top right
             GL.TexCoord3(1f, 0f, 0f);
-            GL.Vertex3(width + info.ShiftX, height + info.ShiftY, 0f);
+            GL.Vertex3(width + shiftX, height + shiftY, 0f);
             // top left
             GL.TexCoord3(0f, 0f, 0f);
-            GL.Vertex3(-width + info.ShiftX, height + info.ShiftY, 0f);
+            GL.Vertex3(-width + shiftX, height + shiftY, 0f);
             // bottom right
             GL.TexCoord3(1f, 1f, 0f);
-            GL.Vertex3(width + info.ShiftX, -height + info.ShiftY, 0f);
+            GL.Vertex3(width + shiftX, -height + shiftY, 0f);
             // bottom left
             GL.TexCoord3(0f, 1f, 0f);
-            GL.Vertex3(-width + info.ShiftX, -height + info.ShiftY, 0f);
+            GL.Vertex3(-width + shiftX, -height + shiftY, 0f);
             GL.End();
             GL.BindTexture(TextureTarget.Texture2D, 0);
         }
@@ -5010,6 +5089,13 @@ namespace MphRead
         /// </summary>
         public void DrawHudFlatBox(float left, float top, float right, float bottom, Vector4 color)
         {
+            if (_hudDrawScale != 1f)
+            {
+                left = 128f + (left - 128f) * _hudDrawScale;
+                right = 128f + (right - 128f) * _hudDrawScale;
+                top = 96f + (top - 96f) * _hudDrawScale;
+                bottom = 96f + (bottom - 96f) * _hudDrawScale;
+            }
             float halfW = Size.X / 2f;
             float halfH = Size.Y / 2f;
             float x0 = (left / 256f * Size.X - halfW) / halfW;
@@ -5050,6 +5136,13 @@ namespace MphRead
             if (bindingId <= 0)
             {
                 return;
+            }
+            if (_hudDrawScale != 1f)
+            {
+                left = 128f + (left - 128f) * _hudDrawScale;
+                right = 128f + (right - 128f) * _hudDrawScale;
+                top = 96f + (top - 96f) * _hudDrawScale;
+                bottom = 96f + (bottom - 96f) * _hudDrawScale;
             }
             float halfW = Size.X / 2f;
             float halfH = Size.Y / 2f;
@@ -5229,6 +5322,11 @@ namespace MphRead
             }
             float x = inst.PositionX;
             float y = inst.PositionY;
+            if (_hudDrawScale != 1f)
+            {
+                x = 0.5f + (x - 0.5f) * _hudDrawScale;
+                y = 0.5f + (y - 0.5f) * _hudDrawScale;
+            }
             float width = inst.Width;
             float height = inst.Height;
             bool center = inst.Center;
@@ -5269,6 +5367,11 @@ namespace MphRead
             {
                 width *= scale;
                 height *= scale;
+            }
+            if (_hudDrawScale != 1f)
+            {
+                width *= _hudDrawScale;
+                height *= _hudDrawScale;
             }
             float viewLeft = -viewWidth / 2;
             float viewTop = viewHeight / 2;

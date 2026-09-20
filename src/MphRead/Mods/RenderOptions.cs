@@ -43,12 +43,11 @@ namespace MphRead.Mods
         /// The DS game is a 78: <c>PlayerValues.NormalFov</c> is 39 and every
         /// camera doubles it. That is a narrow picture by the standards of
         /// anything played with a mouse, and it is the single setting most
-        /// often asked for in a shooter -- so this is a multiplier on whatever
-        /// the camera asked for rather than a replacement for it. Zooming with
-        /// a weapon, the Judicator's scope and every scripted camera all move
-        /// <c>CameraInfo.Fov</c> themselves, and each of them keeps its
-        /// proportions: at 100 the zoom is as tight relative to the hip view
-        /// as it was on the cartridge.
+        /// often asked for in a shooter. The selected view scales the camera's
+        /// projection rather than replacing its authored FOV. Zooming with a
+        /// weapon, the Judicator's scope and every scripted camera all move
+        /// <c>CameraInfo.Fov</c> themselves, and each keeps the same projection
+        /// ratio to the hip view that it had on the cartridge.
         ///
         /// Clamped rather than free. Below about 60 the gun fills the screen;
         /// above 120 the projection distorts badly enough at the edges that
@@ -69,9 +68,46 @@ namespace MphRead.Mods
         public const int MaxFov = 120;
 
         /// <summary>
-        /// The multiplier a camera's own field of view is scaled by.
+        /// Scale a camera-authored FOV into the player's selected FOV while
+        /// preserving the camera's original zoom ratio.
+        ///
+        /// Perspective zoom is proportional to 1 / tan(FOV / 2), not to the
+        /// angle in degrees. Scaling degrees directly made scopes progressively
+        /// lose their intended magnification as the world FOV increased.
         /// </summary>
-        public static float FovScale => _fieldOfView / (float)DefaultFov;
+        public static float ScaleCameraFov(float cameraFov)
+        {
+            cameraFov = Math.Clamp(cameraFov, 1f, 175f);
+            float cameraHalfTan = HalfTan(cameraFov);
+            float defaultHalfTan = HalfTan(DefaultFov);
+            float selectedHalfTan = HalfTan(_fieldOfView);
+            float scaledHalfTan = cameraHalfTan * selectedHalfTan / defaultHalfTan;
+            float radians = 2f * MathF.Atan(scaledHalfTan);
+            return Math.Clamp(radians * 180f / MathF.PI, 1f, 175f);
+        }
+
+        /// <summary>
+        /// Compensates the cartridge HUD for a wider/narrower world view.
+        ///
+        /// The HUD is screen-space art while the world shrinks with increasing
+        /// FOV. A full projection match makes the DS HUD too small at the upper
+        /// end of the slider, so use the geometric mean: it follows the camera
+        /// enough to keep visor/readout proportions believable while retaining
+        /// the legibility expected from a HUD.
+        /// </summary>
+        public static float HudFovScale
+        {
+            get
+            {
+                float projectionRatio = HalfTan(DefaultFov) / HalfTan(_fieldOfView);
+                return Math.Clamp(MathF.Sqrt(projectionRatio), 0.65f, 1.25f);
+            }
+        }
+
+        private static float HalfTan(float degrees)
+        {
+            return MathF.Tan(degrees * MathF.PI / 360f);
+        }
 
         public static int ParseFov(string? value, int fallback)
         {
