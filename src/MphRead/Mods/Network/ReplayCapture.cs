@@ -99,7 +99,7 @@ namespace MphRead.Mods.Network
                     if (state.AttackerSlot < RosterPacket.MaxSlots && state.AttackerSlot != slot)
                         Event(ReplayEventType.Kill, state.AttackerSlot, slot);
                 }
-                if (old.DamageSeq != state.DamageSeq) Event(ReplayEventType.Damage, state.AttackerSlot, slot,
+                if (old.DamageEventId != state.DamageEventId) Event(ReplayEventType.Damage, state.AttackerSlot, slot,
                     Math.Max(0, old.Health - state.Health));
             }
             Previous[slot] = state; Known[slot] = true;
