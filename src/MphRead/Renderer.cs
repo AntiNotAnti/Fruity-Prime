@@ -2732,7 +2732,6 @@ namespace MphRead
                     GL.Uniform1(_shaderLocations.ViewHeight, (float)Size.Y);
                 }
                 PlayerEntity.Main.DrawHudObjects();
-                Mods.Replay.ReplayHud.Draw(this);
                 GL.Uniform1(_shaderLocations.UseMask, 0);
                 if (Layer1Info.MaskId != -1)
                 {
@@ -2754,6 +2753,10 @@ namespace MphRead
                 // the camera is not a player's.
                 PlayerEntity.Main.DrawHudObjects();
             }
+            // Replay controls and timeline belong to the presentation, not to
+            // a particular hunter's visor. Keep them visible in chase, orbit
+            // and free-camera modes as well as first-person playback.
+            Mods.Replay.ReplayHud.Draw(this);
             Mods.Input.AimAssist.AimAssistDebug.Draw(this);
             if (_movieFrameIndex != -1)
             {
