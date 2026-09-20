@@ -148,9 +148,11 @@ namespace MphRead
                 // the camera actually shown, without writing back into the hunter.
                 Mods.Replay.ReplayCamera.SaveKeyframe(_freeCam ? _cameraPosition : PlayerEntity.Main.CameraInfo.Position,
                     _freeCam ? _cameraFacing : PlayerEntity.Main.CameraInfo.Facing,
-                    _freeCam ? _cameraFov : MathHelper.DegreesToRadians(Math.Clamp(
-                        (PlayerEntity.Main.CameraInfo.Fov > 0 ? PlayerEntity.Main.CameraInfo.Fov : Mods.RenderOptions.DefaultFov)
-                        * Mods.RenderOptions.FovScale, 1, 175)));
+                    _freeCam ? _cameraFov : MathHelper.DegreesToRadians(
+                        Mods.RenderOptions.ScaleCameraFov(
+                            PlayerEntity.Main.CameraInfo.Fov > 0
+                                ? PlayerEntity.Main.CameraInfo.Fov
+                                : Mods.RenderOptions.DefaultFov)));
             }
             if (Mods.Replay.ReplayCamera.RestoreRequested)
             {
