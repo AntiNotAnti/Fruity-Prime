@@ -80,7 +80,19 @@ namespace MphRead.Mods.Network
         public static bool IsNewer(ushort value, ushort previous) => (short)(value - previous) > 0;
     }
 
-    public enum LobbyCommandType : byte { SetReady, SetTeam, UpdateMatch, StartMatch, KickPlayer, TransferOwner }
+    /// <summary>
+    /// Non-map choices carried by the existing post-match MapPick packet.
+    /// Keeping the reserved value in network protocol code lets both the
+    /// headless server and client UI agree without the server depending on UI state.
+    /// </summary>
+    public static class PostMatchChoice
+    {
+        public const string ReturnToLobbyKey = "__RETURN_TO_LOBBY__";
+        public static bool IsReturnToLobby(string roomKey) =>
+            String.Equals(roomKey, ReturnToLobbyKey, StringComparison.OrdinalIgnoreCase);
+    }
+
+    public enum LobbyCommandType : byte { SetReady, SetTeam, UpdateMatch, StartMatch, KickPlayer, TransferOwner, CloseLobby }
     public enum LobbyResultCode : byte
     {
         Ok, NotOwner, InvalidPhase, StaleRevision, InvalidConfiguration, InvalidTeam,
@@ -109,7 +121,7 @@ namespace MphRead.Mods.Network
         public static bool TryRead(ReadOnlySpan<byte> src, out LobbyCommandPacket command)
         {
             command = default;
-            if (src.Length != Size || src[6] > (byte)LobbyCommandType.TransferOwner || src[9] > 1) return false;
+            if (src.Length != Size || src[6] > (byte)LobbyCommandType.CloseLobby || src[9] > 1) return false;
             SessionStatePacket config = default;
             if (src[6] == (byte)LobbyCommandType.UpdateMatch
                 && !SessionStatePacket.TryRead(src[10..], out config)) return false;

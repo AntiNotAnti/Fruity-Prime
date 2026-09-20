@@ -77,9 +77,8 @@ namespace MphRead.Entities
         private const float EndRowName = 53.5f;     // the hunter's name, 9.6 tall
         private const float EndRowSuits = 67.5f;    // the four swatches, 8 tall + a 1.5 ring
         private const float EndRowSuitName = 79.5f; // "SUIT: ORANGE", 7.2 tall
-        private const float EndRowReady = 90;       // the button, EndReadyHeight tall
-        private const float EndRowNext = 107.5f;    // "NEXT: ROOM", 7.2 tall
-        private const float EndStackHeight = 118;   // and three units of floor under it
+        private const float EndRowNext = 90;        // "NEXT: ROOM", 7.2 tall
+        private const float EndStackHeight = 101;   // and four units of floor under it
 
         /// <summary>One row's top edge, in HUD units.</summary>
         private static float EndRow(float offset) => EndPanelTop + offset * EndScale;
@@ -206,20 +205,13 @@ namespace MphRead.Entities
                 $"SUIT: {Mods.HunterSuits.Name(Mods.HunterSuits.Color((Hunter)hunter, suit))}",
                 color: _endInk, fontSpacing: 8, scale: 0.45f * scale);
 
-            // Under the picker, because it is the answer to everything above
-            // it: the hunter, the suit, and "I have finished reading".
-            // What was just drawn, in the window's own coordinates, so a click
-            // is tested against the picture rather than against a second copy
-            // of this arithmetic. See EndScreen.NoteLayout.
-            EndScreen.Hit ready = DrawEndReady(centre, EndRow(EndRowReady), aspect);
-            EndScreen.NoteLayout(prev, forward, _endSuitHits, ready);
+            // Publish only the controls that still exist. Map selection below is
+            // the post-match action; there is no separate Ready gate anymore.
+            EndScreen.NoteLayout(prev, forward, _endSuitHits);
 
             string next = EndScreen.NextRoomName;
             if (next.Length > 0)
             {
-                // Below the button, not measured up from the panel's floor:
-                // measuring up from the floor is what put this line inside
-                // READY.
                 DrawText2D(centre, EndRow(EndRowNext), Align.Center, palette: 0,
                     $"NEXT: {next.ToUpperInvariant()}",
                     color: _endDim, fontSpacing: 8, scale: 0.45f * scale);
@@ -243,38 +235,6 @@ namespace MphRead.Entities
 
         /// <summary>Side of an arrow's clickable box, in HUD height units.</summary>
         private static float EndArrowBox => 12 * EndScale;
-
-        private static float EndReadyWidth => 68 * EndScale;
-        private static float EndReadyHeight => 14 * EndScale;
-
-        /// <summary>
-        /// The Ready button, lit once this player has pressed it.
-        ///
-        /// It says what it is for rather than only what it is: on a screen
-        /// where every other control changes what you will be next life, a
-        /// button that changes how long everyone waits has to say so, and
-        /// "WAITING FOR OTHERS" is the only feedback there is that the press
-        /// landed -- the countdown itself belongs to the server and this
-        /// machine only sees it get shorter.
-        /// </summary>
-        private EndScreen.Hit DrawEndReady(float centre, float top, float aspect)
-        {
-            float half = EndReadyWidth / 2 * aspect;
-            float left = centre - half;
-            float right = centre + half;
-            float bottom = top + EndReadyHeight;
-            bool on = EndScreen.Ready;
-            _scene.DrawHudFlatBox(left, top, right, bottom,
-                on ? _endReadyOn : EndScreen.HoveredReady ? _endArrowHover : _endArrowWell);
-            // 0.42 rather than 0.45: "WAITING FOR OTHERS" is eighteen
-            // characters and at the larger size it ran out of both ends of its
-            // own box.
-            DrawText2D(centre, top + 3.5f * EndScale, Align.Center, palette: 0,
-                on ? "WAITING FOR OTHERS" : Mods.Input.InputSourceTracker.Current == Mods.Input.InputSource.Gamepad
-                    ? Mods.Input.GamepadGlyphs.Resolve(Mods.Input.GamepadButtons.A).ToUpperInvariant() + " READY" : "READY",
-                color: on ? _endReadyInk : _endArrow, fontSpacing: 8, scale: 0.42f * EndScale);
-            return ModHudHit(left, top, right, bottom);
-        }
 
         /// <summary>
         /// One arrow on its own box, lit while the pointer is over it, and the
@@ -306,8 +266,6 @@ namespace MphRead.Entities
             return new EndScreen.Hit(left / 256f, top / 192f, right / 256f, bottom / 192f);
         }
 
-        private static readonly Vector4 _endReadyOn = new Vector4(0.35f, 0.85f, 0.4f, 0.42f);
-        private static readonly ColorRgba _endReadyInk = new ColorRgba(217, 255, 222, 255);
         private static readonly Vector4 _endArrowWell = new Vector4(1, 1, 1, 0.10f);
         private static readonly Vector4 _endArrowHover = new Vector4(1, 0.84f, 0.35f, 0.32f);
 

@@ -75,13 +75,9 @@ namespace MphRead.Mods
         private static volatile bool _panelUp;
 
         /// <summary>
-        /// Whether this player has said they are ready for the next match.
-        ///
-        /// Read straight off the results screen by the intent packet each
-        /// frame (IntentButtons.ReadyState) and by nothing else on this
-        /// machine: the server is what shortens the wait, because it is the
-        /// server that owns the rotation. Cleared when the screen goes, so it
-        /// never carries into the next match.
+        /// Legacy post-match ready state. The post-match lifecycle no longer
+        /// waits on it; map/return selection is the only between-match action.
+        /// Kept so older intent/state plumbing remains source-compatible.
         /// </summary>
         public static bool Ready { get; private set; }
 
@@ -96,10 +92,9 @@ namespace MphRead.Mods
 
         public static void ToggleReady()
         {
-            if (Available)
-            {
-                Ready = !Ready;
-            }
+            // Compatibility shim for older callers. Ready no longer participates
+            // in post-match progression, and current UIs expose no Ready action.
+            Ready = false;
         }
 
         /// <summary>The hunter queued for the next spawn, which is what is drawn.</summary>
@@ -197,7 +192,6 @@ namespace MphRead.Mods
         /// </summary>
         private static Hit _hitPrev;
         private static Hit _hitNext;
-        private static Hit _hitReady;
         private static readonly Hit[] _hitSuits = new Hit[PlayerColors.Count];
 
         public static float PointerX { get; private set; } = -1;
@@ -260,7 +254,6 @@ namespace MphRead.Mods
         {
             _hitPrev = previous;
             _hitNext = next;
-            _hitReady = ready;
             for (int i = 0; i < _hitSuits.Length && i < suits.Length; i++)
             {
                 _hitSuits[i] = suits[i];
@@ -286,7 +279,9 @@ namespace MphRead.Mods
 
         public static bool HoveredPrev => Available && _hitPrev.Contains(PointerX, PointerY);
         public static bool HoveredNext => Available && _hitNext.Contains(PointerX, PointerY);
-        public static bool HoveredReady => Available && _hitReady.Contains(PointerX, PointerY);
+        // Kept for source compatibility with older result renderers. There is
+        // no post-match Ready target anymore.
+        public static bool HoveredReady => false;
 
         /// <summary>
         /// A left click, offered before anything else sees it. Returns true
@@ -311,11 +306,6 @@ namespace MphRead.Mods
             if (_hitNext.Contains(PointerX, PointerY))
             {
                 Step(1, 0);
-                return true;
-            }
-            if (_hitReady.Contains(PointerX, PointerY))
-            {
-                ToggleReady();
                 return true;
             }
             for (int i = 0; i < _hitSuits.Length; i++)
@@ -361,16 +351,14 @@ namespace MphRead.Mods
                     StepList(1);
                     return true;
                 case Keys.Space:
+                case Keys.Enter:
+                case Keys.KeyPadEnter:
                     if (MapPick.Available)
                     {
                         MapPick.ChooseCursor();
                         return true;
                     }
                     return false;
-                case Keys.Enter:
-                case Keys.KeyPadEnter:
-                    ToggleReady();
-                    return true;
             }
             return false;
         }
@@ -391,8 +379,10 @@ namespace MphRead.Mods
                     case Input.UiAction.Right: Step(1, 0); break;
                     case Input.UiAction.Up: StepList(-1); break;
                     case Input.UiAction.Down: StepList(1); break;
-                    case Input.UiAction.Accept: ToggleReady(); break;
-                    case Input.UiAction.NextTab: if (MapPick.Available) MapPick.ChooseCursor(); break;
+                    case Input.UiAction.Accept:
+                    case Input.UiAction.NextTab:
+                        if (MapPick.Available) MapPick.ChooseCursor();
+                        break;
                 }
             };
             return router;
