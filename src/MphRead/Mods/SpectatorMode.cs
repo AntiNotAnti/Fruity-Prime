@@ -108,25 +108,6 @@ namespace MphRead.Mods
             Network.ReplayController.NoteInput();
         }
 
-        public static void CyclePrevious()
-        {
-            if (!IsSpectating) return;
-            int count = PlayerEntity.Players.Count;
-            int from = PlayerEntity.MainPlayerIndex;
-            for (int offset = 1; offset <= count; offset++)
-            {
-                int slot = (from - offset + count) % count;
-                var player = PlayerEntity.Players[slot];
-                if (slot != Network.NetHooks.LocalSlot && player.LoadFlags.TestFlag(LoadFlags.Active)
-                    && player.LoadFlags.TestFlag(LoadFlags.Spawned) && player.Health > 0)
-                {
-                    _cameraRequest = false;
-                    Switch(slot);
-                    return;
-                }
-            }
-        }
-
         public static void CycleNext()
         {
             if (!IsSpectating)
