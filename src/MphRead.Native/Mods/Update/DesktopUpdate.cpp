@@ -6,6 +6,7 @@
 #include "UpdateDownload.hpp"
 #include "../../NativeRuntime/System/Console.hpp"
 #include "../../NativeRuntime/System/Encoding.hpp"
+#include "../../NativeRuntime/System/ExceptionText.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/ArchiveFile.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
@@ -748,7 +749,8 @@ namespace MphRead::Mods::Update
         catch (const std::exception& ex)
         {
             SetLastError(ex.what());
-            std::cout << "[update] could not stage the update: " << ex.what() << '\n';
+            std::cout << "[update] could not stage the update: "
+                << ::MphRead::NativeRuntime::ExceptionToString(ex) << '\n';
             return false;
         }
         catch (...)
@@ -782,7 +784,8 @@ namespace MphRead::Mods::Update
         catch (const std::exception& ex)
         {
             SetLastError(ex.what());
-            std::cout << "[update] could not start the update: " << ex.what() << '\n';
+            std::cout << "[update] could not start the update: "
+                << ::MphRead::NativeRuntime::ExceptionToString(ex) << '\n';
             return false;
         }
         catch (...)
@@ -934,6 +937,15 @@ namespace MphRead::Mods::Update
                 static_cast<int>(error), std::system_category());
         }
 #else
+        if (pid <= 0)
+        {
+            // GetProcessById rejects non-positive PIDs. The parse-failure
+            // sentinel -1 must never reach kill(-1, 0), which queries every
+            // process the caller may signal.
+            Sleep(400ms);
+            return;
+        }
+
         bool exists = false;
         if (::kill(static_cast<pid_t>(pid), 0) == 0)
         {
