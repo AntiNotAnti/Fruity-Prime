@@ -586,7 +586,8 @@ namespace MphRead::Mods
             {
                 return "Mouse middle";
             }
-            return "Mouse " + std::to_string(EnumValue(button) + 1);
+            return "Mouse " + std::to_string(
+                ::MphRead::NativeRuntime::UncheckedAdd(EnumValue(button), std::int32_t{1}));
         }
         if (type == ButtonTypeScrollUp)
         {
@@ -724,8 +725,7 @@ namespace MphRead::Mods
     void InputSettings::Load()
     {
         Input::GamepadProfiles::Initialize();
-        const std::filesystem::path path = Path();
-        if (!FileExists(PathToUtf8(path)))
+        if (!FileExists(PathToUtf8(Path())))
         {
             return;
         }
@@ -734,7 +734,7 @@ namespace MphRead::Mods
         {
             std::optional<bool> stylusMode;
             std::optional<bool> legacyGuard;
-            const std::vector<std::string> lines = FileReadAllLines(PathToUtf8(path));
+            const std::vector<std::string> lines = FileReadAllLines(PathToUtf8(Path()));
             for (const std::string& raw : lines)
             {
                 const std::string line = ::MphRead::NativeRuntime::StringTrim(raw);
