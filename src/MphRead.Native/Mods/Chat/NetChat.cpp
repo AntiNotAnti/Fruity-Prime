@@ -5,10 +5,12 @@
 #include "../Network/NetProtocol.hpp"
 #include "../Network/NetSession.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 namespace MphRead::Mods::Chat
 {
     using Network::ChatPacket;
+    using ::MphRead::NativeRuntime::UncheckedAdd;
 
     std::vector<std::string> NetChat::_history{};
     std::vector<std::pair<std::string, bool>> NetChat::_entries{};
@@ -18,7 +20,7 @@ namespace MphRead::Mods::Chat
     {
         _history.clear();
         _entries.clear();
-        _revision++;
+        _revision = UncheckedAdd(_revision, 1);
     }
 
     void NetChat::Receive(const ChatPacket& packet)
@@ -38,7 +40,7 @@ namespace MphRead::Mods::Chat
         _history.push_back(packet.Kind == ChatPacket::KindSystem ? text
             : std::string(packet.Kind == ChatPacket::KindTeam ? "[Team] " : "") + packet.Name.value_or("") + ": " + text);
         _entries.emplace_back(_history.back(), packet.Kind == ChatPacket::KindSystem);
-        _revision++;
+        _revision = UncheckedAdd(_revision, 1);
     }
 
     void NetChat::Send(const std::string& text)
