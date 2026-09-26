@@ -187,9 +187,9 @@ namespace MphRead::Mods::Update
         public:
             CurlTransfer(std::string url, std::string userAgent,
                 std::chrono::milliseconds timeout, CancellationToken cancel)
-                : _url(std::move(url)), _userAgent(std::move(userAgent))
+                : _url(std::move(url)), _userAgent(std::move(userAgent)), _cancel(cancel)
             {
-                (void)cancel;
+                ThrowIfCancellationRequested();
                 static std::once_flag curlOnce;
                 static CURLcode curlInit = CURLE_OK;
                 std::call_once(curlOnce, []
@@ -243,6 +243,9 @@ namespace MphRead::Mods::Update
                 SetEasy(CURLOPT_HEADERDATA, this);
                 SetEasy(CURLOPT_WRITEFUNCTION, &CurlTransfer::WriteThunk);
                 SetEasy(CURLOPT_WRITEDATA, this);
+                SetEasy(CURLOPT_NOPROGRESS, 0L);
+                SetEasy(CURLOPT_XFERINFOFUNCTION, &CurlTransfer::ProgressThunk);
+                SetEasy(CURLOPT_XFERINFODATA, this);
 
                 const CURLMcode add = curl_multi_add_handle(_multi, _easy);
                 if (add != CURLM_OK)
@@ -265,9 +268,11 @@ namespace MphRead::Mods::Update
             {
                 for (;;)
                 {
+                    ThrowIfCancellationRequested();
                     Perform();
                     if (_headersComplete && !_redirecting)
                     {
+                        ThrowIfCancellationRequested();
                         _responseExposed = true;
                         // With ResponseHeadersRead, HttpClient.Timeout covers the
                         // SendAsync operation only. Content reads are outside it.
@@ -281,6 +286,7 @@ namespace MphRead::Mods::Update
                     }
                     if (_done)
                     {
+                        ThrowIfCancellationRequested();
                         if (_result != CURLE_OK)
                         {
                             ThrowCurl(_result);
@@ -364,6 +370,14 @@ namespace MphRead::Mods::Update
             }
 
         private:
+            void ThrowIfCancellationRequested() const
+            {
+                if (_cancel != nullptr && _cancel->stop_requested())
+                {
+                    throw OperationCanceledException();
+                }
+            }
+
             template <typename T>
             void SetEasy(CURLoption option, T value)
             {
@@ -506,6 +520,19 @@ namespace MphRead::Mods::Update
                 }
             }
 
+            static int ProgressThunk(void* opaque, curl_off_t, curl_off_t,
+                curl_off_t, curl_off_t) noexcept
+            {
+                const auto* self = static_cast<const CurlTransfer*>(opaque);
+                // ResponseHeadersRead ends HttpClient.Send's cancellation
+                // window when headers are exposed; the body loop checks the
+                // token after each synchronous read, as the C# source does.
+                return !self->_responseExposed
+                    && self->_cancel != nullptr
+                    && self->_cancel->stop_requested()
+                        ? 1 : 0;
+            }
+
             void OnHeader(std::string_view line)
             {
                 if (_responseExposed)
@@ -574,6 +601,7 @@ namespace MphRead::Mods::Update
 
             std::string _url;
             std::string _userAgent;
+            CancellationToken _cancel = nullptr;
             CURL* _easy = nullptr;
             CURLM* _multi = nullptr;
             curl_slist* _headers = nullptr;
@@ -1006,6 +1034,10 @@ namespace MphRead::Mods::Update
                 // ReadAsStreamAsync(...) is the outer using and FileStream is
                 // the inner using in C#: target therefore closes first, then
                 // the response content stream, before destination replacement.
+                if (cancel != nullptr && cancel->stop_requested())
+                {
+                    throw OperationCanceledException();
+                }
                 CurlContentStream source(*concrete);
                 OutputFile target(partial);
                 std::vector<char> buffer;
@@ -1023,9 +1055,12 @@ namespace MphRead::Mods::Update
                         {
                             break;
                         }
-                        // This synchronous body-read loop does not poll the
-                        // CancellationToken between chunks.
-                        (void)cancel;
+                        // C# checks cancellation after each successful Read
+                        // and before writing the returned chunk.
+                        if (cancel != nullptr && cancel->stop_requested())
+                        {
+                            throw OperationCanceledException();
+                        }
                         target.Write(buffer.data(), read);
                         done = AddUnchecked(done, read);
                         if (progress)
