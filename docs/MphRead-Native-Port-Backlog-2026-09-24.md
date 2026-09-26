@@ -136,11 +136,11 @@
 | M | +135/-28 | `Mods/EndScreen.cs` | .cpp,.hpp | 完了 |
 | M | +76/-5 | `Mods/WindowMode.cs` | .cpp,.hpp | 完了 |
 | M | +63/-6 | `Mods/ScreenCapture.cs` | .cpp,.hpp | — |
-| M | +47/-15 | `Mods/InputSettings.cs` | .cpp,.hpp | 完了 |
-| M | +43/-0 | `Mods/RenderOptions.cs` | .cpp,.hpp | 完了 |
-| M | +40/-0 | `Mods/SpectatorMode.cs` | .cpp,.hpp | 完了 |
-| M | +10/-18 | `Mods/ThumbnailCapture.cs` | .cpp,.hpp | — |
-| M | +8/-7 | `Mods/GameSettings.cs` | .cpp,.hpp | 完了 |
+| M | +47/-15 | `Mods/InputSettings.cs` | .cpp,.hpp | 完了（C#全文・PlayerControls/SettingsView/ModEntry/CompatibilityCheck/Renderer/ChatBox/入力診断の直接呼び出し監査済、保存パス再評価とunchecked演算を修正、Windows Release build済） |
+| M | +43/-0 | `Mods/RenderOptions.cs` | .cpp,.hpp | 完了（C#全文・GameSettings/ModEntry/Renderer/Scene/SettingsView/DebugLog直接呼び出し監査済、verified no-op、Windows Release build済） |
+| M | +40/-0 | `Mods/SpectatorMode.cs` | .cpp,.hpp | 完了（C#全文・Renderer/NetHooks/NetSession/NetSessionLobby/NetCheckClient/入力・画面の直接呼び出し監査済、verified no-op、Windows Release build済） |
+| M | +10/-18 | `Mods/ThumbnailCapture.cs` | .cpp,.hpp | 完了（C#全文・ModEntry/ThumbnailBatch/GlfwPathCheck/ThumbnailWindowCheck直接呼び出し監査済、撮影待機・再試行・camera override・cleanup一致、verified no-op、Windows Release build済） |
+| M | +8/-7 | `Mods/GameSettings.cs` | .cpp,.hpp | 完了（C#全文・Shell/SettingsView/TextLauncher/Renderer/RenderOptions/FrameTiming直接呼び出し監査済、verified no-op、Windows Release build済） |
 | M | +6/-1 | `Mods/ThumbnailLog.cs` | .cpp,.hpp | — |
 
 ## 4. Update — 4 ファイル (新規 0), C# +152 行
