@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <exception>
 #include <memory>
+#include <stop_token>
 
 namespace MphRead::Mods::Update
 {
@@ -13,10 +14,10 @@ namespace MphRead::Mods::Update
         ResponseHeadersRead = 1
     };
 
-    // Opaque adapter value for System.Threading.CancellationToken. nullptr is
-    // the default, non-cancelable token; non-default values are forwarded
-    // unchanged through SendAsync.
-    using CancellationToken = const void*;
+    // Non-owning adapter for System.Threading.CancellationToken. nullptr is
+    // the default, non-cancelable token; adapters that poll a supplied stop
+    // token can interrupt their synchronous request while libcurl is waiting.
+    using CancellationToken = const std::stop_token*;
 
     class HttpRequestMessage
     {

@@ -662,6 +662,7 @@ namespace MphRead::Mods::Update
         {
             std::string* Body = nullptr;
             std::exception_ptr Failure;
+            CancellationToken Cancel = nullptr;
         };
 
         std::size_t CurlWrite(char* data, std::size_t size, std::size_t count,
@@ -681,12 +682,27 @@ namespace MphRead::Mods::Update
             }
         }
 
+        int CurlProgress(void* opaque, curl_off_t, curl_off_t,
+            curl_off_t, curl_off_t) noexcept
+        {
+            const auto* context = static_cast<const CurlWriteContext*>(opaque);
+            return context->Cancel != nullptr && context->Cancel->stop_requested()
+                ? 1 : 0;
+        }
+
         [[nodiscard]] std::unique_ptr<HttpResponseMessage> PerformRequest(
             const CurlRequestMessage& request,
             std::chrono::milliseconds timeout,
             std::string_view userAgent,
-            std::string_view accept)
+            std::string_view accept,
+            CancellationToken cancel)
         {
+            if (cancel != nullptr && cancel->stop_requested())
+            {
+                throw NamedException(
+                    "TaskCanceledException", "The operation was canceled.");
+            }
+
             static std::once_flag curlOnce;
             static CURLcode curlInit = CURLE_OK;
             std::call_once(curlOnce, []
@@ -726,7 +742,7 @@ namespace MphRead::Mods::Update
             headers.reset(rawHeaders);
 
             auto response = std::make_unique<CurlResponseMessage>();
-            CurlWriteContext context{&response->Body, nullptr};
+            CurlWriteContext context{&response->Body, nullptr, cancel};
             const std::string url = request.Url;
             const std::string agent(userAgent);
 
@@ -744,6 +760,9 @@ namespace MphRead::Mods::Update
             curl_easy_setopt(easy.get(), CURLOPT_NOSIGNAL, 1L);
             curl_easy_setopt(easy.get(), CURLOPT_WRITEFUNCTION, &CurlWrite);
             curl_easy_setopt(easy.get(), CURLOPT_WRITEDATA, &context);
+            curl_easy_setopt(easy.get(), CURLOPT_NOPROGRESS, 0L);
+            curl_easy_setopt(easy.get(), CURLOPT_XFERINFOFUNCTION, &CurlProgress);
+            curl_easy_setopt(easy.get(), CURLOPT_XFERINFODATA, &context);
 
             const CURLcode code = curl_easy_perform(easy.get());
             if (context.Failure)
@@ -752,9 +771,12 @@ namespace MphRead::Mods::Update
             }
             if (code != CURLE_OK)
             {
-                if (code == CURLE_OPERATION_TIMEDOUT)
+                if (code == CURLE_OPERATION_TIMEDOUT
+                    || (code == CURLE_ABORTED_BY_CALLBACK
+                        && cancel != nullptr && cancel->stop_requested()))
                 {
-                    throw NamedException("TaskCanceledException", curl_easy_strerror(code));
+                    throw NamedException(
+                        "TaskCanceledException", curl_easy_strerror(code));
                 }
                 throw NamedException("HttpRequestException", curl_easy_strerror(code));
             }
@@ -838,7 +860,6 @@ namespace MphRead::Mods::Update
                 HttpCompletionOption completion,
                 CancellationToken cancel) override
             {
-                (void)cancel;
                 try
                 {
                     if (completion != HttpCompletionOption::ResponseContentRead)
@@ -851,7 +872,7 @@ namespace MphRead::Mods::Update
                         throw NullReferenceException();
                     }
                     return std::make_unique<CurlTask>(PerformRequest(*concrete,
-                        _timeout, _userAgent, _accept));
+                        _timeout, _userAgent, _accept, cancel));
                 }
                 catch (...)
                 {

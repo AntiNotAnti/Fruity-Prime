@@ -1023,10 +1023,8 @@ namespace MphRead::Mods::Update
                         {
                             break;
                         }
-                        // SyncHttp's canonical CancellationToken is intentionally
-                        // opaque. The value is forwarded to SendAsync above, but this
-                        // pair has no query operation corresponding to
-                        // CancellationToken.ThrowIfCancellationRequested().
+                        // This synchronous body-read loop does not poll the
+                        // CancellationToken between chunks.
                         (void)cancel;
                         target.Write(buffer.data(), read);
                         done = AddUnchecked(done, read);
