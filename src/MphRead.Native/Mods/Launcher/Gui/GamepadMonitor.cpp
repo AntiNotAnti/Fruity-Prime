@@ -40,9 +40,9 @@ namespace MphRead::Mods::Launcher::Gui
         const std::optional<PadInput::GamepadDeviceSnapshot> device = PadInput::GamepadManager::ActiveDevice();
         const PadInput::GamepadSnapshot snapshot = PadInput::GamepadManager::Snapshot();
         const PadInput::GamepadState& state = snapshot.State;
-        _raw = device.has_value() ? device->RawState : PadInput::GamepadState{};
+        _raw = device.has_value() ? device->RawState() : PadInput::GamepadState{};
         const std::string status = device.has_value()
-            ? device->Name + " | " + device->Mapping
+            ? device->Name() + " | " + device->Mapping()
             : "No controller detected. Connect it and press a button.";
         const std::string buttons = state.Buttons == PadInput::GamepadButtons::None
             ? "Press a button to test it" : PadInput::PadBindings::Describe(state.Buttons);

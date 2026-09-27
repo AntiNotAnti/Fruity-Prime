@@ -50,7 +50,7 @@ namespace MphRead::Mods::Input
         else if (GamepadOptions::GlyphStyle() == GamepadFamily::Unknown)
         {
             const std::optional<GamepadDeviceSnapshot> active = GamepadManager::ActiveDevice();
-            style = active.has_value() ? active->Family : GamepadFamily::Generic;
+            style = active.has_value() ? active->Family() : GamepadFamily::Generic;
         }
         else
         {

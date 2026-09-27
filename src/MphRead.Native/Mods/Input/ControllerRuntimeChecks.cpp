@@ -37,14 +37,14 @@ namespace MphRead::Mods::Input
         {
             for (const GamepadDeviceSnapshot& device : GamepadManager::Devices())
             {
-                GamepadManager::RemoveDevice(device.DeviceId);
+                GamepadManager::RemoveDevice(device.DeviceId());
             }
         };
         const auto find = [](const std::string& id)
         {
             for (const GamepadDeviceSnapshot& device : GamepadManager::Devices())
             {
-                if (device.DeviceId == id)
+                if (device.DeviceId() == id)
                 {
                     return device;
                 }
@@ -70,7 +70,7 @@ namespace MphRead::Mods::Input
         GamepadManager::UpdateDevice("runtime-b", input, true);
         const GamepadDeviceSnapshot a = find("runtime-a");
         const GamepadDeviceSnapshot b = find("runtime-b");
-        check(a.State.LeftTrigger == 0 && b.State.LeftTrigger > .2F && a.State.LeftX == 0 && b.State.LeftX == .1F,
+        check(a.State().LeftTrigger == 0 && b.State().LeftTrigger > .2F && a.State().LeftX == 0 && b.State().LeftX == .1F,
             "simultaneous devices process their own calibration before selection");
         GamepadManager::SelectDevice("runtime-a");
         check(GamepadOptions::LeftTriggerMin() == .3F && GamepadManager::ActiveState().LeftX == 0, "switch publishes correct runtime immediately");
@@ -83,7 +83,7 @@ namespace MphRead::Mods::Input
         GamepadState moved{};
         moved.LeftX = .6F;
         GamepadManager::UpdateDevice("runtime-a", moved, true);
-        check(a.State.LeftX == 0, "published snapshot is immutable after device updates");
+        check(a.State().LeftX == 0, "published snapshot is immutable after device updates");
         bool reentered = false;
         const std::int64_t token = GamepadManager::ActiveChanged.Add([&reentered]()
         {

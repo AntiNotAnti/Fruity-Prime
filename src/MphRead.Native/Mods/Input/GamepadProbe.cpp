@@ -118,15 +118,15 @@ namespace MphRead::Mods::Input
                 const std::optional<GamepadDeviceSnapshot> active = GamepadManager::ActiveDevice();
                 for (const GamepadDeviceSnapshot& device : GamepadManager::Devices())
                 {
-                    const auto left = GamepadAnalog::ApplyRadialDeadZone(device.State.LeftX, device.State.LeftY,
+                    const auto left = GamepadAnalog::ApplyRadialDeadZone(device.State().LeftX, device.State().LeftY,
                         GamepadOptions::LeftInner(), GamepadOptions::LeftOuter());
-                    const auto right = GamepadAnalog::ApplyRadialDeadZone(device.State.RightX, device.State.RightY,
+                    const auto right = GamepadAnalog::ApplyRadialDeadZone(device.State().RightX, device.State().RightY,
                         GamepadOptions::RightInner(), GamepadOptions::RightOuter());
-                    line += "\n    " + device.DeviceId + " " + ToString(device.Family)
-                        + " mapped=" + (device.IsMapped ? "True" : "False")
+                    line += "\n    " + device.DeviceId() + " " + ToString(device.Family())
+                        + " mapped=" + (device.IsMapped() ? "True" : "False")
                         + " active=" + (active.has_value() && device == *active ? "True" : "False")
-                        + " mapping=" + device.Mapping + " capabilities=" + ToString(device.Capabilities)
-                        + " " + Describe(device.State) + " processed L" + Pair(left) + " R" + Pair(right);
+                        + " mapping=" + device.Mapping() + " capabilities=" + ToString(device.Capabilities())
+                        + " " + Describe(device.State()) + " processed L" + Pair(left) + " R" + Pair(right);
                 }
                 for (std::int32_t slot = 0; slot < 16; slot++)
                 {

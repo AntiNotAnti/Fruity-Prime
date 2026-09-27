@@ -45,18 +45,8 @@ namespace MphRead::Mods::Input
 
     GamepadDeviceSnapshot GamepadDevice::Snapshot() const
     {
-        GamepadDeviceSnapshot snapshot{};
-        snapshot.DeviceId = DeviceId;
-        snapshot.Name = Name;
-        snapshot.ProfileKey = ProfileKey;
-        snapshot.Family = Family;
-        snapshot.Capabilities = Capabilities;
-        snapshot.IsMapped = IsMapped;
-        snapshot.Mapping = Mapping;
-        snapshot.State = State;
-        snapshot.RawState = RawState;
-        snapshot.Revision = Revision;
-        return snapshot;
+        return GamepadDeviceSnapshot(DeviceId, Name, ProfileKey, Family, Capabilities, IsMapped, Mapping,
+            State, RawState, {}, Revision);
     }
 
     std::recursive_mutex GamepadManager::Gate{};

@@ -519,7 +519,7 @@ namespace MphRead::Mods::Input
     {
         static_cast<void>(Find(name));
         std::map<std::string, std::string> assignments = _library.Assignments;
-        assignments[device.ProfileKey] = name;
+        assignments[device.ProfileKey()] = name;
         if (assignments.size() > 128)
         {
             throw InvalidDataException("Too many controller assignments.");
@@ -531,7 +531,7 @@ namespace MphRead::Mods::Input
     void GamepadProfiles::Unassign(const GamepadDeviceSnapshot& device)
     {
         std::map<std::string, std::string> assignments = _library.Assignments;
-        assignments.erase(device.ProfileKey);
+        assignments.erase(device.ProfileKey());
         Commit(GamepadProfileLibrary{_library.Profiles, std::move(assignments)});
         GamepadManager::RefreshProfiles();
     }

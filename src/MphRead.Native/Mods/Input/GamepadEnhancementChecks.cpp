@@ -267,15 +267,13 @@ namespace MphRead::Mods::Input
                 "profile round-trip retains aim, wheel and combinations");
             const std::string stable = GamepadProfiles::DeviceKey("glfw:guid:0:1");
             Check(stable == GamepadProfiles::DeviceKey("glfw:guid:3:8"), "automatic profile key survives slot changes and reconnects");
-            GamepadDeviceSnapshot device{};
-            device.DeviceId = "glfw:guid:0:1";
-            device.ProfileKey = stable;
+            const GamepadDeviceSnapshot device("glfw:guid:0:1", {}, stable);
             GamepadOptions::ScopedX(1);
             GamepadProfiles::Assign("Precision", device);
-            GamepadManager::UpdateDevice(device.DeviceId, {}, true);
-            GamepadManager::SelectDevice(device.DeviceId);
+            GamepadManager::UpdateDevice(device.DeviceId(), {}, true);
+            GamepadManager::SelectDevice(device.DeviceId());
             Check(GamepadOptions::ScopedX() == .65F, "assigned controller automatically loads its saved profile");
-            GamepadManager::RemoveDevice(device.DeviceId);
+            GamepadManager::RemoveDevice(device.DeviceId());
             Check(GamepadOptions::ScopedX() == 1, "unassigned device restores the prior manual settings");
             // JsonSerializer.Serialize(new GamepadProfile(1, "Bad", ...)).
             Runtime::FileWriteAllText(path, "{\"Version\":1,\"Name\":\"Bad\",\"Settings\":[\"Jump=Key:Enter\"]}");

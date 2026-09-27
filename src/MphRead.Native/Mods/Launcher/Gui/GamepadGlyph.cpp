@@ -25,7 +25,7 @@ namespace MphRead::Mods::Launcher::Gui
         if (family == Input::GamepadFamily::Unknown)
         {
             const std::optional<Input::GamepadDeviceSnapshot> active = Input::GamepadManager::ActiveDevice();
-            family = active.has_value() ? active->Family : Input::GamepadFamily::Generic;
+            family = active.has_value() ? active->Family() : Input::GamepadFamily::Generic;
         }
 
         const Media::IPenPtr pen = std::make_shared<Media::Pen>(brush, 1.5);

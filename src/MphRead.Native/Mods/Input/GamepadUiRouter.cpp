@@ -88,7 +88,7 @@ namespace MphRead::Mods::Input
     {
         GamepadState menuState = snapshot.State;
         const std::optional<GamepadDeviceSnapshot> device = GamepadManager::ActiveDevice();
-        if (((device.has_value() ? device->Capabilities : GamepadCapabilities::None)
+        if (((device.has_value() ? device->Capabilities() : GamepadCapabilities::None)
             & GamepadCapabilities::AnalogTriggers) != GamepadCapabilities::None)
         {
             _leftTrigger = menuState.LeftTrigger >= (_leftTrigger ? .30F : .45F);

@@ -70,7 +70,7 @@ namespace MphRead::Mods::Input
         {
             for (const GamepadDeviceSnapshot& device : GamepadManager::Devices())
             {
-                GamepadManager::RemoveDevice(device.DeviceId);
+                GamepadManager::RemoveDevice(device.DeviceId());
             }
         }
     }

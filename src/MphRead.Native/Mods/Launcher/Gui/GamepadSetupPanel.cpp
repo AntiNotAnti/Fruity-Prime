@@ -165,7 +165,7 @@ namespace MphRead::Mods::Launcher::Gui
             {
                 return;
             }
-            _calibration->Sample(device->RawState, elapsed < 3500);
+            _calibration->Sample(device->RawState(), elapsed < 3500);
             if (elapsed < 3500)
             {
                 _status->Text("Keep sticks and triggers released. Measuring rest… B cancels.");

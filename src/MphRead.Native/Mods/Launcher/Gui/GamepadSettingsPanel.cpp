@@ -237,7 +237,7 @@ namespace MphRead::Mods::Launcher::Gui
             {
                 signature += "|";
             }
-            signature += device.DeviceId;
+            signature += device.DeviceId();
             first = false;
         }
         if (const std::optional<std::string> selected = PadInput::GamepadManager::SelectedDeviceId(); selected.has_value())
@@ -257,13 +257,13 @@ namespace MphRead::Mods::Launcher::Gui
         std::vector<std::string> labels{"Automatic (last used)"};
         for (const PadInput::GamepadDeviceSnapshot& device : devices)
         {
-            labels.push_back(device.Name);
+            labels.push_back(device.Name());
         }
         std::int32_t selected = 0;
         const std::optional<std::string> selectedId = PadInput::GamepadManager::SelectedDeviceId();
         for (std::size_t i = 0; i < devices.size(); i++)
         {
-            if (selectedId == std::optional<std::string>(devices[i].DeviceId))
+            if (selectedId == std::optional<std::string>(devices[i].DeviceId()))
             {
                 selected = static_cast<std::int32_t>(i + 1);
             }
@@ -274,7 +274,7 @@ namespace MphRead::Mods::Launcher::Gui
         row->Changed += [devices, row](ChoiceRow&)
         {
             PadInput::GamepadManager::SelectDevice(row->Index() == 0
-                ? std::nullopt : std::optional<std::string>(Runtime::ManagedAt(devices, row->Index() - 1).DeviceId));
+                ? std::nullopt : std::optional<std::string>(Runtime::ManagedAt(devices, row->Index() - 1).DeviceId()));
         };
         Children.Insert(0, _devices);
         if (focused)
@@ -315,7 +315,7 @@ namespace MphRead::Mods::Launcher::Gui
         }
         const std::optional<PadInput::GamepadDeviceSnapshot> active = PadInput::GamepadManager::ActiveDevice();
         const PadInput::GamepadFamily family = PadInput::GamepadOptions::GlyphStyle() == PadInput::GamepadFamily::Unknown
-            ? active.has_value() ? active->Family : PadInput::GamepadFamily::Generic
+            ? active.has_value() ? active->Family() : PadInput::GamepadFamily::Generic
             : PadInput::GamepadOptions::GlyphStyle();
         if (family == _shownFamily && _shownBindings == PadInput::PadBindings::Revision())
         {

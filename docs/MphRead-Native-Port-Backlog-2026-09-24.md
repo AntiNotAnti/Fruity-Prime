@@ -583,7 +583,7 @@
 | M | +25/-213 | `Mods/Input/PadBindings.cs` | .cpp,.hpp | 完了（C#全文・全API委譲とInputSettings/GamepadManager/GamepadInput/Launcher/Probe呼出元監査済、Current.Bindings選択・action順・各委譲一致。native差分なし） |
 | A | +24/-0 | `Mods/Input/GamepadRuntimeConfig.cs` | — 新規 | 完了（C#全文・GamepadManager/GamepadInput/GamepadOptions/PadBindings/GamepadProfiles/ControllerRuntimeChecks呼出元監査済、default/clone/Fallback/Selected/ThreadStatic Frame lifetimeとCurrent publication一致。AtomicSharedPtrはvolatile reference相当として確認、native差分なし） |
 | A | +24/-0 | `Mods/Input/SpectatorInput.cs` | — 新規 | 完了（C#全文・Renderer呼出元監査済、focus/context gate・press消費順・deadzone/buttons/trigger/camera値一致、readonly record semanticsとfloat NaN等値比較をnativeへ反映。Windows native library compile/link済、実行中FruityPrime.exeのロックでexe再リンク未確認） |
-| A | +23/-0 | `Mods/Input/GamepadDeviceSnapshot.cs` | — 新規 | 完了 |
+| A | +23/-0 | `Mods/Input/GamepadDeviceSnapshot.cs` | — 新規 | 完了（C#全文・GamepadManager/GamepadProbe/Profiles/Launcher UI/直接呼出元監査済、init-only相当のreadonly APIとrecord/GamepadState/VectorのNaN等値比較を反映。Windows Release native library build済） |
 | A | +20/-0 | `Mods/Input/HapticScheduler.cs` | — 新規 | 完了（C#全文・GamepadHaptics直接呼出監査済、undefined feedbackの範囲外アクセスをIndexOutOfRangeExceptionへ修正、Windows Release build済） |
 | A | +19/-0 | `Mods/Input/InputPrompt.cs` | — 新規 | 完了 |
 | A | +19/-0 | `Mods/Input/InputSourceTracker.cs` | — 新規 | 完了 |
