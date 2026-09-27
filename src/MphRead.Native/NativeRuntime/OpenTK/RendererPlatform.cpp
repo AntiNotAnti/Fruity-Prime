@@ -6,6 +6,7 @@
 #include "../../Renderer.hpp"
 
 #include "../../Mods/Chat/ChatBox.hpp"
+#include "GpuTrace.hpp"
 #include "../System/Heartbeat.hpp"
 #include "../System/IO.hpp"
 #include "../System/Console.hpp"
@@ -327,7 +328,9 @@ namespace
 
         void SwapBuffers() override
         {
+            ::MphRead::NativeRuntime::GpuTrace::BeforeSwap();
             ::glfwSwapBuffers(_handle);
+            ::MphRead::NativeRuntime::GpuTrace::AfterSwap();
         }
 
         // GameWindow's own handlers raise events nothing here subscribes to.

@@ -76,8 +76,18 @@ namespace MphRead::NativeRuntime::Avalonia
         void AddOverlay(const Controls::ControlPtr& overlay);
         void RemoveOverlay(const Controls::Control* overlay);
 
-        void InvalidateRender() noexcept { _renderDirty = true; }
-        void InvalidateLayout() noexcept { _layoutDirty = true; }
+        void InvalidateRender() noexcept
+        {
+            _renderDirty = true;
+            _fullRenderDirty = true;
+        }
+        void InvalidateRender(const Rect& bounds) noexcept;
+        void InvalidateLayout() noexcept
+        {
+            _layoutDirty = true;
+            _renderDirty = true;
+            _fullRenderDirty = true;
+        }
         [[nodiscard]] bool NeedsRender() const noexcept { return _renderDirty || _layoutDirty; }
         void ExecuteLayoutPass();
 
@@ -127,7 +137,8 @@ namespace MphRead::NativeRuntime::Avalonia
         void ElementDetached(Input::InputElement& element);
 
         // Draw a subtree into a canvas, as RenderTargetBitmap.Render does.
-        static void RenderVisual(Visual& visual, Media::DrawingContext& context, bool isRoot);
+        static void RenderVisual(Visual& visual, Media::DrawingContext& context, bool isRoot,
+            const Rect* damage = nullptr, bool updateRenderedContent = true, Matrix parentToRoot = Matrix::Identity());
 
         std::any TransparencyLevelHint{};
         std::any RequestedThemeVariant{};
@@ -145,8 +156,10 @@ namespace MphRead::NativeRuntime::Avalonia
         Skia::Bitmap _pixels;
         std::int32_t _drawn = 0;
         bool _renderDirty = true;
+        bool _fullRenderDirty = true;
         bool _layoutDirty = true;
         bool _rendering = false;
+        Rect _renderDamage{};
         Input::InputElement* _focused = nullptr;
         Input::FocusManager _focusManager{*this};
         std::unique_ptr<Input::IPointer> _mouse;

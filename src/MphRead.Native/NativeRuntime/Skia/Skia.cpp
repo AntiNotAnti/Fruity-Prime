@@ -3,6 +3,8 @@
 #include "../Stb/Image.hpp"
 
 #include <algorithm>
+#include <list>
+#include <string>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -475,6 +477,48 @@ namespace MphRead::NativeRuntime::Skia
         for (std::size_t i = 0; i < _pixels.size(); i += 4)
         {
             std::memcpy(&_pixels[i], p, 4);
+        }
+    }
+
+    void Bitmap::ClearRect(Color color, std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height)
+    {
+        if (width <= 0 || height <= 0 || _width <= 0 || _height <= 0)
+        {
+            return;
+        }
+        const std::int64_t left = std::clamp<std::int64_t>(x, 0, _width);
+        const std::int64_t top = std::clamp<std::int64_t>(y, 0, _height);
+        const std::int64_t right = std::clamp<std::int64_t>(static_cast<std::int64_t>(x) + width, 0, _width);
+        const std::int64_t bottom = std::clamp<std::int64_t>(static_cast<std::int64_t>(y) + height, 0, _height);
+        if (right <= left || bottom <= top)
+        {
+            return;
+        }
+
+        std::uint8_t* pixels = _pixels.data();
+        const std::size_t stride = static_cast<std::size_t>(_width) * 4;
+        const std::size_t rowBytes = static_cast<std::size_t>(right - left) * 4;
+        const std::size_t xOffset = static_cast<std::size_t>(left) * 4;
+        if (color.R == 0 && color.G == 0 && color.B == 0 && color.A == 0)
+        {
+            for (std::int64_t row = top; row < bottom; row++)
+            {
+                std::memset(pixels + static_cast<std::size_t>(row) * stride + xOffset, 0, rowBytes);
+            }
+            return;
+        }
+
+        const float a = color.A / 255.0F;
+        const std::uint8_t p[4]{static_cast<std::uint8_t>(std::lround(color.R * a)),
+            static_cast<std::uint8_t>(std::lround(color.G * a)), static_cast<std::uint8_t>(std::lround(color.B * a)),
+            color.A};
+        for (std::int64_t row = top; row < bottom; row++)
+        {
+            std::uint8_t* destination = pixels + static_cast<std::size_t>(row) * stride + xOffset;
+            for (std::size_t column = 0; column < rowBytes; column += 4)
+            {
+                std::memcpy(destination + column, p, 4);
+            }
         }
     }
 
@@ -1395,6 +1439,8 @@ namespace MphRead::NativeRuntime::Skia
         const std::int32_t width = target.Width();
         std::uint8_t* row = target.Pixels() + static_cast<std::size_t>(y) * static_cast<std::size_t>(width) * 4;
         const float opacity = static_cast<float>(paint.Opacity);
+        const bool hasClip = Current().ClipMask != nullptr;
+        const bool opaqueSolid = paint.Gradient == nullptr && opacity == 1.0F && paint.Solid.A == 255;
         float c[4];
         for (std::int32_t x = x0; x < x1; x++)
         {
@@ -1403,9 +1449,18 @@ namespace MphRead::NativeRuntime::Skia
             {
                 continue;
             }
-            cov *= ClipAt(x, y) * opacity;
+            cov *= (hasClip ? ClipAt(x, y) : 1.0F) * opacity;
             if (cov <= 0.0F)
             {
+                continue;
+            }
+            std::uint8_t* d = row + static_cast<std::size_t>(x) * 4;
+            if (opaqueSolid && cov >= 1.0F)
+            {
+                d[0] = paint.Solid.R;
+                d[1] = paint.Solid.G;
+                d[2] = paint.Solid.B;
+                d[3] = 255;
                 continue;
             }
             if (paint.Gradient != nullptr)
@@ -1421,7 +1476,6 @@ namespace MphRead::NativeRuntime::Skia
             {
                 continue;
             }
-            std::uint8_t* d = row + static_cast<std::size_t>(x) * 4;
             const float inv = 1.0F - sa;
             for (int k = 0; k < 3; k++)
             {
@@ -1449,7 +1503,84 @@ namespace MphRead::NativeRuntime::Skia
         {
             return;
         }
-        const Mask mask = Rasterize(path.Flatten(Current().Transform), path.Rule, paint.Antialias);
+        const std::vector<Path::Contour> contours = path.Flatten(Current().Transform);
+        // An axis-aligned rectangle -- a background, a scrim, a bar -- has
+        // exact coverage per row and column, so it needs no mask at all.
+        if (contours.size() == 1 && Current().ClipMask == nullptr)
+        {
+            std::vector<Point> points = contours[0].Points;
+            if (points.size() == 5 && points[4].X == points[0].X && points[4].Y == points[0].Y)
+            {
+                points.pop_back();
+            }
+            bool rect = points.size() == 4;
+            for (std::size_t i = 0; rect && i < 4; i++)
+            {
+                const Point& p0 = points[i];
+                const Point& p1 = points[(i + 1) % 4];
+                rect = p0.X == p1.X || p0.Y == p1.Y;
+            }
+            if (rect)
+            {
+                const State& st = Current();
+                double l = points[0].X;
+                double t = points[0].Y;
+                double r = points[0].X;
+                double b = points[0].Y;
+                for (const Point& p : points)
+                {
+                    l = std::min(l, p.X);
+                    t = std::min(t, p.Y);
+                    r = std::max(r, p.X);
+                    b = std::max(b, p.Y);
+                }
+                if (!paint.Antialias)
+                {
+                    l = std::round(l);
+                    t = std::round(t);
+                    r = std::round(r);
+                    b = std::round(b);
+                }
+                const std::int32_t x0 = std::max(st.ClipLeft, static_cast<std::int32_t>(std::floor(l)));
+                const std::int32_t x1 = std::min(st.ClipRight, static_cast<std::int32_t>(std::ceil(r)));
+                const std::int32_t y0 = std::max(st.ClipTop, static_cast<std::int32_t>(std::floor(t)));
+                const std::int32_t y1 = std::min(st.ClipBottom, static_cast<std::int32_t>(std::ceil(b)));
+                if (x1 <= x0 || y1 <= y0)
+                {
+                    return;
+                }
+                std::vector<float> columns(static_cast<std::size_t>(x1 - x0));
+                for (std::int32_t x = x0; x < x1; x++)
+                {
+                    columns[static_cast<std::size_t>(x - x0)] = static_cast<float>(std::clamp(
+                        std::min(static_cast<double>(x + 1), r) - std::max(static_cast<double>(x), l), 0.0, 1.0));
+                }
+                std::vector<float> row(columns.size());
+                float solid[4];
+                StraightToPremul(paint.Solid, 1.0, solid);
+                for (std::int32_t y = y0; y < y1; y++)
+                {
+                    const float cy = static_cast<float>(std::clamp(
+                        std::min(static_cast<double>(y + 1), b) - std::max(static_cast<double>(y), t), 0.0, 1.0));
+                    if (cy <= 0.0F)
+                    {
+                        continue;
+                    }
+                    const float* coverage = columns.data();
+                    if (cy < 1.0F)
+                    {
+                        for (std::size_t i = 0; i < row.size(); i++)
+                        {
+                            row[i] = columns[i] * cy;
+                        }
+                        coverage = row.data();
+                    }
+                    BlendSpan(y, x0, x1, coverage, paint, solid);
+                }
+                return;
+            }
+        }
+        const Mask mask = Rasterize(contours, path.Rule, paint.Antialias);
         Blend(mask, paint);
     }
 
@@ -1482,15 +1613,193 @@ namespace MphRead::NativeRuntime::Skia
         {
             return;
         }
-        Path shape;
-        shape.AddRect(destination);
-        const Mask mask = Rasterize(shape.Flatten(m), FillRule::NonZero, true);
         Bitmap& target = Target();
         const std::int32_t width = target.Width();
         const float alpha = static_cast<float>(opacity);
         const double sx = source.Width() / destination.Width();
         const double sy = source.Height() / destination.Height();
         (void)local;
+        const bool axisAligned = m.SkewX == 0 && m.SkewY == 0;
+        Mask mask;
+        std::int32_t left = 0;
+        std::int32_t top = 0;
+        std::int32_t right = 0;
+        std::int32_t bottom = 0;
+        Rect deviceBounds{};
+        if (axisAligned)
+        {
+            // An axis-aligned image rectangle has analytic area coverage.
+            // Avoid rasterising it into a temporary float mask every frame.
+            deviceBounds = m.MapRect(destination);
+            const State& state = Current();
+            const double clippedLeft = std::max(static_cast<double>(state.ClipLeft), deviceBounds.Left);
+            const double clippedTop = std::max(static_cast<double>(state.ClipTop), deviceBounds.Top);
+            const double clippedRight = std::min(static_cast<double>(state.ClipRight), deviceBounds.Right);
+            const double clippedBottom = std::min(static_cast<double>(state.ClipBottom), deviceBounds.Bottom);
+            if (clippedRight <= clippedLeft || clippedBottom <= clippedTop)
+            {
+                return;
+            }
+            left = static_cast<std::int32_t>(std::floor(clippedLeft));
+            top = static_cast<std::int32_t>(std::floor(clippedTop));
+            right = static_cast<std::int32_t>(std::ceil(clippedRight));
+            bottom = static_cast<std::int32_t>(std::ceil(clippedBottom));
+        }
+        else
+        {
+            Path shape;
+            shape.AddRect(destination);
+            mask = Rasterize(shape.Flatten(m), FillRule::NonZero, true);
+            left = mask.X;
+            top = mask.Y;
+            right = mask.X + mask.Width;
+            bottom = mask.Y + mask.Height;
+        }
+        // The common case, done in integers: an axis-aligned blit with no
+        // path clip, drawn source-over -- every backdrop and card picture.
+        // Columns and rows are mapped to the source once each, not per pixel.
+        if (axisAligned && Current().ClipMask == nullptr)
+        {
+            const double stepU0 = std::abs(sx * inverse->ScaleX);
+            const double stepV0 = std::abs(sy * inverse->ScaleY);
+            const bool boxed = quality != FilterQuality::None && (stepU0 >= 2 || stepV0 >= 2);
+            if (!boxed)
+            {
+                const std::int32_t bw = bitmap.Width();
+                const std::int32_t bh = bitmap.Height();
+                const std::uint8_t* px = bitmap.Pixels();
+                const bool nearest = quality == FilterQuality::None;
+                const std::int32_t cols = right - left;
+                std::vector<std::int32_t> cx0(static_cast<std::size_t>(cols));
+                std::vector<std::int32_t> cx1(static_cast<std::size_t>(cols));
+                std::vector<std::int32_t> cw(static_cast<std::size_t>(cols));
+                std::vector<std::int32_t> ccov(static_cast<std::size_t>(cols));
+                for (std::int32_t i = 0; i < cols; i++)
+                {
+                    const double dx = left + i + 0.5;
+                    const double u = source.Left + (inverse->ScaleX * dx + inverse->TransX - destination.Left) * sx;
+                    const double cover = std::clamp(std::min(static_cast<double>(left + i + 1), deviceBounds.Right)
+                        - std::max(static_cast<double>(left + i), deviceBounds.Left), 0.0, 1.0);
+                    ccov[static_cast<std::size_t>(i)] = static_cast<std::int32_t>(std::lround(cover * 256));
+                    if (nearest)
+                    {
+                        const std::int32_t ix = std::clamp(static_cast<std::int32_t>(std::floor(u)), 0, bw - 1);
+                        cx0[static_cast<std::size_t>(i)] = ix;
+                        cx1[static_cast<std::size_t>(i)] = ix;
+                        cw[static_cast<std::size_t>(i)] = 0;
+                    }
+                    else
+                    {
+                        const double fu = u - 0.5;
+                        const double f = std::floor(fu);
+                        cx0[static_cast<std::size_t>(i)] = std::clamp(static_cast<std::int32_t>(f), 0, bw - 1);
+                        cx1[static_cast<std::size_t>(i)] = std::clamp(static_cast<std::int32_t>(f) + 1, 0, bw - 1);
+                        cw[static_cast<std::size_t>(i)] = static_cast<std::int32_t>(std::lround((fu - f) * 256));
+                    }
+                }
+                const std::int32_t alpha256 = static_cast<std::int32_t>(std::lround(std::clamp(opacity, 0.0, 1.0) * 256));
+                for (std::int32_t dy = top; dy < bottom; dy++)
+                {
+                    const double v = source.Top + (inverse->ScaleY * (dy + 0.5) + inverse->TransY - destination.Top) * sy;
+                    std::int32_t y0;
+                    std::int32_t y1;
+                    std::int32_t wy;
+                    if (nearest)
+                    {
+                        y0 = y1 = std::clamp(static_cast<std::int32_t>(std::floor(v)), 0, bh - 1);
+                        wy = 0;
+                    }
+                    else
+                    {
+                        const double fv = v - 0.5;
+                        const double f = std::floor(fv);
+                        y0 = std::clamp(static_cast<std::int32_t>(f), 0, bh - 1);
+                        y1 = std::clamp(static_cast<std::int32_t>(f) + 1, 0, bh - 1);
+                        wy = static_cast<std::int32_t>(std::lround((fv - f) * 256));
+                    }
+                    const double coverY = std::clamp(std::min(static_cast<double>(dy + 1), deviceBounds.Bottom)
+                        - std::max(static_cast<double>(dy), deviceBounds.Top), 0.0, 1.0);
+                    const std::int32_t rowCov = static_cast<std::int32_t>(std::lround(coverY * 256)) * alpha256 >> 8;
+                    if (rowCov <= 0)
+                    {
+                        continue;
+                    }
+                    const std::uint8_t* r0 = px + static_cast<std::size_t>(y0) * static_cast<std::size_t>(bw) * 4;
+                    const std::uint8_t* r1 = px + static_cast<std::size_t>(y1) * static_cast<std::size_t>(bw) * 4;
+                    std::uint8_t* out = target.Pixels() + (static_cast<std::size_t>(dy) * static_cast<std::size_t>(width)
+                        + static_cast<std::size_t>(left)) * 4;
+                    for (std::int32_t i = 0; i < cols; i++, out += 4)
+                    {
+                        const std::int32_t cov = ccov[static_cast<std::size_t>(i)] * rowCov >> 8;
+                        if (cov <= 0)
+                        {
+                            continue;
+                        }
+                        const std::uint8_t* a = r0 + cx0[static_cast<std::size_t>(i)] * 4;
+                        std::uint32_t c[4];
+                        if (nearest || (cw[static_cast<std::size_t>(i)] == 0 && wy == 0))
+                        {
+                            c[0] = a[0];
+                            c[1] = a[1];
+                            c[2] = a[2];
+                            c[3] = a[3];
+                        }
+                        else
+                        {
+                            const std::uint8_t* b = r0 + cx1[static_cast<std::size_t>(i)] * 4;
+                            const std::uint8_t* cc = r1 + cx0[static_cast<std::size_t>(i)] * 4;
+                            const std::uint8_t* d = r1 + cx1[static_cast<std::size_t>(i)] * 4;
+                            const std::uint32_t wx = static_cast<std::uint32_t>(cw[static_cast<std::size_t>(i)]);
+                            const std::uint32_t wyu = static_cast<std::uint32_t>(wy);
+                            for (int k = 0; k < 4; k++)
+                            {
+                                const std::uint32_t t = a[k] * (256 - wx) + b[k] * wx;
+                                const std::uint32_t bo = cc[k] * (256 - wx) + d[k] * wx;
+                                c[k] = (t * (256 - wyu) + bo * wyu + 32768) >> 16;
+                            }
+                        }
+                        if (blend == BlendMode::Overlay)
+                        {
+                            // Skia's kOverlay, premultiplied.
+                            const float fc = static_cast<float>(cov) / 256.0F;
+                            const float sa = c[3] / 255.0F * fc;
+                            const float da = out[3] / 255.0F;
+                            for (int k = 0; k < 3; k++)
+                            {
+                                const float sv = c[k] / 255.0F * fc;
+                                const float dc = out[k] / 255.0F;
+                                const float term = 2 * dc <= da ? 2 * sv * dc : sa * da - 2 * (da - dc) * (sa - sv);
+                                const float value = term + sv * (1 - da) + dc * (1 - sa);
+                                out[k] = static_cast<std::uint8_t>(std::clamp(value * 255.0F + 0.5F, 0.0F, 255.0F));
+                            }
+                            out[3] = static_cast<std::uint8_t>(std::clamp((sa + da - sa * da) * 255.0F + 0.5F, 0.0F, 255.0F));
+                            continue;
+                        }
+                        if (cov >= 256 && c[3] == 255)
+                        {
+                            out[0] = static_cast<std::uint8_t>(c[0]);
+                            out[1] = static_cast<std::uint8_t>(c[1]);
+                            out[2] = static_cast<std::uint8_t>(c[2]);
+                            out[3] = 255;
+                            continue;
+                        }
+                        const std::uint32_t sa = c[3] * static_cast<std::uint32_t>(cov) >> 8;
+                        if (sa == 0 && c[0] == 0 && c[1] == 0 && c[2] == 0)
+                        {
+                            continue;
+                        }
+                        const std::uint32_t inv = 255 - std::min<std::uint32_t>(sa, 255);
+                        for (int k = 0; k < 3; k++)
+                        {
+                            const std::uint32_t value = (c[k] * static_cast<std::uint32_t>(cov) >> 8) + (out[k] * inv + 127) / 255;
+                            out[k] = static_cast<std::uint8_t>(std::min<std::uint32_t>(value, 255));
+                        }
+                        out[3] = static_cast<std::uint8_t>(std::min<std::uint32_t>(sa + (out[3] * inv + 127) / 255, 255));
+                    }
+                }
+                return;
+            }
+        }
         const auto sample = [&](double u, double v, float out[4])
         {
             const std::int32_t bw = bitmap.Width();
@@ -1531,21 +1840,56 @@ namespace MphRead::NativeRuntime::Skia
                 out[k] = (top + (bottom - top) * ty) / 255.0F;
             }
         };
+        const auto alignedOpaque = [&](double u, double v) -> const std::uint8_t*
+        {
+            const std::int32_t bw = bitmap.Width();
+            const std::int32_t bh = bitmap.Height();
+            std::int32_t ix;
+            std::int32_t iy;
+            if (quality == FilterQuality::None)
+            {
+                ix = static_cast<std::int32_t>(std::floor(u));
+                iy = static_cast<std::int32_t>(std::floor(v));
+            }
+            else
+            {
+                const double fx = u - 0.5;
+                const double fy = v - 0.5;
+                const double x0 = std::floor(fx);
+                const double y0 = std::floor(fy);
+                if (fx != x0 || fy != y0)
+                {
+                    return nullptr;
+                }
+                ix = static_cast<std::int32_t>(x0);
+                iy = static_cast<std::int32_t>(y0);
+            }
+            ix = std::clamp(ix, 0, bw - 1);
+            iy = std::clamp(iy, 0, bh - 1);
+            const std::uint8_t* pixel = bitmap.Pixels()
+                + (static_cast<std::size_t>(iy) * static_cast<std::size_t>(bw) + static_cast<std::size_t>(ix)) * 4;
+            return pixel[3] == 255 ? pixel : nullptr;
+        };
         // Minification by more than two uses a box average, which is what
         // Skia's mipmapped High quality amounts to for a downscale.
         const double stepU = std::abs(sx * inverse->ScaleX) + std::abs(sx * inverse->SkewX);
         const double stepV = std::abs(sy * inverse->SkewY) + std::abs(sy * inverse->ScaleY);
         const int boxU = quality == FilterQuality::None ? 1 : std::clamp(static_cast<int>(std::floor(stepU)), 1, 16);
         const int boxV = quality == FilterQuality::None ? 1 : std::clamp(static_cast<int>(std::floor(stepV)), 1, 16);
-        for (std::int32_t y = 0; y < mask.Height; y++)
+        for (std::int32_t dy = top; dy < bottom; dy++)
         {
-            const std::int32_t dy = mask.Y + y;
             std::uint8_t* row = target.Pixels() + static_cast<std::size_t>(dy) * static_cast<std::size_t>(width) * 4;
-            for (std::int32_t x = 0; x < mask.Width; x++)
+            const float coverageY = axisAligned
+                ? static_cast<float>(std::clamp(std::min(static_cast<double>(dy + 1), deviceBounds.Bottom)
+                    - std::max(static_cast<double>(dy), deviceBounds.Top), 0.0, 1.0))
+                : 1.0F;
+            for (std::int32_t dx = left; dx < right; dx++)
             {
-                float cov = mask.Coverage[static_cast<std::size_t>(y) * static_cast<std::size_t>(mask.Width)
-                    + static_cast<std::size_t>(x)];
-                const std::int32_t dx = mask.X + x;
+                float cov = axisAligned
+                    ? coverageY * static_cast<float>(std::clamp(std::min(static_cast<double>(dx + 1), deviceBounds.Right)
+                        - std::max(static_cast<double>(dx), deviceBounds.Left), 0.0, 1.0))
+                    : mask.Coverage[static_cast<std::size_t>(dy - mask.Y) * static_cast<std::size_t>(mask.Width)
+                        + static_cast<std::size_t>(dx - mask.X)];
                 if (cov <= 0.0F)
                 {
                     continue;
@@ -1558,6 +1902,15 @@ namespace MphRead::NativeRuntime::Skia
                 const Point p = inverse->Map({dx + 0.5, dy + 0.5});
                 const double u = source.Left + (p.X - destination.Left) * sx;
                 const double v = source.Top + (p.Y - destination.Top) * sy;
+                std::uint8_t* d = row + static_cast<std::size_t>(dx) * 4;
+                if (blend == BlendMode::SrcOver && alpha == 1.0F && cov >= 1.0F)
+                {
+                    if (const std::uint8_t* pixel = alignedOpaque(u, v); pixel != nullptr)
+                    {
+                        std::memcpy(d, pixel, 4);
+                        continue;
+                    }
+                }
                 float c[4]{0, 0, 0, 0};
                 if (boxU == 1 && boxV == 1)
                 {
@@ -1587,7 +1940,6 @@ namespace MphRead::NativeRuntime::Skia
                 {
                     continue;
                 }
-                std::uint8_t* d = row + static_cast<std::size_t>(dx) * 4;
                 if (blend == BlendMode::Overlay)
                 {
                     // Skia's kOverlay, premultiplied.
@@ -1644,85 +1996,189 @@ namespace MphRead::NativeRuntime::Skia
         const std::int32_t top = static_cast<std::int32_t>(std::floor(device.Top)) - reach - 1;
         const std::int32_t right = static_cast<std::int32_t>(std::ceil(device.Right)) + reach + 1;
         const std::int32_t bottom = static_cast<std::int32_t>(std::ceil(device.Bottom)) + reach + 1;
-        Save();
-        Current().ClipLeft = left;
-        Current().ClipTop = top;
-        Current().ClipRight = right;
-        Current().ClipBottom = bottom;
-        Current().ClipMask = nullptr;
-        Mask shapeMask = Rasterize(spread.Flatten(m), FillRule::NonZero, true);
-        Restore();
-        if (shapeMask.Width <= 0)
+        // An outset shadow never changes while its box does not, and a
+        // screen draws the same few dozen every frame: the finished mask --
+        // blurred, with the box cut out -- is kept, keyed by everything that
+        // shapes it, and only composited after the first time.
+        const auto buildMask = [&]() -> Mask
         {
+            Save();
+            Current().ClipLeft = left;
+            Current().ClipTop = top;
+            Current().ClipRight = right;
+            Current().ClipBottom = bottom;
+            Current().ClipMask = nullptr;
+            Mask shapeMask = Rasterize(spread.Flatten(m), FillRule::NonZero, true);
+            Restore();
+            if (shapeMask.Width <= 0)
+            {
+                return Mask{};
+            }
+            // Room for the blur on every side: the shape's own mask sits inside.
+            Mask mask;
+            mask.X = left;
+            mask.Y = top;
+            mask.Width = right - left;
+            mask.Height = bottom - top;
+            mask.Coverage.assign(static_cast<std::size_t>(mask.Width) * static_cast<std::size_t>(mask.Height), 0.0F);
+            for (std::int32_t y = 0; y < shapeMask.Height; y++)
+            {
+                for (std::int32_t x = 0; x < shapeMask.Width; x++)
+                {
+                    const std::int32_t mx = shapeMask.X + x - mask.X;
+                    const std::int32_t my = shapeMask.Y + y - mask.Y;
+                    if (mx >= 0 && my >= 0 && mx < mask.Width && my < mask.Height)
+                    {
+                        mask.Coverage[static_cast<std::size_t>(my * mask.Width + mx)]
+                            = shapeMask.Coverage[static_cast<std::size_t>(y * shapeMask.Width + x)];
+                    }
+                }
+            }
+            if (shadow.Inset)
+            {
+                for (float& value : mask.Coverage)
+                {
+                    value = 1.0F - value;
+                }
+            }
+            if (sigma > 0.01)
+            {
+                // Three box blurs each way approximate the Gaussian, as Skia's
+                // blur mask filter does for large sigmas.
+                const int box = std::max(1, static_cast<int>(std::floor(sigma * 3 * std::sqrt(2 * std::numbers::pi) / 4 + 0.5)));
+                std::vector<float> tmp(mask.Coverage.size());
+                const auto pass = [&](bool horizontal)
+                {
+                    const std::int32_t lines = horizontal ? mask.Height : mask.Width;
+                    const std::int32_t length = horizontal ? mask.Width : mask.Height;
+                    for (std::int32_t l = 0; l < lines; l++)
+                    {
+                        const auto at = [&](std::int32_t i) -> float&
+                        {
+                            return horizontal ? mask.Coverage[static_cast<std::size_t>(l * mask.Width + i)]
+                                              : mask.Coverage[static_cast<std::size_t>(i * mask.Width + l)];
+                        };
+                        const float edge = shadow.Inset ? 1.0F : 0.0F;
+                        const auto value = [&](std::int32_t i) { return i < 0 || i >= length ? edge : at(i); };
+                        const int r = box / 2;
+                        float sum = 0;
+                        for (int i = -r; i <= r; i++)
+                        {
+                            sum += value(i);
+                        }
+                        for (std::int32_t i = 0; i < length; i++)
+                        {
+                            const std::size_t out = horizontal ? static_cast<std::size_t>(l * mask.Width + i)
+                                                               : static_cast<std::size_t>(i * mask.Width + l);
+                            tmp[out] = sum / static_cast<float>(2 * r + 1);
+                            sum += value(i + r + 1) - value(i - r);
+                        }
+                    }
+                    mask.Coverage.swap(tmp);
+                };
+                for (int i = 0; i < 3; i++)
+                {
+                    pass(true);
+                    pass(false);
+                }
+            }
+    return mask;
+        };
+        if (!shadow.Inset && m.IsScaleTranslate())
+        {
+            const Rect shapeDevice = m.MapRect(bounds);
+            const auto q = [](double v) { return static_cast<long long>(std::llround(v * 4)); };
+            char keyText[512];
+            std::snprintf(keyText, sizeof(keyText), "%d %d %lld %lld %lld %lld %lld %lld %lld %lld %lld %lld %lld %lld %lld %lld %lld %lld %lld %lld",
+                right - left, bottom - top, q(device.Left - left), q(device.Top - top), q(device.Right - left),
+                q(device.Bottom - top), q(shapeDevice.Left - left), q(shapeDevice.Top - top), q(shapeDevice.Right - left),
+                q(shapeDevice.Bottom - top), q(radii[0].X * scale), q(radii[0].Y * scale), q(radii[1].X * scale),
+                q(radii[1].Y * scale), q(radii[2].X * scale), q(radii[2].Y * scale), q(radii[3].X * scale),
+                q(radii[3].Y * scale), q(sigma), q(shadow.Spread * scale));
+            struct Cached
+            {
+                std::int32_t Width = 0;
+                std::int32_t Height = 0;
+                std::vector<float> Coverage;
+            };
+            static std::list<std::pair<std::string, std::shared_ptr<const Cached>>> cache;
+            static std::size_t cachedBytes = 0;
+            std::shared_ptr<const Cached> hit;
+            for (auto it = cache.begin(); it != cache.end(); ++it)
+            {
+                if (it->first == keyText)
+                {
+                    hit = it->second;
+                    cache.splice(cache.begin(), cache, it);
+                    break;
+                }
+            }
+            if (hit == nullptr)
+            {
+                Mask mask = buildMask();
+                if (mask.Width <= 0)
+                {
+                    return;
+                }
+                const Mask outside = Rasterize(shape.Flatten(m), FillRule::NonZero, true);
+                auto made = std::make_shared<Cached>();
+                made->Width = mask.Width;
+                made->Height = mask.Height;
+                made->Coverage = std::move(mask.Coverage);
+                if (outside.Width > 0)
+                {
+                    for (std::int32_t y = 0; y < made->Height; y++)
+                    {
+                        const std::int32_t oy = mask.Y + y - outside.Y;
+                        if (oy < 0 || oy >= outside.Height)
+                        {
+                            continue;
+                        }
+                        for (std::int32_t x = 0; x < made->Width; x++)
+                        {
+                            const std::int32_t ox = mask.X + x - outside.X;
+                            if (ox >= 0 && ox < outside.Width)
+                            {
+                                made->Coverage[static_cast<std::size_t>(y * made->Width + x)]
+                                    *= 1.0F - outside.Coverage[static_cast<std::size_t>(oy * outside.Width + ox)];
+                            }
+                        }
+                    }
+                }
+                cachedBytes += made->Coverage.size() * sizeof(float);
+                cache.emplace_front(keyText, made);
+                while (cachedBytes > 96U * 1024U * 1024U && cache.size() > 1)
+                {
+                    cachedBytes -= cache.back().second->Coverage.size() * sizeof(float);
+                    cache.pop_back();
+                }
+                hit = made;
+            }
+            Paint paint;
+            paint.Solid = shadow.ShadowColor;
+            float solid[4];
+            StraightToPremul(paint.Solid, 1.0, solid);
+            for (std::int32_t y = 0; y < hit->Height; y++)
+            {
+                const std::int32_t dy = top + y;
+                if (dy < Current().ClipTop || dy >= Current().ClipBottom)
+                {
+                    continue;
+                }
+                const std::int32_t x0 = std::max(left, Current().ClipLeft);
+                const std::int32_t x1 = std::min(left + hit->Width, Current().ClipRight);
+                if (x1 <= x0)
+                {
+                    continue;
+                }
+                BlendSpan(dy, x0, x1, &hit->Coverage[static_cast<std::size_t>(y * hit->Width + (x0 - left))], paint, solid);
+            }
             return;
         }
-        // Room for the blur on every side: the shape's own mask sits inside.
-        Mask mask;
-        mask.X = left;
-        mask.Y = top;
-        mask.Width = right - left;
-        mask.Height = bottom - top;
-        mask.Coverage.assign(static_cast<std::size_t>(mask.Width) * static_cast<std::size_t>(mask.Height), 0.0F);
-        for (std::int32_t y = 0; y < shapeMask.Height; y++)
+        Mask mask = buildMask();
+        if (mask.Width <= 0)
         {
-            for (std::int32_t x = 0; x < shapeMask.Width; x++)
-            {
-                const std::int32_t mx = shapeMask.X + x - mask.X;
-                const std::int32_t my = shapeMask.Y + y - mask.Y;
-                if (mx >= 0 && my >= 0 && mx < mask.Width && my < mask.Height)
-                {
-                    mask.Coverage[static_cast<std::size_t>(my * mask.Width + mx)]
-                        = shapeMask.Coverage[static_cast<std::size_t>(y * shapeMask.Width + x)];
-                }
-            }
-        }
-        if (shadow.Inset)
-        {
-            for (float& value : mask.Coverage)
-            {
-                value = 1.0F - value;
-            }
-        }
-        if (sigma > 0.01)
-        {
-            // Three box blurs each way approximate the Gaussian, as Skia's
-            // blur mask filter does for large sigmas.
-            const int box = std::max(1, static_cast<int>(std::floor(sigma * 3 * std::sqrt(2 * std::numbers::pi) / 4 + 0.5)));
-            std::vector<float> tmp(mask.Coverage.size());
-            const auto pass = [&](bool horizontal)
-            {
-                const std::int32_t lines = horizontal ? mask.Height : mask.Width;
-                const std::int32_t length = horizontal ? mask.Width : mask.Height;
-                for (std::int32_t l = 0; l < lines; l++)
-                {
-                    const auto at = [&](std::int32_t i) -> float&
-                    {
-                        return horizontal ? mask.Coverage[static_cast<std::size_t>(l * mask.Width + i)]
-                                          : mask.Coverage[static_cast<std::size_t>(i * mask.Width + l)];
-                    };
-                    const float edge = shadow.Inset ? 1.0F : 0.0F;
-                    const auto value = [&](std::int32_t i) { return i < 0 || i >= length ? edge : at(i); };
-                    const int r = box / 2;
-                    float sum = 0;
-                    for (int i = -r; i <= r; i++)
-                    {
-                        sum += value(i);
-                    }
-                    for (std::int32_t i = 0; i < length; i++)
-                    {
-                        const std::size_t out = horizontal ? static_cast<std::size_t>(l * mask.Width + i)
-                                                           : static_cast<std::size_t>(i * mask.Width + l);
-                        tmp[out] = sum / static_cast<float>(2 * r + 1);
-                        sum += value(i + r + 1) - value(i - r);
-                    }
-                }
-                mask.Coverage.swap(tmp);
-            };
-            for (int i = 0; i < 3; i++)
-            {
-                pass(true);
-                pass(false);
-            }
+            return;
         }
         // Clipped to outside the box (outset) or inside it (inset).
         Save();

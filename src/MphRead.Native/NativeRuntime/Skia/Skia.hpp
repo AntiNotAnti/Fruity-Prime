@@ -169,6 +169,7 @@ namespace MphRead::NativeRuntime::Skia
         [[nodiscard]] std::uint8_t* Pixels() noexcept { return _pixels.data(); }
         [[nodiscard]] const std::uint8_t* Pixels() const noexcept { return _pixels.data(); }
         void Clear(Color color = {});
+        void ClearRect(Color color, std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height);
         void Resize(std::int32_t width, std::int32_t height);
 
         // Straight RGBA in, as a decoded file is.

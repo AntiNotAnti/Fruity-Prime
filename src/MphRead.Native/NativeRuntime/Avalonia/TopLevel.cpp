@@ -14,6 +14,8 @@ namespace MphRead::NativeRuntime::Avalonia
             return ++next;
         }
 
+        constexpr double RenderOverflow = 96.0;
+
         [[nodiscard]] bool IsAncestorOrSelf(const Visual* ancestor, const Visual* v)
         {
             for (; v != nullptr; v = v->GetVisualParent())
@@ -37,6 +39,28 @@ namespace MphRead::NativeRuntime::Avalonia
             std::stable_sort(children.begin(), children.end(),
                 [](const Visual* a, const Visual* b) { return a->ZIndex() < b->ZIndex(); });
             return children;
+        }
+
+        template <typename Visit>
+        void ForEachOrdered(const Visual& visual, Visit&& visit)
+        {
+            const auto& children = visual.VisualChildren();
+            const bool needsSort = std::any_of(children.begin(), children.end(), [](const std::shared_ptr<Visual>& child)
+            {
+                return child->ZIndex() != 0;
+            });
+            if (!needsSort)
+            {
+                for (const std::shared_ptr<Visual>& child : children)
+                {
+                    visit(child.get());
+                }
+                return;
+            }
+            for (Visual* child : Ordered(visual))
+            {
+                visit(child);
+            }
         }
     }
 
@@ -85,8 +109,7 @@ namespace MphRead::NativeRuntime::Avalonia
         }
         _clientSize = size;
         InvalidateMeasure();
-        _layoutDirty = true;
-        _renderDirty = true;
+        InvalidateLayout();
     }
 
     void TopLevel::Prepare()
@@ -97,7 +120,7 @@ namespace MphRead::NativeRuntime::Avalonia
     void TopLevel::StartRendering()
     {
         _rendering = true;
-        _renderDirty = true;
+        InvalidateRender();
     }
 
     void TopLevel::AddOverlay(const Controls::ControlPtr& overlay)
@@ -112,8 +135,7 @@ namespace MphRead::NativeRuntime::Avalonia
         overlay->ZIndex(std::numeric_limits<std::int32_t>::max());
         _overlays.push_back(overlay);
         AddVisualChild(overlay);
-        _layoutDirty = true;
-        _renderDirty = true;
+        InvalidateLayout();
     }
 
     void TopLevel::RemoveOverlay(const Controls::Control* overlay)
@@ -129,7 +151,26 @@ namespace MphRead::NativeRuntime::Avalonia
         const Controls::ControlPtr keep = *found;
         RemoveVisualChild(keep);
         _overlays.erase(found);
-        _layoutDirty = true;
+        InvalidateLayout();
+    }
+
+    void TopLevel::InvalidateRender(const Rect& bounds) noexcept
+    {
+        if (_fullRenderDirty)
+        {
+            return;
+        }
+        if (bounds.IsEmpty())
+        {
+            return;
+        }
+        if (!std::isfinite(bounds.X) || !std::isfinite(bounds.Y)
+            || !std::isfinite(bounds.Width) || !std::isfinite(bounds.Height))
+        {
+            InvalidateRender();
+            return;
+        }
+        _renderDamage = _renderDamage.IsEmpty() ? bounds : _renderDamage.Union(bounds);
         _renderDirty = true;
     }
 
@@ -156,12 +197,20 @@ namespace MphRead::NativeRuntime::Avalonia
         LayoutUpdated(*this);
     }
 
-    void TopLevel::RenderVisual(Visual& visual, Media::DrawingContext& context, bool isRoot)
+    void TopLevel::RenderVisual(Visual& visual, Media::DrawingContext& context, bool isRoot,
+        const Rect* damage, bool updateRenderedContent, Matrix parentToRoot)
     {
         if (!visual.IsVisible() || visual.Opacity() <= 0)
         {
             return;
         }
+        const Matrix localToRoot = isRoot ? parentToRoot : visual.LocalTransform() * parentToRoot;
+        const Rect rootBounds = TransformToAABB(Rect(visual.Bounds().GetSize()), localToRoot);
+        if (damage != nullptr && !isRoot && visual.ClipToBounds() && !rootBounds.Intersects(*damage))
+        {
+            return;
+        }
+        const bool drawSelf = damage == nullptr || isRoot || rootBounds.Inflate(RenderOverflow).Intersects(*damage);
         std::optional<Media::DrawingContext::PushedState> transform;
         if (!isRoot)
         {
@@ -197,40 +246,88 @@ namespace MphRead::NativeRuntime::Avalonia
                 options.emplace(context.PushRenderOptions(wanted));
             }
         }
-        const std::size_t before = context.DrawCount;
-        visual.Render(context);
-        visual.RenderedContent = context.DrawCount != before;
-        for (Visual* child : Ordered(visual))
+        if (drawSelf)
         {
-            RenderVisual(*child, context, false);
+            const std::size_t before = context.DrawCount;
+            visual.Render(context);
+            const bool fullyDamaged = damage == nullptr
+                || (rootBounds.Left() >= damage->Left() && rootBounds.Top() >= damage->Top()
+                    && rootBounds.Right() <= damage->Right() && rootBounds.Bottom() <= damage->Bottom());
+            if (updateRenderedContent || fullyDamaged)
+            {
+                visual.RenderedContent = context.DrawCount != before;
+            }
         }
-        visual.RenderOverlay(context);
+        ForEachOrdered(visual, [&](Visual* child)
+        {
+            RenderVisual(*child, context, false, damage, updateRenderedContent, localToRoot);
+        });
+        if (drawSelf)
+        {
+            visual.RenderOverlay(context);
+        }
     }
 
     bool TopLevel::Render()
     {
         if (_layoutDirty || !IsMeasureValid() || !IsArrangeValid())
         {
+            InvalidateRender();
             ExecuteLayoutPass();
         }
         if (!_rendering || !_renderDirty)
         {
             return false;
         }
-        _renderDirty = false;
         const auto width = static_cast<std::int32_t>(std::max(1.0, std::round(_clientSize.Width)));
         const auto height = static_cast<std::int32_t>(std::max(1.0, std::round(_clientSize.Height)));
+        bool fullRender = _fullRenderDirty;
         if (_pixels.Width() != width || _pixels.Height() != height)
         {
             _pixels.Resize(width, height);
+            fullRender = true;
         }
-        else
+        const Rect surface{0, 0, static_cast<double>(width), static_cast<double>(height)};
+        Rect damage = fullRender ? surface : _renderDamage.Intersect(surface);
+        if (!fullRender && !damage.IsEmpty())
+        {
+            const double left = std::max(0.0, std::floor(damage.Left()));
+            const double top = std::max(0.0, std::floor(damage.Top()));
+            const double right = std::min(static_cast<double>(width), std::ceil(damage.Right()));
+            const double bottom = std::min(static_cast<double>(height), std::ceil(damage.Bottom()));
+            damage = Rect{left, top, std::max(0.0, right - left), std::max(0.0, bottom - top)};
+        }
+        if (damage.IsEmpty())
+        {
+            _renderDirty = false;
+            _fullRenderDirty = false;
+            _renderDamage = {};
+            return false;
+        }
+
+        // Clear only the changed area on a retained surface. Snapshot and
+        // reset the dirty state before rendering so invalidations raised by
+        // a control during its own Render() are kept for the next frame.
+        _renderDirty = false;
+        _fullRenderDirty = false;
+        _renderDamage = {};
+        if (fullRender)
         {
             _pixels.Clear();
         }
+        else
+        {
+            _pixels.ClearRect({}, static_cast<std::int32_t>(damage.X), static_cast<std::int32_t>(damage.Y),
+                static_cast<std::int32_t>(damage.Width), static_cast<std::int32_t>(damage.Height));
+        }
         Skia::Canvas canvas(_pixels);
         Media::DrawingContext context(canvas);
-        RenderVisual(*this, context, true);
+        std::optional<Media::DrawingContext::PushedState> damageClip;
+        if (!fullRender)
+        {
+            damageClip.emplace(context.PushClip(damage));
+        }
+        RenderVisual(*this, context, true, fullRender ? nullptr : &damage, fullRender);
         _drawn++;
         if (Painted)
         {

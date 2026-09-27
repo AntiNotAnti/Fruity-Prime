@@ -131,7 +131,54 @@ namespace MphRead::NativeRuntime::Avalonia
     {
         if (_root != nullptr)
         {
-            _root->InvalidateRender();
+            const std::optional<Matrix> transform = TransformToVisual(_root);
+            if (!transform.has_value())
+            {
+                _root->InvalidateRender();
+                return;
+            }
+            Rect damage = TransformToAABB(Rect(Bounds().GetSize()), *transform).Inflate(96.0);
+            const auto isFinite = [](const Rect& rect)
+            {
+                return std::isfinite(rect.X) && std::isfinite(rect.Y)
+                    && std::isfinite(rect.Width) && std::isfinite(rect.Height);
+            };
+            if (!isFinite(damage))
+            {
+                _root->InvalidateRender();
+                return;
+            }
+
+            // Effects such as the launcher cards' shadows extend outside the
+            // control bounds, so include their paint overflow. A clip-to-bounds
+            // ancestor is the limit of the actual pixels that can change; in
+            // particular, scrolling must not turn a viewport-sized repaint
+            // into nearly a full-window repaint.
+            for (Visual* ancestor = this; ancestor != nullptr; ancestor = ancestor->GetVisualParent())
+            {
+                if (!ancestor->ClipToBounds())
+                {
+                    continue;
+                }
+                const std::optional<Matrix> clipTransform = ancestor->TransformToVisual(_root);
+                if (!clipTransform.has_value())
+                {
+                    _root->InvalidateRender();
+                    return;
+                }
+                const Rect clip = TransformToAABB(Rect(ancestor->Bounds().GetSize()), *clipTransform);
+                if (!isFinite(clip))
+                {
+                    _root->InvalidateRender();
+                    return;
+                }
+                damage = damage.Intersect(clip);
+                if (damage.IsEmpty())
+                {
+                    return;
+                }
+            }
+            _root->InvalidateRender(damage);
         }
     }
 
@@ -203,7 +250,10 @@ namespace MphRead::NativeRuntime::Avalonia
         {
             layoutable->InvalidateMeasure();
         }
-        InvalidateVisual();
+        if (_root != nullptr)
+        {
+            _root->InvalidateRender();
+        }
     }
 
     void Visual::RemoveVisualChild(const std::shared_ptr<Visual>& child)
@@ -222,7 +272,10 @@ namespace MphRead::NativeRuntime::Avalonia
         {
             layoutable->InvalidateMeasure();
         }
-        InvalidateVisual();
+        if (_root != nullptr)
+        {
+            _root->InvalidateRender();
+        }
     }
 
     void Visual::ClearVisualChildren()
@@ -239,7 +292,10 @@ namespace MphRead::NativeRuntime::Avalonia
         if (_bounds != bounds)
         {
             _bounds = bounds;
-            InvalidateVisual();
+            if (_root != nullptr)
+            {
+                _root->InvalidateRender();
+            }
         }
     }
 
@@ -281,7 +337,19 @@ namespace MphRead::NativeRuntime::Avalonia
         AvaloniaObject::OnPropertyChanged(change);
         if ((change.Property.AffectsFor(*this) & static_cast<std::uint8_t>(AvaloniaProperty::Affects::Render)) != 0)
         {
-            InvalidateVisual();
+            if (&change.Property == &IsVisibleProperty || &change.Property == &OpacityProperty
+                || &change.Property == &ClipToBoundsProperty || &change.Property == &RenderTransformProperty
+                || &change.Property == &RenderTransformOriginProperty)
+            {
+                if (_root != nullptr)
+                {
+                    _root->InvalidateRender();
+                }
+            }
+            else
+            {
+                InvalidateVisual();
+            }
         }
     }
 

@@ -1,4 +1,5 @@
 #include "UiOverlay.hpp"
+#include "../../NativeRuntime/OpenTK/GpuTrace.hpp"
 
 #include "LauncherHunter.hpp"
 #include "LauncherPhoto.hpp"
@@ -70,6 +71,8 @@ namespace MphRead::Mods::Render
         }
         GL::BindTexture(GL::TextureTarget::Texture2D, 0);
         _hasFrame = true;
+        ::MphRead::NativeRuntime::GpuTrace::Uploads++;
+        ::MphRead::NativeRuntime::GpuTrace::UploadBytes += static_cast<std::int64_t>(width) * height * 4;
     }
 
     void UiOverlay::Draw(std::int32_t width, std::int32_t height)

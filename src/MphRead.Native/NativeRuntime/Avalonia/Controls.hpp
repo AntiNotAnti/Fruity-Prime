@@ -99,8 +99,8 @@ namespace MphRead::NativeRuntime::Avalonia
                 ...);
         }
 
-        // Set by the renderer: whether the last render drew anything, which
-        // is what a visual is hit-tested by.
+        // Set by a full render, or when a partial render covers this visual's
+        // full bounds: whether it draws content, which the hit tester uses.
         bool RenderedContent = false;
 
     protected:

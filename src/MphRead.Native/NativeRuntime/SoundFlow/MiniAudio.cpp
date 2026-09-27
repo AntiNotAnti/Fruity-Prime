@@ -101,7 +101,13 @@ namespace SoundFlow::Components
                 static_cast<std::size_t>(FramesPerBuffer) * channels * sizeof(float));
             std::vector<std::int16_t> samples(
                 static_cast<std::size_t>(FramesPerBuffer) * channels);
-            std::int32_t queued = 0;
+            // Buffers free to fill. A buffer is taken from here and given back
+            // only when OpenAL hands it back unqueued: picking one by counting
+            // (queued % BufferCount) chose a buffer that was still queued as
+            // soon as the oldest one finished, so alBufferData was refused and
+            // the same buffer went into the queue twice -- repeated and
+            // skipped stretches of music.
+            std::vector<ALuint> free(Buffers, Buffers + BufferCount);
 
             while (!Disposed.load(std::memory_order_relaxed))
             {
@@ -117,10 +123,13 @@ namespace SoundFlow::Components
                 {
                     ALuint done = 0;
                     ::alSourceUnqueueBuffers(Source, 1, &done);
-                    --queued;
+                    if (done != 0)
+                    {
+                        free.push_back(done);
+                    }
                 }
 
-                if (queued >= BufferCount)
+                if (free.empty())
                 {
                     std::this_thread::sleep_for(std::chrono::milliseconds(2));
                     continue;
@@ -146,11 +155,11 @@ namespace SoundFlow::Components
                     samples[i] = static_cast<std::int16_t>(clamped * 32767.0F);
                 }
 
-                const ALuint buffer = Buffers[static_cast<std::size_t>(queued) % BufferCount];
+                const ALuint buffer = free.back();
+                free.pop_back();
                 ::alBufferData(buffer, channels >= 2 ? AL_FORMAT_STEREO16 : AL_FORMAT_MONO16,
                     samples.data(), static_cast<ALsizei>(count * sizeof(std::int16_t)), rate);
                 ::alSourceQueueBuffers(Source, 1, &buffer);
-                ++queued;
 
                 ALint state = 0;
                 ::alGetSourcei(Source, AL_SOURCE_STATE, &state);

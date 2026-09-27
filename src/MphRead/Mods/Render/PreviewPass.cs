@@ -116,13 +116,16 @@ namespace MphRead
             // entity generated. On the launcher there is no player and no
             // room, so nothing ever did, and the first draw died looking a
             // palette up by an id that was never registered.
-            if (_previewInited != want)
+            // Every step, not once per hunter: a match's UnloadGl deletes the
+            // display lists on every cached model -- this one included, since
+            // the match reused the lists this preview generated -- and zeroes
+            // their ids. Asked once, the launcher's own scene then drew the
+            // same hunter through list 0 for ever: a black box. Both calls
+            // return at once when there is nothing to make.
+            _previewInited = want;
+            if (_preview.Ready)
             {
-                _previewInited = want;
-                if (_preview.Ready)
-                {
-                    InitEntity(_preview);
-                }
+                InitEntity(_preview);
             }
             _preview.Step();
         }

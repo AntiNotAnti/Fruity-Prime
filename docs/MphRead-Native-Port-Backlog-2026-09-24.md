@@ -494,6 +494,13 @@
   旧ビルドは既定値 true でこれを常に書いていたため、古い controls.txt は全員スタイラスモード（カーソル解放）になる。C# 側も同じ。
 - 修正: 明示的な `stylus_mode=true` のときだけスタイラスモード。C++（Mods/InputSettings.cpp）と C#（Mods/InputSettings.cs）の両方を同じ形で変更し一対一を維持。
 
+### 2026-09-27 Online の did not answer 調査
+
+- 症状: Online のサーバー一覧が全部 did not answer。`FruityPrime -servers` で再現。
+- 調査: 3 台（West US 2 / West Europe / Pi）とも StatusQuery に 131 バイトで応答している。
+  現行プロトコル 14 は MatchStatePacket が 8 バイト増え、StatusReply は 138 バイト以上を要求するため短い応答を捨てる。C# も同一挙動で、移植のバグではない。
+- 結論: サーバーが旧ビルド（Pi は v0.10.0）。本修正はサーバー再デプロイ。旧サーバーを「旧バージョン」と表示するクライアント側改善は任意。どちらにするかユーザー判断待ち。
+
 ## 1. Platform helpers — 2 ファイル (新規 2), C# +73 行
 
 | S | +/- | C# | C++ | 進捗 |
