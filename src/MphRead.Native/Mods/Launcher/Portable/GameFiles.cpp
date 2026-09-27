@@ -40,6 +40,7 @@
 #if !defined(_WIN32)
 #include <poll.h>
 #include <pthread.h>
+#include <time.h>
 #endif
 
 #if defined(_WIN32)
@@ -179,7 +180,7 @@ namespace
         {
             ++cursor;
         }
-        if (cursor != component.size() || negative)
+        if (cursor != component.size() || (negative && value != 0))
         {
             return false;
         }
@@ -724,6 +725,12 @@ namespace
                 _exit(127);
             };
 
+            // Give the extraction process and anything it starts one group so
+            // the timeout can stop the whole tree like Process.Kill(true).
+            if (::setpgid(0, 0) != 0)
+            {
+                failStartup(errno);
+            }
             if (!workingDirectory.empty() && ::chdir(workingDirectory.c_str()) != 0)
             {
                 failStartup(errno);
@@ -852,11 +859,29 @@ namespace
     void WritePosixInput(int fd)
     {
         static constexpr std::string_view text = "y\n\n";
-        struct sigaction ignore{};
-        struct sigaction previous{};
-        ignore.sa_handler = SIG_IGN;
-        sigemptyset(&ignore.sa_mask);
-        const bool changed = ::sigaction(SIGPIPE, &ignore, &previous) == 0;
+        sigset_t sigpipe{};
+        if (::sigemptyset(&sigpipe) != 0 || ::sigaddset(&sigpipe, SIGPIPE) != 0)
+        {
+            throw std::ios_base::failure(ErrnoMessage(errno));
+        }
+        sigset_t previousMask{};
+        const int maskError = ::pthread_sigmask(SIG_BLOCK, &sigpipe, &previousMask);
+        if (maskError != 0)
+        {
+            throw std::ios_base::failure(ErrnoMessage(maskError));
+        }
+        struct RestoreSignalMask final
+        {
+            const sigset_t& Previous;
+            ~RestoreSignalMask() { (void)::pthread_sigmask(SIG_SETMASK, &Previous, nullptr); }
+        } restore{previousMask};
+
+        sigset_t pendingBefore{};
+        if (::sigpending(&pendingBefore) != 0)
+        {
+            throw std::ios_base::failure(ErrnoMessage(errno));
+        }
+        const bool alreadyPending = ::sigismember(&pendingBefore, SIGPIPE) == 1;
 
         std::size_t offset = 0;
         while (offset < text.size())
@@ -872,19 +897,19 @@ namespace
                 continue;
             }
             const int error = errno;
-            if (changed)
-            {
-                (void)::sigaction(SIGPIPE, &previous, nullptr);
-            }
             if (error == EPIPE)
             {
+                if (!alreadyPending)
+                {
+                    const timespec noWait{};
+                    while (::sigtimedwait(&sigpipe, nullptr, &noWait) < 0
+                        && errno == EINTR)
+                    {
+                    }
+                }
                 return;
             }
             throw std::ios_base::failure(ErrnoMessage(error));
-        }
-        if (changed)
-        {
-            (void)::sigaction(SIGPIPE, &previous, nullptr);
         }
     }
 #endif
@@ -1312,7 +1337,7 @@ namespace MphRead::Mods::Launcher
             }
             if (timedOut)
             {
-                const int stopResult = ::kill(child.Pid, SIGSTOP);
+                const int stopResult = ::kill(-child.Pid, SIGSTOP);
                 if (stopResult != 0)
                 {
                     const int stopError = errno;
@@ -1321,7 +1346,7 @@ namespace MphRead::Mods::Launcher
                         throw std::runtime_error(ErrnoMessage(stopError));
                     }
                 }
-                else if (::kill(child.Pid, SIGKILL) != 0 && errno != ESRCH)
+                else if (::kill(-child.Pid, SIGKILL) != 0 && errno != ESRCH)
                 {
                     throw std::runtime_error(ErrnoMessage(errno));
                 }
