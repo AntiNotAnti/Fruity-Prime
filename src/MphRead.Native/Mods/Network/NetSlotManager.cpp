@@ -25,6 +25,8 @@
 #include <type_traits>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::ManagedAt;
+using ::MphRead::NativeRuntime::ManagedListAt;
 using ::MphRead::TestFlag;
 
 namespace MphRead::Mods::Network
@@ -50,7 +52,7 @@ namespace MphRead::Mods::Network
         {
             std::shared_ptr<Entities::PlayerEntity> player
                 = slot < static_cast<std::int32_t>(Entities::PlayerEntity::Players().size())
-                ? Entities::PlayerEntity::Players().at(static_cast<std::size_t>(slot))
+                ? ManagedListAt(Entities::PlayerEntity::Players(), slot)
                 : nullptr;
             if (player == nullptr)
             {
@@ -59,16 +61,16 @@ namespace MphRead::Mods::Network
 
             const bool occupied = slot == NetSession::LocalSlot()
                 || (slot < static_cast<std::int32_t>(NetSession::SlotOccupied.size())
-                    && NetSession::SlotOccupied[slot]);
+                    && ManagedAt(NetSession::SlotOccupied, slot));
 
             // The final team roster can arrive after the match starts.
             // Correct active players as well as newly activated slots.
-            if (occupied && _activated.at(static_cast<std::size_t>(slot)))
+            if (occupied && ManagedAt(_activated, slot))
             {
                 SyncTeam(*player, slot);
             }
 
-            if (occupied && !_activated.at(static_cast<std::size_t>(slot)))
+            if (occupied && !ManagedAt(_activated, slot))
             {
                 if ((Weapons::Current == nullptr))
                 {
@@ -79,11 +81,11 @@ namespace MphRead::Mods::Network
             else if (occupied && slot != NetSession::LocalSlot())
             {
                 const MphRead::Hunter rosterHunter
-                    = NetSession::SlotHunter[slot];
+                    = ManagedAt(NetSession::SlotHunter, slot);
                 const MphRead::Hunter playerHunter = player->Hunter();
                 if (rosterHunter != playerHunter)
                 {
-                    player->ModSetHunter(NetSession::SlotHunter[slot]);
+                    player->ModSetHunter(ManagedAt(NetSession::SlotHunter, slot));
                     player->Initialize();
 
                     std::string consoleMessage = "[net] slot ";
@@ -100,7 +102,7 @@ namespace MphRead::Mods::Network
                 }
             }
             else if (!occupied
-                && _activated.at(static_cast<std::size_t>(slot))
+                && ManagedAt(_activated, slot)
                 && slot != NetSession::LocalSlot())
             {
                 Deactivate(*player, slot);
@@ -110,7 +112,7 @@ namespace MphRead::Mods::Network
 
     void NetSlotManager::Activate(Entities::PlayerEntity& player, std::int32_t slot)
     {
-        _activated.at(static_cast<std::size_t>(slot)) = true;
+        ManagedAt(_activated, slot) = true;
 
         player.SetLoadFlags(player.LoadFlags() | Entities::LoadFlags::SlotActive);
         player.SetLoadFlags(player.LoadFlags() | Entities::LoadFlags::Active);
@@ -122,11 +124,11 @@ namespace MphRead::Mods::Network
 
         if (slot != NetSession::LocalSlot())
         {
-            const MphRead::Hunter rosterHunter = NetSession::SlotHunter[slot];
+            const MphRead::Hunter rosterHunter = ManagedAt(NetSession::SlotHunter, slot);
             const MphRead::Hunter playerHunter = player.Hunter();
             if (rosterHunter != playerHunter)
             {
-                player.ModSetHunter(NetSession::SlotHunter[slot]);
+                player.ModSetHunter(ManagedAt(NetSession::SlotHunter, slot));
             }
         }
 
@@ -136,7 +138,7 @@ namespace MphRead::Mods::Network
         std::string consoleMessage = "[net] slot ";
         consoleMessage += ::MphRead::NativeRuntime::ToString(slot);
         consoleMessage += " activated (";
-        consoleMessage += GameState::Nicknames()[slot];
+        consoleMessage += ManagedAt(GameState::Nicknames(), slot);
         consoleMessage += ") -- ";
         consoleMessage += ::MphRead::NativeRuntime::ToString(Entities::PlayerEntity::PlayerCount());
         consoleMessage += " player(s) in scene";
@@ -145,7 +147,7 @@ namespace MphRead::Mods::Network
         std::string logMessage = "slot ";
         logMessage += ::MphRead::NativeRuntime::ToString(slot);
         logMessage += " activated (";
-        logMessage += GameState::Nicknames()[slot];
+        logMessage += ManagedAt(GameState::Nicknames(), slot);
         logMessage += "), ";
         logMessage += ::MphRead::NativeRuntime::ToString(Entities::PlayerEntity::PlayerCount());
         logMessage += " player(s) in scene";
@@ -159,7 +161,7 @@ namespace MphRead::Mods::Network
         {
             std::shared_ptr<Entities::PlayerEntity> player
                 = i < static_cast<std::int32_t>(Entities::PlayerEntity::Players().size())
-                ? Entities::PlayerEntity::Players().at(static_cast<std::size_t>(i))
+                ? ManagedListAt(Entities::PlayerEntity::Players(), i)
                 : nullptr;
             if (player != nullptr
                 && TestFlag(player->LoadFlags(), Entities::LoadFlags::Active))
@@ -175,17 +177,19 @@ namespace MphRead::Mods::Network
         if (slot < 0
             || slot >= Entities::PlayerEntity::SlotCapacity
             || slot >= static_cast<std::int32_t>(Entities::PlayerEntity::Players().size())
-            || !_activated.at(static_cast<std::size_t>(slot)))
+            || !ManagedAt(_activated, slot))
         {
             return;
         }
         Deactivate(RequireReference(
-            Entities::PlayerEntity::Players().at(static_cast<std::size_t>(slot))), slot);
+            ManagedListAt(Entities::PlayerEntity::Players(), slot)), slot);
     }
 
     void NetSlotManager::SyncTeam(Entities::PlayerEntity& player, std::int32_t slot)
     {
-        const std::int32_t wanted = GameState::Teams() ? NetSession::SlotTeamIndex[static_cast<std::size_t>(slot)] : slot;
+        const std::int32_t wanted = GameState::Teams()
+            ? ManagedAt(NetSession::SlotTeamIndex, slot)
+            : slot;
         if (wanted < 0 || (GameState::Teams() && wanted >= GameState::TeamCount())
             || player.TeamIndex() == wanted)
         {
@@ -209,12 +213,12 @@ namespace MphRead::Mods::Network
                 && i < static_cast<std::int32_t>(Entities::PlayerEntity::Players().size());
             i++)
         {
-            if (i == slot || !_activated.at(static_cast<std::size_t>(i)))
+            if (i == slot || !ManagedAt(_activated, i))
             {
                 continue;
             }
             if (RequireReference(
-                Entities::PlayerEntity::Players().at(static_cast<std::size_t>(i))).TeamIndex()
+                ManagedListAt(Entities::PlayerEntity::Players(), i)).TeamIndex()
                 == teamIndex)
             {
                 return true;
@@ -225,7 +229,7 @@ namespace MphRead::Mods::Network
 
     void NetSlotManager::Deactivate(Entities::PlayerEntity& player, std::int32_t slot)
     {
-        _activated.at(static_cast<std::size_t>(slot)) = false;
+        ManagedAt(_activated, slot) = false;
 
         NetPlayerLifecycle::OnSlotChanged(slot);
         NetScoreboard::ForgetSlot(slot);
