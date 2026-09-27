@@ -3,8 +3,10 @@
 #include "NetProtocol.hpp"
 #include "NetSession.hpp"
 
+#include "../../NativeRuntime/System/Console.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
+
 #include <cstdint>
-#include <iostream>
 #include <memory>
 #include <optional>
 #include <string>
@@ -42,14 +44,17 @@ namespace MphRead::Mods::Network
         {
             _lastError = "That file isn't a demo this build recognises "
                 "(wrong extension, damaged, or from a different build).";
-            std::cout << "[demo] \"" << path << "\": " << _lastError.value() << '\n';
+            ::MphRead::NativeRuntime::ConsoleWriteLine(
+                "[demo] \"" + path + "\": " + _lastError.value());
             return false;
         }
         if (_reader->ProtocolVersion() != NetConfig::ProtocolVersion)
         {
-            std::cout << "[demo] recorded with protocol "
-                << static_cast<std::uint32_t>(_reader->ProtocolVersion())
-                << ", this build requires protocol " << static_cast<std::uint32_t>(NetConfig::ProtocolVersion) << '\n';
+            const std::string message = "[demo] recorded with protocol "
+                + ::MphRead::NativeRuntime::ToString(_reader->ProtocolVersion())
+                + ", this build requires protocol "
+                + ::MphRead::NativeRuntime::ToString(NetConfig::ProtocolVersion);
+            ::MphRead::NativeRuntime::ConsoleWriteLine(message);
             _lastError = "This demo uses an incompatible network protocol.";
             _reader->Dispose();
             _reader = nullptr;
@@ -89,7 +94,8 @@ namespace MphRead::Mods::Network
             ? "That demo file is empty -- nothing was ever recorded to it."
             : "That demo has no match info in its first few seconds -- "
                 "the recording may have started before the server said what map it was running.";
-        std::cout << "[demo] \"" << path << "\": " << _lastError.value() << '\n';
+        ::MphRead::NativeRuntime::ConsoleWriteLine(
+            "[demo] \"" + path + "\": " + _lastError.value());
         Stop();
         return false;
     }
@@ -104,7 +110,8 @@ namespace MphRead::Mods::Network
         if (_reader == nullptr)
         {
             _lastError = "That demo could not be read a second time.";
-            std::cout << "[demo] \"" << path << "\": " << _lastError.value() << '\n';
+            ::MphRead::NativeRuntime::ConsoleWriteLine(
+                "[demo] \"" + path + "\": " + _lastError.value());
             Stop();
             return false;
         }
