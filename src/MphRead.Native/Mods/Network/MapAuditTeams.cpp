@@ -6,6 +6,7 @@
 #include "../../Entities/OctolithFlagEntity.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../GameState.hpp"
+#include "../../NativeRuntime/System/ExceptionText.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Scene.hpp"
@@ -61,7 +62,7 @@ namespace MphRead::Mods::Network
         std::int32_t checks = 0;
         const auto check = [&](bool result, const std::string& message)
         {
-            checks++;
+            Runtime::IncrementInPlace(checks);
             if (!result)
             {
                 failures.push_back(message);
@@ -241,10 +242,12 @@ namespace MphRead::Mods::Network
                 }
             }
         }
-        catch (const std::exception& ex)
+        catch (...)
         {
-            failures.emplace_back(ex.what());
-            std::cout << "MAPFAIL " << _room << " | teamprobe: " << ex.what() << '\n';
+            const std::exception_ptr exception = std::current_exception();
+            failures.push_back(Runtime::ExceptionMessage(exception));
+            std::cout << "MAPFAIL " << _room << " | teamprobe: "
+                << Runtime::ExceptionToString(exception) << '\n';
         }
         std::cout << "TEAMPROBE " << _room << " | " << ::MphRead::ToString(GameState::Mode()) << " | " << checks
             << " checks | " << failures.size() << " failures\n";
