@@ -141,12 +141,12 @@ namespace MphRead::Mods::Input
         const auto boolean = [](bool value) { return std::string(value ? "True" : "False"); };
         const auto calibration = [&number](const std::string& side, const StickCalibration& c)
         {
-            number("gamepad_" + side + "_center_x", c.CenterX);
-            number("gamepad_" + side + "_center_y", c.CenterY);
-            number("gamepad_" + side + "_min_x", c.MinX);
-            number("gamepad_" + side + "_max_x", c.MaxX);
-            number("gamepad_" + side + "_min_y", c.MinY);
-            number("gamepad_" + side + "_max_y", c.MaxY);
+            number("gamepad_" + side + "_center_x", c.CenterX());
+            number("gamepad_" + side + "_center_y", c.CenterY());
+            number("gamepad_" + side + "_min_x", c.MinX());
+            number("gamepad_" + side + "_max_x", c.MaxX());
+            number("gamepad_" + side + "_min_y", c.MinY());
+            number("gamepad_" + side + "_max_y", c.MaxY());
         };
         calibration("left", LeftCalibration);
         calibration("right", RightCalibration);

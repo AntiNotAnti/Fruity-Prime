@@ -120,13 +120,13 @@ namespace MphRead::Mods::Launcher::Gui
         rawText += " RT ";
         rawText += Runtime::ToString(_raw.RightTrigger, "0.00");
         rawText += " | center L ";
-        rawText += Runtime::ToString(PadInput::GamepadOptions::LeftCalibration().CenterX, "0.00");
+        rawText += Runtime::ToString(PadInput::GamepadOptions::LeftCalibration().CenterX(), "0.00");
         rawText += ",";
-        rawText += Runtime::ToString(PadInput::GamepadOptions::LeftCalibration().CenterY, "0.00");
+        rawText += Runtime::ToString(PadInput::GamepadOptions::LeftCalibration().CenterY(), "0.00");
         rawText += " R ";
-        rawText += Runtime::ToString(PadInput::GamepadOptions::RightCalibration().CenterX, "0.00");
+        rawText += Runtime::ToString(PadInput::GamepadOptions::RightCalibration().CenterX(), "0.00");
         rawText += ",";
-        rawText += Runtime::ToString(PadInput::GamepadOptions::RightCalibration().CenterY, "0.00");
+        rawText += Runtime::ToString(PadInput::GamepadOptions::RightCalibration().CenterY(), "0.00");
         text(rawText, 4, 158, Bounds().Width - 8, true);
     }
 }

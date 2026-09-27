@@ -178,7 +178,8 @@ namespace MphRead::Mods::Input
         }
         Check(calibration.Valid(), "calibration accepts measured rest and range");
         calibration.Apply();
-        Check(std::abs(GamepadOptions::LeftInner() - .04F) < .001F && std::abs(GamepadOptions::RightCalibration().CenterY - .06F) < .001F,
+        Check(std::abs(GamepadOptions::LeftInner() - .04F) < .001F
+            && std::abs(GamepadOptions::RightCalibration().CenterY() - .06F) < .001F,
             "calibration separates center bias from radial noise");
         Check(GamepadCalibration::Trigger(.1F, .1F, .9F) == 0 && GamepadCalibration::Trigger(.9F, .1F, .9F) == 1,
             "calibrated trigger spans released to full press");

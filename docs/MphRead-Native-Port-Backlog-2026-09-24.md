@@ -587,9 +587,9 @@
 | A | +20/-0 | `Mods/Input/HapticScheduler.cs` | — 新規 | 完了（C#全文・GamepadHaptics直接呼出監査済、undefined feedbackの範囲外アクセスをIndexOutOfRangeExceptionへ修正、Windows Release build済） |
 | A | +19/-0 | `Mods/Input/InputPrompt.cs` | — 新規 | 完了（C#原本と呼び出し元を監査済、UiAction fallback/secondary slot/glyph/ToString一致、readonly/default Label nullをnativeに反映） |
 | A | +19/-0 | `Mods/Input/InputSourceTracker.cs` | — 新規 | 完了（C#全文・Renderer/GamepadManager/HUD呼び出し元監査済、180ms切替とResetを照合、unchecked long差分を修正） |
-| A | +17/-0 | `Mods/Input/AimAssist/AimAssistMath.cs` | — 新規 | 完了 |
-| A | +15/-0 | `Mods/Input/ControllerLayoutState.cs` | — 新規 | 完了 |
-| A | +13/-0 | `Mods/Input/StickCalibration.cs` | — 新規 | 完了 |
+| A | +17/-0 | `Mods/Input/AimAssist/AimAssistMath.cs` | — 新規 | 完了（C#全文・AimAssist/AimAssistWorld呼び出し元監査済、Smooth/Finite/Opposition/ScoreとNaN/Inf挙動一致、差分なし） |
+| A | +15/-0 | `Mods/Input/ControllerLayoutState.cs` | — 新規 | 完了（C#全文・GamepadRuntimeConfig/GamepadOptions/PadBindings呼び出し元監査済、Bindings/Name/Southpaw/Applyと更新順一致、差分なし） |
+| A | +13/-0 | `Mods/Input/StickCalibration.cs` | — 新規 | 完了（C#全文・GamepadCalibration/OptionState/GamepadMonitor呼び出し元監査済、readonly/NaN等値/Math.Maxを修正、Windows Release build済） |
 | A | +12/-0 | `Mods/Input/AimAssist/AimAssistState.cs` | — 新規 | 完了 |
 | A | +10/-0 | `Mods/Input/AimAssist/AimAssistTarget.cs` | — 新規 | 完了 |
 | M | +10/-77 | `Mods/Input/PointerInput.cs` | .cpp,.hpp | 完了 |
@@ -955,6 +955,9 @@
 - `Mods/Input/GamepadGlyphs.cs` をC#全文とnative `.cpp/.hpp`、`GamepadDesktop`/`GamepadManager`/`PadBindingState`/`InputPrompt`/launcher glyph viewの呼出元で照合。vendor ID優先順、GUID offset、name token順、設定family→device family→genericの選択、PlayStation/Nintendo remap、fallback labelsとflags `ToString`が一致。修正なし。Windows Release build済。
 - `Mods/Input/InputPrompt.cs` をC#全文とnative `.cpp/.hpp`、`GamepadUiRouter::ToString`/`PadBindings`およびStartScreen/ControllerRuntimeChecksの呼出元で照合。UiActionのbutton mappingと未知値の数値Label、PadActionのprimary未割当時のsecondary選択、modifier/glyph/ToStringが一致。C# `readonly record struct` に対してnativeが公開可変fieldだった点と、default structの`Label == null`をprivate getter/optionalへ修正し、文字列連結時はC#同様空文字として扱う。
 - `Mods/Input/InputSourceTracker.cs` をC#全文とnative `.cpp/.hpp`、Rendererのmouse/key入力・GamepadManagerのactivity通知・menu/HUDの読み取り元で照合。初期値、Reset、180msの切替抑制、同一source時の早期returnと通知位置が一致。C#既定uncheckedの`milliseconds - _changed`をnativeで直接計算していたため、境界値での符号付きoverflow未定義動作を`UncheckedSubtract`へ置換した。
+- `Mods/Input/AimAssist/AimAssistMath.cs` をC#全文とnative inline `.hpp`、`AimAssist`/`AimAssistWorld`の呼び出し元で照合。Smoothの割算・clamp・式順、Vector2 finite判定、Oppositionの符号判定、Scoreの係数とclamp順が一致。NaN/InfもC# `Math.Clamp`とnative `std::clamp`で伝播・飽和が一致し、差分修正なし。
+- `Mods/Input/ControllerLayoutState.cs` をC#全文とnative `.cpp/.hpp`、GamepadRuntimeConfigの生成・GamepadOptions/PadBindingsの委譲・ControllerRuntimeChecksの参照で照合。Bindingsの共有参照、Preset名、Southpaw setterのoptions→Custom preset順、Apply時のpreset→Southpaw更新と`Custom`保持条件が一致。差分修正なし。
+- `Mods/Input/StickCalibration.cs` をC#全文とnative inline `.hpp`、GamepadCalibration/OptionState/GamepadMonitor/EnhancementChecksの直接使用箇所で照合。6値の順序/default、readonly record、Normalizeの方向ごとの分母/clamp、等値とNaNを確認。nativeの公開可変fieldと既定float比較はC# recordと異なるためprivate getter化・NaN同士を等値化し、`std::max`ではNaNを捨てるため正規化をC# `Math.Max`互換helperへ変更した。全callerを読み取りproperty相当に更新。Windows Release build成功。
 
 ### 2026-09-27 native launcher regression audit
 

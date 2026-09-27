@@ -56,7 +56,8 @@ namespace MphRead::Mods::Input
             Percentile(_range, y, .02F), Percentile(_range, y, .98F)};
         dead = std::clamp(radius + .04F, .04F, .3F);
         return std::isfinite(radius) && radius < .25F && std::abs(cx) < .3F && std::abs(cy) < .3F
-            && calibration.MinX < -.5F && calibration.MaxX > .5F && calibration.MinY < -.5F && calibration.MaxY > .5F;
+            && calibration.MinX() < -.5F && calibration.MaxX() > .5F
+            && calibration.MinY() < -.5F && calibration.MaxY() > .5F;
     }
 
     void GamepadCalibration::Measure()
