@@ -8,7 +8,9 @@
 #include "NetSession.hpp"
 #include "NetSlotManager.hpp"
 #include "../../NativeRuntime/System/Console.hpp"
+#include "../../NativeRuntime/System/ExceptionText.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include "NetDamage.hpp"
 #include "NetHitPrediction.hpp"
@@ -181,8 +183,8 @@ namespace MphRead::Mods::Network
         ResetScores();
         NativeRuntime::ConsoleWriteLine(("[net] player slots rebuilt for the new room, main player = slot "
             + ::MphRead::NativeRuntime::ToString(localSlot)));
-        return Entities::PlayerEntity::Players().at(
-            static_cast<std::size_t>(localSlot));
+        return ::MphRead::NativeRuntime::ManagedListAt(
+            Entities::PlayerEntity::Players(), localSlot);
     }
 
     void NetRoomChange::AfterRebuild(Scene& scene)
@@ -217,7 +219,7 @@ namespace MphRead::Mods::Network
             scene.InsertEntity(player);
             player->Initialize();
             scene.InitEntity(player);
-            scene.InitEntity(player);
+            scene.InitEntity(player->Halfturret());
             NetLog::Event("slot "
                 + ::MphRead::NativeRuntime::ToString(slot)
                 + " re-inserted into the new room");
@@ -248,21 +250,21 @@ namespace MphRead::Mods::Network
                 | static_cast<std::int32_t>(Formats::CamSeqFlags::Loop)));
             Formats::CameraSequence::Intro(intro.get());
         }
-        catch (const std::exception& ex)
+        catch (...)
         {
+            const std::string message
+                = ::MphRead::NativeRuntime::ExceptionMessage(std::current_exception());
             const std::int32_t consoleRoomId
                 = scene.RoomId();
-            const std::string consoleMessage = ex.what();
             NativeRuntime::ConsoleWriteLine(("[net] no intro camera for room "
                 + ::MphRead::NativeRuntime::ToString(consoleRoomId)
-                + ": " + consoleMessage));
+                + ": " + message));
             const std::int32_t logRoomId
                 = scene.RoomId();
-            const std::string logMessage = ex.what();
             NetLog::Event(
                 "no intro camera for room "
                 + ::MphRead::NativeRuntime::ToString(logRoomId)
-                + ": " + logMessage);
+                + ": " + message);
         }
     }
 
