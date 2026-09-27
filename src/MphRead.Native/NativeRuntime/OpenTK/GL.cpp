@@ -110,23 +110,14 @@ namespace
 #endif
     }
 
-    // Each entry point is resolved once, on the thread that first needs it,
-    // against the context that is current then.
-    template <typename T>
-    [[nodiscard]] T EntryPoint(const char* name, T& slot)
-    {
-        if (slot == nullptr)
-        {
-            slot = reinterpret_cast<T>(ResolveEntryPoint(name));
-        }
-        return slot;
-    }
-
+    // Each entry point is resolved exactly once against the context current
+    // on its first use. Function-local static initialization is synchronized by
+    // C++11, so two threads cannot race while publishing the cached pointer.
 #define MPHREAD_GL_ENTRY(type, name)                                        \
     [[nodiscard]] type Get##name()                                          \
     {                                                                       \
-        static type slot = nullptr;                                         \
-        return EntryPoint<type>("gl" #name, slot);                          \
+        static const type slot = reinterpret_cast<type>(ResolveEntryPoint("gl" #name)); \
+        return slot;                                                        \
     }
 
     MPHREAD_GL_ENTRY(PFN_ActiveTexture, ActiveTexture)
