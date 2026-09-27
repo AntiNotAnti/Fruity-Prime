@@ -6268,7 +6268,7 @@ namespace MphRead
 #if defined(MPHREAD_SHELL)
         if (Mods::Launcher::Gui::Shell::UiVisible())
         {
-            const auto [x, y] = PointerPixels(_window->Mouse().X, _window->Mouse().Y);
+            const auto [x, y] = PointerPixels(e.X, e.Y);
             Mods::Launcher::Gui::Shell::PointerMoved(x, y);
             _window->BaseOnMouseMove(e);
             return;

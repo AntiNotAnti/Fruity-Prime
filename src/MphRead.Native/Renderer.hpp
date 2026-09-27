@@ -363,7 +363,13 @@ namespace MphRead
         struct ResizeEventArgs final { OpenTK::Mathematics::Vector2i Size{}; };
         struct WindowPositionEventArgs final { OpenTK::Mathematics::Vector2i Position{}; };
         struct MouseButtonEventArgs final { MouseButton Button{}; };
-        struct MouseMoveEventArgs final { float DeltaX = 0.0F; float DeltaY = 0.0F; };
+        struct MouseMoveEventArgs final
+        {
+            float X = 0.0F;
+            float Y = 0.0F;
+            float DeltaX = 0.0F;
+            float DeltaY = 0.0F;
+        };
         struct MouseWheelEventArgs final { float OffsetX = 0.0F; float OffsetY = 0.0F; };
         struct TextInputEventArgs final { std::uint32_t Unicode = 0; };
 

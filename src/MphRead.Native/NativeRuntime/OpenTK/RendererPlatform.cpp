@@ -666,9 +666,10 @@ namespace
             }
             const float newX = static_cast<float>(x);
             const float newY = static_cast<float>(y);
-            // MouseMoveEventArgs carries the delta, which OpenTK computes from
-            // the previous position.
+            // Match OpenTK's event position and delta from the previous point.
             MouseMoveEventArgs args;
+            args.X = newX;
+            args.Y = newY;
             args.DeltaX = newX - self->_lastReportedMouseX;
             args.DeltaY = newY - self->_lastReportedMouseY;
             self->_lastReportedMouseX = newX;
