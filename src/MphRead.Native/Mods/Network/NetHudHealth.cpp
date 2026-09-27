@@ -13,8 +13,12 @@ namespace MphRead::Mods::Network
     bool NetHudHealth::HideOpponents()
     {
         // NetSession.ServerSession is { Match.HideOpponentHealth: true }.
-        return NetSession::Active() && NetSession::ServerSession().has_value()
-            && NetSession::ServerSession()->Match.HideOpponentHealth;
+        if (!NetSession::Active())
+        {
+            return false;
+        }
+        const std::optional<SessionStatePacket> session = NetSession::ServerSession();
+        return session.has_value() && session->Match.HideOpponentHealth;
     }
 
     bool NetHudHealth::Visible(std::int32_t slot)
