@@ -36,6 +36,7 @@
 
 using ::MphRead::NativeRuntime::EnvironmentGetVariable;
 using ::MphRead::NativeRuntime::HasFlag;
+using ::MphRead::NativeRuntime::ManagedListAt;
 
 namespace
 {
@@ -94,7 +95,7 @@ namespace MphRead::Mods::Network
         for (std::int32_t i = 0; i < Entities::PlayerEntity::MaxPlayers(); i++)
         {
             std::shared_ptr<Entities::PlayerEntity> player
-                = Entities::PlayerEntity::Players().at(static_cast<std::size_t>(i));
+                = ManagedListAt(Entities::PlayerEntity::Players(), i);
             if (player == nullptr)
             {
                 line.push_back('-');
@@ -133,7 +134,7 @@ namespace MphRead::Mods::Network
         for (std::int32_t i = 0; i < Entities::PlayerEntity::MaxPlayers(); i++)
         {
             std::shared_ptr<Entities::PlayerEntity> player
-                = Entities::PlayerEntity::Players().at(static_cast<std::size_t>(i));
+                = ManagedListAt(Entities::PlayerEntity::Players(), i);
             if (player != nullptr && i != NetSession::LocalSlot() && player->IsBot()
                 && HasFlag(player->LoadFlags(), Entities::LoadFlags::Active))
             {
@@ -151,7 +152,7 @@ namespace MphRead::Mods::Network
         for (std::int32_t i = 0; i < Entities::PlayerEntity::MaxPlayers(); i++)
         {
             std::shared_ptr<Entities::PlayerEntity> player
-                = Entities::PlayerEntity::Players().at(static_cast<std::size_t>(i));
+                = ManagedListAt(Entities::PlayerEntity::Players(), i);
             if (i > 0)
             {
                 line.push_back(',');
@@ -168,7 +169,7 @@ namespace MphRead::Mods::Network
             for (std::int32_t i = 0; i < Entities::PlayerEntity::MaxPlayers(); i++)
             {
                 std::shared_ptr<Entities::PlayerEntity> a
-                    = Entities::PlayerEntity::Players().at(static_cast<std::size_t>(i));
+                    = ManagedListAt(Entities::PlayerEntity::Players(), i);
                 if (a == nullptr
                     || !HasFlag(a->LoadFlags(), Entities::LoadFlags::Active))
                 {
@@ -177,7 +178,7 @@ namespace MphRead::Mods::Network
                 for (std::int32_t j = i + 1; j < Entities::PlayerEntity::MaxPlayers(); j++)
                 {
                     std::shared_ptr<Entities::PlayerEntity> b
-                        = Entities::PlayerEntity::Players().at(static_cast<std::size_t>(j));
+                        = ManagedListAt(Entities::PlayerEntity::Players(), j);
                     if (b != nullptr
                         && HasFlag(b->LoadFlags(), Entities::LoadFlags::Active)
                         && a->TeamIndex() == b->TeamIndex())
@@ -199,7 +200,7 @@ namespace MphRead::Mods::Network
         for (std::int32_t i = 0; i < Entities::PlayerEntity::MaxPlayers(); i++)
         {
             std::shared_ptr<Entities::PlayerEntity> player
-                = Entities::PlayerEntity::Players().at(static_cast<std::size_t>(i));
+                = ManagedListAt(Entities::PlayerEntity::Players(), i);
             line.push_back(player == nullptr
                     || !HasFlag(player->LoadFlags(), Entities::LoadFlags::Active)
                 ? '-'
