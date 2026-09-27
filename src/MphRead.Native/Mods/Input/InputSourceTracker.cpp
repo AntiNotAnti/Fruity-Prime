@@ -1,5 +1,6 @@
 #include "InputSourceTracker.hpp"
 
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/System/Runtime.hpp"
 
 namespace MphRead::Mods::Input
@@ -17,7 +18,7 @@ namespace MphRead::Mods::Input
 
     void InputSourceTracker::Note(InputSource source, std::int64_t milliseconds) noexcept
     {
-        if (source == _current || milliseconds - _changed < 180)
+        if (source == _current || ::MphRead::NativeRuntime::UncheckedSubtract(milliseconds, _changed) < 180)
         {
             return;
         }
