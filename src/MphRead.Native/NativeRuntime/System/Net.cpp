@@ -28,8 +28,8 @@
 #endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include <netioapi.h>
 #include <windows.h>
+#include <iphlpapi.h>
 #else
 #include <cerrno>
 #include <netdb.h>

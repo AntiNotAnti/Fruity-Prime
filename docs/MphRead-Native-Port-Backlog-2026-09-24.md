@@ -28,7 +28,7 @@
 
 ### 2026-09-28 現在の監査状態
 
-- 表の302項目中301項目はC#対比監査済み、1項目は監査中（`GameFiles.cs`）。GameFiles.csのC#全文監査・POSIX修正とWindows Release buildは済み。最新Windows/MSVC run `36342122622` は `NativeRuntime/Avalonia/Base.hpp:125` のC3615（`constexpr Rect(Point, Point)`）で失敗したため、`constexpr`を除去。Windows Release `ninja -k 0` とAndroid arm64-v8a・x86_64最終buildは成功し、修正後のMSVC CI再確認待ち。`PlayerDraw.cs` はC#全文・native実装・Spireのsimulation/draw呼出し順を照合し一致。`HalfturretEntity.cs` はC#全文・native実装・直接参照を照合し、味方target除外とC#のuint/int数値昇格を含めてnative一致。`ItemInstanceEntity.cs` はC#全文・native実装・直接呼出しを照合し差異なし。TapCheckはC#全文・14ケース・`-tapcheck`接続を監査し、Windows Releaseで14件すべて成功。BeamProjectileEntityはPR #1のC#差分66追加/33削除を照合し、`ModLaunchKey`のinternal setter範囲を修正、Windows Release全体build成功。PlayerCollisionとNodeDefenseEntityはC#差分と直接参照を監査しnative一致。CreditsはC#全文を照合して出力差を修正、18_AlimbicTurretは変更されたteam filterを照合しnative一致。Windows Release build成功。`Globalization.hpp` のUnicode escape修正はWindows Release build済み。最新MSVC run `36342122622` は `NativeRuntime/Avalonia/Base.hpp` のconstexpr `Rect(Point, Point)` でC3615。修正後のCI再確認待ち。
+- 表の302項目はすべてC#対比監査済み。`GameFiles.cs`もC#全文・直接呼出し監査済みで、POSIX修正のmacOS/Clang・Linux/GCC CIとWindows Release buildを確認済み。個別監査の詳細は末尾ログを参照。現在の未解決ゲートはWindows/MSVC buildのみで、run `36344368855` は `NativeRuntime/System/Net.cpp` のWindows SDK header includeで失敗。`iphlpapi.h` includeへ変更しWindows Release `ninja -k 0` 成功、修正後のMSVC CI待ち。
 - Section 14 のAndroid 17ファイルは監査完了。`NativeRuntime/Avalonia/Base.hpp` のMSVC対応後、Android arm64-v8a・x86_64をそれぞれ最新ソースで最終buildし、両方とも成功（各75段階、静的ライブラリをリンク）。runtime/device確認は未実施。
 
 - 済: 1 Platform helpers / 3 Mods leaves / 8 Multiplayer・teams
@@ -82,7 +82,7 @@
   MapReport.ListItems。MapCheck（-mapcheck）・AltFormProbe（-altprobe）・MapReport.ListItems（-mapitems）は
   ModEntryから配線・監査済み。セクション10 完了。
 - 11 Launcher portable: 移植済み。C#原本との再監査は移植状況と別に一ファイルずつ実施中。
-  NativeFilePicker・LauncherPrefs・MatchStart・RomWhitelist・TextLauncher・LaunchPlan は監査完了。GameFilesはC#全文監査・必要修正・Windows Release build済み。MSVC確認は `NativeRuntime/Avalonia/Base.hpp` のC3615修正後、再CI待ち。
+  NativeFilePicker・LauncherPrefs・MatchStart・RomWhitelist・TextLauncher・LaunchPlan・GameFiles はC#全文監査完了。GameFilesはPOSIX修正のmacOS/Clang・Linux/GCC CI、Windows Release build済み。POSIX runtime・抽出runtime未実施。
   LaunchPlan（LobbyContext）、GameFiles（Root=AppPaths、RomWhitelist 照合）、TextLauncher（InputEnded・insane・StartupForced）、
   NativeFilePicker（NativeRuntime に ProcessRunCaptureOutput）は移植時の確認を完了。MatchStart は RenderWindow の1ウィンドウ API を使う形へ移植し、
   C#原本との静的監査とWindows Release buildを完了。
@@ -740,7 +740,7 @@
 | M | +87/-8 | `Mods/Launcher/Portable/LauncherPrefs.cs` | .cpp,.hpp | 完了（C#全文・Load/Save/Directory直接接続監査済、catch(Exception)境界を修正、Windows Release native build済。runtime未実施） |
 | A | +67/-0 | `Mods/Launcher/Portable/RomWhitelist.cs` | — 新規 | 完了（C#全文・Program/GameFiles直接呼出し監査済、MD5 file I/OをFile.OpenRead相当へ修正、Windows Release build済。実ROM runtime未実施） |
 | M | +24/-7 | `Mods/Launcher/Portable/TextLauncher.cs` | .cpp,.hpp | 完了（C#全文・ModEntry/各設定/ネットワーク/GameFiles/MatchStart直接接続監査済、整数parse overflow・例外stack出力を修正、Windows Release build済。UI runtime未実施） |
-| M | +15/-3 | `Mods/Launcher/Portable/GameFiles.cs` | .cpp,.hpp | 監査中（C#全文・直接呼出し監査、POSIX修正のmacOS/Clang・Linux/GCC CI、Windows Release build済。最新MSVC CIはNativeRuntime/Avalonia/Base.hppのC3615で失敗。constexprを除去し、Windows ReleaseおよびAndroid両ABI build済、MSVC再確認待ち。POSIX runtime・抽出runtime未実施） |
+| M | +15/-3 | `Mods/Launcher/Portable/GameFiles.cs` | .cpp,.hpp | 完了（C#全文・直接呼出し監査済。POSIX修正のmacOS/Clang・Linux/GCC CI、Windows Release build済。POSIX runtime・抽出runtime未実施） |
 | M | +4/-0 | `Mods/Launcher/Portable/LaunchPlan.cs` | .cpp,.hpp | 完了（C#全文・直接呼出し監査済、LobbyContextのinit-only性をnativeにも適用、Windows Release build済。runtime未実施） |
 
 ## 12. Launcher GUI — 70 ファイル (新規 50), C# +22132 行
@@ -1090,3 +1090,5 @@
 - `Entities/Players/PlayerDraw.cs` をC#全文・native `.hpp/.cpp`・PR #1差分（+1/-9）で照合。DrawのSpire alt-attackは両側で`AnimateSpireAltAttack`を呼び、collision poseは両側のsimulation `Process`から`UpdateSpireAltCollisionPose`を呼んでanimation後の左右rock位置を更新する。描画分岐、LOD、biped/alt-form、shadow、render-item traversal、double-damage texgen、morph-ball trail、death particle、volume表示も照合し一致。コード変更なし（verified no-op）。`git diff --check`通過、Windows Release `ninja -k 0` はno work to do。runtime未実施。
 
 - Windows/MSVC CI run `36342122622` の失敗を確認し、`NativeRuntime/Avalonia/Base.hpp` の `Rect(Point, Point)` からMSVCでconstexpr評価できない `std::abs` を含むコンストラクターの `constexpr` 指定だけを外した。幾何計算式は変更なし。`git diff --check`、Windows Release `ninja -k 0`、Android arm64-v8a・x86_64各75段階の最終build成功。MSVC修正後CI待ち。
+
+- 修正後のMSVC run `36344368855` は `Rect` のC3615を越え、次に `NativeRuntime/System/Net.cpp` のWindows SDK `netioapi.h` includeで失敗した。Windowsの `if_nametoindex` は `iphlpapi.h` 経由で宣言されるため、`windows.h` 後に `<iphlpapi.h>` をincludeする形へ変更。C#側のIP scope parsingや実行時の式は変更していない。`git diff --check`・Windows Release `ninja -k 0` 成功。MSVC再CI待ち。
