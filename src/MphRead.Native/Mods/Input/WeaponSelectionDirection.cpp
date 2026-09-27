@@ -1,6 +1,7 @@
 #include "WeaponSelectionDirection.hpp"
 
 #include "GamepadOptions.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -20,7 +21,7 @@ namespace MphRead::Mods::Input
             return -1;
         }
         const float angle = std::atan2(x, y);
-        return std::clamp(static_cast<std::int32_t>(angle / (Pi / 12)), 0, 5);
+        return std::clamp(::MphRead::NativeRuntime::ConvertToInt32Net9(angle / (Pi / 12)), 0, 5);
     }
 
     std::int32_t WeaponSelectionDirection::ControllerSlot(float x, float y)
@@ -36,7 +37,8 @@ namespace MphRead::Mods::Input
             angle += 2 * Pi;
         }
         const std::shared_ptr<std::array<std::int32_t, 6>> order = GamepadOptions::WheelOrder();
-        return (*order)[static_cast<std::size_t>(std::clamp(static_cast<std::int32_t>(angle / (Pi / 3)), 0, 5))];
+        const std::int32_t sector = ::MphRead::NativeRuntime::ConvertToInt32Net9(angle / (Pi / 3));
+        return (*order)[static_cast<std::size_t>(std::clamp(sector, 0, 5))];
     }
 
     std::pair<float, float> WeaponSelectionDirection::FromStick(float x, float y) noexcept
