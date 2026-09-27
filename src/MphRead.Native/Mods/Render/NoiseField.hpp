@@ -18,6 +18,7 @@ namespace MphRead::Mods::Render
         static constexpr std::int32_t MaxCells = 320;
         static constexpr double Gap = 33;
 
+        [[nodiscard]] std::vector<std::uint8_t>& Pixels() noexcept { return _pixels; }
         [[nodiscard]] const std::vector<std::uint8_t>& Pixels() const noexcept { return _pixels; }
         [[nodiscard]] std::int32_t Width() const noexcept { return _width; }
         [[nodiscard]] std::int32_t Height() const noexcept { return _height; }

@@ -1,5 +1,6 @@
 #include "NoiseField.hpp"
 
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/System/Random.hpp"
 #include "../../NativeRuntime/System/Stopwatch.hpp"
 
@@ -8,13 +9,15 @@
 
 namespace MphRead::Mods::Render
 {
+    namespace Runtime = ::MphRead::NativeRuntime;
+
     NoiseField::NoiseField() : _clock(::MphRead::NativeRuntime::StopwatchGetTimestamp())
     {
     }
 
     std::int32_t NoiseField::CellsFor(double points) noexcept
     {
-        return std::clamp(static_cast<std::int32_t>(points / Cell), 32, MaxCells);
+        return std::clamp(Runtime::ConvertToInt32Net9(points / Cell), 32, MaxCells);
     }
 
     bool NoiseField::Step(double windowWidth, double windowHeight, bool still)

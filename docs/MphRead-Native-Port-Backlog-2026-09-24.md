@@ -602,7 +602,7 @@
 | A | +277/-0 | `Mods/Render/PlayerEntityMapPick.cs` | — 新規 | 完了（C#全文・PlayerEntityEndScreen/MapPick/MapThumbnail呼出元監査済、描画順・座標・投票表示・hit layout一致。UTF-16切詰めとMath.Min/Max挙動を修正。Windows Release build済） |
 | A | +256/-0 | `Mods/Render/MapThumbnail.cs` | — 新規 | 完了（C#全文・Renderer/EndScreen/PlayerEntityMapPick/Scene.BindTextureの接続監査済、RGB decode・box filter・per-frame cache lifecycle一致。OrdinalIgnoreCase comparerとunchecked texture-name incrementを修正。Windows Release build済） |
 | A | +244/-0 | `Mods/Render/UiOverlay.cs` | .cpp,.hpp | 完了（C#原本監査済、Renderer呼び出しをSection 12で接続） |
-| A | +226/-0 | `Mods/Render/NoiseField.cs` | — 新規 | 完了 |
+| A | +226/-0 | `Mods/Render/NoiseField.cs` | — 新規 | 完了（C#全文・LauncherNoise/MovingBackdropの参照を監査済、seeded Random/Stopwatch・resize・noise/color計算一致。CellsForの.NET 10 double→int変換とPixels配列の変更可能性を反映。Windows Release build済） |
 | A | +174/-0 | `Mods/Render/LauncherHunter.cs` | .cpp,.hpp | 完了（C#原本監査済、RenderWindow APIと描画呼出しを接続） |
 | A | +160/-0 | `Mods/Render/LauncherNoise.cs` | .cpp,.hpp | 完了（C#原本監査済、GL unpack enum を追加） |
 | M | +138/-3 | `Mods/Render/PreviewPass.cs` | .cpp,.hpp | 完了 |
@@ -963,6 +963,7 @@
 - `Mods/Input/PointerInput.cs` をC#全文とnative `.cpp/.hpp`、PointerDevice/Renderer/PlayerInput/PointerCheckの呼出元で照合。設定既定値、jump閾値・whole-sample rejection、current-cultureログ書式、初回ログ、Reset範囲が一致。C#通常uncheckedの`JumpsIgnored++`に対してnative signed overflowが未定義動作となるため`IncrementInPlace`へ修正。Windows Release build済。
 - `Mods/Render/PlayerEntityMapPick.cs` をC#全文とnative `.cpp/.hpp`、`PlayerEntityEndScreen`/`MapPick`/`MapThumbnail`の直接接続で照合。panel計算、描画順、色・文字列・投票count、scrollbar、thumbnail呼出し、4 hit領域のpublishが一致。文字名の切詰めはC# string.Length/RangeのUTF-16 code unit単位、`Math.Min/Max/Clamp`はNaN伝播を含む.NET helperへ変更し、UTF-8 byte切詰めと`std::min/max/clamp`との差を修正。Windows Release build済。
 - `Mods/Render/MapThumbnail.cs` をC#全文とnative `.cpp/.hpp`、Rendererの`BeginFrame`、EndScreenの両edgeでの`Clear`、PlayerEntityMapPickの呼出し、Scene.BindTextureまで照合。PNG RGB decode、縮小box filter、1 decode/frame、cache miss/failure、reserved texture-name ringの接続が一致。`StringComparer.OrdinalIgnoreCase`を大文字化キーからNativeRuntime comparerに置き換え、texture-name counterのunchecked wrapを`IncrementInPlace`に変更。Windows Release build済。
+- `Mods/Render/NoiseField.cs` をC#全文とnative `.cpp/.hpp`、LauncherNoise/MovingBackdropの直接参照で照合。固定seedの`Random.NextDouble`、Stopwatch elapsed、CellsFor/clamp、resize falloff、domain-warp noise、RGB byte計算が通常入力で一致。`CellsFor`のdouble→intを.NET 10のNaN/範囲外規則を持つ`ConvertToInt32Net9`に変更し、C#のbyte[] `Pixels` getterに合わせてnativeも非const instanceからmutable bufferを返す。Windows Release build済。
 
 ### 2026-09-27 native launcher regression audit
 
