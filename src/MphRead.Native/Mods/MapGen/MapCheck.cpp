@@ -680,8 +680,10 @@ namespace MphRead::Mods::MapGen
         }
         const std::vector<Face> solid = ReadAll(map->Solid());
         const std::vector<Face> drawn = ReadAll(map->Faces());
+        const MapCollision* collision = def->Collision();
         WriteLine(def->Name(), ": ", solid.size(), " collision faces, ", drawn.size(), " drawn polygons",
-            def->Collision() == nullptr ? std::string() : ", collision from " + def->Collision()->Source);
+            collision == nullptr ? std::string()
+                : ", collision from " + collision->Source.value_or(std::string{}));
         std::int32_t problems = 0;
         problems = Runtime::UncheckedAdd(problems, Size(solid));
         problems = Runtime::UncheckedAdd(problems, Shape(solid));

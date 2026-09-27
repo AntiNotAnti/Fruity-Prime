@@ -162,7 +162,7 @@ namespace MphRead::Mods::MapGen
     public:
         // The .obj, looked for beside the recipe, then in maps/, then beside
         // the game files.
-        std::string Source{};
+        std::optional<std::string> Source{std::string{}};
         // Written with the exporter's --zup.
         bool ZUp = false;
         std::optional<std::string> BaseDirectory{};

@@ -962,7 +962,9 @@ namespace MphRead::Mods::MapGen
             {
                 if (StringEqualsOrdinalIgnoreCase(name, "Source"))
                 {
-                    result.Source = JsonString(item);
+                    result.Source = item.Kind == JsonKind::Null
+                        ? std::optional<std::string>{}
+                        : std::optional<std::string>{JsonString(item)};
                 }
                 else if (StringEqualsOrdinalIgnoreCase(name, "ZUp"))
                 {
@@ -1286,7 +1288,13 @@ namespace MphRead::Mods::MapGen
                 {
                     output.push_back('{');
                     bool collisionFirst = true;
-                    Property(output, depth + 1, collisionFirst, "Source", [&] { WriteJsonString(output, value._collision->Source); });
+                    if (value._collision->Source)
+                    {
+                        Property(output, depth + 1, collisionFirst, "Source", [&]
+                        {
+                            WriteJsonString(output, *value._collision->Source);
+                        });
+                    }
                     Property(output, depth + 1, collisionFirst, "ZUp", [&] { output += value._collision->ZUp ? "true" : "false"; });
                     FinishObject(output, depth + 1, collisionFirst);
                 });
@@ -1800,13 +1808,14 @@ namespace MphRead::Mods::MapGen
 
     std::optional<std::vector<std::uint8_t>> MapCollision::ReadBytes() const
     {
-        if (Source.empty())
+        const std::string& source = RequireReference(Source);
+        if (source.empty())
         {
             return std::nullopt;
         }
         if (BundlePath.has_value())
         {
-            std::optional<std::vector<std::uint8_t>> bundled = MapBundle::ReadEntry(*BundlePath, Source);
+            std::optional<std::vector<std::uint8_t>> bundled = MapBundle::ReadEntry(*BundlePath, source);
             if (bundled.has_value())
             {
                 return bundled;
@@ -1818,7 +1827,8 @@ namespace MphRead::Mods::MapGen
 
     std::optional<std::string> MapCollision::Resolve() const
     {
-        if (Source.empty())
+        const std::string& source = RequireReference(Source);
+        if (source.empty())
         {
             return std::nullopt;
         }
@@ -1834,17 +1844,18 @@ namespace MphRead::Mods::MapGen
 
     std::vector<std::string> MapCollision::Candidates() const
     {
-        std::vector<std::string> candidates{Source};
-        if (::MphRead::NativeRuntime::PathIsPathRooted(Source))
+        const std::string& source = RequireReference(Source);
+        std::vector<std::string> candidates{source};
+        if (::MphRead::NativeRuntime::PathIsPathRooted(source))
         {
             return candidates;
         }
         if (BaseDirectory.has_value())
         {
-            candidates.push_back(PathCombine(*BaseDirectory, Source));
+            candidates.push_back(PathCombine(*BaseDirectory, source));
         }
-        candidates.push_back(PathCombine(CustomRooms::MapDirectory(), Source));
-        candidates.push_back(PathCombine(Launcher::GameFiles::Root(), Source));
+        candidates.push_back(PathCombine(CustomRooms::MapDirectory(), source));
+        candidates.push_back(PathCombine(Launcher::GameFiles::Root(), source));
         return candidates;
     }
 

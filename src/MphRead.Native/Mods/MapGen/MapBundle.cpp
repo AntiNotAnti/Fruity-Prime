@@ -197,12 +197,14 @@ namespace MphRead::Mods::MapGen
         // cannot be built without it, so it travels with the recipe.
         std::optional<std::string> collisionPath;
         if (const MapCollision* collision = definition->Collision();
-            collision != nullptr && !collision->Source.empty())
+            collision != nullptr
+            && !::MphRead::NativeRuntime::RequireReference(collision->Source).empty())
         {
             collisionPath = collision->Resolve();
             if (!collisionPath.has_value())
             {
-                throw ProgramException(definition->Name() + ": its collision mesh " + collision->Source
+                throw ProgramException(definition->Name() + ": its collision mesh "
+                    + ::MphRead::NativeRuntime::RequireReference(collision->Source)
                     + " is not beside its recipe, and a bundle without it is a map that cannot be generated.");
             }
         }

@@ -1325,25 +1325,30 @@ namespace MphRead::Mods::MapGen
     void MapPacker::ApplyCollision(BuiltMap* map, MapDefinition* def, bool verbose)
     {
         MapCollision* collision = def->Collision();
-        if (collision == nullptr || collision->Source.empty())
+        if (collision == nullptr)
+        {
+            return;
+        }
+        const std::string& source = ::MphRead::NativeRuntime::RequireReference(collision->Source);
+        if (source.empty())
         {
             return;
         }
         const std::optional<std::vector<std::uint8_t>> bytes = collision->ReadBytes();
         if (!bytes.has_value())
         {
-            throw ProgramException(def->Name() + " says its collision is " + collision->Source
+            throw ProgramException(def->Name() + " says its collision is " + source
                 + ", which is not beside the map file, in " + CustomRooms::MapDirectory()
                 + ", or with the game files. Write one with tools/collision-to-obj.py, or take the \"collision\" key out "
                 "to go back to the collision the geometry makes.");
         }
-        const CollisionObj::Result read = CollisionObj::Read(*bytes, collision->Source, collision->ZUp);
+        const CollisionObj::Result read = CollisionObj::Read(*bytes, source, collision->ZUp);
         const auto replaced = static_cast<std::int32_t>(map->Solid().size());
         map->Solid().clear();
         map->Solid().insert(map->Solid().end(), read.Faces.begin(), read.Faces.end());
         if (verbose)
         {
-            std::cout << "  collision from " << collision->Source << ": " << read.Faces.size() << " faces"
+            std::cout << "  collision from " << source << ": " << read.Faces.size() << " faces"
                 << " over " << read.Vertices << " vertices, in place of the geometry's " << replaced
                 << (read.Degenerate > 0 ? " (" + std::to_string(read.Degenerate) + " enclosing no area, skipped)" : std::string())
                 << '\n';
