@@ -729,7 +729,7 @@
 
 | S | +/- | C# | C++ | 進捗 |
 |---|---|---|---|---|
-| A | +320/-0 | `Mods/Launcher/Portable/NativeFilePicker.cs` | — 新規 | 完了 |
+| A | +320/-0 | `Mods/Launcher/Portable/NativeFilePicker.cs` | — 新規 | 完了（C#全文・SetupScreen/PlayScreen/Shell接続監査済、PATH/UTF-8出力/例外境界/COM cleanupを修正、Windows Release native build済。Linux/macOS picker runtime未実施） |
 | M | +98/-42 | `Mods/Launcher/Portable/MatchStart.cs` | .cpp,.hpp | 完了（静的監査済み、Section 12 後にビルド） |
 | M | +87/-8 | `Mods/Launcher/Portable/LauncherPrefs.cs` | .cpp,.hpp | 完了 |
 | A | +67/-0 | `Mods/Launcher/Portable/RomWhitelist.cs` | — 新規 | 完了 |
@@ -1063,3 +1063,7 @@
 - `Mods/MapGen/AltFormProbe.cs` を全文とnative `.hpp/.cpp`、`ModEntry` の `-altprobe` 引数・`TraceDelay` 設定で照合。window/scene/player初期化、slot 1 の入力駆動、reset・settle・jump/morph・trial/reportの順序、終了条件と終了コードを確認。nativeの `std::min/max` を `MathF.Min/Max` 相当の `Runtime::MathMin/Max` にし、delay/frameの加算・減算・incrementをC#のunchecked `int` と同じにした。数値表示と列幅をcurrent-culture `ToString` / `StringPadLeft` に揃え、出力をUTF-8・行単位の `ConsoleWriteLine` に統一。Player/Keybindの参照取得もC#の `IReadOnlyList` / 配列境界・null例外へ合わせた。`git diff --check`通過、Windows Release `AltFormProbe.cpp.obj` compile green（既存 `offsetof` 警告のみ）。実マップ実行・runtime/harnessは未実施。native例外はC# `Exception.StackTrace` を保持しないため、その行は空出力のまま。
 - `Mods/MapGen/MapReport.cs` を全文とnative `.hpp/.cpp`、`ModEntry` の `-q3shaders`/`-mapitems`/`-mapmaterials` 分岐・引数変換で照合。shader件数の first-seen 順と安定降順、pickup列挙・GroupBy/安定ソート、materialsの添字・表示順、例外報告と戻り値を確認。C#のUTF-16列幅/current-culture数値/UTF-8行出力、`IReadOnlyList`境界、unchecked件数加算、`.NET 10 MathF.Round(value, 2)`のfloat丸め経路を合わせた。再監査で見つけた集計行の`TrimEnd()`差（Unicode空白）と `Resolve() ?? Source` のlazy評価差も修正。`git diff --check`通過、Windows Release `MapReport.cpp.obj` compile green（既存`offsetof`警告のみ）。実マップ読込・runtime/harness未実施。
 - `Mods/MapGen/Q3Import.cs` を全文とnative `.hpp/.cpp`、`MapCheck`/`MapPacker`/`MapBundle`/`Q3Convert`/`MapReport` の直接呼出しで照合。surface/patch生成順、collision brushのshell・clip・buried判定、texture bake、spawn/jump pad/item変換、pickup列挙を確認。shader prefixの最長判定をC# `string.Length`相当のUTF-16長へ、`Weld`の`Vector3.ComponentMin/Max`と`MathF.Max`を.NETのNaN/符号付きzero動作へ修正。LINQ `Min`のNaN先頭・途中時の選択順、unchecked件数加算、float floor→int変換も照合。verbose出力をcurrent-culture formatterとUTF-8行出力に統一し、texture bake失敗のcatch/messageをC#相当にした。`git diff --check`通過、Windows Release `Q3Import.cpp.obj` compile green（既存`offsetof`警告のみ）。実マップ読込・runtime/harness未実施。
+
+### 2026-09-28 Section 11 Launcher portable監査
+
+- `Mods/Launcher/Portable/NativeFilePicker.cs` 全文をnative `.hpp/.cpp`と照合。WindowsのSTA dialog/owner/filter/flags、LinuxのPATH検索順とzenity/kdialog引数、macOS osascript escaping、cancel時null・既存file確認・失敗ログを確認。`SetupScreen`/`PlayScreen`のpicker選択後処理と`Shell`のOwner/Suppressed設定も照合。nativeのPATH読込を `EnvironmentGetVariable`、tool stdoutを.NET互換UTF-8 decode、例外捕捉をC# `catch (Exception)`相当へ修正し、COM apartment cleanupをRAIIで保証した。`git diff --check`通過、Windows Release `fruity_mphread_native` compile/link green。Linux/macOS picker実行は未実施。

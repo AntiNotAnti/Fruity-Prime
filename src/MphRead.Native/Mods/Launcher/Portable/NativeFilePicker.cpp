@@ -1,13 +1,13 @@
 #include "NativeFilePicker.hpp"
 
 #include "../../DebugLog.hpp"
+#include "../../../NativeRuntime/System/Console.hpp"
 #include "../../../NativeRuntime/System/Encoding.hpp"
 #include "../../../NativeRuntime/System/Globalization.hpp"
 #include "../../../NativeRuntime/System/IO.hpp"
 #include "../../../NativeRuntime/System/Process.hpp"
 #include "../../../NativeRuntime/System/Runtime.hpp"
 
-#include <cstdlib>
 #include <exception>
 #include <thread>
 
@@ -100,6 +100,17 @@ namespace MphRead::Mods::Launcher
         std::thread thread([result, title, description, extension, owner]
         {
             const HRESULT apartment = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+            struct ApartmentGuard final
+            {
+                bool Initialized;
+                ~ApartmentGuard()
+                {
+                    if (Initialized)
+                    {
+                        ::CoUninitialize();
+                    }
+                }
+            } apartmentGuard{SUCCEEDED(apartment)};
             std::wstring buffer(MaxPath, L'\0');
             try
             {
@@ -135,9 +146,10 @@ namespace MphRead::Mods::Launcher
                 DebugLog::Exception("picker", ex);
                 result->set_value(std::nullopt);
             }
-            if (SUCCEEDED(apartment))
+            catch (...)
             {
-                ::CoUninitialize();
+                DebugLog::Exception("picker", std::current_exception());
+                result->set_value(std::nullopt);
             }
         });
         thread.detach();
@@ -168,8 +180,7 @@ namespace MphRead::Mods::Launcher
 
     bool NativeFilePicker::OnPath(const std::string& tool)
     {
-        const char* value = std::getenv("PATH");
-        const std::string paths = value == nullptr ? std::string() : std::string(value);
+        const std::string paths = Runtime::EnvironmentGetVariable("PATH").value_or("");
         for (const std::string& directory : Runtime::StringSplit(paths, PathSeparator, true))
         {
             try
@@ -232,18 +243,24 @@ namespace MphRead::Mods::Launcher
     {
         try
         {
-            std::string output;
-            const std::int32_t exitCode = Runtime::ProcessRunCaptureOutput(tool, arguments, output);
+            std::string outputBytes;
+            const std::int32_t exitCode = Runtime::ProcessRunCaptureOutput(tool, arguments, outputBytes);
             if (exitCode != 0)
             {
                 return std::nullopt;
             }
+            const std::string output = Runtime::Utf8GetString(outputBytes);
             const std::string path = Runtime::StringTrim(output);
             return !path.empty() && Runtime::FileExists(path) ? std::optional<std::string>(path) : std::nullopt;
         }
         catch (const std::exception& ex)
         {
             DebugLog::Exception("picker", ex);
+            return std::nullopt;
+        }
+        catch (...)
+        {
+            DebugLog::Exception("picker", std::current_exception());
             return std::nullopt;
         }
     }
