@@ -554,7 +554,7 @@
 | A | +117/-0 | `Mods/Input/GamepadOptionState.cs` | — 新規 | 完了（C#全文監査済、defaults/Load/Write/Clone/Resetを照合、Windows Release build済） |
 | A | +116/-0 | `Mods/Input/GamepadUiRouter.cs` | — 新規 | 完了（C#全文監査済、repeat timerのunchecked long演算を修正、Windows Release build済） |
 | A | +115/-0 | `Mods/Input/AimAssist/AimAssistWorld.cs` | — 新規 | 完了（C#全文・PlayerEntityNetAim呼出元監査済、default target/tick取得順を修正、Windows Release build済） |
-| A | +111/-0 | `Mods/Input/PointerDevice.cs` | — 新規 | 完了 |
+| A | +111/-0 | `Mods/Input/PointerDevice.cs` | — 新規 | 完了（C#全文・Renderer/PlayerInput呼出元監査済、device/contact/primary/delta parity確認） |
 | A | +101/-0 | `Mods/Input/ControllerRuntimeChecks.cs` | — 新規 | 完了 |
 | M | +99/-11 | `Mods/Input/GamepadMappings.cs` | .cpp,.hpp | 完了 |
 | A | +87/-0 | `Mods/Input/AimAssist/AimAssistTelemetry.cs` | — 新規 | 完了 |
@@ -930,3 +930,5 @@
   repeat開始/次回時刻の加算と長押し時間差をC#既定unchecked `long`演算に合わせ、native signed overflowの未定義動作を解消。Windows Release build済。
 - `Mods/Input/AimAssist/AimAssistWorld.cs` をC#全文とnative `.cpp/.hpp`、`PlayerEntityNetAim`直接呼出元で照合。state reset条件、eligibility/observation、武器profile、対象slot順/絞込/LOS、body/head geometry、assist・debug・telemetry出力を確認。
   C#の`default(AimAssistTarget)`は全field zeroであるため、nativeのmember defaultsによる`Eligible=true`/`UpperChest`を明示的なzero stateへ修正。PointerとStickに渡すtick countもC#同様に個別取得。Windows Release build済。
+- `Mods/Input/PointerDevice.cs` をC#全文とnative `.cpp/.hpp`、Renderer/PlayerInputの直接呼出元で照合。active/accepting遷移、device identity/contact切替、aspect/座標正規化、StylusZone通知、primary/capture判定、pointer delta蓄積/消費とmouse fallback、Mouse Left binding edgesが一致。
+  `PointerSample` defaultsとCurrent/PrimaryDownの利用方法も確認。native差分修正なし。Windows Release build済。
