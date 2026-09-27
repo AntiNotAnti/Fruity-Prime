@@ -8,6 +8,8 @@
 #include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/System/Number.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
 #include "NativeRuntime/System/ZipArchive.hpp"
 
@@ -26,7 +28,6 @@
 #include <exception>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -46,6 +47,7 @@
 #endif
 
 using ::MphRead::NativeRuntime::AppendUtf8;
+using ::MphRead::NativeRuntime::ConsoleWriteLine;
 using ::MphRead::NativeRuntime::FileInfoLength;
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::PathCombine;
@@ -259,9 +261,9 @@ namespace MphRead::Mods::MapGen
             const std::int64_t textureLength
                 = texturePath ? FileInfoLength(*texturePath) : 0;
             const std::int64_t before = UncheckedAdd(levelLength, textureLength);
-            std::cout << "[mapbundle] " << definition->Name() << " -> " << path
-                << " (" << FileInfoLength(path) / 1024 << " KiB, from "
-                << before / 1024 << " KiB)" << std::endl;
+            ConsoleWriteLine("[mapbundle] " + definition->Name() + " -> " + path
+                + " (" + ::MphRead::NativeRuntime::ToString(FileInfoLength(path) / 1024)
+                + " KiB, from " + ::MphRead::NativeRuntime::ToString(before / 1024) + " KiB)");
         }
         return path;
     }

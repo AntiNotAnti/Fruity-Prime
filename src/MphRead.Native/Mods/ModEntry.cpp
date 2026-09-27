@@ -1270,18 +1270,23 @@ namespace MphRead::Mods
                 }
                 try
                 {
-                    MapGen::MapBundle::Cook(definition.get(), *RequireReference(definition).SourcePath(), outPath);
-                    ++cooked;
+                    (void)MapGen::MapBundle::Cook(
+                        definition.get(), *RequireReference(definition).SourcePath(), outPath);
+                    cooked = ::MphRead::NativeRuntime::UncheckedAdd(cooked, 1);
                 }
-                catch (const std::exception& ex)
+                catch (...)
                 {
-                    WriteLine(RequireReference(definition).Name() + ": " + ex.what());
-                    ++failed;
+                    const std::exception_ptr error = std::current_exception();
+                    ::MphRead::NativeRuntime::ConsoleWriteLine(
+                        RequireReference(definition).Name() + ": "
+                        + ::MphRead::NativeRuntime::ExceptionMessage(error));
+                    failed = ::MphRead::NativeRuntime::UncheckedAdd(failed, 1);
                 }
             }
             if (cooked == 0 && failed == 0)
             {
-                WriteLine("No map to bundle. A bundle is cooked from a recipe and the level it converts; put both in "
+                ::MphRead::NativeRuntime::ConsoleWriteLine(
+                    "No map to bundle. A bundle is cooked from a recipe and the level it converts; put both in "
                     + MapGen::CustomRooms::MapDirectory() + ".");
             }
             SetExitCode(failed == 0 ? 0 : 1);
