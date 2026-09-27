@@ -6,14 +6,13 @@
 #include "../../Formats/Types.hpp"
 #include "../Network/MapAudit.hpp"
 #include "../Network/NetLaunch.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
 #include "../../NativeRuntime/System/ExceptionText.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <algorithm>
-#include <cmath>
-#include <iostream>
 
 namespace MphRead::Mods::MapGen
 {
@@ -35,7 +34,7 @@ namespace MphRead::Mods::MapGen
 
         [[nodiscard]] std::string Right(const std::string& text, std::size_t width)
         {
-            return text.size() >= width ? text : std::string(width - text.size(), ' ') + text;
+            return Runtime::StringPadLeft(text, width);
         }
     }
 
@@ -70,7 +69,8 @@ namespace MphRead::Mods::MapGen
         _scene = std::make_unique<MphRead::Scene>(ClientSize(), _window->Keyboard(), _window->Mouse(),
             [](std::string) {}, [this]()
             {
-                std::cout << "    (the scene asked to close after trial " << _delay << ")\n";
+                Runtime::ConsoleWriteLine("    (the scene asked to close after trial "
+                    + Runtime::ToString(_delay) + ")");
                 Close();
             });
         // Slot 0 exists only to be the main player and stand still.
@@ -153,16 +153,17 @@ namespace MphRead::Mods::MapGen
         // No clock: the match would otherwise finish mid-sweep.
         GameState::MatchTime(-1);
         GameState::ForceEndGame(false);
-        PlayerEntity& player = Runtime::RequireReference(PlayerEntity::Players()[Slot]);
+        PlayerEntity& player = Runtime::RequireReference(Runtime::ManagedListAt(PlayerEntity::Players(), Slot));
         if (player.Health() == 0 || !TestFlag(player.LoadFlags(), LoadFlags::Active)
             || !TestFlag(player.LoadFlags(), LoadFlags::Spawned))
         {
             return;
         }
         PlayerControls& c = player.Controls();
-        for (std::size_t i = 0; i < c.All().size(); i++)
+        const auto& all = c.All();
+        for (std::size_t i = 0; i < all.size(); i++)
         {
-            Keybind& bind = *c.All()[i];
+            Keybind& bind = Runtime::RequireReference(Runtime::ManagedAt(all, i));
             bind.SetIsDown(false);
             bind.SetIsPressed(false);
             bind.SetIsReleased(false);
@@ -171,19 +172,20 @@ namespace MphRead::Mods::MapGen
         {
             // A reset that cannot finish is the one way this probe can hang:
             // say so and stop, with what has been measured intact.
-            if (++_resetFrames > 600)
+            _resetFrames = Runtime::UncheckedIncrement(_resetFrames);
+            if (_resetFrames > 600)
             {
-                std::cout << "    (gave up resetting before trial " << _delay << ": "
-                    << (player.IsAltForm() ? "alt" : player.IsMorphing() ? "morphing" : "unmorphing")
-                    << " at y " << F(player.Position.Y, "F3")
-                    << (TestFlag(player.Flags1(), PlayerFlags1::NoUnmorph) ? ", cannot unmorph" : "") << ")\n";
-                _delay = MaxDelay() + 1;
+                Runtime::ConsoleWriteLine("    (gave up resetting before trial " + Runtime::ToString(_delay) + ": "
+                    + (player.IsAltForm() ? "alt" : player.IsMorphing() ? "morphing" : "unmorphing")
+                    + " at y " + F(player.Position.Y, "F3")
+                    + (TestFlag(player.Flags1(), PlayerFlags1::NoUnmorph) ? ", cannot unmorph" : "") + ")");
+                _delay = Runtime::UncheckedIncrement(MaxDelay());
                 return;
             }
             if (player.IsMorphing() || player.IsUnmorphing())
             {
                 // Let the animation finish; re-asking turns it round.
-                _frame++;
+                _frame = Runtime::UncheckedIncrement(_frame);
                 return;
             }
             if (player.IsAltForm())
@@ -194,7 +196,7 @@ namespace MphRead::Mods::MapGen
                 }
                 Press(player, c.Morph(), _frame % 60 == 20);
                 Finish(player, c);
-                _frame++;
+                _frame = Runtime::UncheckedIncrement(_frame);
                 return;
             }
             // PrevPosition is moved with Position, or the sweep starts under
@@ -208,12 +210,12 @@ namespace MphRead::Mods::MapGen
             _final = _start.Y;
             return;
         }
-        _frame++;
+        _frame = Runtime::UncheckedIncrement(_frame);
         if (_frame < Settle)
         {
             return;
         }
-        const std::int32_t t = _frame - Settle;
+        const std::int32_t t = Runtime::UncheckedSubtract(_frame, Settle);
         if (t == 0)
         {
             // Where he actually came to rest is what a fall is measured against.
@@ -222,34 +224,35 @@ namespace MphRead::Mods::MapGen
             _highest = _rest;
         }
         const bool jump = t >= 0 && t < 3;
-        const bool morph = t >= _delay && t < _delay + 3;
+        const bool morph = t >= _delay && t < Runtime::UncheckedAdd(_delay, 3);
         Press(player, c.Jump(), jump);
         Press(player, c.Morph(), morph);
         Finish(player, c);
-        _lowest = std::min(_lowest, player.Position.Y);
-        _highest = std::max(_highest, player.Position.Y);
+        _lowest = Runtime::MathMin(_lowest, player.Position.Y);
+        _highest = Runtime::MathMax(_highest, player.Position.Y);
         _final = player.Position.Y;
-        if (_traceDelay == _delay && t <= _delay + 50)
+        if (_traceDelay == _delay && t <= Runtime::UncheckedAdd(_delay, 50))
         {
             const char* form = player.IsAltForm() ? "alt  " : player.IsMorphing() ? "morph"
                 : player.IsUnmorphing() ? "unmrp" : "biped";
-            std::cout << "    " << Right(std::to_string(t), 4) << "  " << (jump ? "J" : " ") << (morph ? "M" : " ") << "  "
-                << form << "  y " << Right(F(player.Position.Y, "F4"), 8) << "  prevY "
-                << Right(F(player.PrevPosition().Y, "F4"), 8) << "  vy " << Right(F(player.Speed().Y, "F4"), 8) << "  "
-                << (TestFlag(player.Flags1(), PlayerFlags1::Standing) ? "standing" : "        ") << "  "
-                << (TestFlag(player.Flags1(), PlayerFlags1::NoUnmorph) ? "nounmorph" : "") << '\n';
+            Runtime::ConsoleWriteLine("    " + Right(Runtime::ToString(t), 4) + "  " + (jump ? "J" : " ")
+                + (morph ? "M" : " ") + "  " + form + "  y " + Right(F(player.Position.Y, "F4"), 8)
+                + "  prevY " + Right(F(player.PrevPosition().Y, "F4"), 8)
+                + "  vy " + Right(F(player.Speed().Y, "F4"), 8) + "  "
+                + (TestFlag(player.Flags1(), PlayerFlags1::Standing) ? "standing" : "        ") + "  "
+                + (TestFlag(player.Flags1(), PlayerFlags1::NoUnmorph) ? "nounmorph" : ""));
         }
-        if (t >= _delay + Observe)
+        if (t >= Runtime::UncheckedAdd(_delay, Observe))
         {
             const bool fell = _rest - _lowest > Through;
             _trials.emplace_back(_delay, _lowest, _highest, _final, fell);
             if (!_traceDelay.has_value())
             {
-                std::cout << "    " << Right(std::to_string(_delay), 5) << "  " << Right(F(_highest, "F3"), 7) << "   "
-                    << Right(F(_lowest, "F3"), 8) << "   " << Right(F(_final, "F3"), 7) << "   " << (fell ? "YES" : "")
-                    << '\n';
+                Runtime::ConsoleWriteLine("    " + Right(Runtime::ToString(_delay), 5) + "  "
+                    + Right(F(_highest, "F3"), 7) + "   " + Right(F(_lowest, "F3"), 8) + "   "
+                    + Right(F(_final, "F3"), 7) + "   " + (fell ? "YES" : ""));
             }
-            _delay++;
+            _delay = Runtime::UncheckedIncrement(_delay);
             _armed = false;
             _frame = 0;
         }
@@ -270,14 +273,15 @@ namespace MphRead::Mods::MapGen
 
     void AltFormProbe::Finish(PlayerEntity& player, PlayerControls& c)
     {
-        if (_wasDown.size() < c.All().size())
+        const auto& all = c.All();
+        if (_wasDown.size() < all.size())
         {
-            _wasDown.assign(c.All().size(), false);
+            _wasDown.assign(all.size(), false);
         }
         bool any = false;
-        for (std::size_t i = 0; i < c.All().size(); i++)
+        for (std::size_t i = 0; i < all.size(); i++)
         {
-            Keybind& bind = *c.All()[i];
+            Keybind& bind = Runtime::RequireReference(Runtime::ManagedAt(all, i));
             // Edges, not levels.
             bind.SetIsPressed(bind.IsDown() && !_wasDown[i]);
             bind.SetIsReleased(!bind.IsDown() && _wasDown[i]);
@@ -292,14 +296,14 @@ namespace MphRead::Mods::MapGen
 
     std::int32_t AltFormProbe::Report()
     {
-        std::cout << '\n';
-        std::cout << _room << ": " << ToString(_hunter) << " at (" << F(_start.X, "F3") << ", " << F(_start.Y, "F3") << ", "
-            << F(_start.Z, "F3") << ")\n";
-        std::cout << '\n';
-        std::cout << "  jump, then morph N frames later\n";
-        std::cout << "  came to rest at y " << F(_rest, "F3") << " before each jump\n";
-        std::cout << '\n';
-        std::cout << "    delay   peak Y   lowest Y   final Y   fell through\n";
+        Runtime::ConsoleWriteLine();
+        Runtime::ConsoleWriteLine(_room + ": " + ::MphRead::ToString(_hunter) + " at (" + F(_start.X, "F3") + ", "
+            + F(_start.Y, "F3") + ", " + F(_start.Z, "F3") + ")");
+        Runtime::ConsoleWriteLine();
+        Runtime::ConsoleWriteLine("  jump, then morph N frames later");
+        Runtime::ConsoleWriteLine("  came to rest at y " + F(_rest, "F3") + " before each jump");
+        Runtime::ConsoleWriteLine();
+        Runtime::ConsoleWriteLine("    delay   peak Y   lowest Y   final Y   fell through");
         std::int32_t fell = 0;
         for (const auto& [delay, lowest, highest, final, through] : _trials)
         {
@@ -307,13 +311,13 @@ namespace MphRead::Mods::MapGen
             {
                 fell++;
             }
-            std::cout << "    " << Right(std::to_string(delay), 5) << "  " << Right(F(highest, "F3"), 7) << "   "
-                << Right(F(lowest, "F3"), 8) << "   " << Right(F(final, "F3"), 7) << "   " << (through ? "YES" : "") << '\n';
+            Runtime::ConsoleWriteLine("    " + Right(Runtime::ToString(delay), 5) + "  " + Right(F(highest, "F3"), 7) + "   "
+                + Right(F(lowest, "F3"), 8) + "   " + Right(F(final, "F3"), 7) + "   " + (through ? "YES" : ""));
         }
-        std::cout << '\n';
-        std::cout << (fell == 0 ? std::string("  the floor held in every trial")
-            : "  the floor gave way in " + std::to_string(fell) + " of " + std::to_string(_trials.size()) + " trials")
-            << '\n';
+        Runtime::ConsoleWriteLine();
+        Runtime::ConsoleWriteLine(fell == 0 ? "  the floor held in every trial"
+            : "  the floor gave way in " + Runtime::ToString(fell) + " of "
+                + Runtime::ToString(static_cast<std::int32_t>(_trials.size())) + " trials");
         return fell == 0 ? 0 : 1;
     }
 
@@ -328,8 +332,9 @@ namespace MphRead::Mods::MapGen
         }
         catch (const std::exception& ex)
         {
-            std::cout << "ALTPROBE " << room << " | " << Runtime::ExceptionTypeName(ex) << ": " << ex.what() << '\n';
-            std::cout << '\n';
+            Runtime::ConsoleWriteLine("ALTPROBE " + room + " | " + Runtime::ExceptionTypeName(ex) + ": "
+                + Runtime::ExceptionMessage(std::current_exception()));
+            Runtime::ConsoleWriteLine();
             return 1;
         }
     }
