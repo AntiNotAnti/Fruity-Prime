@@ -5,6 +5,7 @@
 #include "NetMaster.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Formats/Formats.hpp"
+#include "../../NativeRuntime/System/ExceptionText.hpp"
 #include "../../NativeRuntime/System/Net.hpp"
 #include "../../NativeRuntime/System/Random.hpp"
 #include "../../NativeRuntime/System/Tasks.hpp"
@@ -103,9 +104,10 @@ namespace MphRead::Mods::Network
             {
                 server->Run(cancel->get_token());
             }
-            catch (const std::exception& ex)
+            catch (...)
             {
-                log("game on " + std::to_string(port) + " stopped: " + ex.what());
+                log("game on " + std::to_string(port) + " stopped: "
+                    + Runtime::ExceptionMessage(std::current_exception()));
             }
         });
         thread.detach();
