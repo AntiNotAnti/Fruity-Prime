@@ -603,7 +603,7 @@ namespace MphRead
         {
             Run(args);
         }
-        catch (const std::exception&)
+        catch (...)
         {
             // The main thread's own. UnhandledException is raised for it
             // too, but only after the runtime has already printed to a
