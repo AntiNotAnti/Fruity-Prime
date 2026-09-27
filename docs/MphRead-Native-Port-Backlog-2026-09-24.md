@@ -556,7 +556,7 @@
 | A | +115/-0 | `Mods/Input/AimAssist/AimAssistWorld.cs` | — 新規 | 完了（C#全文・PlayerEntityNetAim呼出元監査済、default target/tick取得順を修正、Windows Release build済） |
 | A | +111/-0 | `Mods/Input/PointerDevice.cs` | — 新規 | 完了（C#全文・Renderer/PlayerInput呼出元監査済、device/contact/primary/delta parity確認） |
 | A | +101/-0 | `Mods/Input/ControllerRuntimeChecks.cs` | — 新規 | 完了（C#全文監査済、event timeoutの非block性を修正、Windows Release build済） |
-| M | +99/-11 | `Mods/Input/GamepadMappings.cs` | .cpp,.hpp | 完了 |
+| M | +99/-11 | `Mods/Input/GamepadMappings.cs` | .cpp,.hpp | 完了（C#全文監査済、mapping/GUIDのUTF-16長とunchecked countを修正、Windows Release build済） |
 | A | +87/-0 | `Mods/Input/AimAssist/AimAssistTelemetry.cs` | — 新規 | 完了 |
 | A | +85/-0 | `Mods/Input/GamepadMappingWizard.cs` | — 新規 | 完了 |
 | M | +82/-117 | `Mods/Input/GamepadInput.cs` | .cpp,.hpp | 完了 |
@@ -934,3 +934,5 @@
   `PointerSample` defaultsとCurrent/PrimaryDownの利用方法も確認。native差分修正なし。Windows Release build済。
 - `Mods/Input/ControllerRuntimeChecks.cs` をC#全文とnative `.cpp/.hpp`で照合。device-specific calibration/runtime切替、frame snapshot隔離、manager event再入、profile validation/library保護、haptic arbitration、mapping置換、UI trigger hysteresis、layout identity/promptのassertion順と条件が一致。
   event再入確認をC#のtimeout後も戻る`Task.Wait(1000)`に合わせ、timeout時にfuture破棄でblockする`std::async`をdetached packaged taskへ変更。Windows Release build済、check harness自体は未実行。
+- `Mods/Input/GamepadMappings.cs` をC#全文とnative `.cpp/.hpp`で照合。resource/settings/environmentの読込優先順、override置換、platform filter、GLFWへの一括適用、capability解析、summaryとsuggestion出力を確認。
+  C# `string.Length` とnative UTF-8 byte長の差が出るmapping上限/GUID判定を既存`Utf16Length`へ合わせ、C# unchecked `int` のfiles/lines集計をwrap演算へ変更。差分修正以外はなし。Windows Release build済。

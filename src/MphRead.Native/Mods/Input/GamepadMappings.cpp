@@ -7,9 +7,11 @@
 #include "../Platform/AppPaths.hpp"
 #include "../../NativeRuntime/OpenTK/GLFW.hpp"
 #include "../../NativeRuntime/System/Console.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/Exceptions.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/System/Runtime.hpp"
 
 namespace MphRead::Mods::Input
@@ -68,7 +70,7 @@ namespace MphRead::Mods::Input
 
     void GamepadMappings::SaveOverride(const std::string& mapping)
     {
-        if (mapping.size() > 4096 || mapping.find('\n') != std::string::npos || mapping.find('\r') != std::string::npos)
+        if (Runtime::Utf16Length(mapping) > 4096 || mapping.find('\n') != std::string::npos || mapping.find('\r') != std::string::npos)
         {
             throw System::ArgumentException("Invalid controller mapping.");
         }
@@ -86,7 +88,7 @@ namespace MphRead::Mods::Input
         const auto key = [](const std::string& line)
         {
             const std::vector<std::string> parts = Runtime::StringSplit(line, ',');
-            if (parts.size() < 3 || parts[0].size() != 32)
+            if (parts.size() < 3 || Runtime::Utf16Length(parts[0]) != 32)
             {
                 return std::string();
             }
@@ -150,16 +152,16 @@ namespace MphRead::Mods::Input
             }
             if (Apply(*text))
             {
-                files++;
-                lines += Count(*text);
+                Runtime::IncrementInPlace(files);
+                lines = Runtime::UncheckedAdd(lines, Count(*text));
                 Runtime::ConsoleWriteLine("[input] gamepad mappings: " + std::to_string(Count(*text)) + " from " + path);
             }
         }
         const std::optional<std::string> config = Runtime::EnvironmentGetVariable("SDL_GAMECONTROLLERCONFIG");
         if (config.has_value() && !Runtime::StringIsNullOrWhiteSpace(*config) && Apply(*config))
         {
-            files++;
-            lines += Count(*config);
+            Runtime::IncrementInPlace(files);
+            lines = Runtime::UncheckedAdd(lines, Count(*config));
             Runtime::ConsoleWriteLine("[input] gamepad mappings: " + std::to_string(Count(*config)) + " from "
                 "SDL_GAMECONTROLLERCONFIG");
         }
@@ -205,7 +207,7 @@ namespace MphRead::Mods::Input
                 {
                     const std::string line = Runtime::StringTrim(raw);
                     const std::vector<std::string> parts = Runtime::StringSplit(line, ',');
-                    if (parts.size() < 3 || parts[0].size() != 32)
+                    if (parts.size() < 3 || Runtime::Utf16Length(parts[0]) != 32)
                     {
                         continue;
                     }
@@ -239,7 +241,7 @@ namespace MphRead::Mods::Input
             const std::string trimmed = Runtime::StringTrim(line);
             if (!trimmed.empty() && !trimmed.starts_with('#'))
             {
-                count++;
+                Runtime::IncrementInPlace(count);
             }
         }
         return count;
