@@ -46,6 +46,7 @@
 #include "MapGen/MapTextureBake.hpp"
 #include "MapGen/Q3Bsp.hpp"
 #include "MapGen/Q3Convert.hpp"
+#include "NativeRuntime/System/ExceptionText.hpp"
 #include "Network/DedicatedServer.hpp"
 #include "Network/DemoInfo.hpp"
 #include "Network/HealthSimulationTest.hpp"
@@ -98,6 +99,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -1803,9 +1805,10 @@ namespace MphRead::Mods
                     ValueAfter(args, "out"), ::HasFlag(args, "noclip"), ::HasFlag(args, "noitems"), scale,
                     textureSize));
             }
-            catch (const std::exception& ex)
+            catch (...)
             {
-                WriteLine("Could not convert " + *q3Convert + ": " + ex.what());
+                WriteLine("Could not convert " + *q3Convert + ": "
+                    + ::MphRead::NativeRuntime::ExceptionMessage(std::current_exception()));
                 SetExitCode(1);
             }
             return true;

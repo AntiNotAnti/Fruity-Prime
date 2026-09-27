@@ -13,6 +13,8 @@
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
+#include "../../NativeRuntime/System/ExceptionText.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
@@ -25,6 +27,7 @@
 #include <cstdio>
 #include <cwchar>
 #include <cwctype>
+#include <exception>
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
@@ -38,6 +41,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -74,6 +78,26 @@ namespace
     using MphRead::Mods::MapGen::MapDefinition;
     using MphRead::Mods::MapGen::Q3Entity;
     using MphRead::Mods::MapGen::Q3StringEqual;
+
+    void AppendConsoleValue(std::string& output, std::string_view value)
+    {
+        output.append(value);
+    }
+
+    template <typename T>
+        requires std::is_integral_v<T> && (!std::is_same_v<T, bool>)
+    void AppendConsoleValue(std::string& output, T value)
+    {
+        output += ::MphRead::NativeRuntime::ToString(value);
+    }
+
+    template <typename... T>
+    void WriteLine(const T&... values)
+    {
+        std::string line;
+        (AppendConsoleValue(line, values), ...);
+        ::MphRead::NativeRuntime::ConsoleWriteLine(line);
+    }
 
     void ValidatePathText(const std::string& path)
     {
@@ -196,10 +220,7 @@ namespace MphRead::Mods::MapGen
     {
         if (!FileExists(source))
         {
-            std::cout
-                << "No such file: "
-                << source
-                << '\n';
+            WriteLine("No such file: ", source);
             return 1;
         }
 
@@ -209,9 +230,9 @@ namespace MphRead::Mods::MapGen
         {
             bsp = Q3Bsp::Load(sourceValue, mapName);
         }
-        catch (const std::exception& exception)
+        catch (...)
         {
-            std::cout << exception.what() << '\n';
+            WriteLine(::MphRead::NativeRuntime::ExceptionMessage(std::current_exception()));
             return 1;
         }
 
@@ -243,11 +264,7 @@ namespace MphRead::Mods::MapGen
         Bounds(&RequireReference(bsp), min, max, false);
         if (ManagedAt(min.get(), 0) > ManagedAt(max.get(), 0))
         {
-            std::cout
-                << (selectedMapName.has_value()
-                    ? *selectedMapName
-                    : std::string())
-                << " has no drawn surfaces.\n";
+            WriteLine(selectedMapName.value_or(std::string()), " has no drawn surfaces.");
             return 1;
         }
 
@@ -291,23 +308,19 @@ namespace MphRead::Mods::MapGen
                 textureSize);
         MapTextureBake::Result* bakedValue = &RequireReference(baked);
 
-        std::cout
-            << "  " << bakedValue->Baked
-            << " textures at "
-            << ::MphRead::NativeRuntime::ToString(textureSize) << 'x' << ::MphRead::NativeRuntime::ToString(textureSize)
-            << " -> " << ::MphRead::NativeRuntime::ToString(bakedValue->Bytes, "N0")
-            << " B  " << PathGetFileName(texturePath)
-            << '\n';
+        WriteLine("  ", ::MphRead::NativeRuntime::ToString(bakedValue->Baked),
+            " textures at ", ::MphRead::NativeRuntime::ToString(textureSize), "x",
+            ::MphRead::NativeRuntime::ToString(textureSize), " -> ",
+            ::MphRead::NativeRuntime::ToString(bakedValue->Bytes, "N0"),
+            " B  ", PathGetFileName(texturePath));
         if (!RequireReference(bakedValue->Missing).empty())
         {
-            std::cout
-                << "  no image for " << RequireReference(bakedValue->Missing).size()
-                << ": " << JoinStrings(*(&RequireReference(bakedValue->Missing)), 6)
-                << (RequireReference(bakedValue->Missing).size() > 6 ? " ..." : "")
-                << '\n';
-            std::cout
-                << "  those surfaces are dropped rather than painted with somebody else's"
-                << " texture; pass another .pk3 in the same folder if it has them\n";
+            WriteLine("  no image for ",
+                ::MphRead::NativeRuntime::ToString(RequireReference(bakedValue->Missing).size()),
+                ": ", JoinStrings(RequireReference(bakedValue->Missing), 6),
+                RequireReference(bakedValue->Missing).size() > 6 ? " ..." : "");
+            WriteLine("  those surfaces are dropped rather than painted with somebody else's"
+                " texture; pass another .pk3 in the same folder if it has them");
         }
 
         auto definition = std::make_shared<MapDefinition>();
@@ -385,22 +398,18 @@ namespace MphRead::Mods::MapGen
             throw System::NullReferenceException();
         }
 
-        std::cout
-            << "  " << outputSpawns->size()
-            << " spawn points, "
-            << ::MphRead::NativeRuntime::ToString(unit, "0.#")
-            << " Quake units per unit"
-            << " -> "
-            << ::MphRead::NativeRuntime::ToString((ManagedAt(max.get(), 0)
-                    - ManagedAt(min.get(), 0)) / unit, "0")
-            << " x "
-            << ::MphRead::NativeRuntime::ToString((ManagedAt(max.get(), 2)
-                    - ManagedAt(min.get(), 2)) / unit, "0")
-            << " x "
-            << ::MphRead::NativeRuntime::ToString((ManagedAt(max.get(), 1)
-                    - ManagedAt(min.get(), 1)) / unit, "0")
-            << " units\n";
-        std::cout << "  wrote " << path << '\n';
+        WriteLine("  ", ::MphRead::NativeRuntime::ToString(outputSpawns->size()),
+            " spawn points, ", ::MphRead::NativeRuntime::ToString(unit, "0.#"),
+            " Quake units per unit -> ",
+            ::MphRead::NativeRuntime::ToString((ManagedAt(max.get(), 0)
+                - ManagedAt(min.get(), 0)) / unit, "0"),
+            " x ",
+            ::MphRead::NativeRuntime::ToString((ManagedAt(max.get(), 2)
+                - ManagedAt(min.get(), 2)) / unit, "0"),
+            " x ",
+            ::MphRead::NativeRuntime::ToString((ManagedAt(max.get(), 1)
+                - ManagedAt(min.get(), 1)) / unit, "0"), " units");
+        WriteLine("  wrote ", path);
 
         MapDefinition::SpawnList* checkSpawns
             = definition->Spawns();
@@ -416,53 +425,47 @@ namespace MphRead::Mods::MapGen
             {
                 throw System::NullReferenceException();
             }
-            std::cout
-                << "  only " << warningSpawns->size()
-                << " places to appear: this level was not"
-                << " built for a deathmatch. Add spawns to the map file before playing it with a full house.\n";
+            WriteLine("  only ", ::MphRead::NativeRuntime::ToString(warningSpawns->size()),
+                " places to appear: this level was not"
+                " built for a deathmatch. Add spawns to the map file before playing it with a full house.");
         }
         if (clipBrushes > 0 && !dropClip)
         {
-            std::cout
-                << "  " << clipBrushes
-                << " player-clip brushes kept. They are the level's invisible"
-                << " walls; on a race map they fence the route. -noclip converts without them.\n";
+            WriteLine("  ", clipBrushes,
+                " player-clip brushes kept. They are the level's invisible"
+                " walls; on a race map they fence the route. -noclip converts without them.");
         }
         const std::vector<Q3Import::Q3Pickup> pickups = Q3Import::Pickups(bsp.get(), unit);
         const std::size_t itemCount = RequireReference(definition->Items()).size();
         if (dropItems)
         {
-            std::cout << "  -noitems: the level's " << pickups.size() << " pickups were left out, and"
-                << " \"keepItems\" turned off so they stay out. Add your own under \"items\", from:\n";
+            WriteLine("  -noitems: the level's ",
+                ::MphRead::NativeRuntime::ToString(pickups.size()),
+                " pickups were left out, and \"keepItems\" turned off so they stay out. Add your own under \"items\", from:");
         }
         else if (itemCount > 0)
         {
-            std::cout << "  " << itemCount << " of the level's own pickups written under"
-                << " \"items\", and \"keepItems\" turned off so the recipe is the only place they"
-                << " live. Move them, drop them, or change what they are, from:\n";
+            WriteLine("  ", ::MphRead::NativeRuntime::ToString(itemCount),
+                " of the level's own pickups written under \"items\", and \"keepItems\" turned off so the recipe is the only place they"
+                " live. Move them, drop them, or change what they are, from:");
         }
         else
         {
-            std::cout << "  no pickups: this level holds none this game has an answer for."
-                << " Where weapons and powerups go decides how the map plays, so none were"
-                << " invented. Add them under \"items\", from:\n";
+            WriteLine("  no pickups: this level holds none this game has an answer for."
+                " Where weapons and powerups go decides how the map plays, so none were"
+                " invented. Add them under \"items\", from:");
         }
-        std::cout
-            << "  "
-            << JoinMultiplayerItems(MapBuilder::MultiplayerItems)
-            << '\n';
+        WriteLine("  ", JoinMultiplayerItems(MapBuilder::MultiplayerItems));
         const auto scripted = dropItems ? 0 : std::count_if(pickups.begin(), pickups.end(),
             [](const Q3Import::Q3Pickup& p) { return p.TargetName.has_value(); });
         if (scripted > 0)
         {
-            std::cout << "  " << scripted << " of them are handed out by the level's own scripts"
-                << " rather than walked over, and are usually stood in a closet nobody can reach."
-                << " FruityPrime -mapitems \"" << room << "\" says which.\n";
+            WriteLine("  ", ::MphRead::NativeRuntime::ToString(scripted),
+                " of them are handed out by the level's own scripts"
+                " rather than walked over, and are usually stood in a closet nobody can reach."
+                " FruityPrime -mapitems \"", room, "\" says which.");
         }
-        std::cout
-            << "  then: FruityPrime -mapgen \""
-            << room
-            << "\"\n";
+        WriteLine("  then: FruityPrime -mapgen \"", room, "\"");
         return 0;
     }
 
