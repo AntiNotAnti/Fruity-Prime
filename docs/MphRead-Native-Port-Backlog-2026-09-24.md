@@ -42,7 +42,7 @@
 - `NativeRuntime/Skia/Skia.cpp` を一ファイル監査し、C# `DeckTile.cs` の `PushClip(face)` 内での `DrawImage(_ground)` / 矩形描画と照合。nativeは角丸clipがあると軸平行bitmapの専用blitを使わず、pixelごとの逆変換・画像sampleへ落ちていた。専用blitで列/行のsample位置を再利用し、clip coverageを合成してからblendするよう修正。矩形fillもclip maskを保持したまま解析的coverage経路を利用する。Windows Release `ninja -k 0` 成功。
 - 同じ `-uibench` 条件（2560x1440ウィンドウ、1920x1080描画面）のOffline mapsで、C++ Scrollは修正前71.40 ms/描画から21.67 ms（約46 fps）へ、Repaintは39.33 msから22.66 ms（約44 fps）へ短縮。C#の同条件はScroll 8.42 ms、Repaint 14.46 ms。描画差は大きく縮んだがまだ残り、これだけでユーザー報告のPC全体フリーズが解決したとは判定しない。
 - C++/C#双方で `-uishot` を実行し各26画面を生成。`play-offline` を目視比較し、修正によるclip境界の破綻は見られなかった。Onlineの `-uibench play ... -uibenchonly Scroll` は非同期サーバー一覧が揃わず描画0件のため、Online行の測定には使えない。
-- 同じOffline maps Scrollベンチを20 ms間隔でプロセス採取したピークは、C++ Working Set 95.3 MB / Private 87.4 MB、C# 159.1 MB / 108.5 MB。短いこの測定ではC++の使用量が多いとは言えないが、長時間の増加・実プレイ中のPC全体フリーズは再現も判定もしていない。
+- 同じOffline maps Scrollベンチを20 ms間隔でプロセス採取したピークは、C++ Working Set 95.3 MB / Private 87.4 MB、C# 159.1 MB / 108.5 MB。`-uishot` の26画面を一プロセスで描画したピークも、C++ 99.9 MB / 89.0 MB、C# 199.0 MB / 141.4 MBだった。これら短時間の標準画面測定ではC++の使用量が多いとは言えないが、長時間の増加・実プレイ中のPC全体フリーズは再現も判定もしていない。
 - 次のメモリ監査候補として `NativeRuntime/Skia/SkiaText.cpp` を確認中。`Typeface` ごとのFreeType glyph画像とadvance値をmapに保持し、現在の実装には上限・evictionがない。C# `DeckText` のFormattedText cacheは1024件超でclearされる一方、SkiaSharp内部cacheとは別物なので、ここだけでC#との差や実害を断定しない。長時間・複数画面での増加を調べ、保持寿命と並行利用を確認してから修正要否を決める。
 
 ### 2026-09-28 C++固有のフリーズ対策
