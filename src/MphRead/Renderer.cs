@@ -1334,8 +1334,8 @@ namespace MphRead
                 var map = new TextureMap();
                 foreach ((int textureId, int paletteId, int recolorId) in combos)
                 {
-                    bool onlyOpaque = BindTexture(model, textureId, paletteId, recolorId);
-                    map.Add(textureId, paletteId, recolorId, _textureCount, onlyOpaque);
+                    (int bindingId, bool onlyOpaque) = BindTexture(model, textureId, paletteId, recolorId);
+                    map.Add(textureId, paletteId, recolorId, bindingId, onlyOpaque);
                 }
                 _texPalMap.Add(model.Id, map);
             }
@@ -1353,13 +1353,14 @@ namespace MphRead
             {
                 return value.Get(textureId, paletteId, recolorId).BindingId;
             }
-            BindTexture(model, textureId, paletteId, recolorId);
-            return _textureCount;
+            (int bindingId, _) = BindTexture(model, textureId, paletteId, recolorId);
+            return bindingId;
         }
 
-        private bool BindTexture(Model model, int textureId, int paletteId, int recolorId)
+        private (int BindingId, bool OnlyOpaque) BindTexture(Model model, int textureId, int paletteId, int recolorId)
         {
             _textureCount++;
+            int bindingId = Mods.Render.GlNames.NextTexture();
             bool onlyOpaque = true;
             var pixels = new List<uint>();
             var average = new FlatColor();
@@ -1370,12 +1371,12 @@ namespace MphRead
                 average.Add(pixel);
             }
             Texture texture = model.Recolors[recolorId].Textures[textureId];
-            GL.BindTexture(TextureTarget.Texture2D, _textureCount);
+            GL.BindTexture(TextureTarget.Texture2D, bindingId);
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba, texture.Width, texture.Height, 0,
                 PixelFormat.Rgba, PixelType.UnsignedByte, pixels.ToArray());
             GL.BindTexture(TextureTarget.Texture2D, 0);
-            _flatColors[_textureCount] = average.Result;
-            return onlyOpaque;
+            _flatColors[bindingId] = average.Result;
+            return (bindingId, onlyOpaque);
         }
 
         /// <summary>
@@ -1443,12 +1444,13 @@ namespace MphRead
         public int BindGetTexture(IReadOnlyList<ColorRgba> data, int width, int height)
         {
             _textureCount++;
-            GL.BindTexture(TextureTarget.Texture2D, _textureCount);
+            int bindingId = Mods.Render.GlNames.NextTexture();
+            GL.BindTexture(TextureTarget.Texture2D, bindingId);
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba, width, height, 0,
                 PixelFormat.Rgba, PixelType.UnsignedByte, data.ToArray());
             GL.BindTexture(TextureTarget.Texture2D, 0);
-            _flatColors[_textureCount] = AverageOf(data);
-            return _textureCount;
+            _flatColors[bindingId] = AverageOf(data);
+            return bindingId;
         }
 
         public void BindTexture(IReadOnlyList<ColorRgba> data, int width, int height, int bindingId)

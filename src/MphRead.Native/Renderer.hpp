@@ -905,8 +905,8 @@ private: \
     void DoDlist(const std::shared_ptr<MphRead::Model>& model, const MphRead::Mesh& mesh, \
         std::int32_t textureWidth, std::int32_t textureHeight, bool texgen, bool isRoom); \
     void InitTextures(const std::shared_ptr<MphRead::Model>& model); \
-    bool BindTexture(const std::shared_ptr<MphRead::Model>& model, std::int32_t textureId, \
-        std::int32_t paletteId, std::int32_t recolorId); \
+    std::pair<std::int32_t, bool> BindTexture(const std::shared_ptr<MphRead::Model>& model, \
+        std::int32_t textureId, std::int32_t paletteId, std::int32_t recolorId); \
     static OpenTK::Mathematics::Vector3 AverageOf(const std::vector<MphRead::ColorRgba>& data); \
     void UpdateMaterial(MphRead::Material& material, bool onlyOpaque); \
     void ModStepDrawPassTimers(); \

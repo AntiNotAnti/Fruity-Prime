@@ -1320,8 +1320,9 @@ namespace MphRead
             auto map = std::make_shared<TextureMap>();
             for (const Combo& combo : combos)
             {
-                const bool onlyOpaque = BindTexture(model, combo.Texture, combo.Palette, combo.Recolor);
-                map->Add(combo.Texture, combo.Palette, combo.Recolor, _textureCount, onlyOpaque);
+                const auto [bindingId, onlyOpaque]
+                    = BindTexture(model, combo.Texture, combo.Palette, combo.Recolor);
+                map->Add(combo.Texture, combo.Palette, combo.Recolor, bindingId, onlyOpaque);
             }
             _texPalMap.emplace(model->Id, std::move(map));
         }
@@ -1336,8 +1337,9 @@ namespace MphRead
         {
             return found->second->Get(textureId, paletteId, recolorId).BindingId;
         }
-        BindTexture(model, textureId, paletteId, recolorId);
-        return _textureCount;
+        const auto [bindingId, onlyOpaque] = BindTexture(model, textureId, paletteId, recolorId);
+        (void)onlyOpaque;
+        return bindingId;
     }
 
     void Scene::FlatColor::Add(ColorRgba pixel)
@@ -1368,10 +1370,11 @@ namespace MphRead
         return Vector3(1.0F, 1.0F, 1.0F);
     }
 
-    bool Scene::BindTexture(const std::shared_ptr<Model>& model, std::int32_t textureId,
-        std::int32_t paletteId, std::int32_t recolorId)
+    std::pair<std::int32_t, bool> Scene::BindTexture(const std::shared_ptr<Model>& model,
+        std::int32_t textureId, std::int32_t paletteId, std::int32_t recolorId)
     {
         ++_textureCount;
+        const std::int32_t bindingId = Mods::Render::GlNames::NextTexture();
         bool onlyOpaque = true;
         std::vector<std::uint32_t> pixels;
         FlatColor average;
@@ -1383,12 +1386,12 @@ namespace MphRead
         }
         const auto& texture = model->Recolors->at(static_cast<std::size_t>(recolorId))
             ->Textures->at(static_cast<std::size_t>(textureId));
-        GL::BindTexture(GL::TextureTarget::Texture2D, _textureCount);
+        GL::BindTexture(GL::TextureTarget::Texture2D, bindingId);
         GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgba,
             texture.Width, texture.Height, 0, GL::PixelFormat::Rgba, GL::PixelType::UnsignedByte, pixels.data());
         GL::BindTexture(GL::TextureTarget::Texture2D, 0);
-        _flatColors[_textureCount] = average.Result();
-        return onlyOpaque;
+        _flatColors[bindingId] = average.Result();
+        return {bindingId, onlyOpaque};
     }
 
     Vector3 Scene::AverageOf(const std::vector<ColorRgba>& data)
@@ -1401,12 +1404,13 @@ namespace MphRead
     std::int32_t Scene::BindGetTexture(const std::vector<ColorRgba>& data, std::int32_t width, std::int32_t height)
     {
         ++_textureCount;
-        GL::BindTexture(GL::TextureTarget::Texture2D, _textureCount);
+        const std::int32_t bindingId = Mods::Render::GlNames::NextTexture();
+        GL::BindTexture(GL::TextureTarget::Texture2D, bindingId);
         GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgba,
             width, height, 0, GL::PixelFormat::Rgba, GL::PixelType::UnsignedByte, data.data());
         GL::BindTexture(GL::TextureTarget::Texture2D, 0);
-        _flatColors[_textureCount] = AverageOf(data);
-        return _textureCount;
+        _flatColors[bindingId] = AverageOf(data);
+        return bindingId;
     }
 
     void Scene::BindTexture(const std::vector<ColorRgba>& data, std::int32_t width, std::int32_t height,
