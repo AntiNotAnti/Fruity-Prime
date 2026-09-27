@@ -637,7 +637,7 @@
 
 | S | +/- | C# | C++ | 進捗 |
 |---|---|---|---|---|
-| A | +1952/-0 | `Mods/Network/NetHitClaims.cs` | — 新規 | 完了 |
+| A | +1952/-0 | `Mods/Network/NetHitClaims.cs` | — 新規 | 完了（C#全文・native `.hpp/.cpp`とRenderer/NetSession/NetDamage/NetHitPrediction/Lifecycle接続を監査。claim検証・grace/ledger/死因順序・rescue抑止・cleanup一致。NearestLedgerOffsetのunchecked差分/Math.Abs境界を修正、Windows Release build green） |
 | M | +934/-33 | `Mods/Network/NetProtocol.cs` | .cpp,.hpp | 完了 |
 | M | +883/-78 | `Mods/Network/NetHitPrediction.cs` | .cpp,.hpp | 完了 |
 | M | +704/-105 | `Mods/Network/DedicatedServer.cs` | .cpp,.hpp | 完了 |
@@ -977,6 +977,7 @@
 - `Mods/Render/PlayerEntityEndScreen.cs` をC#全文とnative `.hpp/.cpp`、`EndScreen.NoteLayout`/hit testing、MapPick描画、PreviewPassの直接接続で照合。panel/preview geometry、portrait fallback、hunter名、4 suit swatches、Ready/Gamepad glyph、次roomの不変大文字化、クリック領域の更新順が一致し修正なし。
 - `Mods/Render/PlayerEntityProHud.cs` をC#全文とnative `.hpp/.cpp`、`PlayerHud.DrawHudObjects`および`DrawModeScore`の呼出条件で照合。health/ammoのclamp・色閾値・ammo cost換算・HUD icon tint/配置、mode別score message ID、ProHud時のstock表示抑止が一致し修正なし。Windows Release全体build green。
 - `Mods/Render/PlayerEntityVoteHud.cs` をC#全文とnative `.hpp/.cpp`、`MapVote.NoteLayout`/`EndScreen` pointer hit testingとの接続で照合。touch/gamepad表示条件、Android/desktop geometry、文字列置換、button hover描画とhitbox publish順が一致し修正なし。Windows Release全体build green。
+- `Mods/Network/NetHitClaims.cs` をC#全文とnative `.hpp/.cpp`、Renderer tick順・NetSession packet send/receive・NetDamage/NetHitPrediction・slot/room lifecycle接続で照合。claim stream/life検証、outbox retry/verdict、damage/geometry判定、ledger duplicate、fire-frame arbitration、rescued-hit抑止、reset/cleanupが一致。`NearestLedgerOffset`のuint→int bit reinterpretとunchecked int差分をnativeで明示し、C# `Math.Abs(Int32.MinValue)`相当の`OverflowException`境界も保った。Windows Release `ninja -C tools/build/out/msys2-mingw64-Release -j 4`成功。
 
 ### 2026-09-27 native launcher regression audit
 

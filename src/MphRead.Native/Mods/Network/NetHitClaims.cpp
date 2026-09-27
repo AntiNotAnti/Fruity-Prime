@@ -427,10 +427,26 @@ namespace MphRead::Mods::Network
             {
                 continue;
             }
-            const std::int32_t offset = static_cast<std::int32_t>(arrived) - static_cast<std::int32_t>(at);
-            if (best == std::numeric_limits<std::int32_t>::min() || std::abs(offset) < std::abs(best))
+            const std::int32_t offset = Runtime::UncheckedSubtract(
+                std::bit_cast<std::int32_t>(arrived), std::bit_cast<std::int32_t>(at));
+            if (best == std::numeric_limits<std::int32_t>::min())
             {
                 best = offset;
+            }
+            else
+            {
+                const auto mathAbs = [](std::int32_t value)
+                {
+                    if (value == std::numeric_limits<std::int32_t>::min())
+                    {
+                        throw ::System::OverflowException();
+                    }
+                    return value < 0 ? -value : value;
+                };
+                if (mathAbs(offset) < mathAbs(best))
+                {
+                    best = offset;
+                }
             }
         }
         return best;
