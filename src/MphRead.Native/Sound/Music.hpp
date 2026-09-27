@@ -68,6 +68,7 @@ namespace SoundFlow::Providers
         Enums::SampleFormat _format;
         std::int32_t _sampleRate;
         std::atomic<bool> _disposed{false};
+        mutable std::mutex _mutex;
     };
 }
 

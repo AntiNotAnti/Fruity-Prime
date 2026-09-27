@@ -156,6 +156,10 @@ namespace SoundFlow::Providers
 {
     std::int32_t RawDataProvider::Read(std::span<std::uint8_t> buffer, std::int32_t offset, std::int32_t count)
     {
+        // Dispose can run on the game thread while miniaudio is inside this
+        // callback. The atomic flag alone does not protect the std::function
+        // or its captured owner from a simultaneous reset.
+        std::lock_guard<std::mutex> guard(_mutex);
         if (_disposed.load(std::memory_order_acquire) || !_read)
         {
             return 0;
@@ -165,6 +169,7 @@ namespace SoundFlow::Providers
 
     void RawDataProvider::Dispose() noexcept
     {
+        std::lock_guard<std::mutex> guard(_mutex);
         _disposed.store(true, std::memory_order_release);
         _read = {};
         _owner.reset();
