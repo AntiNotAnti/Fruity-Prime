@@ -150,12 +150,13 @@ namespace MphRead::Mods::Network
         }
         if (TestFlag(player.LoadFlags(), Entities::LoadFlags::Spawned) && player.Health() > 0
             && NetRoomChange::GameplayReady() && SnapshotPositions()
-            && NetSession::RemoteStateValid.at(static_cast<std::size_t>(slot)))
+            && ::MphRead::NativeRuntime::ManagedAt(NetSession::RemoteStateValid, slot))
         {
-            NetPlayerBridge::RestoreSnapshotPosition(player, NetSession::RemoteStates[static_cast<std::size_t>(slot)]);
+            NetPlayerBridge::RestoreSnapshotPosition(player,
+                ::MphRead::NativeRuntime::ManagedAt(NetSession::RemoteStates, slot));
         }
         if (TestFlag(player.LoadFlags(), Entities::LoadFlags::Active)
-            && NetSession::RemoteIntentValid.at(static_cast<std::size_t>(slot)))
+            && ::MphRead::NativeRuntime::ManagedAt(NetSession::RemoteIntentValid, slot))
         {
             if (TestFlag(player.LoadFlags(), Entities::LoadFlags::Spawned)
                 && player.Health() > 0
@@ -164,10 +165,10 @@ namespace MphRead::Mods::Network
                 && NetSession::RemoteIntentAge(slot) <= StaleIntentFrames)
             {
                 NetPlayerBridge::ApplyReportedPosition(
-                    player, NetSession::RemoteIntents.at(static_cast<std::size_t>(slot)));
+                    player, ::MphRead::NativeRuntime::ManagedAt(NetSession::RemoteIntents, slot));
             }
             NetPlayerBridge::ApplyIntent(
-                player, NetSession::RemoteIntents.at(static_cast<std::size_t>(slot)));
+                player, ::MphRead::NativeRuntime::ManagedAt(NetSession::RemoteIntents, slot));
         }
         return true;
     }
@@ -294,7 +295,7 @@ namespace MphRead::Mods::Network
             i < static_cast<std::int32_t>(Entities::PlayerEntity::Players().size());
             ++i)
         {
-            if (!NetSession::RemoteStateValid.at(static_cast<std::size_t>(i)))
+            if (!::MphRead::NativeRuntime::ManagedAt(NetSession::RemoteStateValid, i))
             {
                 continue;
             }
@@ -304,7 +305,7 @@ namespace MphRead::Mods::Network
             {
                 NetPlayerBridge::ApplyState(
                     player,
-                    NetSession::RemoteStates.at(static_cast<std::size_t>(i)),
+                    ::MphRead::NativeRuntime::ManagedAt(NetSession::RemoteStates, i),
                     i == NetSession::LocalSlot());
             }
         }
