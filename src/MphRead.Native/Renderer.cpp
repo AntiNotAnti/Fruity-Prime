@@ -68,6 +68,8 @@
 #include "Mods/Render/DesktopGlContext.hpp"
 #include "Mods/Render/FrameTiming.hpp"
 #include "Mods/Render/MapThumbnail.hpp"
+#include "Mods/Render/GlNames.hpp"
+#include "Mods/Render/LauncherHunter.hpp"
 #include "Mods/Render/AppIcon.hpp"
 #include "Export/Images.hpp"
 #include "Features.hpp"
@@ -3605,7 +3607,7 @@ namespace MphRead
         }
         if (!SideScene())
         {
-            Mods::Render::LauncherHunter::NoteGlUnloaded();
+            ::MphRead::Mods::Render::LauncherHunter::NoteGlUnloaded();
         }
         for (const auto& [modelId, map] : _texPalMap)
         {

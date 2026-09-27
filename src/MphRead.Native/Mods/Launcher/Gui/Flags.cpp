@@ -19,7 +19,7 @@ namespace MphRead::Mods::Launcher::Gui
 
         struct Flag final
         {
-            Style Style;
+            Style Kind;
             std::vector<std::uint32_t> Colours;
         };
 
@@ -102,7 +102,7 @@ namespace MphRead::Mods::Launcher::Gui
             return;
         }
         const std::vector<std::uint32_t>& c = found->second.Colours;
-        switch (found->second.Style)
+        switch (found->second.Kind)
         {
         case Style::V:
             Fill(context, B(c[0]), x, y, w / 3, h);
