@@ -9,6 +9,8 @@
 #include "../../NativeRuntime/System/Runtime.hpp"
 #include "../../Read.hpp"
 #include "../../Scene.hpp"
+#include "../../NativeRuntime/System/ExceptionText.hpp"
+#include "../../NativeRuntime/System/Stopwatch.hpp"
 
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Metadata/Metadata.hpp"
@@ -23,7 +25,6 @@
 #include "NativeRuntime/System/Globalization.hpp"
 
 #include <bit>
-#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -40,6 +41,8 @@ using ::MphRead::NativeRuntime::UncheckedAdd;
 
 namespace MphRead::Mods::Network
 {
+    namespace Runtime = ::MphRead::NativeRuntime;
+
     void ServerSim::Advance(double now)
     {
         if (_scene == nullptr)
@@ -103,9 +106,10 @@ namespace MphRead::Mods::Network
                 return false;
             }
         }
-        catch (const std::exception& ex)
+        catch (...)
         {
-            reason = "game files could not be located (" + std::string(ex.what()) + ")";
+            reason = "game files could not be located ("
+                + Runtime::ExceptionMessage(std::current_exception()) + ")";
             return false;
         }
 
@@ -172,9 +176,9 @@ namespace MphRead::Mods::Network
             _lastAdvance = -1.0;
             return true;
         }
-        catch (const std::exception& ex)
+        catch (...)
         {
-            const std::string error = ex.what();
+            const std::string error = Runtime::ExceptionToString(std::current_exception());
             std::cout << "[sim] could not load \"" << roomKey << "\": " << error << '\n';
             NetLog::Event("server simulation failed to start: " + error);
             Stop();
@@ -191,27 +195,28 @@ namespace MphRead::Mods::Network
             return;
         }
 
-        const auto start = std::chrono::steady_clock::now();
+        const std::int64_t start = Runtime::StopwatchGetTimestamp();
         try
         {
             _scene->OnSimulationFrame();
         }
-        catch (const std::exception& ex)
+        catch (...)
         {
+            const std::exception_ptr exception = std::current_exception();
             IncrementInPlace(_stepFailures);
             if (_stepFailures == 1)
             {
-                std::cout << "[sim] step failed: " << ex.what() << '\n';
+                std::cout << "[sim] step failed: " << Runtime::ExceptionToString(exception) << '\n';
             }
             else
             {
-                std::cout << "[sim] step failed: " << ex.what() << '\n';
+                std::cout << "[sim] step failed: " << Runtime::ExceptionMessage(exception) << '\n';
             }
-            NetLog::Event("server simulation step failed: " + std::string(ex.what()));
+            NetLog::Event("server simulation step failed: " + Runtime::ExceptionToString(exception));
         }
 
-        const double elapsed = std::chrono::duration<double>(
-            std::chrono::steady_clock::now() - start).count();
+        const Runtime::TimeSpan elapsedTime{Runtime::StopwatchGetElapsedTicks(start)};
+        const double elapsed = elapsedTime.TotalSeconds();
         IncrementInPlace(_frames);
         _stepSeconds += elapsed;
         if (elapsed > _worstStepSeconds)
@@ -269,7 +274,8 @@ namespace MphRead::Mods::Network
                 continue;
             }
             any = true;
-            text += " " + std::to_string(i) + ":" + std::to_string(NetDamage::Fired[i]);
+            text += " " + Runtime::ToString(static_cast<std::int32_t>(i))
+                + ":" + Runtime::ToString(NetDamage::Fired[i]);
         }
         return any ? text : std::string("shots spawned here: none");
     }
@@ -286,15 +292,15 @@ namespace MphRead::Mods::Network
             : 0.0;
 
         std::string result = Room() + " (" + ::MphRead::ToString(GameState::Mode())
-            + "), " + std::to_string(_frames) + " step(s), "
-            + ::MphRead::NativeRuntime::ToString(mean, "0.00") + " ms mean, "
-            + ::MphRead::NativeRuntime::ToString(_worstStepSeconds * 1000.0, "0.0") + " ms worst, "
-            + std::to_string(_overrunSteps) + " overrun, "
-            + std::to_string(_droppedSteps) + " dropped, "
-            + std::to_string(_stalls) + " stall(s)";
+            + "), " + Runtime::ToString(_frames) + " step(s), "
+            + Runtime::ToString(mean, "0.00") + " ms mean, "
+            + Runtime::ToString(_worstStepSeconds * 1000.0, "0.0") + " ms worst, "
+            + Runtime::ToString(_overrunSteps) + " overrun, "
+            + Runtime::ToString(_droppedSteps) + " dropped, "
+            + Runtime::ToString(_stalls) + " stall(s)";
         if (_stepFailures > 0)
         {
-            result += ", " + std::to_string(_stepFailures) + " FAILED";
+            result += ", " + Runtime::ToString(_stepFailures) + " FAILED";
         }
         return result;
     }
