@@ -1803,7 +1803,7 @@ namespace MphRead
         bool answered = false;
         try
         {
-            while (GL::GetError() != GL::ErrorCode::NoError) {}
+            (void)DrainGlError();
             std::int32_t answer = 0;
             GL::GetFramebufferAttachmentParameter(GL::FramebufferTarget::Framebuffer,
                 GL::FramebufferAttachment::DepthAttachment,

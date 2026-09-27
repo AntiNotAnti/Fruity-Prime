@@ -2102,9 +2102,7 @@ namespace MphRead
             bool answered = false;
             try
             {
-                while (GL.GetError() != OpenTK.Graphics.OpenGL.ErrorCode.NoError)
-                {
-                }
+                DrainGlError();
                 GL.GetFramebufferAttachmentParameter(FramebufferTarget.Framebuffer,
                     FramebufferAttachment.DepthAttachment,
                     FramebufferParameterName.FramebufferAttachmentDepthSize, out int answer);
