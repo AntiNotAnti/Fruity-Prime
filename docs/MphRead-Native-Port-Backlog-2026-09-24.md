@@ -35,7 +35,7 @@
 - `InputSettings.cs` と `.cpp/.hpp` を一ファイル単位で再照合。現行C#・C++とも `stylus_mode` の明示値だけでStylusModeを有効にし、`pointer_jump_guard` は独立設定として扱う。読み込み・保存に差異なし。
 - `Renderer.cs` と `Renderer.cpp` のカーソル取得条件、PlayerInputへのpointer sample・acceptsInput引数を照合。条件と順序は一致し、C++ `CursorState::Grabbed` も OpenTK と同じ `GLFW_CURSOR_DISABLED` に対応する。コード上は同じ入力状態なら両版ともカーソルを隠し、画面端に制限されない。
 - `NativeRuntime/OpenTK/RendererPlatform.cpp` をOpenTK 4.9.4の `NativeWindow` / `MouseState` と照合。C#はcallback差分用 `_lastReportedMousePos` と `MouseState.NewFrame` のポーリング位置を分けるが、nativeは `_mouse.X/Y` を両方に使い、`glfwGetCursorPos` を呼んでいなかった。nativeに別々の差分基準と、window作成時・event pump前の位置取得を追加。C#と同じくcallback差分と現在位置を別管理する。Windows Release `ninja -k 0` 成功（既存 `offsetof` 警告のみ）。
-- カーソル/エイム監査は継続。設定読込、Rendererのgrab条件、`GLFW_CURSOR_DISABLED` への対応は現行C#と一致し、同じ状態ならカーソルは隠れて端に制限されない。位置ポーリング差は修正済みだが、これだけで可視カーソル症状が解消したとは未確認。再現時のgrab条件と実際のGLFW cursor modeをruntimeで確認する。
+- `Renderer.cpp` は `-debuglog` が有効な場合にgrab要求・focus・各解除条件を状態遷移時に記録するようにした。設定読込、Rendererのgrab条件、`GLFW_CURSOR_DISABLED` への対応は現行C#と一致し、同じ状態ならカーソルは隠れて端に制限されない。位置ポーリング差は修正済みだが、これだけで可視カーソル症状が解消したとは未確認。次のruntime再現ではdebug logを使い、grab要求が外れているかを確認する。
 
 ### 2026-09-28 C++固有のフリーズ対策
 

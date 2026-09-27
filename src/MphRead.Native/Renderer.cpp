@@ -6041,10 +6041,36 @@ namespace MphRead
             return;
         }
 #endif
-        const bool grab = (_scene->CameraMode() == MphRead::CameraMode::Player || _scene->IsFreeCam())
-            && !_scene->FrameAdvance() && !Mods::PauseMenu::Open() && !Mods::EndScreen::Available()
-            && !Mods::Input::PointerInput::StylusMode() && !Mods::Input::StylusZone::Placing()
-            && !_scene->ShowCursor() && !GameState::DialogPause() && !GameState::MenuPause();
+        const bool playerCamera = _scene->CameraMode() == MphRead::CameraMode::Player;
+        const bool freeCamera = _scene->IsFreeCam();
+        const bool frameAdvance = _scene->FrameAdvance();
+        const bool pauseOpen = Mods::PauseMenu::Open();
+        const bool endScreen = Mods::EndScreen::Available();
+        const bool stylusMode = Mods::Input::PointerInput::StylusMode();
+        const bool stylusPlacing = Mods::Input::StylusZone::Placing();
+        const bool sceneShowsCursor = _scene->ShowCursor();
+        const bool dialogPause = GameState::DialogPause();
+        const bool menuPause = GameState::MenuPause();
+        const bool focused = IsFocused();
+        const bool grab = (playerCamera || freeCamera) && !frameAdvance && !pauseOpen && !endScreen
+            && !stylusMode && !stylusPlacing && !sceneShowsCursor && !dialogPause && !menuPause;
+        if (Mods::DebugLog::Active())
+        {
+            static std::optional<std::pair<bool, bool>> lastCursorState;
+            const std::pair<bool, bool> cursorState{grab, focused};
+            if (!lastCursorState.has_value() || *lastCursorState != cursorState)
+            {
+                const auto bit = [](bool value) { return value ? "1" : "0"; };
+                Mods::DebugLog::Line("input", std::string("cursor grab=") + bit(grab)
+                    + " focus=" + bit(focused) + " player=" + bit(playerCamera)
+                    + " freecam=" + bit(freeCamera) + " frameadvance=" + bit(frameAdvance)
+                    + " pause=" + bit(pauseOpen) + " end=" + bit(endScreen)
+                    + " stylus=" + bit(stylusMode) + " stylusplacing=" + bit(stylusPlacing)
+                    + " weaponwheel=" + bit(sceneShowsCursor) + " dialog=" + bit(dialogPause)
+                    + " menupause=" + bit(menuPause));
+                lastCursorState = cursorState;
+            }
+        }
         _window->Cursor(grab ? RendererPlatform::CursorState::Grabbed : RendererPlatform::CursorState::Normal);
         const Vector2i clientSize = _window->ClientSize();
         const float pointerX = _window->Mouse().X / static_cast<float>(std::max(clientSize.X, 1));
