@@ -4,7 +4,7 @@
 
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../NativeRuntime/System/Console.hpp"
-#include "../../NativeRuntime/System/Globalization.hpp"
+#include "../../NativeRuntime/System/Number.hpp"
 
 #include "NetSession.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
@@ -25,8 +25,12 @@
 #include <utility>
 
 using ::MphRead::NativeRuntime::DecrementInPlace;
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::IncrementInPlace;
+using ::MphRead::NativeRuntime::NumberFormatInfo;
+using ::MphRead::NativeRuntime::NumberStyles;
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::TryParseDouble;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::MphRead::TestFlag;
@@ -96,7 +100,8 @@ namespace MphRead::Mods::Network
             = NativeRuntime::EnvironmentGetVariable("MPHREAD_PHASE_SECONDS");
         double parsed = 0.0;
         if (value.has_value()
-            && NativeRuntime::DoubleTryParseInvariant(*value, parsed)
+            && TryParseDouble(*value, NumberStyles::Float | NumberStyles::AllowThousands,
+                NumberFormatInfo::InvariantInfo(), parsed)
             && parsed > 0.0)
         {
             return parsed;
@@ -111,7 +116,7 @@ namespace MphRead::Mods::Network
             ? static_cast<double>(serverMatch->TimeElapsed)
             : static_cast<double>(_frame) / 60.0;
         const std::int32_t quotient
-            = static_cast<std::int32_t>(elapsed / PhaseSeconds());
+            = ConvertToInt32Net9(elapsed / PhaseSeconds());
         const std::int32_t index
             = quotient % static_cast<std::int32_t>(_order.size());
         return _order[CheckedIndex(index, _order.size())];
