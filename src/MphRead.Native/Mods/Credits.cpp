@@ -1,8 +1,8 @@
 #include "Credits.hpp"
 #include "Branding.hpp"
+#include "../NativeRuntime/System/Console.hpp"
 
 #include <array>
-#include <iostream>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -12,8 +12,7 @@ namespace
 {
     void WriteLine(std::string_view value = {})
     {
-        std::cout.write(value.data(), static_cast<std::streamsize>(value.size()));
-        std::cout.put('\n');
+        ::MphRead::NativeRuntime::ConsoleWriteLine(value);
     }
 
     [[nodiscard]] std::string_view ValueOrEmpty(const std::optional<std::string>& value) noexcept

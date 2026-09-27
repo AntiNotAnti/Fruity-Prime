@@ -28,7 +28,7 @@
 
 ### 2026-09-28 現在の監査状態
 
-- 表の302項目中296項目はC#対比監査済み、5項目は監査待ち、1項目は監査中。監査待ちはSection 13の `Mods/Credits.cs`、`18_AlimbicTurret.cs`、`ItemInstanceEntity.cs`、`HalfturretEntity.cs`、`PlayerDraw.cs`。TapCheckはC#全文・14ケース・`-tapcheck`接続を監査し、Windows Releaseで14件すべて成功。BeamProjectileEntityはPR #1のC#差分66追加/33削除を照合し、`ModLaunchKey`のinternal setter範囲を修正、Windows Release全体build成功。PlayerCollisionとNodeDefenseEntityはC#差分・native実装・直接呼び出しを照合し、native一致を確認。GameFilesのPOSIX修正はmacOS/Clang・Linux/GCC CIで成功。Windows/MSVC CIのC2015を受けた`Globalization.hpp`のUnicode escape修正はローカルWindows Release build成功、CI run `36340165495` で再確認中。
+- 表の302項目中297項目はC#対比監査済み、4項目は監査待ち、1項目は監査中。監査待ちはSection 13の `18_AlimbicTurret.cs`、`ItemInstanceEntity.cs`、`HalfturretEntity.cs`、`PlayerDraw.cs`。TapCheckはC#全文・14ケース・`-tapcheck`接続を監査し、Windows Releaseで14件すべて成功。BeamProjectileEntityはPR #1のC#差分66追加/33削除を照合し、`ModLaunchKey`のinternal setter範囲を修正、Windows Release全体build成功。PlayerCollisionとNodeDefenseEntityはC#差分と直接参照を監査しnative一致。CreditsはC#全文を照合し、Console出力差を修正してWindows Release build成功。GameFilesのPOSIX修正はmacOS/Clang・Linux/GCC CIで成功。Windows/MSVC CIのC2015を受けた`Globalization.hpp`のUnicode escape修正はローカルWindows Release build成功、CI run `36340165495` で再確認中。
 - Section 14 のAndroid 17ファイルは監査完了。CI run `36340165478` はarm64-v8aとx86_64の両方が成功（source SHA `bacb564c`）。その後に共通nativeの `BeamProjectileEntity.hpp` を変更したため、残りの共通native監査・修正後に両ABIの最終buildを再実施する。
 
 - 済: 1 Platform helpers / 3 Mods leaves / 8 Multiplayer・teams
@@ -842,7 +842,7 @@
 | M | +26/-20 | `Entities/NodeDefenseEntity.cs` | .cpp,.hpp | 完了（C#全文・PR #1差分（+26/-20）とnative `.hpp/.cpp`、PlayerHud/PlayerAi/MapAuditTeams/TeamGameplayTestの直接参照を照合。NoTeam=-1、Active/aliveと有効team indexの条件、全slot走査、HUDのsentinel伝播が一致。差分修正なし、Windows Release build no work to do。runtime未実施） |
 | M | +19/-1 | `Features.cs` | .cpp,.hpp | 完了（C#差分監査・Radar設定のLoad/Commit・Windows Release build済） |
 | M | +11/-3 | `SceneSetup.cs` | .cpp,.hpp | 完了（C#差分監査・resource profile/health reset接続・Windows Release build済） |
-| M | +6/-2 | `Mods/Credits.cs` | .cpp,.hpp | 監査待ち（C#原本との個別対比監査前） |
+| M | +6/-2 | `Mods/Credits.cs` | .cpp,.hpp | 完了（C#全文・PR #1差分（+6/-2）とnative `.hpp/.cpp`、ModEntryの`-credits`、SettingsView/StartScreen/TextLauncher参照を照合。全13 entry、Summary/Compact/Names、support URL、表示文字列と順序が一致。raw `std::cout`出力をC#互換`ConsoleWriteLine`へ修正し、Windows Release compile/link成功。実runtime未実施） |
 | M | +6/-1 | `Mods/DebugLog.cs` | .cpp,.hpp | 完了 |
 | M | +6/-2 | `Utility/Archive.cs` | .cpp,.hpp | 完了（C#差分監査・byte span Extract overload・Windows Release build済） |
 | M | +5/-3 | `Metadata/Metadata.cs` | .cpp,.hpp | 完了（C#差分監査・entity layer/4チーム色・Windows Release build済） |
@@ -882,7 +882,7 @@
 ### 2026-09-27 checkpoint gates
 
 - Section 12 launcher GUI は commit `12a7433b`、Section 2 diagnostics は `a535e260` で `develop2` にpush済み。
-- Section 13 の34ファイルは移植・配線済みで、Windows Release buildのcompile/linkも完了。2026-09-28に行別の監査記録を照合した結果、当時の「34ファイル監査完了」という一括記録だけでは8行の個別C#監査を確認できなかった。BeamProjectileEntity、PlayerCollision、NodeDefenseEntityを今回再監査し、残る5行は表で監査待ち。Section 13全体の監査完了とは扱わない。
+- Section 13 の34ファイルは移植・配線済みで、Windows Release buildのcompile/linkも完了。2026-09-28に行別の監査記録を照合した結果、当時の「34ファイル監査完了」という一括記録だけでは8行の個別C#監査を確認できなかった。BeamProjectileEntity、PlayerCollision、NodeDefenseEntity、Creditsを今回再監査し、残る4行は表で監査待ち。Section 13全体の監査完了とは扱わない。
 - Androidは17ファイルすべてのC#監査・MainActivity/AppBuilder/Renderer呼び出し配線後にarm64-v8aとx86_64をbuildした。
   両ABIともstatic library link成功（`build/native-android-arm64-v8a/build-retry10.log`、
   `build/native-android-x86_64/build-retry10.log`）。端末・実機runtimeは未実施。
@@ -1083,3 +1083,4 @@
 - `Entities/BeamProjectileEntity.cs` をPR #1 base `dcdc900f` からC# head `fe453ce6` までの差分（+66/-33）で全hunk照合し、native `.hpp/.cpp` と直接接続を比較。projectile shot identity、stale ricochet parent拒否、continuous weapon phase/ammo・damage cadence、team ally時のlife drain/homing除外、diagnostic、pooled beam spawn transformはnative実装と一致。`ModLaunchKey`だけC# `internal set` に対しnative setterがpublicだったため、`NetPlayerLifecycle` friendだけが書けるprivate setterへ修正。`git diff --check`とWindows Release全体 `ninja -k 0` 成功（既存`offsetof`警告）。ゲームruntime未実施。
 - `Entities/Players/PlayerCollision.cs` を同じPR base/head間の差分（+30/-1）で全hunk照合。衝突平面Y・penetration・factorからstepを作り、form別 `AltColRadius`/`BipedColRadius` の対称境界へclampしてposition.Yへ加える式はnativeの`std::clamp`と一致。PlayerInputからの`CheckCollision`呼出し箇所・前後の状態処理も照合し、native差分修正なし（verified no-op）。`git diff --check`通過、Windows Release全体 `ninja -k 0` 成功（no work to do）。ゲームruntime/`-altprobe`未実施。
 - `Entities/NodeDefenseEntity.cs` をC#全文とPR #1 base/head間の全差分（+26/-20）、native `.hpp/.cpp`、PlayerHud/PlayerAi/MapAuditTeams/TeamGameplayTestの直接参照で照合。`NoTeam=-1`への変更とHUD伝播、team indexのunsigned境界判定、Active/aliveのcapture条件、`IsOccupied`・前回占有状態・`Complete`の全8 slot走査を確認し、native実装は一致。TeamVisualsの中立owner処理も両側で一致し、古いliteral 4 sentinel参照は残っていない。コード修正なし（verified no-op）。`git diff --check`通過。Windows Release `ninja -k 0` はno work to do。ゲームruntime/harness未実施.
+- `Mods/Credits.cs` をC#全文・PR #1 base/head間の差分（+6/-2）、native `.hpp/.cpp`、ModEntryの`-credits`分岐、SettingsView/StartScreen/TextLauncherの直接参照で照合。全13 entryの名前・説明・URL・順序、`Summary`/`Compact`/`Names`、NoneGiven除外、SupportUrl click/fallbackとconsole出力を確認。nativeの独自`std::cout` writerはC# `Console.WriteLine`アダプターを迂回し、UTF-8処理・OS改行・行単位同期が一致しないため既存`ConsoleWriteLine`へ接続した。`git diff --check`通過、Windows Release `Credits.cpp.obj` compile・static library link・`FruityPrime.exe` link成功。`-credits` runtime未実施.
