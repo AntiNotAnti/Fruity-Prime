@@ -1,6 +1,7 @@
 #include "PointerInput.hpp"
 
 #include "../DebugLog.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/System/Number.hpp"
 
 namespace MphRead::Mods::Input
@@ -12,7 +13,7 @@ namespace MphRead::Mods::Input
         {
             return {x, y};
         }
-        _jumpsIgnored++;
+        ::MphRead::NativeRuntime::IncrementInPlace(_jumpsIgnored);
         if (!_jumpingPointerSeen)
         {
             _jumpingPointerSeen = true;

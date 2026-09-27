@@ -592,7 +592,7 @@
 | A | +13/-0 | `Mods/Input/StickCalibration.cs` | — 新規 | 完了（C#全文・GamepadCalibration/OptionState/GamepadMonitor呼び出し元監査済、readonly/NaN等値/Math.Maxを修正、Windows Release build済） |
 | A | +12/-0 | `Mods/Input/AimAssist/AimAssistState.cs` | — 新規 | 完了（C#全文・AimAssist/AimAssistWorld/AimAssistChecks呼び出し元監査済、field defaults/型/Reset順一致、差分なし） |
 | A | +10/-0 | `Mods/Input/AimAssist/AimAssistTarget.cs` | — 新規 | 完了（C#全文・AimAssist/AimAssistWorld/Debug/Telemetry/Checks照合、default値・readonly・等値・enum文字列を修正。Windows Release build済） |
-| M | +10/-77 | `Mods/Input/PointerInput.cs` | .cpp,.hpp | 完了 |
+| M | +10/-77 | `Mods/Input/PointerInput.cs` | .cpp,.hpp | 完了（C#全文・PointerDevice/Renderer/PlayerInput/PointerCheckの呼出元監査済、設定既定値・閾値・ログ・Reset一致。JumpsIgnoredのunchecked int wrapを修正。Windows Release build済） |
 
 ## 7. Render — 22 ファイル (新規 14), C# +2658 行
 
@@ -960,6 +960,7 @@
 - `Mods/Input/StickCalibration.cs` をC#全文とnative inline `.hpp`、GamepadCalibration/OptionState/GamepadMonitor/EnhancementChecksの直接使用箇所で照合。6値の順序/default、readonly record、Normalizeの方向ごとの分母/clamp、等値とNaNを確認。nativeの公開可変fieldと既定float比較はC# recordと異なるためprivate getter化・NaN同士を等値化し、`std::max`ではNaNを捨てるため正規化をC# `Math.Max`互換helperへ変更した。全callerを読み取りproperty相当に更新。Windows Release build成功。
 - `Mods/Input/AimAssist/AimAssistState.cs` をC#全文とnative inline `.hpp`、`AimAssist::Apply`/`AimAssistWorld`/`AimAssistChecks`の参照経路で照合。TargetSlot/TargetLifeと各float/Vector2 fieldの型・初期値、同じstate objectを連続Applyへ渡す方法、Resetの代入値・順序が一致。native実呼出しにstateの値コピーはなく、差分修正なし。
 - `Mods/Input/AimAssist/AimAssistTarget.cs` をC#全文とnative `.cpp/.hpp`、AimAssist/AimAssistWorld/Debug/Telemetry/Checksおよび`PlayerEntityNetAim`の直接使用箇所で照合。default値とpositional constructorのoptional defaultを分離し、readonly record propertiesをprivate storage + getterへ変更。C# `float.Equals` / `Vector2.Equals` に合わせNaN同士の等値を実装し、`with`更新を値の再生成に置換。未定義enum値の`ToString`もC#同様に数値化。Windows Release build済。
+- `Mods/Input/PointerInput.cs` をC#全文とnative `.cpp/.hpp`、PointerDevice/Renderer/PlayerInput/PointerCheckの呼出元で照合。設定既定値、jump閾値・whole-sample rejection、current-cultureログ書式、初回ログ、Reset範囲が一致。C#通常uncheckedの`JumpsIgnored++`に対してnative signed overflowが未定義動作となるため`IncrementInPlace`へ修正。Windows Release build済。
 
 ### 2026-09-27 native launcher regression audit
 
