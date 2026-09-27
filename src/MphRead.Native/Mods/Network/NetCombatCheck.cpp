@@ -13,6 +13,7 @@
 #include "../../GameState.hpp"
 #include "../../Metadata/Metadata.hpp"
 #include "../../NativeRuntime/System/Console.hpp"
+#include "../../NativeRuntime/System/ExceptionText.hpp"
 #include "../../NativeRuntime/System/Exceptions.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/System/Number.hpp"
@@ -45,7 +46,7 @@ namespace MphRead::Mods::Network
 
     void NetCombatCheck::Check(bool ok, const std::string& name)
     {
-        _checks++;
+        Runtime::IncrementInPlace(_checks);
         if (!ok)
         {
             throw System::InvalidOperationException(name);
@@ -207,9 +208,9 @@ namespace MphRead::Mods::Network
             Runtime::ConsoleWriteLine("COMBAT PASS " + std::to_string(_checks) + " assertions");
             result = 0;
         }
-        catch (const std::exception& ex)
+        catch (...)
         {
-            Runtime::ConsoleErrorWriteLine(std::string("COMBAT FAIL ") + ex.what());
+            Runtime::ConsoleErrorWriteLine("COMBAT FAIL " + Runtime::ExceptionToString(std::current_exception()));
             result = 1;
         }
         sim.Stop();
