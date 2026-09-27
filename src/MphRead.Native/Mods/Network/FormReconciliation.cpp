@@ -47,8 +47,10 @@ namespace MphRead::Mods::Network
             }
             return FormCorrection::None;
         }
+        const std::int32_t latencyGraceValue = ::MphRead::NativeRuntime::UncheckedAdd(
+            ::MphRead::NativeRuntime::UncheckedMultiply(pingMilliseconds, 60) / 1000, 8);
         const std::uint32_t latencyGrace = static_cast<std::uint32_t>(
-            ::MphRead::NativeRuntime::MathClamp(pingMilliseconds * 60 / 1000 + 8, 8, 32));
+            ::MphRead::NativeRuntime::MathClamp(latencyGraceValue, 8, 32));
         if (_transitionSeen && !_attempted && _transitionTarget == actualAlt
             && frame - _transitionLastSeen <= latencyGrace)
         {

@@ -4,7 +4,7 @@
 
 namespace MphRead::Mods::Network
 {
-    enum class FormCorrection : std::uint8_t { None, Start, Force };
+    enum class FormCorrection : std::int32_t { None, Start, Force };
 
     // Per-slot timing for reconciling a puppet's form with its source.
     struct FormReconciliation final
