@@ -18,12 +18,15 @@
 #include "../../Entities/BeamProjectileEntity.hpp"
 #include "../../Entities/Players/HalfturretEntity.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <cmath>
 #include <memory>
 
 namespace MphRead::Mods::Network
 {
+    namespace Runtime = ::MphRead::NativeRuntime;
+
     namespace
     {
         using ::MphRead::Entities::BeamProjectileEntity;
@@ -170,8 +173,8 @@ namespace MphRead::Mods::Network
         NetSession::ForgetSlot(slot);
         player.ModResetNetworkHistory();
         player.Controls().ClearAll();
-        Spawns++;
-        Transitions++;
+        Runtime::IncrementInPlace(Spawns);
+        Runtime::IncrementInPlace(Transitions);
         Log(slot, "SPAWN", 0, player.Health(), true);
     }
 
@@ -203,15 +206,15 @@ namespace MphRead::Mods::Network
         {
             if (rejection == LifecycleRejection::WrongGeneration)
             {
-                WrongGeneration++;
+                Runtime::IncrementInPlace(WrongGeneration);
             }
             else if (rejection == LifecycleRejection::InvalidResurrection)
             {
-                InvalidResurrections++;
+                Runtime::IncrementInPlace(InvalidResurrections);
             }
             else
             {
-                StaleLifeStates++;
+                Runtime::IncrementInPlace(StaleLifeStates);
             }
             Log(slot, "DROP " + ToString(rejection), frame, state.Health,
                 (state.Flags & PlayerState::FlagSpawned) != 0);
@@ -223,14 +226,14 @@ namespace MphRead::Mods::Network
         }
         if (fresh || before != next)
         {
-            Transitions++;
+            Runtime::IncrementInPlace(Transitions);
             if (fresh && next == NetworkPlayerState::Alive)
             {
-                Spawns++;
+                Runtime::IncrementInPlace(Spawns);
             }
             if (next == NetworkPlayerState::Dead)
             {
-                Deaths++;
+                Runtime::IncrementInPlace(Deaths);
             }
             Log(slot, fresh ? std::string("SPAWN") : ToString(next), frame, state.Health,
                 (state.Flags & PlayerState::FlagSpawned) != 0);
@@ -246,12 +249,12 @@ namespace MphRead::Mods::Network
         }
         if (intent.SlotGeneration != Generation(slot))
         {
-            WrongGeneration++;
+            Runtime::IncrementInPlace(WrongGeneration);
             return false;
         }
         if (intent.LifeId == 0 || !Matches(slot, intent.SlotGeneration, intent.LifeId))
         {
-            OldLifeIntents++;
+            Runtime::IncrementInPlace(OldLifeIntents);
             return false;
         }
         return true;

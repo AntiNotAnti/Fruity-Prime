@@ -593,12 +593,12 @@ namespace MphRead::Mods::Network
                 || !NetSession::MatchesStream(claim.MatchId, claim.AuthorityEpoch)
                 || !NetPlayerLifecycle::Matches(shooterSlot, claim.ShooterGeneration, claim.ShooterLifeId))
             {
-                NetPlayerLifecycle::OldLifeClaims++;
+                Runtime::IncrementInPlace(NetPlayerLifecycle::OldLifeClaims);
                 continue;
             }
             if (!NetPlayerLifecycle::Matches(claim.VictimSlot, claim.VictimGeneration, claim.VictimLifeId))
             {
-                NetPlayerLifecycle::OldLifeClaims++;
+                Runtime::IncrementInPlace(NetPlayerLifecycle::OldLifeClaims);
                 Answer(shooterSlot, claim.ClaimId, HitVerdictPacket::ResultWrongLife, false);
                 continue;
             }
@@ -854,7 +854,7 @@ namespace MphRead::Mods::Network
                     || !NetPlayerLifecycle::Matches(entry.VictimSlot, entry.VictimGeneration, entry.VictimLifeId))
                 {
                     entry.Live = false;
-                    NetPlayerLifecycle::OldLifeClaims++;
+                    Runtime::IncrementInPlace(NetPlayerLifecycle::OldLifeClaims);
                     continue;
                 }
                 std::int32_t resolved = 0;
@@ -1001,7 +1001,7 @@ namespace MphRead::Mods::Network
             || !NetPlayerLifecycle::Matches(shooterSlot, entry.ShooterGeneration, entry.ShooterLifeId)
             || !NetPlayerLifecycle::Matches(victimSlot, entry.VictimGeneration, entry.VictimLifeId))
         {
-            NetPlayerLifecycle::OldLifeClaims++;
+            Runtime::IncrementInPlace(NetPlayerLifecycle::OldLifeClaims);
             return;
         }
         if (victimSlot >= static_cast<std::int32_t>(PlayerEntity::Players().size())
