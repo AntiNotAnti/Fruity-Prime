@@ -8,6 +8,7 @@
 #include "../../NativeRuntime/System/Number.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <limits>
 
@@ -92,7 +93,7 @@ namespace MphRead::Mods::Network
 
     void HitRig::Drive(PlayerEntity& player)
     {
-        _frame++;
+        Runtime::IncrementInPlace(_frame);
         PlayerControls& c = player.Controls();
         ClearControls(c);
         if (player.Health() == 0)
@@ -121,11 +122,11 @@ namespace MphRead::Mods::Network
         const bool airborne = !::MphRead::TestFlag(player.Flags1(), Entities::PlayerFlags1::Standing);
         if (airborne)
         {
-            _framesAirborne++;
+            Runtime::IncrementInPlace(_framesAirborne);
         }
         const float rise = std::abs(player.Speed().Y);
         _verticalSpeedSum += rise;
-        _verticalSpeedSamples++;
+        Runtime::IncrementInPlace(_verticalSpeedSamples);
         if (rise > _worstVerticalSpeed)
         {
             _worstVerticalSpeed = rise;
@@ -156,7 +157,7 @@ namespace MphRead::Mods::Network
         const bool onTarget = AimAt(player, other, HeadAimHeight);
         if (onTarget)
         {
-            _framesOnTarget++;
+            Runtime::IncrementInPlace(_framesOnTarget);
         }
         if (other == nullptr)
         {
@@ -167,19 +168,19 @@ namespace MphRead::Mods::Network
         const OpenTK::Mathematics::Vector3 position = player.Position;
         const float range = OpenTK::Mathematics::Length(otherPosition - position);
         _rangeSum += range;
-        _rangeSamples++;
+        Runtime::IncrementInPlace(_rangeSamples);
         HoldRange(player, c, range, _mode == RigMode::Sniper ? LongRange
             : _mode == RigMode::Volley && _volleyWeapon != ::MphRead::BeamType::ShockCoil ? VolleyRange : CloseRange);
         const std::int32_t tap = _mode == RigMode::Volley
             ? Runtime::RequireReference((*::MphRead::Weapons::Current)[static_cast<std::size_t>(_volleyWeapon)]).ShotCooldown * 2 + 3
             : 63;
         const std::int32_t clock = _mode == RigMode::Duel && NetSession::LastSnapshotFrame() != 0
-            ? static_cast<std::int32_t>(NetSession::LastSnapshotFrame())
+            ? std::bit_cast<std::int32_t>(NetSession::LastSnapshotFrame())
             : _frame;
         c.Shoot().SetIsDown(onTarget && clock % tap < 3);
         if (c.Shoot().IsDown() && clock % tap == 0)
         {
-            _triggers++;
+            Runtime::IncrementInPlace(_triggers);
         }
     }
 

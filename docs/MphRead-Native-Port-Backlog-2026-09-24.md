@@ -642,7 +642,7 @@
 | M | +934/-33 | `Mods/Network/NetProtocol.cs` | .cpp,.hpp | 完了（C#全文・native `.hpp/.cpp`・NetSession/DedicatedServer/NetMaster/NetHitClaims の直接送受信箇所を監査。PacketType・サイズ/offset・byte order・文字列置換・旧長さ互換・既定値/境界を照合し一致。修正なし、静的監査のみ） |
 | M | +883/-78 | `Mods/Network/NetHitPrediction.cs` | .cpp,.hpp | 完了（C#全文・native `.hpp/.cpp`・PlayerEntity.TakeDamage/NetDamage/NetPlayerBridge/BeamProjectile/Renderer/PlayerHud/NetHitClaims/NetPlayerLifecycle/NetSession/ModEntry の直接接続を監査。hold/grace・リング寿命・claim settlement・体力補正・撃破/marker/reset条件一致。修正なし、静的監査のみ） |
 | M | +704/-105 | `Mods/Network/DedicatedServer.cs` | .cpp,.hpp | 完了（C#全文・native `.cpp/.hpp`・ModEntry/NetHostSession/HostPool/NetMasterの直接接続を監査。loop順序、Hello/Welcome/refusal/status、authoritative/relay、snapshot/intent、投票/rotation、ping/roster、切断/cleanupが一致。修正なし、静的監査のみ） |
-| A | +609/-0 | `Mods/Network/HitRig.cs` | — 新規 | 完了 |
+| A | +609/-0 | `Mods/Network/HitRig.cs` | — 新規 | 完了（C#全文・native `.cpp/.hpp`・ModEntry/NetTestScript/NetCheckClient/PlayerEntityの直接接続を監査。役割/照準/距離/発射cadence/controls edge/reportが一致。nativeの符号付きカウンター加算をC# unchecked wrapにし、snapshot frameのuint→intをbit reinterpretへ修正。Windows Release build green、runtime未実施） |
 | A | +558/-0 | `Mods/Network/NetSmoothing.cs` | — 新規 | 完了 |
 | A | +536/-0 | `Mods/Network/LocalServer.cs` | — 新規 | 完了 |
 | A | +536/-0 | `Mods/Network/NetLobbyTest.cs` | — 新規 | 完了 |
@@ -980,6 +980,7 @@
 - `Mods/Render/PlayerEntityVoteHud.cs` をC#全文とnative `.hpp/.cpp`、`MapVote.NoteLayout`/`EndScreen` pointer hit testingとの接続で照合。touch/gamepad表示条件、Android/desktop geometry、文字列置換、button hover描画とhitbox publish順が一致し修正なし。Windows Release全体build green。
 - `Mods/Network/NetHitClaims.cs` をC#全文とnative `.hpp/.cpp`、Renderer tick順・NetSession packet send/receive・NetDamage/NetHitPrediction・slot/room lifecycle接続で照合。claim stream/life検証、outbox retry/verdict、damage/geometry判定、ledger duplicate、fire-frame arbitration、rescued-hit抑止、reset/cleanupが一致。`NearestLedgerOffset`のuint→int bit reinterpretとunchecked int差分をnativeで明示し、C# `Math.Abs(Int32.MinValue)`相当の`OverflowException`境界も保った。Windows Release `ninja -C tools/build/out/msys2-mingw64-Release -j 4`成功。
 - `Mods/Network/DedicatedServer.cs` をC#全文とnative `.cpp/.hpp`で照合し、ModEntryの専用server起動、NetHostSession/HostPool/NetMasterの生成・設定・停止、PeerCount/Listening/EverOccupiedの直接参照も確認。loop順序、Helloの再接続/slot割当/Welcome、status/refusal、authority通知と昇格、snapshot/intent検証とfan-out、match clock/rotation/vote、ping/roster、timeout/cleanupの条件とpacket内容は一致。修正なし、静的監査のみ（build/runtime未実施）。
+- `Mods/Network/HitRig.cs` をC#全文とnative `.cpp/.hpp`で照合し、ModEntryのconfigure、NetTestScriptのdriver dispatch、NetCheckClientのreport、PlayerEntityのscript aim/input hookを確認。role割当、runner/sniper/duel/volleyの条件、照準・距離制御、発射周期、controls edgeと測定値は一致。nativeのsigned frame/stat counters `++`はC#のunchecked wrapと違い未定義動作なので`IncrementInPlace`へ変更し、snapshot `uint`からclockへの明示castをC# unchecked castと同じbit reinterpretへ変更。Windows Release `ninja -C tools/build/out/msys2-mingw64-Release -k 0 -j 4`成功。runtime未実施。
 
 ### 2026-09-27 native launcher regression audit
 
