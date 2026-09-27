@@ -33,7 +33,6 @@
 #include <cstdlib>
 #include <iostream>
 #include <limits>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -50,6 +49,7 @@ using ::MphRead::NativeRuntime::ConsoleWrite;
 using ::MphRead::NativeRuntime::EnvironmentNewLine;
 using ::MphRead::NativeRuntime::ConsoleWriteLine;
 using ::MphRead::NativeRuntime::IncrementInPlace;
+using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
 using ::MphRead::NativeRuntime::RequireReference;
@@ -227,20 +227,12 @@ namespace MphRead::Mods::Network
 
     NetFeatureCheck::Record& NetFeatureCheck::RecordAt(std::int32_t slot)
     {
-        if (slot < 0 || static_cast<std::size_t>(slot) >= _records.size())
-        {
-            throw std::out_of_range("Index was outside the bounds of the array.");
-        }
-        return *_records[static_cast<std::size_t>(slot)];
+        return *ManagedAt(_records, slot);
     }
 
     const NetFeatureCheck::Record& NetFeatureCheck::RecordAt(std::int32_t slot) const
     {
-        if (slot < 0 || static_cast<std::size_t>(slot) >= _records.size())
-        {
-            throw std::out_of_range("Index was outside the bounds of the array.");
-        }
-        return *_records[static_cast<std::size_t>(slot)];
+        return *ManagedAt(_records, slot);
     }
 
     void NetFeatureCheck::IncrementPhase(TestPhase phase)
@@ -272,11 +264,7 @@ namespace MphRead::Mods::Network
             && player->SlotIndex() < static_cast<std::int32_t>(counts.size()))
         {
             const std::int32_t index = player->SlotIndex();
-            if (index < 0 || static_cast<std::size_t>(index) >= counts.size())
-            {
-                throw std::out_of_range("Index was outside the bounds of the array.");
-            }
-            std::int32_t& value = counts[static_cast<std::size_t>(index)];
+            std::int32_t& value = ManagedAt(counts, index);
             value = UncheckedAdd(value, 1);
         }
         else if (auto* turret = dynamic_cast<Entities::HalfturretEntity*>(owner);
@@ -302,11 +290,7 @@ namespace MphRead::Mods::Network
                         throw System::NullReferenceException();
                     }
                     const std::int32_t index = thirdOwner->SlotIndex();
-                    if (index < 0 || static_cast<std::size_t>(index) >= counts.size())
-                    {
-                        throw std::out_of_range("Index was outside the bounds of the array.");
-                    }
-                    std::int32_t& value = counts[static_cast<std::size_t>(index)];
+                    std::int32_t& value = ManagedAt(counts, index);
                     value = UncheckedAdd(value, 1);
                 }
             }
@@ -389,7 +373,7 @@ namespace MphRead::Mods::Network
                 continue;
             }
             Entities::PlayerEntity& player = RequireReference(
-                Entities::PlayerEntity::Players().at(static_cast<std::size_t>(slot)));
+                ManagedAt(Entities::PlayerEntity::Players(), slot));
             if (!TestFlag(player.LoadFlags(), LoadFlags::Active))
             {
                 continue;
@@ -398,13 +382,13 @@ namespace MphRead::Mods::Network
             Record& record = RecordAt(slot);
             record.Hunter = player.Hunter();
 
-            if (beams.at(static_cast<std::size_t>(slot)) > 0)
+            if (ManagedAt(beams, slot) > 0)
             {
                 IncrementInPlace(record.BeamFrames);
             }
 
             const std::int32_t firedTotal
-                = NetDamage::Fired.at(static_cast<std::size_t>(slot));
+                = ManagedAt(NetDamage::Fired, slot);
             if (firedTotal > record.LastFiredTotal)
             {
                 record.ShotsFired = UncheckedAdd(
@@ -412,7 +396,7 @@ namespace MphRead::Mods::Network
             }
             record.LastFiredTotal = firedTotal;
 
-            if (bombs.at(static_cast<std::size_t>(slot)) > 0)
+            if (ManagedAt(bombs, slot) > 0)
             {
                 IncrementInPlace(record.BombFrames);
             }
@@ -420,7 +404,7 @@ namespace MphRead::Mods::Network
             {
                 IncrementInPlace(record.AltAttackPresses);
             }
-            if (turrets.at(static_cast<std::size_t>(slot)) > 0)
+            if (ManagedAt(turrets, slot) > 0)
             {
                 IncrementInPlace(record.HalfturretFrames);
             }
@@ -563,7 +547,7 @@ namespace MphRead::Mods::Network
             }
 
             if (slot == _localSlot
-                || !NetSession::RemoteStateValid.at(static_cast<std::size_t>(slot)))
+                || !ManagedAt(NetSession::RemoteStateValid, slot))
             {
                 continue;
             }
@@ -573,8 +557,7 @@ namespace MphRead::Mods::Network
             }
 
             record.EverCompared = true;
-            const PlayerState state
-                = NetSession::RemoteStates.at(static_cast<std::size_t>(slot));
+            const PlayerState state = ManagedAt(NetSession::RemoteStates, slot);
             const bool wantAlt = (state.Flags & PlayerState::FlagAltForm) != 0;
             const bool visible = player.Health() > 0
                 && (state.Flags & PlayerState::FlagSpawned) != 0;
@@ -623,7 +606,7 @@ namespace MphRead::Mods::Network
         failures = 0;
         Record& mine = RecordAt(_localSlot);
         const std::string me
-            = GameState::Nicknames().at(static_cast<std::size_t>(_localSlot));
+            = ManagedAt(GameState::Nicknames(), _localSlot);
 
         ConsoleWriteLine();
         ConsoleWriteLine(
@@ -665,7 +648,7 @@ namespace MphRead::Mods::Network
             anyRemote = true;
             Record& other = RecordAt(slot);
             const std::string them
-                = GameState::Nicknames().at(static_cast<std::size_t>(slot));
+                = ManagedAt(GameState::Nicknames(), slot);
             std::string heading = "    --- as I saw ";
             heading += them;
             heading += " (slot ";
@@ -696,7 +679,7 @@ namespace MphRead::Mods::Network
             ++slot)
         {
             const std::shared_ptr<Entities::PlayerEntity> player
-                = Entities::PlayerEntity::Players().at(static_cast<std::size_t>(slot));
+                = ManagedAt(Entities::PlayerEntity::Players(), slot);
             if (RecordAt(slot).SpawnedFrames > 0)
             {
                 if (!player)
@@ -707,7 +690,7 @@ namespace MphRead::Mods::Network
                     && !player->ModCanBeHurt())
                 {
                     const std::string nickname
-                        = GameState::Nicknames().at(static_cast<std::size_t>(slot));
+                        = ManagedAt(GameState::Nicknames(), slot);
                     invulnerable.push_back(
                         nickname + " (slot " + ::MphRead::NativeRuntime::ToString(slot) + ")");
                 }
@@ -729,7 +712,7 @@ namespace MphRead::Mods::Network
                 && RecordAt(slot).DamageEvents == 0)
             {
                 const std::string nickname
-                    = GameState::Nicknames().at(static_cast<std::size_t>(slot));
+                    = ManagedAt(GameState::Nicknames(), slot);
                 untouched.push_back(
                     nickname + " (slot " + ::MphRead::NativeRuntime::ToString(slot) + ")");
             }
@@ -745,7 +728,7 @@ namespace MphRead::Mods::Network
         if (_localSlot < static_cast<std::int32_t>(Entities::PlayerEntity::Players().size()))
         {
             Entities::PlayerEntity& player = RequireReference(
-                Entities::PlayerEntity::Players().at(static_cast<std::size_t>(_localSlot)));
+                ManagedAt(Entities::PlayerEntity::Players(), _localSlot));
             const auto [rows, height] = player.ModScoreboardSize();
             const bool fits = height <= 192.0F;
             std::string text = "    scoreboard: ";
@@ -813,10 +796,10 @@ namespace MphRead::Mods::Network
             std::string entry = " [";
             entry += ::MphRead::NativeRuntime::ToString(slot);
             entry += "] ";
-            const std::int32_t resolved = NetDamage::Resolved.at(index);
+            const std::int32_t resolved = ManagedAt(NetDamage::Resolved, index);
             entry += ::MphRead::NativeRuntime::ToString(resolved);
             entry += '/';
-            const std::int32_t replayed = NetDamage::Replayed.at(index);
+            const std::int32_t replayed = ManagedAt(NetDamage::Replayed, index);
             entry += ::MphRead::NativeRuntime::ToString(replayed);
             pipeline += entry;
         }
@@ -830,23 +813,23 @@ namespace MphRead::Mods::Network
                 continue;
             }
             const std::size_t index = static_cast<std::size_t>(slot);
-            const std::int32_t conditionFired = NetDamage::Fired.at(index);
+            const std::int32_t conditionFired = ManagedAt(NetDamage::Fired, index);
             double avg = 0.0;
             if (conditionFired > 0)
             {
-                const double aimDrift = NetDamage::AimDrift.at(index);
-                const std::int32_t divisorFired = NetDamage::Fired.at(index);
+                const double aimDrift = ManagedAt(NetDamage::AimDrift, index);
+                const std::int32_t divisorFired = ManagedAt(NetDamage::Fired, index);
                 avg = aimDrift / divisorFired;
             }
             std::string entry = " [";
             entry += ::MphRead::NativeRuntime::ToString(slot);
             entry += "] ";
-            const std::int32_t displayedFired = NetDamage::Fired.at(index);
+            const std::int32_t displayedFired = ManagedAt(NetDamage::Fired, index);
             entry += ::MphRead::NativeRuntime::ToString(displayedFired);
             entry += "(drift ";
             entry += ::MphRead::NativeRuntime::ToString(avg, "0.0");
             entry += '/';
-            const double worstDrift = NetDamage::WorstDrift.at(index);
+            const double worstDrift = ManagedAt(NetDamage::WorstDrift, index);
             entry += ::MphRead::NativeRuntime::ToString(worstDrift, "0.0");
             entry += " deg)";
             fired += entry;
@@ -864,13 +847,13 @@ namespace MphRead::Mods::Network
             std::string entry = " [";
             entry += ::MphRead::NativeRuntime::ToString(slot);
             entry += "] ";
-            const std::int32_t checks = NetDamage::PlayerChecks.at(index);
+            const std::int32_t checks = ManagedAt(NetDamage::PlayerChecks, index);
             entry += ::MphRead::NativeRuntime::ToString(checks);
             entry += '/';
-            const std::int32_t overlaps = NetDamage::PlayerOverlaps.at(index);
+            const std::int32_t overlaps = ManagedAt(NetDamage::PlayerOverlaps, index);
             entry += ::MphRead::NativeRuntime::ToString(overlaps);
             entry += '/';
-            const std::int32_t accepted = NetDamage::PlayerAccepted.at(index);
+            const std::int32_t accepted = ManagedAt(NetDamage::PlayerAccepted, index);
             entry += ::MphRead::NativeRuntime::ToString(accepted);
             collision += entry;
         }
@@ -881,9 +864,8 @@ namespace MphRead::Mods::Network
         {
             for (std::int32_t target = 0; target < Entities::PlayerEntity::SlotCapacity; ++target)
             {
-                const std::int32_t count = NetDamage::PlayerOverlapsByShooter
-                    .at(static_cast<std::size_t>(shooter))
-                    .at(static_cast<std::size_t>(target));
+                const std::int32_t count = ManagedAt(
+                    ManagedAt(NetDamage::PlayerOverlapsByShooter, shooter), target);
                 if (count > 0)
                 {
                     std::string entry = " [";
@@ -923,10 +905,14 @@ namespace MphRead::Mods::Network
         // The respawn this client took for itself, which is where two
         // separate bugs lived and which the tour could not reach until it
         // learned to blow itself up.
-        ConsoleWriteLine("    own respawn: " + std::to_string(NetHitPrediction::SelfDeathsPredicted()) + " self-kill(s) "
-            + "predicted, " + std::to_string(NetPlayerBridge::SpawnFacingsTurned) + " spawn facing(s) turned "
+        ConsoleWriteLine("    own respawn: "
+            + ::MphRead::NativeRuntime::ToString(NetHitPrediction::SelfDeathsPredicted())
+            + " self-kill(s) predicted, "
+            + ::MphRead::NativeRuntime::ToString(NetPlayerBridge::SpawnFacingsTurned)
+            + " spawn facing(s) turned "
             + "(worst " + ::MphRead::NativeRuntime::ToString(NetPlayerBridge::WorstSpawnFacing, "0.0") + " deg), "
-            + std::to_string(NetPlayerBridge::StaleDeathsIgnored) + " stale death(s) ignored");
+            + ::MphRead::NativeRuntime::ToString(NetPlayerBridge::StaleDeathsIgnored)
+            + " stale death(s) ignored");
         if (NetHitPrediction::SelfDeathsPredicted() == 0)
         {
             // Said out loud rather than left as a zero: "never exercised" is
@@ -971,16 +957,16 @@ namespace MphRead::Mods::Network
             std::string entry = " [";
             entry += ::MphRead::NativeRuntime::ToString(slot);
             entry += "] ";
-            const std::string nickname = GameState::Nicknames().at(index);
+            const std::string nickname = ManagedAt(GameState::Nicknames(), index);
             entry += nickname;
             entry += ' ';
-            const std::int32_t kills = GameState::Kills().at(index);
+            const std::int32_t kills = ManagedAt(GameState::Kills(), index);
             entry += ::MphRead::NativeRuntime::ToString(kills);
             entry += "k/";
-            const std::int32_t deaths = GameState::Deaths().at(index);
+            const std::int32_t deaths = ManagedAt(GameState::Deaths(), index);
             entry += ::MphRead::NativeRuntime::ToString(deaths);
             entry += "d/";
-            const std::int32_t points = GameState::Points().at(index);
+            const std::int32_t points = ManagedAt(GameState::Points(), index);
             entry += ::MphRead::NativeRuntime::ToString(points);
             entry += 'p';
             board += entry;
