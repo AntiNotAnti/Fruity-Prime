@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../NativeRuntime/System/Globalization.hpp"
+
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -15,7 +17,7 @@ namespace MphRead
 namespace MphRead::Mods::Render
 {
     // A room's launcher preview as a HUD texture, decoded at most once a frame
-    // and bound in the scene's own names.
+    // and bound in names reserved above the scene's texture counter.
     class MapThumbnail final
     {
     public:
@@ -39,8 +41,8 @@ namespace MphRead::Mods::Render
         static constexpr std::int32_t ReservedName = 1'100'000;
         static constexpr std::int32_t NameRing = 64;
 
-        // StringComparer.OrdinalIgnoreCase: keyed on the upper-cased room.
-        inline static std::map<std::string, Entry> _cache{};
+        // StringComparer.OrdinalIgnoreCase.
+        inline static std::map<std::string, Entry, ::MphRead::NativeRuntime::OrdinalIgnoreCaseLess> _cache{};
         inline static bool _decodedThisFrame = false;
         inline static std::int32_t _nextName = 0;
     };

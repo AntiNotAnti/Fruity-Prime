@@ -600,7 +600,7 @@
 |---|---|---|---|---|
 | A | +416/-0 | `Mods/Render/LauncherPhoto.cs` | .cpp,.hpp | 完了（C#原本監査済、Renderer呼び出しをSection 12で接続） |
 | A | +277/-0 | `Mods/Render/PlayerEntityMapPick.cs` | — 新規 | 完了（C#全文・PlayerEntityEndScreen/MapPick/MapThumbnail呼出元監査済、描画順・座標・投票表示・hit layout一致。UTF-16切詰めとMath.Min/Max挙動を修正。Windows Release build済） |
-| A | +256/-0 | `Mods/Render/MapThumbnail.cs` | — 新規 | 完了 |
+| A | +256/-0 | `Mods/Render/MapThumbnail.cs` | — 新規 | 完了（C#全文・Renderer/EndScreen/PlayerEntityMapPick/Scene.BindTextureの接続監査済、RGB decode・box filter・per-frame cache lifecycle一致。OrdinalIgnoreCase comparerとunchecked texture-name incrementを修正。Windows Release build済） |
 | A | +244/-0 | `Mods/Render/UiOverlay.cs` | .cpp,.hpp | 完了（C#原本監査済、Renderer呼び出しをSection 12で接続） |
 | A | +226/-0 | `Mods/Render/NoiseField.cs` | — 新規 | 完了 |
 | A | +174/-0 | `Mods/Render/LauncherHunter.cs` | .cpp,.hpp | 完了（C#原本監査済、RenderWindow APIと描画呼出しを接続） |
@@ -962,6 +962,7 @@
 - `Mods/Input/AimAssist/AimAssistTarget.cs` をC#全文とnative `.cpp/.hpp`、AimAssist/AimAssistWorld/Debug/Telemetry/Checksおよび`PlayerEntityNetAim`の直接使用箇所で照合。default値とpositional constructorのoptional defaultを分離し、readonly record propertiesをprivate storage + getterへ変更。C# `float.Equals` / `Vector2.Equals` に合わせNaN同士の等値を実装し、`with`更新を値の再生成に置換。未定義enum値の`ToString`もC#同様に数値化。Windows Release build済。
 - `Mods/Input/PointerInput.cs` をC#全文とnative `.cpp/.hpp`、PointerDevice/Renderer/PlayerInput/PointerCheckの呼出元で照合。設定既定値、jump閾値・whole-sample rejection、current-cultureログ書式、初回ログ、Reset範囲が一致。C#通常uncheckedの`JumpsIgnored++`に対してnative signed overflowが未定義動作となるため`IncrementInPlace`へ修正。Windows Release build済。
 - `Mods/Render/PlayerEntityMapPick.cs` をC#全文とnative `.cpp/.hpp`、`PlayerEntityEndScreen`/`MapPick`/`MapThumbnail`の直接接続で照合。panel計算、描画順、色・文字列・投票count、scrollbar、thumbnail呼出し、4 hit領域のpublishが一致。文字名の切詰めはC# string.Length/RangeのUTF-16 code unit単位、`Math.Min/Max/Clamp`はNaN伝播を含む.NET helperへ変更し、UTF-8 byte切詰めと`std::min/max/clamp`との差を修正。Windows Release build済。
+- `Mods/Render/MapThumbnail.cs` をC#全文とnative `.cpp/.hpp`、Rendererの`BeginFrame`、EndScreenの両edgeでの`Clear`、PlayerEntityMapPickの呼出し、Scene.BindTextureまで照合。PNG RGB decode、縮小box filter、1 decode/frame、cache miss/failure、reserved texture-name ringの接続が一致。`StringComparer.OrdinalIgnoreCase`を大文字化キーからNativeRuntime comparerに置き換え、texture-name counterのunchecked wrapを`IncrementInPlace`に変更。Windows Release build済。
 
 ### 2026-09-27 native launcher regression audit
 

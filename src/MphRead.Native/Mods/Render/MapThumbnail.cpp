@@ -8,6 +8,7 @@
 #include "../../NativeRuntime/Stb/Image.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <exception>
@@ -27,8 +28,7 @@ namespace MphRead::Mods::Render
         {
             return 0;
         }
-        const std::string key = Runtime::ToUpperInvariant(roomKey);
-        const auto found = _cache.find(key);
+        const auto found = _cache.find(roomKey);
         if (found != _cache.end())
         {
             return found->second.Missing ? 0 : found->second.BindingId;
@@ -38,7 +38,7 @@ namespace MphRead::Mods::Render
             return 0;
         }
         _decodedThisFrame = true;
-        Entry& made = _cache[key];
+        Entry& made = _cache[roomKey];
         const std::optional<std::vector<ColorRgba>> pixels = Decode(roomKey);
         if (!pixels.has_value())
         {
@@ -49,7 +49,7 @@ namespace MphRead::Mods::Render
         try
         {
             made.BindingId = ReservedName + _nextName % NameRing;
-            _nextName++;
+            Runtime::IncrementInPlace(_nextName);
             scene.BindTexture(*pixels, Width, Height, made.BindingId);
         }
         catch (const std::exception& ex)
