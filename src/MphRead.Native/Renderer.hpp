@@ -1025,7 +1025,6 @@ private: \
     bool _showAllNodes = false; \
     bool _transformRoomNodes = false; \
     bool _outputCameraPos = false; \
-    std::int32_t _textureCount = 0; \
     std::unordered_map<std::int32_t, std::shared_ptr<MphRead::TextureMap>> _texPalMap{}; \
     std::unordered_set<std::int32_t> _displayLists{}; \
     std::vector<std::shared_ptr<MphRead::Model>> _displayListModels{}; \

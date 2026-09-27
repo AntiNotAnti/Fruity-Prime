@@ -872,7 +872,6 @@ namespace MphRead
         _frameBuffer = GL::GenFramebuffer();
         GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, _frameBuffer);
         _screenTexture = Mods::Render::GlNames::NextTexture();
-        ++_textureCount;
         Vector2i renderTarget = RenderSize();
         _targetSize = renderTarget;
         GL::BindTexture(GL::TextureTarget::Texture2D, _screenTexture);
@@ -888,7 +887,6 @@ namespace MphRead
             GL::TextureTarget::Texture2D, _screenTexture, 0);
 
         _celTexture = Mods::Render::GlNames::NextTexture();
-        ++_textureCount;
         GL::BindTexture(GL::TextureTarget::Texture2D, _celTexture);
         GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgb,
             renderTarget.X, renderTarget.Y, 0, GL::PixelFormat::Rgb, GL::PixelType::UnsignedByte, nullptr);
@@ -1373,7 +1371,6 @@ namespace MphRead
     std::pair<std::int32_t, bool> Scene::BindTexture(const std::shared_ptr<Model>& model,
         std::int32_t textureId, std::int32_t paletteId, std::int32_t recolorId)
     {
-        ++_textureCount;
         const std::int32_t bindingId = Mods::Render::GlNames::NextTexture();
         bool onlyOpaque = true;
         std::vector<std::uint32_t> pixels;
@@ -1403,7 +1400,6 @@ namespace MphRead
 
     std::int32_t Scene::BindGetTexture(const std::vector<ColorRgba>& data, std::int32_t width, std::int32_t height)
     {
-        ++_textureCount;
         const std::int32_t bindingId = Mods::Render::GlNames::NextTexture();
         GL::BindTexture(GL::TextureTarget::Texture2D, bindingId);
         GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgba,
@@ -1761,12 +1757,10 @@ namespace MphRead
                 GL::FramebufferAttachment::DepthStencilAttachment, GL::RenderbufferTarget::Renderbuffer,
                 _renderBuffer);
             GL::DeleteTexture(_depthTexture);
-            --_textureCount;
             _depthTexture = 0;
             return;
         }
         _depthTexture = Mods::Render::GlNames::NextTexture();
-        ++_textureCount;
         GL::BindTexture(GL::TextureTarget::Texture2D, _depthTexture);
         GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Depth24Stencil8,
             target.X, target.Y, 0, GL::PixelFormat::DepthStencil, GL::PixelType::UnsignedInt248, nullptr);
@@ -1796,7 +1790,6 @@ namespace MphRead
                 GL::FramebufferAttachment::DepthStencilAttachment, GL::RenderbufferTarget::Renderbuffer,
                 _renderBuffer);
             GL::DeleteTexture(_depthTexture);
-            --_textureCount;
             _depthTexture = 0;
         }
     }

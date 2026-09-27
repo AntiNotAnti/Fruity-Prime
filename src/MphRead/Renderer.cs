@@ -163,7 +163,6 @@ namespace MphRead
         private bool _outputCameraPos = false;
 
         // map each model's texture ID/palette ID combinations to the bound OpenGL texture ID and "onlyOpaque" boolean
-        private int _textureCount = 0;
         private readonly Dictionary<int, TextureMap> _texPalMap = new Dictionary<int, TextureMap>();
         // Display lists are GL resources owned by this Scene, not by the global
         // Read cache. A side scene can be kept alive after a later Scene
@@ -804,7 +803,6 @@ namespace MphRead
             _frameBuffer = GL.GenFramebuffer();
             GL.BindFramebuffer(FramebufferTarget.Framebuffer, _frameBuffer);
             _screenTexture = Mods.Render.GlNames.NextTexture();
-            _textureCount++;
             Vector2i renderTarget = RenderSize;
             _targetSize = renderTarget;
             GL.BindTexture(TextureTarget.Texture2D, _screenTexture);
@@ -825,7 +823,6 @@ namespace MphRead
             // The ink pass's copy of the scene. Same size and same filtering;
             // it is only ever sampled texel for texel.
             _celTexture = Mods.Render.GlNames.NextTexture();
-            _textureCount++;
             GL.BindTexture(TextureTarget.Texture2D, _celTexture);
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgb, renderTarget.X, renderTarget.Y, 0,
                 PixelFormat.Rgb, PixelType.UnsignedByte, IntPtr.Zero);
@@ -1359,7 +1356,6 @@ namespace MphRead
 
         private (int BindingId, bool OnlyOpaque) BindTexture(Model model, int textureId, int paletteId, int recolorId)
         {
-            _textureCount++;
             int bindingId = Mods.Render.GlNames.NextTexture();
             bool onlyOpaque = true;
             var pixels = new List<uint>();
@@ -1443,7 +1439,6 @@ namespace MphRead
 
         public int BindGetTexture(IReadOnlyList<ColorRgba> data, int width, int height)
         {
-            _textureCount++;
             int bindingId = Mods.Render.GlNames.NextTexture();
             GL.BindTexture(TextureTarget.Texture2D, bindingId);
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba, width, height, 0,
@@ -2052,12 +2047,10 @@ namespace MphRead
                     FramebufferAttachment.DepthStencilAttachment, RenderbufferTarget.Renderbuffer,
                     _renderBuffer);
                 GL.DeleteTexture(_depthTexture);
-                _textureCount--;
                 _depthTexture = 0;
                 return;
             }
             _depthTexture = Mods.Render.GlNames.NextTexture();
-            _textureCount++;
             GL.BindTexture(TextureTarget.Texture2D, _depthTexture);
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Depth24Stencil8,
                 target.X, target.Y, 0, PixelFormat.DepthStencil, PixelType.UnsignedInt248, IntPtr.Zero);
@@ -2082,7 +2075,6 @@ namespace MphRead
                     FramebufferAttachment.DepthStencilAttachment, RenderbufferTarget.Renderbuffer,
                     _renderBuffer);
                 GL.DeleteTexture(_depthTexture);
-                _textureCount--;
                 _depthTexture = 0;
             }
         }
