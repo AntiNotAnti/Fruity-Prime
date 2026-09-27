@@ -8,12 +8,16 @@
 #include "../../Scene.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
 
-#include <algorithm>
 #include <memory>
+#include <string>
+#include <string_view>
 
 namespace MphRead::Entities
 {
+    namespace Runtime = ::MphRead::NativeRuntime;
+
     using ::MphRead::NativeRuntime::RequireReference;
     using OpenTK::Mathematics::Vector4;
 
@@ -46,7 +50,7 @@ namespace MphRead::Entities
         while (rows >= 1)
         {
             const float needed = PickTitle + static_cast<float>(rows) * PickRow + 2;
-            scale = std::min(EndScale(), room / needed);
+            scale = Runtime::MathMin(EndScale(), room / needed);
             if (scale >= 0.5F)
             {
                 break;
@@ -57,7 +61,7 @@ namespace MphRead::Entities
         {
             return;
         }
-        rows = std::min(rows, total);
+        rows = Runtime::MathMin(rows, total);
         const float aspect = HudAspectFix();
         const float width = EndPanelWidth() * scale;
         const float right = 254;
@@ -78,7 +82,7 @@ namespace MphRead::Entities
         const std::int32_t picked = Mods::MapPick::PickedIndex();
         const std::int32_t hovered = Mods::MapPick::Hovered();
         const std::int32_t cursor = Mods::MapPick::Cursor();
-        const std::int32_t scroll = std::clamp(Mods::MapPick::Scroll(), 0, std::max(0, total - rows));
+        const std::int32_t scroll = Runtime::MathClamp(Mods::MapPick::Scroll(), 0, Runtime::MathMax(0, total - rows));
         float rowTop = top + PickTitle * scale;
         for (std::int32_t i = 0; i < rows; i++)
         {
@@ -98,7 +102,7 @@ namespace MphRead::Entities
             return;
         }
         const float width = 0.8F * aspect;
-        const float thumb = std::max(height * static_cast<float>(rows) / static_cast<float>(total), 3.0F);
+        const float thumb = Runtime::MathMax(height * static_cast<float>(rows) / static_cast<float>(total), 3.0F);
         const float travel = height - thumb;
         const float at = total > rows ? static_cast<float>(scroll) / static_cast<float>(total - rows) : 0;
         RequireReference(_scene).DrawHudFlatBox(right - width, top + travel * at, right, top + travel * at + thumb, _pickBar);
@@ -142,9 +146,10 @@ namespace MphRead::Entities
         }
         const float textLeft = thumbRight + 2 * scale * aspect;
         std::string name = ::MphRead::NativeRuntime::ToUpperInvariant(Mods::MapPick::NameOf(key));
-        if (name.size() > 15)
+        if (Runtime::Utf16Length(name) > 15)
         {
-            name = name.substr(0, 15);
+            const std::u16string utf16Name = Runtime::Utf8ToUtf16(name);
+            name = Runtime::Utf16ToUtf8(std::u16string_view(utf16Name).substr(0, 15));
         }
         static_cast<void>(DrawText2D(textLeft, top + 1.5F * scale, Hud::Align::Left, 0, name,
             votes > 0 || picked ? _pickInk : _pickDim, 1.0F, 8.0F, -1, 0.4F * scale));
@@ -165,7 +170,7 @@ namespace MphRead::Entities
     void PlayerEntity::DrawPickRing(float left, float top, float right, float bottom, float scale, float aspect)
     {
         Scene& scene = RequireReference(_scene);
-        const float line = std::max(0.5F, 0.8F * scale);
+        const float line = Runtime::MathMax(0.5F, 0.8F * scale);
         scene.DrawHudFlatBox(left - line * aspect, top - line, right + line * aspect, top, _pickRing);
         scene.DrawHudFlatBox(left - line * aspect, bottom, right + line * aspect, bottom + line, _pickRing);
         scene.DrawHudFlatBox(left - line * aspect, top, left, bottom, _pickRing);
