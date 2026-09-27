@@ -5,6 +5,7 @@
 #include <span>
 
 #include "Mods/Render/Crosshair.hpp"
+#include "Mods/Render/Radar.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
 
 #include <bit>
@@ -492,6 +493,21 @@ namespace MphRead
                 std::optional<std::string_view>{std::string_view(it->second)},
                 Mods::Render::Crosshair::Size);
         }
+        if (const auto it = values.find("RadarEnabled");
+            it != values.end() && BooleanTryParse(it->second, parsed))
+        {
+            Mods::Render::Radar::Enabled = parsed;
+        }
+        if (const auto it = values.find("RadarShowBackground");
+            it != values.end() && BooleanTryParse(it->second, parsed))
+        {
+            Mods::Render::Radar::ShowBackground = parsed;
+        }
+        if (const auto it = values.find("RadarShowOutlines");
+            it != values.end() && BooleanTryParse(it->second, parsed))
+        {
+            Mods::Render::Radar::ShowOutlines = parsed;
+        }
     }
 
     std::unordered_map<std::string, std::string> Features::Commit()
@@ -501,7 +517,10 @@ namespace MphRead
             {"ProHud", BoolLower(ProHud())},
             {"ProHudFixedWeapon", BoolLower(ProHudFixedWeapon())},
             {"CrosshairStyle", CrosshairStyleToString(Mods::Render::Crosshair::Style)},
-            {"CrosshairSize", CrosshairSizeToString(Mods::Render::Crosshair::Size)}
+            {"CrosshairSize", CrosshairSizeToString(Mods::Render::Crosshair::Size)},
+            {"RadarEnabled", BoolLower(Mods::Render::Radar::Enabled)},
+            {"RadarShowBackground", BoolLower(Mods::Render::Radar::ShowBackground)},
+            {"RadarShowOutlines", BoolLower(Mods::Render::Radar::ShowOutlines)}
         };
     }
 

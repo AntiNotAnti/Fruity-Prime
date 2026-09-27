@@ -178,6 +178,7 @@ namespace MphRead
         Read& operator=(const Read&) = delete;
 
         static void ClearCache();
+        [[nodiscard]] static std::vector<std::shared_ptr<Model>> CachedModels();
         [[nodiscard]] static std::shared_ptr<ModelInstance> GetModelInstance(
             const std::string& name, bool firstHunt = false,
             MetaDir dir = static_cast<MetaDir>(0), bool noCache = false);

@@ -7,6 +7,7 @@
 #include "GamepadMappings.hpp"
 #include "GamepadOptions.hpp"
 #include "PadBindings.hpp"
+#include "../Render/DesktopGlContext.hpp"
 #include "../InputSettings.hpp"
 #include "../../NativeRuntime/OpenTK/GLFW.hpp"
 #include "../../NativeRuntime/System/Console.hpp"
@@ -55,6 +56,7 @@ namespace MphRead::Mods::Input
 
     std::int32_t GamepadProbe::Run(double seconds, bool verbose)
     {
+        ::MphRead::Mods::Render::DesktopGlContext::PreserveWorkingDirectory();
         if (!Glfw::GLFW::Init())
         {
             Runtime::ConsoleWriteLine("[gamepad] GLFW would not start; no pads can be read here.");

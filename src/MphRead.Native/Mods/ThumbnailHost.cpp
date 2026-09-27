@@ -1,55 +1,99 @@
 #include "ThumbnailHost.hpp"
 
+#include "ThumbnailBatch.hpp"
+#include "ThumbnailGenerator.hpp"
+
+#include <chrono>
+#include <exception>
+#include <utility>
+
 namespace MphRead::Mods
 {
-    IThumbnailHost* ThumbnailHost::_current = nullptr;
-
-    IThumbnailHost* ThumbnailHost::Current() noexcept
+    namespace
     {
-        return _current;
+        [[nodiscard]] std::shared_future<int> CompletedTask(int result)
+        {
+            std::promise<int> promise;
+            promise.set_value(result);
+            return promise.get_future().share();
+        }
+
+        [[nodiscard]] std::shared_future<int> FaultedTask(std::exception_ptr error)
+        {
+            std::promise<int> promise;
+            promise.set_exception(std::move(error));
+            return promise.get_future().share();
+        }
     }
 
-    void ThumbnailHost::Current(IThumbnailHost* value) noexcept
+    ::MphRead::NativeRuntime::AtomicSharedPtr<IThumbnailHost> ThumbnailHost::_current{};
+
+    std::shared_ptr<IThumbnailHost> ThumbnailHost::Current() noexcept
     {
-        _current = value;
+        return _current.load(std::memory_order_relaxed);
+    }
+
+    void ThumbnailHost::Current(std::shared_ptr<IThumbnailHost> value) noexcept
+    {
+        _current.store(std::move(value), std::memory_order_relaxed);
     }
 
     bool ThumbnailHost::CanRender()
     {
-        return Current() != nullptr || GetThumbnailHostAdapter().ThumbnailBatchCanRun();
+        return Current() != nullptr || ThumbnailBatch::CanRun();
     }
 
-    ThumbnailTaskIntRef ThumbnailHost::RenderMissingAsync(ThumbnailReportRef report)
+    std::shared_future<int> ThumbnailHost::RenderMissingAsync(
+        const std::function<void(const std::string&)>& report)
     {
-        ThumbnailHostAdapter& adapter = GetThumbnailHostAdapter();
-
         try
         {
-            ThumbnailRoomsRef missing = adapter.ThumbnailGeneratorMissingThumbnails();
-            if (adapter.ThumbnailRoomsCount(missing) == 0)
+            std::vector<std::string> missing = ThumbnailGenerator::MissingThumbnails();
+            if (missing.empty())
             {
-                return adapter.CompletedTask(0);
+                return CompletedTask(0);
             }
 
-            IThumbnailHost* host = Current();
+            std::shared_ptr<IThumbnailHost> host = Current();
             if (host != nullptr)
             {
-                return adapter.AwaitTask(host->RenderAsync(missing, report));
+                std::shared_future<int> task = host->RenderAsync(std::move(missing), report);
+                if (!task.valid())
+                {
+                    throw std::future_error(std::future_errc::no_state);
+                }
+                if (task.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+                {
+                    return task;
+                }
+                return std::async(std::launch::async,
+                    [host = std::move(host), task = std::move(task)]
+                    {
+                        (void)host;
+                        return task.get();
+                    }).share();
             }
 
-            if (!adapter.ThumbnailBatchCanRun())
+            if (!ThumbnailBatch::CanRun())
             {
-                return adapter.CompletedTask(0);
+                return CompletedTask(0);
             }
 
-            ThumbnailTaskIntRef batchTask = adapter.RunThumbnailBatchAsync(missing, report);
-            return adapter.AwaitTask(batchTask);
+            return std::async(std::launch::async,
+                [rooms = std::move(missing), report]
+                {
+                    return ThumbnailBatch::Run(rooms,
+                        ThumbnailBatch::DefaultParallelism(),
+                        ThumbnailGenerator::ThumbnailWidth,
+                        ThumbnailGenerator::ThumbnailHeight,
+                        report);
+                }).share();
         }
         catch (...)
         {
-            // Exceptions raised before an awaited task is returned fault the C#
-            // async Task<int>; do not leak them synchronously from this adapter.
-            return adapter.FaultedTask(std::current_exception());
+            // The C# method is async, so failures before its first await fault
+            // the returned task instead of escaping from the call itself.
+            return FaultedTask(std::current_exception());
         }
     }
 }

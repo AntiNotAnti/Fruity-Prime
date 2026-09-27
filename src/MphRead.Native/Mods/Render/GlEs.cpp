@@ -1,6 +1,10 @@
 #include "GlEs.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
+
 #if defined(__ANDROID__)
 #include "../../Program.hpp"
 #include "EsShaders.hpp"
@@ -1126,7 +1130,3 @@ namespace MphRead::Mods::Render
     }
 }
 #endif
-
-using ::MphRead::NativeRuntime::UncheckedAdd;
-using ::MphRead::NativeRuntime::UncheckedMultiply;
-using ::MphRead::NativeRuntime::UncheckedSubtract;

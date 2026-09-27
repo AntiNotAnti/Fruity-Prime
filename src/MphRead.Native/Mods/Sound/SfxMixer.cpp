@@ -3,6 +3,17 @@
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 
+using ::MphRead::NativeRuntime::MathClamp;
+using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::MathMin;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedIncrement;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
+using ::OpenTK::Mathematics::Divide;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::Subtract;
+
 #if defined(__ANDROID__)
 #include "../../Sound/Music.hpp"
 
@@ -774,15 +785,4 @@ namespace MphRead::Mods::Sound
     }
 }
 #endif
-
-using ::MphRead::NativeRuntime::MathClamp;
-using ::MphRead::NativeRuntime::MathMax;
-using ::MphRead::NativeRuntime::MathMin;
-using ::MphRead::NativeRuntime::UncheckedAdd;
-using ::MphRead::NativeRuntime::UncheckedIncrement;
-using ::MphRead::NativeRuntime::UncheckedSubtract;
-using ::OpenTK::Mathematics::Divide;
-using ::OpenTK::Mathematics::Length;
-using ::OpenTK::Mathematics::LengthSquared;
-using ::OpenTK::Mathematics::Subtract;
 

@@ -6,6 +6,7 @@
 #include "../Formats/Sound.hpp"
 #include "../GameState.hpp"
 #include "../Formats/Formats.hpp"
+#include "../Mods/Diagnostics/PlatformDiagnostics.hpp"
 #include "../NativeRuntime/System/Encoding.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 
@@ -13,6 +14,7 @@
 #include <array>
 #include <cassert>
 #include <chrono>
+#include <exception>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -308,6 +310,7 @@ namespace MphRead
                 }
                 catch (const std::exception& ex)
                 {
+                    MphRead::Mods::Diagnostics::PlatformDiagnostics::Report("libminiaudio.dylib", ex);
                     std::cout << "[sound] no audio device (" << ex.what() << "); continuing without sound\n";
                     g_audioEngine.reset();
                     g_playbackDevice.reset();
@@ -315,6 +318,8 @@ namespace MphRead
                 }
                 catch (...)
                 {
+                    MphRead::Mods::Diagnostics::PlatformDiagnostics::Report(
+                        "libminiaudio.dylib", std::current_exception());
                     std::cout << "[sound] no audio device (unknown error); continuing without sound\n";
                     g_audioEngine.reset();
                     g_playbackDevice.reset();

@@ -11,8 +11,20 @@
 #include "DebugLog.hpp"
 #include "Diagnostics/CompatibilityCheck.hpp"
 #include "Diagnostics/PlatformDiagnostics.hpp"
+#if defined(MPHREAD_SHELL)
+#include "Diagnostics/GlfwPathCheck.hpp"
+#include "Diagnostics/LauncherWindowCheck.hpp"
+#include "Diagnostics/ThumbnailWindowCheck.hpp"
+#endif
+#include "Input/AimAssist/AimAssistDebug.hpp"
+#include "Input/AimAssist/AimAssistTelemetry.hpp"
+#include "Input/GamepadChecks.hpp"
 #include "Input/GamepadProbe.hpp"
+#include "Input/PointerCheck.hpp"
 #include "InputSettings.hpp"
+#include "MapGen/AltFormProbe.hpp"
+#include "MapGen/MapCheck.hpp"
+#include "Multiplayer/ResourceAudit.hpp"
 #if defined(MPHREAD_AVALONIA)
 #include "Launcher/Gui/GuiLauncher.hpp"
 #include "Launcher/Gui/TapCheck.hpp"
@@ -20,9 +32,6 @@
 #include "Launcher/Gui/UiDesigns.hpp"
 #endif
 #if defined(MPHREAD_SHELL)
-#include "Diagnostics/GlfwPathCheck.hpp"
-#include "Diagnostics/LauncherWindowCheck.hpp"
-#include "Diagnostics/ThumbnailWindowCheck.hpp"
 #include "Launcher/Gui/DeckTile.hpp"
 #include "Launcher/Gui/Shell.hpp"
 #include "Launcher/Gui/UiBench.hpp"
@@ -39,23 +48,31 @@
 #include "MapGen/Q3Convert.hpp"
 #include "Network/DedicatedServer.hpp"
 #include "Network/DemoInfo.hpp"
+#include "Network/HealthSimulationTest.hpp"
+#include "Network/HitRig.hpp"
+#include "Network/LocalServer.hpp"
 #include "Network/MapAudit.hpp"
 #include "Network/MapRotation.hpp"
 #include "Network/MechanicsDump.hpp"
 #include "Network/NetCheckClient.hpp"
 #include "Network/NetConnectCommand.hpp"
 #include "Network/NetDiagnostics.hpp"
+#include "Network/NetHooks.hpp"
+#include "Network/NetHitClaims.hpp"
 #include "Network/NetHitPrediction.hpp"
 #include "Network/NetLag.hpp"
 #include "MapGen/MapDefinition.hpp"
 #include "Network/NetMaster.hpp"
+#include "Network/NetSmoothing.hpp"
 #include "Network/NetStatus.hpp"
 #include "Network/NetUnlagged.hpp"
+#include "Network/SpireAltPoseCheck.hpp"
 #include "Network/ServerSimCheck.hpp"
 #include "Network/WeaponDps.hpp"
 #include "Render/Crosshair.hpp"
 #include "Render/FrameTiming.hpp"
 #include "Render/FrameTimingCheck.hpp"
+#include "Render/Radar.hpp"
 #include "RenderOptions.hpp"
 #include "ShutdownSignals.hpp"
 #include "ThumbnailBatch.hpp"
@@ -72,12 +89,13 @@
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 #include "../NativeRuntime/System/Runtime.hpp"
-#include "NativeRuntime/System/Globalization.hpp"
+#include "../NativeRuntime/System/Tasks.hpp"
 
 #include <algorithm>
 #include <array>
 #include <charconv>
 #include <cmath>
+#include <condition_variable>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -87,12 +105,14 @@
 #include <limits>
 #include <locale>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <stop_token>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -543,6 +563,17 @@ namespace
         return MphRead::Mods::Network::NetConfig::DefaultPort;
     }
 
+    [[nodiscard]] int ParseMasterPort(const std::vector<std::string>& args)
+    {
+        const std::optional<std::string> value = ValueAfter(args, "masterport");
+        std::int32_t port = 0;
+        if (value.has_value() && Int32TryParseCurrentCulture(*value, port))
+        {
+            return port;
+        }
+        return MphRead::Mods::Network::NetMasterConfig::DefaultPort;
+    }
+
     [[nodiscard]] std::string ParseName(const std::vector<std::string>& args)
     {
         const std::optional<std::string> value = ValueAfter(args, "name");
@@ -589,6 +620,13 @@ namespace
         if (fog.has_value() && !StartsWithHyphen(fog))
         {
             RenderOptions::Fog(RenderOptions::ParseOnOff(*fog, RenderOptions::Fog()));
+        }
+
+        const std::optional<std::string> fov = ValueAfter(args, "fov");
+        if (fov.has_value() && !StartsWithHyphen(fov))
+        {
+            RenderOptions::FieldOfView(RenderOptions::ParseFov(
+                std::string_view(*fov), RenderOptions::FieldOfView()));
         }
 
         const std::optional<std::string> fps = ValueAfter(args, "fps");
@@ -667,6 +705,31 @@ namespace
         if (crosshairSize.has_value() && !StartsWithHyphen(crosshairSize))
         {
             Crosshair::Size = Crosshair::ParseSize(*crosshairSize, Crosshair::Size);
+        }
+
+        const std::optional<std::string> radar = ValueAfter(args, "radar");
+        if (radar.has_value() && !StartsWithHyphen(radar))
+        {
+            MphRead::Mods::Render::Radar::Enabled = RenderOptions::ParseOnOff(
+                std::string_view(*radar), MphRead::Mods::Render::Radar::Enabled);
+        }
+        else if (HasFlag(args, "radar"))
+        {
+            MphRead::Mods::Render::Radar::Enabled = true;
+        }
+
+        const std::optional<std::string> radarBackground = ValueAfter(args, "radarbackground");
+        if (radarBackground.has_value() && !StartsWithHyphen(radarBackground))
+        {
+            MphRead::Mods::Render::Radar::ShowBackground = RenderOptions::ParseOnOff(
+                std::string_view(*radarBackground), MphRead::Mods::Render::Radar::ShowBackground);
+        }
+
+        const std::optional<std::string> radarOutlines = ValueAfter(args, "radaroutlines");
+        if (radarOutlines.has_value() && !StartsWithHyphen(radarOutlines))
+        {
+            MphRead::Mods::Render::Radar::ShowOutlines = RenderOptions::ParseOnOff(
+                std::string_view(*radarOutlines), MphRead::Mods::Render::Radar::ShowOutlines);
         }
     }
 
@@ -799,100 +862,6 @@ namespace
 #endif
     }
 
-    void GenerateThumbnails(const std::vector<std::string>& args, int width, int height)
-    {
-        using MphRead::Mods::ThumbnailBatch;
-        using MphRead::Mods::ThumbnailGenerator;
-
-        const bool force = HasFlag(args, "force");
-        std::vector<std::string> rooms = force
-            ? ThumbnailGenerator::MultiplayerRooms()
-            : ThumbnailGenerator::MissingThumbnails();
-        if (rooms.empty())
-        {
-            WriteLine("[thumbnails] all previews already present in "
-                + ThumbnailGenerator::CacheDirectory());
-            WriteLine("[thumbnails] pass -force to re-render them");
-            return;
-        }
-        int jobs = ThumbnailBatch::DefaultParallelism();
-        const std::optional<std::string> jobsValue = ValueAfter(args, "jobs");
-        std::int32_t parsedJobs = 0;
-        if (jobsValue.has_value() && Int32TryParseCurrentCulture(*jobsValue, parsedJobs))
-        {
-            jobs = parsedJobs;
-        }
-        WriteLine("[thumbnails] rendering " + std::to_string(rooms.size())
-            + " preview(s) at " + std::to_string(width) + "x" + std::to_string(height)
-            + ", " + std::to_string(jobs) + " at a time");
-        WriteLine("[thumbnails] output: " + ThumbnailGenerator::CacheDirectory());
-        const int written = ThumbnailBatch::Run(rooms, jobs, width, height);
-        WriteLine("[thumbnails] done -- " + std::to_string(written) + "/"
-            + std::to_string(rooms.size()) + " written");
-    }
-}
-
-namespace MphRead::Mods
-{
-    bool ModEntry::TryHandleHeadless(const std::vector<std::string>& args)
-    {
-#if defined(MPHREAD_SHELL)
-        if (::HasFlag(args, "glfwpathcheck"))
-        {
-            SetExitCode(Diagnostics::GlfwPathCheck::Run());
-            return true;
-        }
-        if (::HasFlag(args, "thumbnailwindowcheck"))
-        {
-            SetExitCode(Diagnostics::ThumbnailWindowCheck::Run(::HasFlag(args, "legacyglcheck")));
-            return true;
-        }
-        if (::HasFlag(args, "windowcheck"))
-        {
-            SetExitCode(Diagnostics::LauncherWindowCheck::Run());
-            return true;
-        }
-#endif
-        if (::HasFlag(args, "smoketest"))
-        {
-            SetExitCode(Diagnostics::CompatibilityCheck::Run());
-            return true;
-        }
-        InputSettings::Load();
-        Launcher::LauncherPrefs::Load();
-        if (::HasFlag(args, "debuglog"))
-        {
-            DebugLog::Force();
-        }
-        DebugLog::Attach();
-        if (NativeRuntime::IsMacOS())
-        {
-            Diagnostics::PlatformDiagnostics::Start();
-        }
-
-        Update::Updater::Disabled(::HasFlag(args, "noupdate"));
-        ApplyRenderOverrides(args);
-
-        const int applyAt = IndexOfFlag(args, Update::DesktopUpdate::ApplyFlag);
-        if (applyAt >= 0 && static_cast<std::size_t>(applyAt + 2) < args.size())
-        {
-            std::vector<std::string> relaunch;
-            int separator = -1;
-            for (std::size_t i = static_cast<std::size_t>(applyAt + 3); i < args.size(); ++i)
-            {
-                if (args[i] == Update::DesktopUpdate::RelaunchSeparator)
-                {
-                    separator = static_cast<int>(i);
-                    break;
-                }
-            }
-            for (int i = separator + 1; separator >= 0 && static_cast<std::size_t>(i) < args.size(); ++i)
-            {
-                relaunch.push_back(args[static_cast<std::size_t>(i)]);
-            }
-            std::int32_t waitFor = -1;
-            if (!Int32TryParseCurrentCulture(args[static_cast<std::size_t>(applyAt + 2)], waitFor))
-            {
 #if defined(_MSC_VER)
     __declspec(noinline)
 #elif defined(__GNUC__) || defined(__clang__)
@@ -997,6 +966,136 @@ namespace MphRead::Mods
 #endif
     }
 
+    void GenerateThumbnails(const std::vector<std::string>& args, int width, int height)
+    {
+        using MphRead::Mods::ThumbnailBatch;
+        using MphRead::Mods::ThumbnailGenerator;
+
+        const bool force = HasFlag(args, "force");
+        std::vector<std::string> rooms = force
+            ? ThumbnailGenerator::MultiplayerRooms()
+            : ThumbnailGenerator::MissingThumbnails();
+        if (rooms.empty())
+        {
+            WriteLine("[thumbnails] all previews already present in "
+                + ThumbnailGenerator::CacheDirectory());
+            WriteLine("[thumbnails] pass -force to re-render them");
+            return;
+        }
+        int jobs = ThumbnailBatch::DefaultParallelism();
+        const std::optional<std::string> jobsValue = ValueAfter(args, "jobs");
+        std::int32_t parsedJobs = 0;
+        if (jobsValue.has_value() && Int32TryParseCurrentCulture(*jobsValue, parsedJobs))
+        {
+            jobs = parsedJobs;
+        }
+        WriteLine("[thumbnails] rendering " + std::to_string(rooms.size())
+            + " preview(s) at " + std::to_string(width) + "x" + std::to_string(height)
+            + ", " + std::to_string(jobs) + " at a time");
+        WriteLine("[thumbnails] output: " + ThumbnailGenerator::CacheDirectory());
+        const int written = ThumbnailBatch::Run(rooms, jobs, width, height);
+        WriteLine("[thumbnails] done -- " + std::to_string(written) + "/"
+            + std::to_string(rooms.size()) + " written");
+    }
+}
+
+namespace MphRead::Mods
+{
+    bool ModEntry::TryHandleHeadless(const std::vector<std::string>& args)
+    {
+#if defined(MPHREAD_SHELL)
+        if (::HasFlag(args, "glfwpathcheck"))
+        {
+            SetExitCode(Diagnostics::GlfwPathCheck::Run());
+            return true;
+        }
+        if (::HasFlag(args, "thumbnailwindowcheck"))
+        {
+            SetExitCode(Diagnostics::ThumbnailWindowCheck::Run(::HasFlag(args, "legacyglcheck")));
+            return true;
+        }
+        if (::HasFlag(args, "windowcheck"))
+        {
+            SetExitCode(Diagnostics::LauncherWindowCheck::Run());
+            return true;
+        }
+#endif
+        if (::HasFlag(args, "smoketest"))
+        {
+            SetExitCode(Diagnostics::CompatibilityCheck::Run());
+            return true;
+        }
+
+        InputSettings::Load();
+        Launcher::LauncherPrefs::Load();
+        if (::HasFlag(args, "debuglog"))
+        {
+            DebugLog::Force();
+        }
+        DebugLog::Attach();
+        if (NativeRuntime::IsMacOS())
+        {
+            Diagnostics::PlatformDiagnostics::Start();
+        }
+
+        Update::Updater::Disabled(::HasFlag(args, "noupdate"));
+        ApplyRenderOverrides(args);
+
+        if (::HasFlag(args, "pointercheck"))
+        {
+            SetExitCode(Input::PointerCheck::Run());
+            return true;
+        }
+
+        Input::AimAssist::AimAssistDebug::Enabled = ::HasFlag(args, "gamepadassistdebug");
+        Input::AimAssist::AimAssistDebug::UnassistedArm = ::HasFlag(args, "gamepadassistbaseline");
+        Input::AimAssist::AimAssistTelemetry::Configure(ValueAfter(args, "gamepadassisttelemetry"));
+
+        if (::HasFlag(args, "gamepadcheck"))
+        {
+            SetExitCode(Input::GamepadChecks::Run(ValueAfter(args, "shots")));
+            return true;
+        }
+
+        if (::HasFlag(args, "gamepad"))
+        {
+            double seconds = 15;
+            const std::optional<std::string> given = ValueAfter(args, "seconds");
+            double parsed = 0;
+            if (given.has_value() && TryParseDoubleCurrent(*given, parsed) && parsed > 0)
+            {
+                seconds = parsed;
+            }
+            SetExitCode(Input::GamepadProbe::Run(seconds, ::HasFlag(args, "verbose")));
+            return true;
+        }
+
+        if (::HasFlag(args, "frametimingcheck"))
+        {
+            SetExitCode(Render::FrameTimingCheck::Run());
+            return true;
+        }
+
+        const int applyAt = IndexOfFlag(args, Update::DesktopUpdate::ApplyFlag);
+        if (applyAt >= 0 && static_cast<std::size_t>(applyAt + 2) < args.size())
+        {
+            std::vector<std::string> relaunch;
+            int separator = -1;
+            for (std::size_t i = static_cast<std::size_t>(applyAt + 3); i < args.size(); ++i)
+            {
+                if (args[i] == Update::DesktopUpdate::RelaunchSeparator)
+                {
+                    separator = static_cast<int>(i);
+                    break;
+                }
+            }
+            for (int i = separator + 1; separator >= 0 && static_cast<std::size_t>(i) < args.size(); ++i)
+            {
+                relaunch.push_back(args[static_cast<std::size_t>(i)]);
+            }
+            std::int32_t waitFor = -1;
+            if (!Int32TryParseCurrentCulture(args[static_cast<std::size_t>(applyAt + 2)], waitFor))
+            {
                 waitFor = -1;
             }
             SetExitCode(Update::DesktopUpdate::Apply(
@@ -1004,7 +1103,10 @@ namespace MphRead::Mods
             return true;
         }
 
-        Update::DesktopUpdate::Clean();
+        if (!::HasFlag(args, "spireposecheck") && !::HasFlag(args, "formcheck"))
+        {
+            Update::DesktopUpdate::Clean();
+        }
         Update::UpdateInstall::UseDesktopIfPossible();
 
         const std::optional<std::string> netLag = ValueAfter(args, "netlag");
@@ -1020,6 +1122,22 @@ namespace MphRead::Mods
             WriteLine("[net] -netloss " + *netLoss + " is not a percentage");
             return true;
         }
+        const std::array<std::pair<std::string_view,
+            bool (*)(const std::optional<std::string>&)>, 4> netLagOptions{{
+            {"netjitter", &Network::NetLag::ConfigureJitter},
+            {"netseed", &Network::NetLag::ConfigureSeed},
+            {"netreorder", &Network::NetLag::ConfigureReorder},
+            {"netduplicate", &Network::NetLag::ConfigureDuplicate}
+        }};
+        for (const auto& [name, configure] : netLagOptions)
+        {
+            const std::optional<std::string> value = ValueAfter(args, name);
+            if (value.has_value() && !configure(value))
+            {
+                WriteLine("[net] invalid -" + std::string(name) + " value: " + *value);
+                return true;
+            }
+        }
         if (Network::NetLag::Active())
         {
             const std::optional<std::string> description = Network::NetLag::Describe();
@@ -1029,6 +1147,49 @@ namespace MphRead::Mods
         {
             Network::NetUnlagged::SetEnabled(false);
             WriteLine("[net] lag compensation off: shots resolve against the present");
+        }
+        if (::HasFlag(args, "snapshotpuppets"))
+        {
+            Network::NetHooks::SnapshotOwnsPuppets(true);
+            WriteLine("[net] puppet positions on this client come from the authority's snapshot, not from relayed intents");
+        }
+        if (::HasFlag(args, "clientpin"))
+        {
+            Network::NetHooks::PinPuppetsOnClients(true);
+            WriteLine("[net] puppets are pinned to their owner's reported position on clients as well as on the authority");
+        }
+        if (::HasFlag(args, "pressage"))
+        {
+            Network::NetUnlagged::PressAgeEnabled(true);
+            WriteLine("[net] recovered trigger pulls are rewound by their own age as well as by their packet's ack");
+        }
+        const std::optional<std::string> rig = ValueAfter(args, "hitrig");
+        if (rig.has_value())
+        {
+            if (Network::HitRig::Configure(rig))
+            {
+                WriteLine("[net] hit rig: " + Network::ToString(Network::HitRig::Mode()));
+            }
+            else
+            {
+                WriteLine("[net] -hitrig " + *rig + " refused: jump, sniper or duel");
+            }
+        }
+        const std::optional<std::string> maxRewind = ValueAfter(args, "maxrewind");
+        if (maxRewind.has_value())
+        {
+            if (Network::NetUnlagged::ConfigureMaxRewind(maxRewind))
+            {
+                const std::int32_t frames = Network::NetUnlagged::MaxRewindFrames();
+                WriteLine("[net] rewind ceiling " + std::to_string(frames) + " frames ("
+                    + std::to_string(frames * 1000 / 60) + " ms)");
+            }
+            else
+            {
+                WriteLine("[net] -maxrewind " + *maxRewind + " refused: 1 to "
+                    + std::to_string(Network::NetUnlagged::MaxRewindCeiling)
+                    + " frames, and the history cannot serve more");
+            }
         }
         if (::HasFlag(args, "nohitprediction"))
         {
@@ -1040,15 +1201,25 @@ namespace MphRead::Mods
             Network::NetHitPrediction::SetMarkerEnabled(false);
             WriteLine("[hud] hit marker off");
         }
-        if (::HasFlag(args, "deathprediction"))
+        if (::HasFlag(args, "deathprediction") || ::HasFlag(args, "nodeathprediction"))
         {
-            Network::NetHitPrediction::SetDeathEnabled(true);
-            WriteLine("[net] death prediction on: a client's kills land the frame it lands them");
+            WriteLine("[net] remote death waits for authority; self-death remains predicted");
         }
-        if (::HasFlag(args, "nodeathprediction"))
+        if (::HasFlag(args, "noclaims"))
         {
-            Network::NetHitPrediction::SetDeathEnabled(false);
-            WriteLine("[net] death prediction off: a client's kills land when the authority says so");
+            Network::NetHitClaims::Enabled(false);
+            WriteLine("[net] hit claims off: a shot counts only where the authority finds it itself");
+        }
+        if (::HasFlag(args, "nointerp"))
+        {
+            Network::NetSmoothing::Enabled(false);
+            WriteLine("[net] puppet interpolation off: remote players move when their snapshots arrive");
+        }
+        if (::HasFlag(args, "relayedpuppets"))
+        {
+            Network::NetHooks::SnapshotOwnsPuppets(false);
+            Network::NetSmoothing::Enabled(false);
+            WriteLine("[net] puppet positions on this client come from relayed intents, not from the snapshot");
         }
         if (::HasFlag(args, "credits"))
         {
@@ -1114,6 +1285,48 @@ namespace MphRead::Mods
             WriteLine("[update] " + update->PageUrl.Get().value_or(""));
             (void)Update::Updater::OpenPage(*update);
             return true;
+        }
+
+        const std::optional<std::string> uiShot = ValueAfter(args, "uishot");
+        if (uiShot.has_value())
+        {
+            SetExitCode(RunUiCapture(*uiShot));
+            return true;
+        }
+
+        if (::HasFlag(args, "uibench"))
+        {
+            SetExitCode(RunUiBench(args));
+            return true;
+        }
+
+        const std::optional<std::string> uiDesign = ValueAfter(args, "uidesign");
+        if (uiDesign.has_value())
+        {
+            SetExitCode(RunUiDesigns(*uiDesign));
+            return true;
+        }
+
+        const std::optional<std::string> shellShot = ValueAfter(args, "shellshot");
+        if (shellShot.has_value())
+        {
+            SetExitCode(RunShellCapture(*shellShot));
+            return true;
+        }
+
+        if (::HasFlag(args, "tapcheck"))
+        {
+            SetExitCode(RunTapCheck());
+            return true;
+        }
+
+        if (::HasFlag(args, "fullscreen") || ::HasFlag(args, "borderless"))
+        {
+            WindowMode::Startup(WindowStartMode::BorderlessFullscreen);
+        }
+        else if (::HasFlag(args, "windowed"))
+        {
+            WindowMode::Startup(WindowStartMode::Windowed);
         }
 
         bool doubleClicked = args.empty();
@@ -1235,6 +1448,65 @@ namespace MphRead::Mods
             return true;
         }
 
+        if (::HasFlag(args, "hosts"))
+        {
+            const std::string askHost = ValueAfter(args, "master").value_or(
+                std::string(Network::NetMasterConfig::DefaultHost));
+            std::int32_t askPort = ParseMasterPort(args);
+            WriteLine("[hosts] asking " + askHost + ":" + std::to_string(askPort)
+                + " and everyone it names");
+
+            struct HostsQueryState
+            {
+                std::vector<Network::HostCandidate> Candidates;
+                std::mutex Mutex;
+                std::condition_variable Finished;
+                bool Done = false;
+            };
+            const auto state = std::make_shared<HostsQueryState>();
+            Network::NetMasterClient::FindHosts(askHost, askPort,
+                [state](Network::HostCandidate candidate)
+                {
+                    std::lock_guard lock(state->Mutex);
+                    const std::size_t before = state->Candidates.size();
+                    Network::NetMasterClient::Merge(state->Candidates, candidate);
+                    if (state->Candidates.size() > before)
+                    {
+                        const std::string endpoint = candidate.Host + ":"
+                            + std::to_string(candidate.Port);
+                        std::ostringstream row;
+                        row << "  " << std::left << std::setw(28) << candidate.Label << ' '
+                            << std::setw(26) << endpoint << ' ' << candidate.Describe();
+                        WriteLine(row.str());
+                    }
+                },
+                [state]()
+                {
+                    {
+                        std::lock_guard lock(state->Mutex);
+                        state->Done = true;
+                    }
+                    state->Finished.notify_one();
+                });
+
+            {
+                std::unique_lock lock(state->Mutex);
+                (void)state->Finished.wait_for(lock, std::chrono::seconds(20),
+                    [&state]() { return state->Done; });
+                std::int32_t usable = 0;
+                for (const Network::HostCandidate& candidate : state->Candidates)
+                {
+                    if (candidate.WillHost())
+                    {
+                        ++usable;
+                    }
+                }
+                WriteLine("[hosts] " + std::to_string(usable) + " of "
+                    + std::to_string(state->Candidates.size()) + " can run a match");
+            }
+            return true;
+        }
+
         if (!::HasFlag(args, "server") && !::HasFlag(args, "dedicated"))
         {
             return false;
@@ -1318,48 +1590,6 @@ namespace MphRead::Mods
             const std::optional<std::string> reportPortValue = ValueAfter(args, "masterport");
             std::int32_t parsedReportPort = 0;
             if (reportPortValue.has_value() && Int32TryParseCurrentCulture(*reportPortValue, parsedReportPort))
-        const std::optional<std::string> uiShot = ValueAfter(args, "uishot");
-        if (uiShot.has_value())
-        {
-            SetExitCode(RunUiCapture(*uiShot));
-            return true;
-        }
-
-        if (::HasFlag(args, "uibench"))
-        {
-            SetExitCode(RunUiBench(args));
-            return true;
-        }
-
-        const std::optional<std::string> uiDesign = ValueAfter(args, "uidesign");
-        if (uiDesign.has_value())
-        {
-            SetExitCode(RunUiDesigns(*uiDesign));
-            return true;
-        }
-
-        const std::optional<std::string> shellShot = ValueAfter(args, "shellshot");
-        if (shellShot.has_value())
-        {
-            SetExitCode(RunShellCapture(*shellShot));
-            return true;
-        }
-
-        if (::HasFlag(args, "tapcheck"))
-        {
-            SetExitCode(RunTapCheck());
-            return true;
-        }
-
-        if (::HasFlag(args, "fullscreen") || ::HasFlag(args, "borderless"))
-        {
-            WindowMode::Startup(WindowStartMode::BorderlessFullscreen);
-        }
-        else if (::HasFlag(args, "windowed"))
-        {
-            WindowMode::Startup(WindowStartMode::Windowed);
-        }
-
             {
                 reportPort = parsedReportPort;
             }
@@ -1402,6 +1632,12 @@ namespace MphRead::Mods
             Features::HelmetOpacity(0);
             Features::VisorOpacity(0);
         }
+        if (::HasFlag(args, "uinativeres"))
+        {
+#if defined(MPHREAD_SHELL)
+            Launcher::Gui::UiSurface::NativeRaster(true);
+#endif
+        }
         if (::HasFlag(args, "netdebug"))
         {
             Network::NetDiagnostics::SetEnabled(true);
@@ -1423,7 +1659,20 @@ namespace MphRead::Mods
             {
                 seconds = parsed;
             }
-            SetExitCode(Input::GamepadProbe::Run(seconds));
+            SetExitCode(Input::GamepadProbe::Run(seconds, ::HasFlag(args, "verbose")));
+            return true;
+        }
+
+        if (::HasFlag(args, "resourceaudit"))
+        {
+            SetExitCode(Multiplayer::ResourceAudit::Run());
+            return true;
+        }
+
+        if (const std::optional<std::string> healthRoom = ValueAfter(args, "healthsimtest");
+            healthRoom.has_value())
+        {
+            SetExitCode(Network::HealthSimulationTest::Run(*healthRoom));
             return true;
         }
 
@@ -1556,6 +1805,57 @@ namespace MphRead::Mods
             return true;
         }
 
+        const std::optional<std::string> mapCheck = ValueAfter(args, "mapcheck");
+        if (mapCheck.has_value())
+        {
+            SetExitCode(MapGen::MapCheck::Run(*mapCheck));
+            return true;
+        }
+
+        const std::optional<std::string> altProbe = ValueAfter(args, "altprobe");
+        if (altProbe.has_value())
+        {
+            const std::vector<std::string> at = NativeRuntime::StringSplit(
+                ValueAfter(args, "at").value_or(""), ',');
+            float atX = 0.0F;
+            float atY = 0.0F;
+            float atZ = 0.0F;
+            if (at.size() != 3
+                || !TryParseFloatInvariant(std::optional<std::string>(at[0]), atX, false)
+                || !TryParseFloatInvariant(std::optional<std::string>(at[1]), atY, false)
+                || !TryParseFloatInvariant(std::optional<std::string>(at[2]), atZ, false))
+            {
+                WriteLine("-altprobe needs -at X,Y,Z");
+                SetExitCode(1);
+                return true;
+            }
+            const std::optional<std::string> traceDelay = ValueAfter(args, "delay");
+            std::int32_t parsedDelay = -1;
+            MapGen::AltFormProbe::TraceDelay(
+                traceDelay.has_value() && Int32TryParseCurrentCulture(*traceDelay, parsedDelay)
+                    && parsedDelay >= 0
+                    ? std::optional<std::int32_t>(parsedDelay)
+                    : std::nullopt);
+            SetExitCode(MapGen::AltFormProbe::Run(*altProbe,
+                OpenTK::Mathematics::Vector3(atX, atY, atZ), ParseHunter(args)));
+            return true;
+        }
+
+        const std::optional<std::string> mapItems = ValueAfter(args, "mapitems");
+        if (mapItems.has_value())
+        {
+            std::optional<float> itemScale;
+            float parsedItemScale = 0.0F;
+            if (TryParseFloatInvariant(ValueAfter(args, "scale"), parsedItemScale, false)
+                && parsedItemScale > 0.0F)
+            {
+                itemScale = parsedItemScale;
+            }
+            SetExitCode(MapGen::MapReport::ListItems(
+                *mapItems, ValueAfter(args, "map"), itemScale));
+            return true;
+        }
+
         const std::optional<std::string> mapMaterials = ValueAfter(args, "mapmaterials");
         if (mapMaterials.has_value())
         {
@@ -1563,16 +1863,10 @@ namespace MphRead::Mods
             return true;
         }
 
-        const std::optional<std::string> uiShot = ValueAfter(args, "uishot");
-        if (uiShot.has_value())
+        const std::optional<std::string> spirePoseCheck = ValueAfter(args, "spireposecheck");
+        if (spirePoseCheck.has_value())
         {
-            SetExitCode(RunUiCapture(*uiShot));
-            return true;
-        }
-
-        if (::HasFlag(args, "frametimingcheck"))
-        {
-            SetExitCode(Render::FrameTimingCheck::Run());
+            SetExitCode(Network::SpireAltPoseCheck::Run(*spirePoseCheck));
             return true;
         }
 
@@ -1617,6 +1911,7 @@ namespace MphRead::Mods
             GameMode mode = GameMode::Battle;
             (void)TryParseGameMode(ValueAfter(args, "mode"), mode);
             Network::MapAudit::ShowWindow(::HasFlag(args, "hudshots"));
+            Network::MapAudit::TeamProbe(::HasFlag(args, "teamprobe"));
             if (ValueAfter(args, "hunter").has_value())
             {
                 Network::MapAudit::MainHunter(ParseHunter(args));
@@ -1662,13 +1957,91 @@ namespace MphRead::Mods
             return true;
         }
 
-        const std::optional<std::string> hostGame = ValueAfter(args, "hostgame");
-        if (::HasFlag(args, "uinativeres"))
+        if (::HasFlag(args, "installserver"))
         {
-#if defined(MPHREAD_SHELL)
-            Launcher::Gui::UiSurface::NativeRaster(true);
-#endif
+            const std::string serverRid = Update::UpdateCheck::ServerRid();
+            WriteLine("[server] this platform takes the \"" + serverRid + "\" package");
+            if (!Network::LocalServer::CanInstall())
+            {
+                WriteLine("[server] no server package is published for it");
+                SetExitCode(1);
+                return true;
+            }
+            int lastPercent = -1;
+            const bool installed = Network::LocalServer::Install(
+                [&lastPercent](float fraction)
+                {
+                    const int percent = static_cast<int>(fraction * 100.0F);
+                    if (percent >= lastPercent + 10)
+                    {
+                        lastPercent = percent;
+                        WriteLine("[server] " + std::to_string(percent) + "%");
+                    }
+                });
+            if (!installed)
+            {
+                WriteLine("[server] " + Network::LocalServer::LastError().value_or(""));
+                SetExitCode(1);
+                return true;
+            }
+            WriteLine("[server] installed " + Network::LocalServer::InstalledTag()
+                + " into " + Network::LocalServer::Directory());
+            return true;
         }
+
+        const std::optional<std::string> hostLocal = ValueAfter(args, "hostlocal");
+        if (hostLocal.has_value())
+        {
+            GameMode localMode = GameMode::Battle;
+            (void)TryParseGameMode(ValueAfter(args, "mode"), localMode);
+            std::vector<std::pair<std::string, GameMode>> localMaps;
+            for (const std::string& entry : NativeRuntime::StringSplit(*hostLocal, ',', true, true))
+            {
+                localMaps.emplace_back(entry, localMode);
+            }
+
+            const std::optional<Network::ServerBinary> binary = Network::LocalServer::Available();
+            if (!binary.has_value())
+            {
+                WriteLine("[hostlocal] nothing on this machine can run a server");
+            }
+            else
+            {
+                WriteLine("[hostlocal] using " + binary->Describe() + " (" + binary->Executable + ")");
+            }
+
+            double holdSeconds = 8.0;
+            double parsedHold = 0.0;
+            if (TryParseDoubleInvariant(ValueAfter(args, "seconds"), parsedHold))
+            {
+                holdSeconds = parsedHold;
+            }
+            const std::string serverName = ValueAfter(args, "servername").value_or("Local test server");
+            const std::string masterHost = ValueAfter(args, "master").value_or(
+                std::string(Network::NetMasterConfig::DefaultHost));
+            const std::int32_t localPort = Network::LocalServer::Start(serverName, localMaps,
+                Entities::PlayerEntity::SlotCapacity, 7.0F * 60.0F, 7,
+                masterHost, ParseMasterPort(args), !::HasFlag(args, "nomaster"));
+            if (localPort < 0)
+            {
+                WriteLine("[hostlocal] " + Network::LocalServer::LastError().value_or(""));
+                SetExitCode(1);
+                return true;
+            }
+            WriteLine("[hostlocal] listening on 127.0.0.1:" + std::to_string(localPort));
+            const Network::ServerStatus localStatus = Network::NetStatus::Query(
+                "127.0.0.1", localPort, false);
+            WriteLine("[hostlocal] it answers: " + localStatus.RoomKey + " ("
+                + Network::NetStatus::ModeName(localStatus.Mode) + "), "
+                + std::to_string(localStatus.Players) + "/"
+                + std::to_string(localStatus.MaxPlayers) + " players");
+            NativeRuntime::ThreadSleep(static_cast<std::int32_t>(holdSeconds * 1000.0));
+            Network::LocalServer::Stop();
+            WriteLine("[hostlocal] stopped");
+            return true;
+        }
+
+        const std::optional<std::string> hostGame = ValueAfter(args, "hostgame");
         if (hostGame.has_value())
         {
             const std::string masterHost = ValueAfter(args, "master").value_or(
@@ -1683,11 +2056,26 @@ namespace MphRead::Mods
             GameMode hostMode = GameMode::Battle;
             (void)TryParseGameMode(ValueAfter(args, "mode"), hostMode);
             const std::string hostName = ParseName(args);
+            std::vector<std::pair<std::string, GameMode>> hostRotation{{*hostGame, hostMode}};
+            const std::optional<std::string> rotationValue = ValueAfter(args, "maprotation");
+            if (rotationValue.has_value())
+            {
+                for (const std::string& entry : NativeRuntime::StringSplit(*rotationValue, ',', true, true))
+                {
+                    if (!StringEqualsOrdinalIgnoreCase(entry, *hostGame))
+                    {
+                        hostRotation.emplace_back(entry, hostMode);
+                    }
+                }
+            }
             WriteLine("[net] asking " + masterHost + ":" + std::to_string(masterPort)
-                + " to run " + *hostGame);
+                + " to run " + *hostGame
+                + (hostRotation.size() > 1
+                    ? " and " + std::to_string(hostRotation.size() - 1) + " more"
+                    : ""));
             const auto game = Network::NetMasterClient::RequestGame(masterHost,
                 masterPort, *hostGame, hostMode, 420, 7,
-                Entities::PlayerEntity::SlotCapacity, hostName + "'s game");
+                Entities::PlayerEntity::SlotCapacity, hostName + "'s game", 6000, hostRotation);
             if (!game.Started)
             {
                 WriteLine("[net] it would not: " + game.Reason);
@@ -1734,6 +2122,13 @@ namespace MphRead::Mods
             if (TryParseDoubleInvariant(ValueAfter(args, "rejoin"), parsedRejoin))
             {
                 rejoinAt = parsedRejoin;
+            }
+            Network::NetCheckClient::ShowWindow = ::HasFlag(args, "hudshots");
+            const std::optional<std::string> mapVote = ValueAfter(args, "mapvote");
+            std::int32_t mapVoteRow = -1;
+            if (mapVote.has_value() && Int32TryParseCurrentCulture(*mapVote, mapVoteRow))
+            {
+                Network::NetCheckClient::MapVoteRow = std::max(0, mapVoteRow);
             }
             const int color = ValueAfter(args, "recolor").has_value()
                 ? ParseRecolor(args)

@@ -4,6 +4,7 @@
 #include "ThumbnailGenerator.hpp"
 #include "ThumbnailLog.hpp"
 #include "../NativeRuntime/System/Encoding.hpp"
+#include "../NativeRuntime/System/Exceptions.hpp"
 #include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Runtime.hpp"
@@ -11,6 +12,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <bit>
 #include <cerrno>
 #include <chrono>
 #include <climits>
@@ -162,7 +164,7 @@ namespace
 
         HANDLE read = ::CreateNamedPipeW(
             pipeName.c_str(),
-            PIPE_ACCESS_INBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE | FILE_FLAG_OVERLAPPED,
+            PIPE_ACCESS_INBOUND | FILE_FLAG_FIRST_PIPE_INSTANCE,
             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE,
             1,
             0,
@@ -232,6 +234,18 @@ namespace
             + "'. " + errorMessage);
     }
 
+    class WorkerProcess;
+    std::mutex ProcessLock;
+    std::vector<std::shared_ptr<WorkerProcess>> ActiveWorkers;
+    bool Exiting = false;
+    bool ExitHandlerRegistered = false;
+    std::recursive_mutex BatchLock;
+    bool WorkerFailed = false;
+
+    [[nodiscard]] bool RegisterWorker(std::shared_ptr<WorkerProcess> process);
+    void UnregisterWorker(WorkerProcess* process) noexcept;
+    void StopAllWorkers() noexcept;
+    [[nodiscard]] bool IsExiting();
 
     const std::optional<std::string>& CurrentProcessPath()
     {
@@ -240,6 +254,7 @@ namespace
     }
 
     class WorkerProcess final
+        : public std::enable_shared_from_this<WorkerProcess>
     {
     public:
         WorkerProcess() = default;
@@ -247,11 +262,153 @@ namespace
         WorkerProcess& operator=(const WorkerProcess&) = delete;
         WorkerProcess(WorkerProcess&&) = delete;
         WorkerProcess& operator=(WorkerProcess&&) = delete;
-        ~WorkerProcess() = default;
+        ~WorkerProcess() { Stop(); }
 
         [[nodiscard]] bool HasExited()
         {
+            const std::lock_guard<std::mutex> guard(_stateLock);
+            return HasExitedCore();
+        }
+
+        [[nodiscard]] std::int32_t ExitCode()
+        {
+            const std::lock_guard<std::mutex> guard(_stateLock);
+            if (!HasExitedCore()) return 1;
 #ifdef _WIN32
+            DWORD code = 1;
+            if (_process == nullptr || !::GetExitCodeProcess(_process, &code)) return 1;
+            return std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(code));
+#else
+            if (!_exitStatusAvailable) return 1;
+            if (WIFEXITED(_exitStatus)) return WEXITSTATUS(_exitStatus);
+            if (WIFSIGNALED(_exitStatus)) return 128 + WTERMSIG(_exitStatus);
+            return 1;
+#endif
+        }
+
+        [[nodiscard]] std::uint32_t Id()
+        {
+#ifdef _WIN32
+            const std::lock_guard<std::mutex> guard(_stateLock);
+            return _process == nullptr ? 0 : ::GetProcessId(_process);
+#else
+            const std::lock_guard<std::mutex> guard(_stateLock);
+            return _pid <= 0 ? 0 : static_cast<std::uint32_t>(_pid);
+#endif
+        }
+
+        void Terminate() noexcept
+        {
+            const std::lock_guard<std::mutex> guard(_stateLock);
+#ifdef _WIN32
+            if (_process != nullptr) static_cast<void>(::TerminateProcess(_process, 1));
+#else
+            if (_pid > 0) static_cast<void>(::kill(_pid, SIGKILL));
+#endif
+        }
+
+        [[nodiscard]] bool WaitForExit(std::chrono::milliseconds timeout) noexcept
+        {
+            const auto deadline = std::chrono::steady_clock::now() + timeout;
+            while (true)
+            {
+                try
+                {
+                    if (HasExited()) return true;
+                }
+                catch (...)
+                {
+                    return false;
+                }
+                if (std::chrono::steady_clock::now() >= deadline) return false;
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        }
+
+        bool StartOutputReaders()
+        {
+            try
+            {
+                _standardOutputThread = std::thread([this] { DrainOutput(true); });
+                _standardErrorThread = std::thread([this] { DrainOutput(false); });
+                if (!RegisterWorker(shared_from_this()))
+                {
+                    Terminate();
+                    static_cast<void>(WaitForExit(std::chrono::seconds(5)));
+                    JoinOutputReaders();
+                    return false;
+                }
+            }
+            catch (...)
+            {
+                Terminate();
+                static_cast<void>(WaitForExit(std::chrono::seconds(5)));
+                JoinOutputReaders();
+                throw;
+            }
+            return true;
+        }
+
+        void Dispose() noexcept { Stop(); }
+
+        void Stop() noexcept
+        {
+            const std::lock_guard<std::mutex> guard(_stopLock);
+            if (_stopped) return;
+            _stopped = true;
+            try
+            {
+                if (!HasExited()) Terminate();
+            }
+            catch (...)
+            {
+                Terminate();
+            }
+            if (!WaitForExit(std::chrono::seconds(5)))
+            {
+                Terminate();
+                static_cast<void>(WaitForExit(std::chrono::seconds(5)));
+            }
+            JoinOutputReaders();
+            {
+                const std::lock_guard<std::mutex> stateGuard(_stateLock);
+#ifdef _WIN32
+                if (_standardOutput != nullptr)
+                {
+                    ::CloseHandle(_standardOutput);
+                    _standardOutput = nullptr;
+                }
+                if (_standardError != nullptr)
+                {
+                    ::CloseHandle(_standardError);
+                    _standardError = nullptr;
+                }
+                if (_process != nullptr)
+                {
+                    ::CloseHandle(_process);
+                    _process = nullptr;
+                }
+#else
+                if (_standardOutput >= 0)
+                {
+                    ::close(_standardOutput);
+                    _standardOutput = -1;
+                }
+                if (_standardError >= 0)
+                {
+                    ::close(_standardError);
+                    _standardError = -1;
+                }
+#endif
+            }
+            UnregisterWorker(this);
+        }
+
+    private:
+        [[nodiscard]] bool HasExitedCore()
+        {
+#ifdef _WIN32
+            if (_process == nullptr) return true;
             const DWORD wait = ::WaitForSingleObject(_process, 0);
             if (wait == WAIT_OBJECT_0)
             {
@@ -264,7 +421,7 @@ namespace
             throw std::system_error(
                 static_cast<int>(::GetLastError()), std::system_category());
 #else
-            if (_exited)
+            if (_exited || _pid <= 0)
             {
                 return true;
             }
@@ -275,6 +432,8 @@ namespace
                 if (result == _pid)
                 {
                     _exited = true;
+                    _exitStatus = status;
+                    _exitStatusAvailable = true;
                     return true;
                 }
                 if (result == 0)
@@ -295,39 +454,123 @@ namespace
 #endif
         }
 
-        void Dispose() noexcept
+        void JoinOutputReaders() noexcept
         {
-#ifdef _WIN32
-            if (_standardOutput != nullptr)
+            try
             {
-                ::CloseHandle(_standardOutput);
-                _standardOutput = nullptr;
+                if (_standardOutputThread.joinable()) _standardOutputThread.join();
+                if (_standardErrorThread.joinable()) _standardErrorThread.join();
             }
-            if (_standardError != nullptr)
+            catch (...)
             {
-                ::CloseHandle(_standardError);
-                _standardError = nullptr;
             }
-            if (_process != nullptr)
-            {
-                ::CloseHandle(_process);
-                _process = nullptr;
-            }
-#else
-            if (_standardOutput >= 0)
-            {
-                ::close(_standardOutput);
-                _standardOutput = -1;
-            }
-            if (_standardError >= 0)
-            {
-                ::close(_standardError);
-                _standardError = -1;
-            }
-#endif
         }
 
-        static std::unique_ptr<WorkerProcess> Start(
+        void DrainOutput(bool standardOutput) noexcept
+        {
+            std::array<char, 4096> buffer{};
+            std::string line;
+            bool truncated = false;
+            std::size_t lineCodeUnits = 0;
+            std::size_t continuationBytes = 0;
+            auto consume = [&](const char* data, std::size_t length)
+            {
+                for (std::size_t i = 0; i < length; ++i)
+                {
+                    const char value = data[i];
+                    if (value == '\n')
+                    {
+                        if (!line.empty() && line.back() == '\r') line.pop_back();
+                        if (_outputLines.fetch_add(1, std::memory_order_relaxed) < 64)
+                        {
+                            try { ThumbnailLog::Write(line); } catch (...) { }
+                        }
+                        line.clear();
+                        truncated = false;
+                        lineCodeUnits = 0;
+                        continuationBytes = 0;
+                    }
+                    else if (truncated)
+                    {
+                        continue;
+                    }
+                    else
+                    {
+                        const auto byte = static_cast<unsigned char>(value);
+                        if (continuationBytes > 0)
+                        {
+                            line.push_back(value);
+                            --continuationBytes;
+                            continue;
+                        }
+                        const std::size_t codeUnits =
+                            byte >= 0xF0 && byte <= 0xF4 ? 2 : 1;
+                        if (lineCodeUnits + codeUnits > 2048)
+                        {
+                            truncated = true;
+                            continue;
+                        }
+                        line.push_back(value);
+                        lineCodeUnits += codeUnits;
+                        if (byte >= 0xC2 && byte <= 0xDF)
+                        {
+                            continuationBytes = 1;
+                        }
+                        else if (byte >= 0xE0 && byte <= 0xEF)
+                        {
+                            continuationBytes = 2;
+                        }
+                        else if (byte >= 0xF0 && byte <= 0xF4)
+                        {
+                            continuationBytes = 3;
+                        }
+                    }
+                }
+            };
+
+            try
+            {
+                while (true)
+                {
+#ifdef _WIN32
+                    HANDLE handle = standardOutput ? _standardOutput : _standardError;
+                    DWORD count = 0;
+                    if (handle == nullptr
+                        || !::ReadFile(handle, buffer.data(), static_cast<DWORD>(buffer.size()),
+                            &count, nullptr)
+                        || count == 0)
+                    {
+                        break;
+                    }
+                    consume(buffer.data(), static_cast<std::size_t>(count));
+#else
+                    const int handle = standardOutput ? _standardOutput : _standardError;
+                    const ssize_t count = ::read(handle, buffer.data(), buffer.size());
+                    if (count == 0) break;
+                    if (count < 0)
+                    {
+                        if (errno == EINTR) continue;
+                        break;
+                    }
+                    consume(buffer.data(), static_cast<std::size_t>(count));
+#endif
+                }
+                if (!line.empty() || truncated)
+                {
+                    if (_outputLines.fetch_add(1, std::memory_order_relaxed) < 64)
+                    {
+                        try { ThumbnailLog::Write(line); } catch (...) { }
+                    }
+                }
+            }
+            catch (...)
+            {
+            }
+        }
+
+    public:
+
+        static std::shared_ptr<WorkerProcess> Start(
             const std::string& exePath,
             const std::vector<std::string>& arguments,
             const std::filesystem::path& workingDirectory)
@@ -335,7 +578,7 @@ namespace
             // Process.Start allocates its Process object before it creates OS
             // resources. Do the same so allocation failure cannot occur after
             // a worker has already been launched.
-            auto result = std::make_unique<WorkerProcess>();
+            auto result = std::make_shared<WorkerProcess>();
 
 #ifdef _WIN32
             WindowsPipe output{};
@@ -394,7 +637,7 @@ namespace
                             nullptr,
                             nullptr,
                             TRUE,
-                            0,
+                            CREATE_NO_WINDOW,
                             nullptr,
                             cwd.c_str(),
                             &startup,
@@ -459,6 +702,7 @@ namespace
                 result->_standardError = error.Read;
                 output.Read = nullptr;
                 error.Read = nullptr;
+                if (!result->StartOutputReaders()) return nullptr;
                 return result;
             }
             catch (...)
@@ -720,11 +964,18 @@ namespace
             result->_standardError = errorPipe[0];
             outputPipe[0] = -1;
             errorPipe[0] = -1;
+            if (!result->StartOutputReaders()) return nullptr;
             return result;
 #endif
         }
 
     private:
+        std::mutex _stateLock;
+        std::mutex _stopLock;
+        bool _stopped = false;
+        std::thread _standardOutputThread;
+        std::thread _standardErrorThread;
+        std::atomic_int _outputLines{0};
 #ifdef _WIN32
         HANDLE _process = nullptr;
         HANDLE _standardOutput = nullptr;
@@ -734,8 +985,66 @@ namespace
         int _standardOutput = -1;
         int _standardError = -1;
         bool _exited = false;
+        int _exitStatus = 0;
+        bool _exitStatusAvailable = false;
 #endif
     };
+
+    bool RegisterWorker(std::shared_ptr<WorkerProcess> process)
+    {
+        const std::lock_guard<std::mutex> guard(ProcessLock);
+        if (Exiting) return false;
+        if (!ExitHandlerRegistered)
+        {
+            if (std::atexit(&StopAllWorkers) != 0) return false;
+            ExitHandlerRegistered = true;
+        }
+        ActiveWorkers.push_back(std::move(process));
+        return true;
+    }
+
+    void UnregisterWorker(WorkerProcess* process) noexcept
+    {
+        try
+        {
+            const std::lock_guard<std::mutex> guard(ProcessLock);
+            ActiveWorkers.erase(
+                std::remove_if(ActiveWorkers.begin(), ActiveWorkers.end(),
+                    [&](const std::shared_ptr<WorkerProcess>& active)
+                    {
+                        return active.get() == process;
+                    }),
+                ActiveWorkers.end());
+        }
+        catch (...)
+        {
+        }
+    }
+
+    void StopAllWorkers() noexcept
+    {
+        std::vector<std::shared_ptr<WorkerProcess>> active;
+        try
+        {
+            const std::lock_guard<std::mutex> guard(ProcessLock);
+            Exiting = true;
+            active = ActiveWorkers;
+        }
+        catch (...)
+        {
+            return;
+        }
+        for (const std::shared_ptr<WorkerProcess>& process : active)
+        {
+            if (process) process->Stop();
+        }
+    }
+
+    bool IsExiting()
+    {
+        const std::lock_guard<std::mutex> guard(ProcessLock);
+        return Exiting;
+    }
 
     std::vector<std::vector<std::string>> Shares(
         const std::vector<std::string>& rooms,
@@ -757,12 +1066,13 @@ namespace
         return shares;
     }
 
-    std::unique_ptr<WorkerProcess> StartWorker(
+    std::shared_ptr<WorkerProcess> StartWorker(
         const std::string& exePath,
         const std::vector<std::string>& share,
         std::int32_t width,
         std::int32_t height)
     {
+        if (IsExiting()) return nullptr;
         const std::filesystem::path workingDirectory = std::filesystem::current_path();
         std::vector<std::string> arguments;
         for (const std::string& room : share)
@@ -779,8 +1089,7 @@ namespace
         }
         catch (const std::exception& ex)
         {
-            std::cout << "[thumbnails] worker failed to start: "
-                << ex.what() << std::endl;
+            ThumbnailLog::Write(std::string("worker failed to start: ") + ex.what());
             return nullptr;
         }
     }
@@ -791,36 +1100,19 @@ namespace
         std::int32_t width,
         std::int32_t height,
         const std::string& exePath,
+        MphRead::Mods::ThumbnailBatch::WorkerTimeout workerTimeout,
         const std::function<void(const std::string&)>& report,
-        std::vector<std::string>& failedRooms)
+        std::vector<std::string>& failedRooms,
+        bool& abnormalExit)
     {
         failedRooms.clear();
-        std::vector<std::string>& failed = failedRooms;
-        std::vector<std::unique_ptr<WorkerProcess>> running;
-        for (const std::vector<std::string>& share : Shares(rooms, parallelism))
-        {
-            std::unique_ptr<WorkerProcess> process =
-                StartWorker(exePath, share, width, height);
-            if (process)
-            {
-                running.push_back(std::move(process));
-            }
-        }
-
+        abnormalExit = false;
+        std::vector<std::shared_ptr<WorkerProcess>> running;
         PendingSet pending(rooms);
-        std::int32_t done = 0;
         std::int32_t written = 0;
-        while (true)
+
+        auto reportCompleted = [&]()
         {
-            bool allExited = true;
-            for (std::size_t i = 0; i < running.size(); ++i)
-            {
-                if (!running[i]->HasExited())
-                {
-                    allExited = false;
-                    break;
-                }
-            }
             for (const std::string& room : rooms)
             {
                 if (!pending.Contains(room) || !ThumbnailGenerator::Exists(room))
@@ -829,43 +1121,95 @@ namespace
                 }
                 pending.Remove(room);
                 ++written;
-                ++done;
-                const std::string ok =
-                    "[thumbnails] " + std::to_string(done) + "/"
-                    + std::to_string(rooms.size()) + "  ok  " + room;
-                std::cout << ok << std::endl;
+                const std::string line =
+                    "[thumbnails] " + std::to_string(written) + "/"
+                    + std::to_string(rooms.size()) + " ok " + room;
                 if (report)
                 {
-                    report(ok);
+                    report(line);
                 }
             }
-            if (allExited)
-            {
-                break;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        }
+        };
 
+        auto stopWorkers = [&]() noexcept
+        {
+            for (const std::shared_ptr<WorkerProcess>& process : running)
+            {
+                if (process)
+                {
+                    process->Stop();
+                }
+            }
+        };
+
+        try
+        {
+            const auto started = std::chrono::steady_clock::now();
+            for (const std::vector<std::string>& share : Shares(rooms, parallelism))
+            {
+                std::shared_ptr<WorkerProcess> process =
+                    StartWorker(exePath, share, width, height);
+                if (!process)
+                {
+                    abnormalExit = true;
+                    break;
+                }
+                running.push_back(std::move(process));
+            }
+
+            while (!abnormalExit)
+            {
+                bool allExited = true;
+                for (const std::shared_ptr<WorkerProcess>& process : running)
+                {
+                    if (!process->HasExited())
+                    {
+                        allExited = false;
+                        continue;
+                    }
+                    const std::int32_t exitCode = process->ExitCode();
+                    if (exitCode != 0)
+                    {
+                        ThumbnailLog::Write(
+                            "worker " + std::to_string(process->Id())
+                            + " exited with code " + std::to_string(exitCode));
+                        abnormalExit = true;
+                    }
+                }
+                if (allExited || abnormalExit) break;
+                if (std::chrono::steady_clock::now() - started >= workerTimeout)
+                {
+                    const auto seconds =
+                        std::chrono::round<std::chrono::seconds>(workerTimeout).count();
+                    ThumbnailLog::Write(
+                        "worker timeout after " + std::to_string(seconds) + " seconds");
+                    abnormalExit = true;
+                    break;
+                }
+                reportCompleted();
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+        }
+        catch (...)
+        {
+            stopWorkers();
+            throw;
+        }
+        stopWorkers();
+        reportCompleted();
         for (const std::string& room : rooms)
         {
-            if (!pending.Contains(room))
+            if (!pending.Remove(room))
             {
                 continue;
             }
-            failed.push_back(room);
-            ++done;
-            const std::string line =
-                "[thumbnails] " + std::to_string(done) + "/"
-                + std::to_string(rooms.size()) + "  FAILED  " + room;
-            std::cout << line << std::endl;
+            failedRooms.push_back(room);
+            const std::string line = "[thumbnails] FAILED " + room;
             if (report)
             {
                 report(line);
             }
-        }
-        for (std::size_t i = 0; i < running.size(); ++i)
-        {
-            running[i]->Dispose();
+            ThumbnailLog::Write(line);
         }
         return written;
     }
@@ -905,7 +1249,11 @@ namespace MphRead::Mods
 {
     std::int32_t ThumbnailBatch::DefaultParallelism()
     {
+#ifdef __APPLE__
+        return 1;
+#else
         return std::clamp(::MphRead::NativeRuntime::EnvironmentProcessorCount(), 2, 10);
+#endif
     }
 
     bool ThumbnailBatch::CanRun()
@@ -922,34 +1270,73 @@ namespace MphRead::Mods
         std::int32_t parallelism,
         std::int32_t width,
         std::int32_t height,
-        const std::function<void(const std::string&)>& report)
+        const std::function<void(const std::string&)>& report,
+        ThumbnailBatch::WorkerTimeout workerTimeout)
     {
-        ThumbnailLog::Begin(static_cast<std::int32_t>(rooms.size()));
-        if (rooms.empty())
+        const std::lock_guard<std::recursive_mutex> batchGuard(BatchLock);
+        if (WorkerFailed)
         {
+            if (report)
+            {
+                report("Preview generation stopped after a worker failure; restart the app to retry.");
+            }
             return 0;
         }
 
+        std::vector<std::string> missing;
+        missing.reserve(rooms.size());
+        for (const std::string& room : rooms)
+        {
+            if (!ThumbnailGenerator::Exists(room))
+            {
+                missing.push_back(room);
+            }
+        }
+        if (missing.empty())
+        {
+            return 0;
+        }
+        ThumbnailLog::Begin(static_cast<std::int32_t>(missing.size()));
+
+#ifdef __APPLE__
+        parallelism = 1;
+#else
         parallelism = std::clamp(parallelism, 1, 16);
+#endif
+        if (workerTimeout <= ThumbnailBatch::WorkerTimeout::zero())
+        {
+            throw ::System::ArgumentOutOfRangeException("workerTimeout");
+        }
         const std::optional<std::string> exePath = CurrentProcessPath();
         if (!exePath.has_value())
         {
             std::cout
                 << "[thumbnails] cannot locate this executable; running serially"
                 << std::endl;
-            return RunSerial(rooms, width, height, report);
+            return RunSerial(missing, width, height, report);
         }
 
         std::vector<std::string> failed;
+        bool abnormalExit = false;
         std::int32_t written = RunWorkers(
-            rooms, parallelism, width, height, *exePath, report, failed);
-        if (!failed.empty() && parallelism > 1)
+            missing, parallelism, width, height, *exePath, workerTimeout,
+            report, failed, abnormalExit);
+        if (abnormalExit)
+        {
+            WorkerFailed = true;
+            const std::string note =
+                "[thumbnails] worker failed; stopping previews without automatic retries";
+            if (report)
+            {
+                report(note);
+            }
+            ThumbnailLog::Write(note);
+        }
+        else if (!failed.empty() && parallelism > 1)
         {
             const std::string note =
                 "[thumbnails] " + std::to_string(failed.size())
-                + " preview(s) failed with " + std::to_string(parallelism)
-                + " at a time; retrying them one at a time";
-            std::cout << note << std::endl;
+                + " preview(s) missing; retrying in one worker";
             if (report)
             {
                 report(note);
@@ -957,8 +1344,11 @@ namespace MphRead::Mods
             ThumbnailLog::Write(note);
 
             std::vector<std::string> retryFailed;
+            bool retryAbnormal = false;
             written += RunWorkers(
-                failed, 1, width, height, *exePath, report, retryFailed);
+                failed, 1, width, height, *exePath, workerTimeout,
+                report, retryFailed, retryAbnormal);
+            WorkerFailed = retryAbnormal;
         }
         return written;
     }

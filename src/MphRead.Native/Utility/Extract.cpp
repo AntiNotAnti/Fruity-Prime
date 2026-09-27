@@ -1,4 +1,5 @@
 #include "Extract.hpp"
+#include "Console.hpp"
 
 #include "../Strings.hpp"
 #include "Compress.hpp"
@@ -44,13 +45,6 @@
 #include <utility>
 #include <vector>
 
-#if defined(_WIN32)
-#include <conio.h>
-#else
-#include <termios.h>
-#include <unistd.h>
-#endif
-
 using ::MphRead::NativeRuntime::CharIsWhiteSpace;
 using ::MphRead::NativeRuntime::DirectoryCreateDirectory;
 using ::MphRead::NativeRuntime::EnvironmentNewLine;
@@ -61,7 +55,6 @@ using ::MphRead::NativeRuntime::ManagedListAt;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathGetExtension;
 using ::MphRead::NativeRuntime::PathGetFileName;
-using ::MphRead::NativeRuntime::PathGetFullPath;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::StringIsNullOrWhiteSpace;
@@ -361,33 +354,6 @@ namespace
         return input;
     }
 
-    void ReadKeyWithEcho()
-    {
-#if defined(_WIN32)
-        (void)_getche();
-#else
-        if (::isatty(STDIN_FILENO) != 0)
-        {
-            termios original{};
-            if (::tcgetattr(STDIN_FILENO, &original) == 0)
-            {
-                termios raw = original;
-                raw.c_lflag &= static_cast<tcflag_t>(~ICANON);
-                raw.c_cc[VMIN] = 1;
-                raw.c_cc[VTIME] = 0;
-                if (::tcsetattr(STDIN_FILENO, TCSANOW, &raw) == 0)
-                {
-                    unsigned char byte = 0;
-                    (void)::read(STDIN_FILENO, &byte, 1);
-                    (void)::tcsetattr(STDIN_FILENO, TCSANOW, &original);
-                    return;
-                }
-            }
-        }
-        (void)std::cin.get();
-#endif
-    }
-
     [[nodiscard]] std::vector<std::uint8_t> Slice(
         const std::vector<std::uint8_t>& bytes, std::int32_t start, std::int32_t end)
     {
@@ -506,8 +472,7 @@ namespace
     {
         std::cout << message << '\n';
         std::cout << "Press any key to exit..." << '\n';
-        std::cout.flush();
-        ReadKeyWithEcho();
+        ConsoleSetup::PauseIfInteractive();
     }
 
     void Nop()
@@ -905,8 +870,8 @@ namespace MphRead
         ExtractRomData(rootName);
 
         const std::string newPath = isFh
-            ? PathGetFullPath(Paths::Combine("files", rootName, "data"))
-            : PathGetFullPath(Paths::Combine("files", rootName));
+            ? Paths::Combine("files", rootName, "data")
+            : Paths::Combine("files", rootName);
         Paths::SetPath(rootName, newPath);
 
         static constexpr std::array<std::string_view, 10> versionKeys = {

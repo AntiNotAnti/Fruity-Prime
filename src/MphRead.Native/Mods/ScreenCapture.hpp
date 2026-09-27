@@ -33,6 +33,8 @@ namespace MphRead
                 const std::string&)> value);
 
             [[nodiscard]] static bool SaveWindow(Scene* scene, const std::string& path);
+            [[nodiscard]] static bool SaveWindow(
+                std::int32_t width, std::int32_t height, const std::string& path);
             [[nodiscard]] static bool Save(Scene* scene, const std::string& path);
 
             static void EnableDebugOutput(std::function<void(const std::string&)> report);

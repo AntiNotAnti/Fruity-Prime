@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -170,6 +171,8 @@ namespace MphRead::Archive
             const std::string& path, const std::optional<std::string>& destination = std::nullopt);
         [[nodiscard]] static std::int32_t Extract(
             const std::string& path, const std::string& destination);
+        [[nodiscard]] static std::int32_t Extract(
+            std::span<const std::uint8_t> bytes, const std::string& destination);
 
         static void Archive(const std::string& destinationPath,
             const std::shared_ptr<const std::vector<std::string>>& filePaths);
@@ -183,6 +186,9 @@ namespace MphRead::Archive
     private:
         [[noreturn]] static void ThrowRead();
         [[noreturn]] static void ThrowWrite();
+        [[nodiscard]] static std::int32_t ExtractBytes(
+            std::span<const std::uint8_t> bytes,
+            const std::optional<std::string>& destination);
         [[nodiscard]] static std::uint32_t NearestMultiple(std::uint32_t value, std::uint32_t of);
         static void Nop() noexcept;
     };

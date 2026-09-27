@@ -497,7 +497,7 @@ namespace MphRead::Metadata
     extern const OpenTK::Mathematics::Vector3 EmissionOrange;
     extern const OpenTK::Mathematics::Vector3 EmissionGreen;
     extern const OpenTK::Mathematics::Vector3 EmissionGray;
-    extern const std::array<ColorRgb, 2> TeamColors;
+    extern const std::array<ColorRgb, 4> TeamColors;
     extern const OpenTK::Mathematics::Vector3 OctolithLight1Vector;
     extern const OpenTK::Mathematics::Vector3 OctolithLight2Vector;
     extern const OpenTK::Mathematics::Vector3 OctolithLightColor;

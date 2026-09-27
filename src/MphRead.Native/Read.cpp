@@ -5,6 +5,7 @@
 #include "Metadata/Rooms.hpp"
 #include "Mods/Headless.hpp"
 #include "Program.hpp"
+#include "Utility/Archive.hpp"
 #include "Utility/Compress.hpp"
 #include "NativeRuntime/System/IO.hpp"
 #include "NativeRuntime/System/Managed.hpp"
@@ -180,17 +181,6 @@ namespace MphRead
         public:
             [[nodiscard]] static std::vector<std::uint8_t> RepackHook(
                 const std::string& path, bool firstHunt);
-        };
-    }
-
-    namespace Archive
-    {
-        class Archiver final
-        {
-        public:
-            [[nodiscard]] static const std::string& MagicString();
-            [[nodiscard]] static std::int32_t Extract(
-                const std::string& path, const std::string& destination);
         };
     }
 
@@ -403,6 +393,23 @@ namespace MphRead
         FhModels().clear();
         EffectsCache().clear();
         Particles().clear();
+    }
+
+    std::vector<std::shared_ptr<Model>> Read::CachedModels()
+    {
+        std::vector<std::shared_ptr<Model>> result;
+        result.reserve(Models().size() + FhModels().size());
+        for (const auto& [name, model] : Models())
+        {
+            (void)name;
+            result.push_back(model);
+        }
+        for (const auto& [name, model] : FhModels())
+        {
+            (void)name;
+            result.push_back(model);
+        }
+        return result;
     }
 
     std::shared_ptr<ModelInstance> Read::GetModelInstance(
@@ -1870,31 +1877,42 @@ namespace MphRead
             }
             else if (AtByte(bytes, 0) == LZ10::MagicByte())
             {
-                const std::filesystem::path temp = std::filesystem::path(Paths::Export()) / "__temp";
-                try
-                {
-                    std::filesystem::remove_all(temp);
-                }
-                catch (...)
-                {
-                }
-                std::filesystem::create_directories(temp);
-                const std::string destination = (temp / (name + ".arc")).string();
                 std::cout << " Decompressing...";
-                (void)LZ10::Decompress(path, destination);
+                const std::string compressedData(
+                    reinterpret_cast<const char*>(bytes.data()), bytes.size());
+                std::istringstream compressed(
+                    compressedData, std::ios::in | std::ios::binary);
+                std::ostringstream decompressed(std::ios::out | std::ios::binary);
+                (void)LZ10::Decompress(
+                    compressed, static_cast<std::int64_t>(bytes.size()), decompressed);
+                const std::string decompressedData = decompressed.str();
                 std::cout << " Extracting archive...";
-                filesWritten = Archive::Archiver::Extract(destination, output);
-                std::filesystem::remove_all(temp);
+                const auto* decompressedBytes
+                    = reinterpret_cast<const std::uint8_t*>(decompressedData.data());
+                filesWritten = Archive::Archiver::Extract(
+                    std::span<const std::uint8_t>(decompressedBytes, decompressedData.size()), output);
             }
             std::cout << std::endl;
             std::cout << "Extracted " << filesWritten << " file"
                 << (filesWritten == 1 ? "" : "s") << "." << std::endl;
+            if (filesWritten == 0)
+            {
+                throw ProgramException(name + " yielded no files.");
+            }
+        }
+        catch (const std::exception& ex)
+        {
+            std::cout << std::endl;
+            std::cout << "Failed to extract archive " << name << ": "
+                << ex.what() << std::endl;
+            std::cout << "Verify an archive exists at " << path << "." << std::endl;
         }
         catch (...)
         {
             std::cout << std::endl;
-            std::cout << "Failed to extract archive. Verify an archive exists at "
-                << path << "." << std::endl;
+            std::cout << "Failed to extract archive " << name
+                << ": unknown exception" << std::endl;
+            std::cout << "Verify an archive exists at " << path << "." << std::endl;
         }
     }
 

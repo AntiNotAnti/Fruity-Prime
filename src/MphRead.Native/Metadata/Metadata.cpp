@@ -486,7 +486,7 @@ int GetMultiplayerEntityLayer(GameMode mode, int playerCount)
     {
         return list[0];
     }
-    const int index = playerCount == 3 ? 1 : playerCount == 4 ? 2 : 0;
+    const int index = playerCount >= 4 ? 2 : playerCount == 3 ? 1 : 0;
     return list.at(static_cast<std::size_t>(index));
 }
 
@@ -568,7 +568,10 @@ std::string GetLayerNames(int layerMask, bool multiplayer)
 const OpenTK::Mathematics::Vector3 EmissionOrange = GetColor(0x14F0);
 const OpenTK::Mathematics::Vector3 EmissionGreen = GetColor(0x1565);
 const OpenTK::Mathematics::Vector3 EmissionGray = GetColor(0x35AD);
-const std::array<ColorRgb,2> TeamColors{{ColorRgb(31,19,0),ColorRgb(0,31,0)}};
+const std::array<ColorRgb, 4> TeamColors{{
+    ColorRgb(31, 19, 0), ColorRgb(0, 31, 0),
+    ColorRgb(5, 19, 31), ColorRgb(27, 8, 31)
+}};
 const OpenTK::Mathematics::Vector3 OctolithLight1Vector(0.0F,0.3005371F,-0.5F);
 const OpenTK::Mathematics::Vector3 OctolithLight2Vector(0.0F,0.0F,-0.5F);
 const OpenTK::Mathematics::Vector3 OctolithLightColor(1.0F,1.0F,1.0F);

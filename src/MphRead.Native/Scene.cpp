@@ -502,7 +502,7 @@ namespace MphRead
     LinkedListIteratorSpecialized<Entities::FlagBaseEntity> Scene::GetFlagBaseEntities() const
     {
         return LinkedListIteratorSpecialized<Entities::FlagBaseEntity>(
-            _entityNodesByType.At(EntityType::FhBomb));
+            _entityNodesByType.At(EntityType::FlagBase));
     }
 
     LinkedListIteratorSpecialized<Entities::TeleporterEntity> Scene::GetTeleporterEntities() const

@@ -26,6 +26,11 @@ namespace MphRead
         }
     }
 
+    namespace Mods::Multiplayer
+    {
+        enum class ResourceSpawnProfile : std::uint8_t;
+    }
+
     namespace Entities
     {
         class BeamProjectileEntity;
@@ -116,7 +121,8 @@ namespace MphRead
 
     private:
         [[nodiscard]] static std::shared_ptr<const std::vector<std::shared_ptr<Entities::EntityBase>>>
-            LoadEntities(const RoomMetadata* metadata, std::int32_t layerId, Scene* scene);
+            LoadEntities(const RoomMetadata* metadata, std::int32_t layerId, Scene* scene,
+                Mods::Multiplayer::ResourceSpawnProfile resources);
         static void LoadResources(Scene* scene);
         static void LoadBombResources(Scene* scene);
         static void LoadBeamEffectResources(Scene* scene);

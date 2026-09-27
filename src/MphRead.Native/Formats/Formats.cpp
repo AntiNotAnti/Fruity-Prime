@@ -31,6 +31,8 @@ using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::FileReadAllLines;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathGetFullPath;
+using ::MphRead::NativeRuntime::PathIsPathRooted;
 using ::MphRead::NativeRuntime::PathGetFileNameWithoutExtension;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::RequireReference;
@@ -1378,7 +1380,8 @@ namespace MphRead
 
     std::string Paths::Export()
     {
-        return _allPaths.at("Export");
+        const auto found = _allPaths.find("Export");
+        return found == _allPaths.end() ? std::string{} : found->second;
     }
 
     bool Paths::IsMphAmericas() noexcept
@@ -1416,7 +1419,7 @@ namespace MphRead
         {
             UpdatePaths();
         }
-        _allPaths[std::move(key)] = std::move(path);
+        _allPaths[std::move(key)] = Absolute(path);
     }
 
     void Paths::UpdatePaths()
@@ -1447,9 +1450,27 @@ namespace MphRead
                     && _allPaths.find(key) != _allPaths.end())
                 {
                     _allPaths[key]
-                        = StringTrim(split[1]);
+                        = Absolute(StringTrim(split[1]));
                 }
             }
+        }
+    }
+
+    std::string Paths::Absolute(const std::string& path)
+    {
+        if (path.empty() || PathIsPathRooted(path))
+        {
+            return path;
+        }
+        try
+        {
+            return PathGetFullPath(path);
+        }
+        catch (...)
+        {
+            // Match Formats.cs: retain an invalid configured path without
+            // turning launcher startup into a path parsing failure.
+            return path;
         }
     }
 

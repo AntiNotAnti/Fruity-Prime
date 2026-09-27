@@ -7,6 +7,7 @@
 #include "../Formats/Sound.hpp"
 #include "../Mods/Headless.hpp"
 #include "../Mods/ThumbnailMode.hpp"
+#include "../Mods/Diagnostics/PlatformDiagnostics.hpp"
 #include "Music.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 #include "../Formats/Types.hpp"
@@ -548,8 +549,9 @@ namespace MphRead::Sound
             Audio::CloseDevice(device);
 #if defined(__ANDROID__)
         }
-        catch (const System::DllNotFoundException&)
+        catch (const System::DllNotFoundException& ex)
         {
+            MphRead::Mods::Diagnostics::PlatformDiagnostics::Report("libopenal.1.dylib", ex);
             return static_cast<MphRead::SoundCapability>(0);
         }
 #endif
@@ -619,6 +621,7 @@ namespace MphRead::Sound
         }
         catch (const std::exception& ex)
         {
+            MphRead::Mods::Diagnostics::PlatformDiagnostics::Report("libopenal.1.dylib", ex);
             std::cout << "[sound] SFX device unavailable (" << ex.what()
                       << "); continuing without SFX\n";
             _instance = std::make_shared<SfxInstanceBase>();

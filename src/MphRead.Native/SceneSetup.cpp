@@ -8,7 +8,11 @@
 #include "Formats/AiPersonality.hpp"
 #include "GameState.hpp"
 #include "Menu.hpp"
+#include "Mods/Multiplayer/MapResourceRules.hpp"
 #include "Mods/ThumbnailMode.hpp"
+#include "Mods/Network/NetHealthSync.hpp"
+#include "Mods/Network/NetLaunch.hpp"
+#include "Mods/Network/NetSession.hpp"
 #include "NativeRuntime/System/Runtime.hpp"
 #include "Sound/Music.hpp"
 #include "Sound/Sfx.hpp"
@@ -565,7 +569,13 @@ namespace MphRead
             (*collision).Active = false;
         }
         room->Setup(metadata->Name, metadata, collision, nodeLayerMask, metadata->Id);
-        EntityList entities = LoadEntities(metadata, entityLayerId, scene);
+        Mods::Network::NetHealthSync::BeginRoom();
+        const Mods::Multiplayer::ResourceSpawnProfile resources = IsMode(mode, GameMode::SinglePlayer)
+            ? Mods::Multiplayer::ResourceSpawnProfile::Low
+            : Mods::Network::NetSession::Active()
+                ? Mods::Network::NetLaunch::WorldProfile().Resources
+                : Mods::Multiplayer::MatchWorldProfile::Resolve(playerCount).Resources;
+        EntityList entities = LoadEntities(metadata, entityLayerId, scene, resources);
         entities = GetExtraEntities(room->RoomId(), entities, scene);
         return {collision, entities};
     }
@@ -604,7 +614,8 @@ namespace MphRead
     }
 
     EntityList SceneSetup::LoadEntities(
-        const RoomMetadata* metadata, std::int32_t layerId, Scene* scene)
+        const RoomMetadata* metadata, std::int32_t layerId, Scene* scene,
+        Mods::Multiplayer::ResourceSpawnProfile resources)
     {
         auto results = std::make_shared<std::vector<std::shared_ptr<Entities::EntityBase>>>();
         if (!metadata->EntityPath.has_value())
@@ -614,6 +625,7 @@ namespace MphRead
 
         auto entities = Read::GetEntities(*metadata->EntityPath, layerId,
             metadata->FirstHunt, true);
+        entities = Mods::Multiplayer::MapResourceRules::Resolve(*metadata, resources, entities);
         for (const auto& entity : *entities)
         {
             const std::string& nodeName = *entity->NodeName;
@@ -650,7 +662,9 @@ namespace MphRead
             else if (entity->Type == EntityType::ItemSpawn)
             {
                 const auto raw = std::static_pointer_cast<EntityOf<ItemSpawnEntityData>>(entity);
-                results->push_back(std::make_shared<Entities::ItemSpawnEntity>(raw->Data, nodeName, scene));
+                const ItemSpawnEntityData data
+                    = Mods::Multiplayer::MapResourceRules::ResolveData(*metadata, resources, raw->Data);
+                results->push_back(std::make_shared<Entities::ItemSpawnEntity>(data, nodeName, scene));
             }
             else if (entity->Type == EntityType::FhItemSpawn)
             {

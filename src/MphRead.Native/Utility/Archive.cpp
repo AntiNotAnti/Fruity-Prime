@@ -705,6 +705,20 @@ namespace MphRead::Archive
         }
 
         const std::vector<std::uint8_t> bytes = FileReadAllBytes(path);
+        return ExtractBytes(
+            std::span<const std::uint8_t>(bytes.data(), bytes.size()), outputDirectory);
+    }
+
+    std::int32_t Archiver::Extract(
+        std::span<const std::uint8_t> bytes, const std::string& destination)
+    {
+        return ExtractBytes(bytes, std::optional<std::string>(destination));
+    }
+
+    std::int32_t Archiver::ExtractBytes(
+        std::span<const std::uint8_t> bytes,
+        const std::optional<std::string>& outputDirectory)
+    {
         if (bytes.size() < static_cast<std::size_t>(ArchiveSizes::ArchiveHeader))
         {
             ThrowRead();

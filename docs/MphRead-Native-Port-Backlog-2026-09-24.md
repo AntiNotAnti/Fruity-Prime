@@ -186,12 +186,11 @@
   一度だけの setup、display probe、Android 分岐、fallback 文言、Linux の fontconfig 案内を照合し、旧 AppBuilder/
   HomeWindow adapter・別窓ループを除去した。PauseMenu から `EnsureSetup` を直接呼ぶようにし、旧 helper と Dispatcher pump を削除した。
   C#例外時の `PlatformDiagnostics.Report` は Section 2 の移植後に二経路とも接続した。
-  `PlatformDiagnostics.Start` とsmoketest/GLFW/window diagnostic dispatchは Section 13 で接続する。
-  ビルドはしていない。
+  `PlatformDiagnostics.Start` とsmoketest/GLFW/window diagnostic dispatchはSection 2で接続し、Windows Release build済。
 - `UiBench.cs` を `.cpp/.hpp` へ移植し、5解像度・6シナリオ、10回 warm-up / 61回計測、中央値、surface寸法と倍率、
   スクロール・pointer・wheel操作、PNG出力をC#原本と照合した。NativeRuntime には旧Avalonia `Window` と managed GC がないため、
   Slow計測は全画面copyを行うheadless rigとして明示し、GC欄は `n/a` とした。layout数はNativeRuntimeが通知するTopLevelの
-  layout passを数える。`LauncherPhoto` はSection 7から延期された同Section内の依存で、後続の移植時に接続する。ビルド・実行は未実施。
+  layout passを数える。`LauncherPhoto` はSection 7から延期された依存だがSection 12で接続済み。Windows Release build済、実画面計測は未実施。
 - `LauncherNoise.cs` を `.cpp/.hpp` へ移植し、既存 `NoiseField` による形状変更検出・33ms upload cadence、固定texture名、
   RGB upload と全unpack state、nearest/clamp sampler、失敗時fallbackと context-current `Release` をC#と照合した。
   desktop GL wrapper に必要な `PixelStoreParameter` 値を追加した。再監査で、C#のstatic field初期化はLauncherNoise初回アクセス時だが、
@@ -207,11 +206,11 @@
   `launcher-bg.jpg` を追加した。ビルド・実行は未実施。
 - `LauncherHunter.cs` を `.cpp/.hpp` へ移植し、wanted/drawn と hunter/suit/矩形の状態、side scene の process lifetime、
   preview scene の初期化、Scene preview state 設定、実際に描けた場合だけ穴を開ける判定、失敗のsticky停止・ログを
-  C#原本と照合した。`RenderWindow.HasScene`/`NewSideScene` はSection 13側で追加するAPI依存。ビルド・実行は未実施。
+  C#原本と照合した。`RenderWindow.HasScene`/`NewSideScene` はSection 13側で接続済み。Windows Release build済、画面runtimeは未実施。
 - `UiOverlay.cs` を `.cpp/.hpp` へ移植し、固定texture名、同寸法でのTexSubImage2D、変更時のみTexImage2D、RGBA premul blend、
   unit-1無効化、window viewport / identity matrix、clear→photo→overlay→hunter の単独画面描画順、Release後の状態を
-  C#原本と照合した。OpenTK薄いAPIに `BlendingFactor::One` と `TexCoord2` を加えた。Renderer/ModEntryからの呼び出しはSection 12の統合時。
-  `LauncherHunter` の `HasScene`/`NewSideScene` はSection 13 API待ち。ビルド・実行は未実施。
+  C#原本と照合した。OpenTK薄いAPIに `BlendingFactor::One` と `TexCoord2` を加え、Renderer/ModEntryからSection 12で接続した。
+  `LauncherHunter` の `HasScene`/`NewSideScene` もSection 13で解決済み。Windows Release build済、画面runtimeは未実施。
 - `AppIcon.cs` を `.cpp/.hpp` へ移植し、埋め込みPNGの取得に対応するnative配布asset、RGBA decode、16/32/48/originalの順、
   alpha-weighted box filter、once-only cache、失敗時ログをC#原本と照合した。GLFW `Window::SetIcon` を追加しRendererから接続。
   Renderer呼び出し順も再監査し、C#と同じく未対応機能callbackを設定してからwindowサイズを問い合わせる順へ修正した。
@@ -302,7 +301,7 @@
   が使う前提として追加した。Section 12 の作業中バッチなので、ビルドは行っていない。
 - 全体の残り: Section 12 は一括交換が未完了で、作業ツリーはビルド不可。現状の未コミット差分を保持し、
   残りのGUIファイルをC#ごとに照合して完了させる。Androidは全Androidファイルの完了後にビルドする。
-  Section 12統合後に必要なbuild gateを実行し、その後Section 2・13・14と延期呼び出し元を依存順に進める。
+  このスナップショットは統合前の記録。Section 12は2026-09-27に完了し、その後Section 2・13・14と延期呼び出し元も完了した。
 
 ### 2026-09-27 再開後監査
 
@@ -452,7 +451,7 @@
 - `KeyRow.cs` と `.cpp/.hpp` をC#原本から再監査した。クリック後releaseでlisten開始、tap/drag判定、mouse/wheel/key binding、GLFW key変換、gamepadからPadRowへの移動、focus解除時のlisten解除、表示文言と描画を照合。Focused変更はTopLevelが対象Visualをinvalidateし、Enabled変更はInputElementの共通AffectsRender登録でC#の描画更新と一致。rounded clip typeはAvalonia root namespaceを参照する。
 - `ServerRow.cs` と `.cpp/.hpp` を原本から全体照合した。列幅とnarrow判定、status/metadata/players/ping、hover・tap・focus・keyboard、map crop/scrim、名前tailのUTF-16長、各描画座標のties-to-even丸めとgetterを確認。buildエラー行のpointer position Visual引数とAvalonia Matrixも明示し、hover傾きとscale transformの数式はC#どおり。依存する変更済みNativeRuntimeのタッチ経路は `TouchBegin` が常に `ClickCount=1` だったため `DoubleTapped` が発火しない差を修正し、Avaloniaのdouble-tap時間・領域に沿ったtouch click countと、double tap後の `Tapped` 抑制を追加。Android固有の `ViewConfiguration` 値との一致はAndroid側の残ファイル監査で確認する。section 12統合前のためbuildは保留。
 - `PadRow.cs` と `.cpp/.hpp` をC#原本から再監査した。button列挙順、held-button baseline、device/focus失敗、30ms capture timer、clear/picker/chord conflict解決、終了/visual-tree離脱時のcleanup、表示を照合。Avalonia `DispatcherTimer(interval, priority, callback)` は即時開始し、NativeRuntime版も同じ。Focused変更はTopLevel、Enabled変更はInputElement共通のrender invalidationが担う。既出のInput namespace/Managed helper/`RoundedRect` build修正も確認した。
-- `Renderer.cs` の shell描画呼出し箇所をC++側と再照合した。シーンなしの `UiOverlay.DrawAlone → Shell.AfterDraw` と、マッチ中の `UiOverlay.Draw → LauncherHunter.Draw → Shell.AfterDraw`、寸法引数、swap前後の順は一致した。C#の `PixelSize` は `FramebufferSize` の別名。Section 13の他差分は引き続き未完了で、buildは保留。
+- `Renderer.cs` の shell描画呼出し箇所をC++側と再照合した。シーンなしの `UiOverlay.DrawAlone → Shell.AfterDraw` と、マッチ中の `UiOverlay.Draw → LauncherHunter.Draw → Shell.AfterDraw`、寸法引数、swap前後の順は一致した。C#の `PixelSize` は `FramebufferSize` の別名。当時保留だったSection 13差分は後続監査・修正を完了し、Windows Release build済み。
 - `LauncherHunter.cs` と `.cpp/.hpp` を全体照合した。window scene と専用 side scene の選択、side sceneの作成/ロード/resize、hunter/suit/正規化boundsの設定、preview drawの結果による `Drawn`、寸法/矩形不正時と例外時のフォールバック状態、初回成功ログを比較し、差分修正は不要だった。`NewSideScene` のnative実装はC#同様、windowのscene slotを変更しない。
 - `UiOverlay.cs` と `.cpp/.hpp` を全体比較した。reserved texture ID、unit 0 upload、resize時のTexImage/SubImage、premultiplied blend、unit 1解除、固定機能quad/texture座標、GL stateの復元範囲、シーンなしのclear/photo/overlay/hunter順、releaseを照合し修正不要。build・画面実行はSection 12未完了のため未実施。
 - `[PR #1](https://github.com/Zection6V/Fruity-Prime/pull/1/changes)` のC#追加差分も原本参照として確認した。`LauncherNoise`/`NoiseField`の宣言順と時計開始時点を照らし合わせ、nativeの初回アクセスlazy initializationを修正した。
@@ -730,14 +729,14 @@
 | A | +1941/-0 | `Mods/Launcher/Gui/PlayScreen.cs` | .cpp,.hpp | 完了（C#全メソッド再監査・rounding/focus差を修正、StartScreen/InGameMenu/UiCapture接続済。Windows Release build済（2026-09-27）） |
 | A | +1529/-0 | `Mods/Launcher/Gui/UiDesigns.cs` | .cpp,.hpp | 完了（C# 原本監査済、`-uidesign`入口をModEntryへ接続） |
 | A | +1126/-0 | `Mods/Launcher/Gui/CreateServerScreen.cs` | .cpp,.hpp | 完了（C#監査済、StartScreen・UiCapture接続済） |
-| A | +1077/-0 | `Mods/Launcher/Gui/Shell.cs` | .cpp,.hpp | 完了（C# / PR #1 原本監査済、`-shellshot`入口を接続。2/3/7/13 APIは後続） |
+| A | +1077/-0 | `Mods/Launcher/Gui/Shell.cs` | .cpp,.hpp | 完了（C# / PR #1原本監査済、`-shellshot`とSection 13 scene API接続済、Windows Release build済） |
 | A | +1031/-0 | `Mods/Launcher/Gui/UiSurface.cs` | .cpp,.hpp | 完了（C#監査済） |
 | A | +988/-0 | `Mods/Launcher/Gui/StartScreen.cs` | .cpp,.hpp | 完了（C#全文監査済、LobbyScreen・GuiLauncher・UiCapture接続済） |
 | A | +921/-0 | `Mods/Launcher/Gui/LobbyScreen.cs` | .cpp,.hpp | 完了（C#全体監査済・verified no-op、StartScreen接続済。Windows Release build済（2026-09-27）） |
 | A | +889/-0 | `Mods/Launcher/Gui/DeckTile.cs` | — 新規 | 完了（C#監査済） |
 | A | +838/-0 | `Mods/Launcher/Gui/DeckButton.cs` | — 新規 | 完了（C#監査済） |
 | A | +819/-0 | `Mods/Launcher/Gui/UiLayout.cs` | — 新規 | 完了（C#監査済） |
-| A | +786/-0 | `Mods/Launcher/Gui/HunterStand.cs` | .cpp,.hpp | 完了（C#監査済、LauncherHunter 状態API接続済、描画APIはSection 13依存） |
+| A | +786/-0 | `Mods/Launcher/Gui/HunterStand.cs` | .cpp,.hpp | 完了（C#監査済、LauncherHunter状態・描画APIをSection 13で接続、Windows Release build済） |
 | A | +665/-0 | `Mods/Launcher/Gui/UiBench.cs` | .cpp,.hpp | 完了（C#原本監査済、旧Window/GCはnative headlessでの測定差を明記、`-uibench`入口接続） |
 | A | +574/-0 | `Mods/Launcher/Gui/UiList.cs` | — 新規 | 完了（C#監査済） |
 | A | +535/-0 | `Mods/Launcher/Gui/UiTopLevel.cs` | — 新規 | 完了（C#監査済） |
@@ -858,3 +857,13 @@
 | M | +2/-3 | `(android) AndroidLogShare.cs` | .cpp,.hpp | 完了（C#原本監査済。cache cleanup・FileProvider chooser・exception報告を照合、修正なし。両ABI build済） |
 | M | +2/-1 | `(android) AndroidMatch.cs` | .cpp,.hpp | 完了（C#原本監査済。cheat無効化・bot skill上限差を修正。両ABI build済） |
 | M | +1/-0 | `(android) TouchControls.cs` | .cpp,.hpp | 完了（C#原本監査済。TakeAimDeltaのTouch入力源通知を追加。両ABI build済） |
+
+### 2026-09-27 checkpoint gates
+
+- Section 12 launcher GUI は commit `12a7433b`、Section 2 diagnostics は `a535e260` で `develop2` にpush済み。
+- Section 13 の34ファイルとSection 12から延期したRenderer/side-scene呼び出しはC#原本との監査・配線を完了。
+  Windows Release buildで全native targetをcompile/link済み。画面runtimeは未実施。
+- Androidは17ファイルすべてのC#監査・MainActivity/AppBuilder/Renderer呼び出し配線後にarm64-v8aとx86_64をbuildした。
+  両ABIともstatic library link成功（`build/native-android-arm64-v8a/build-retry10.log`、
+  `build/native-android-x86_64/build-retry10.log`）。端末・実機runtimeは未実施。
+- この時点でAndroid側のソース更新は両ABI buildの後にない。Windows/macOSの画面runtimeとmacOS native buildは未検証。

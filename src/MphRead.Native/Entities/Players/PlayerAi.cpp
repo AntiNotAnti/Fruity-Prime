@@ -38,14 +38,15 @@ namespace MphRead::Entities
     std::uint8_t PlayerEntity::PlayerAiData::_visIndex1 = 0;
     std::uint8_t PlayerEntity::PlayerAiData::_visIndex2 = 0;
 
-    const std::array<std::array<std::uint32_t, 8>, 3> PlayerEntity::PlayerAiData::_botLevelRandomValues1{{
+    const std::array<std::array<std::uint32_t, 8>, 4> PlayerEntity::PlayerAiData::_botLevelRandomValues1{{
         {{45,45,90,45,60,45,45,45}},
         {{15,15,10,10,10,10,10,10}},
-        {{7,7,2,2,2,2,2,2}}
+        {{7,7,2,2,2,2,2,2}},
+        {{1,1,1,1,1,1,1,1}}
     }};
-    const std::array<std::uint32_t, 3> PlayerEntity::PlayerAiData::_botLevelRandomValues2{{150,45,10}};
-    const std::array<float, 3> PlayerEntity::PlayerAiData::_dotValues{{255.0F / 256.0F, 3956.0F / 4096.0F, 3849.0F / 4096.0F}};
-    const std::array<float, 3> PlayerEntity::PlayerAiData::_aimValues{{5.0F, 15.0F, 20.0F}};
+    const std::array<std::uint32_t, 4> PlayerEntity::PlayerAiData::_botLevelRandomValues2{{150,45,10,1}};
+    const std::array<float, 4> PlayerEntity::PlayerAiData::_dotValues{{255.0F / 256.0F, 3956.0F / 4096.0F, 3849.0F / 4096.0F, -1.0F}};
+    const std::array<float, 4> PlayerEntity::PlayerAiData::_aimValues{{5.0F, 15.0F, 20.0F, 180.0F}};
     const std::array<std::int32_t, 3> PlayerEntity::PlayerAiData::_func4Ids{{1,2,3}};
 
     void PlayerEntity::PlayerAiData::Reset()
@@ -204,7 +205,7 @@ namespace MphRead::Entities
         }
         else
         {
-            std::int32_t index = std::clamp(_player->BotLevel(), 0, 2);
+            std::int32_t index = std::clamp(_player->BotLevel(), 0, 3);
             _field102C = _botLevelRandomValues1[static_cast<std::size_t>(index)][static_cast<std::size_t>(_player->Hunter())] * 2;
             _field1030 = _botLevelRandomValues2[static_cast<std::size_t>(index)] * 2;
         }

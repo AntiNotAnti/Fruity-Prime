@@ -5,6 +5,7 @@
 #include "ThumbnailGenerator.hpp"
 #include "ThumbnailLog.hpp"
 #include "ThumbnailMode.hpp"
+#include "Render/DesktopGlContext.hpp"
 #include "MapGen/CustomRooms.hpp"
 #include "MapGen/MapDefinition.hpp"
 #include "Update/BuildVersion.hpp"
@@ -586,15 +587,9 @@ namespace MphRead::Mods
         std::int32_t width,
         std::int32_t height)
     {
-        RendererPlatform::WindowSettings settings = GameSettings();
+        RendererPlatform::WindowSettings settings = Render::DesktopGlContext::Settings(true);
         settings.ClientSize = OpenTK::Mathematics::Vector2i(width, height);
         settings.Title = std::string(Branding::Name) + " thumbnails";
-        settings.Profile
-            = RendererPlatform::WindowSettings::ContextProfile::Compatability;
-        settings.Flags = RendererPlatform::WindowSettings::ContextFlags::Default;
-        settings.ApiMajor = 3;
-        settings.ApiMinor = 2;
-        settings.StartVisible = false;
         return settings;
     }
 
@@ -635,7 +630,7 @@ namespace MphRead::Mods
 
     OpenTK::Mathematics::Vector2i ThumbnailCapture::ClientSize() const
     {
-        return _window->Size();
+        return _window->ClientSize();
     }
 
     bool ThumbnailCapture::IsVisible() const noexcept
@@ -656,17 +651,18 @@ namespace MphRead::Mods
 
     void ThumbnailCapture::Close()
     {
-        // GameWindow.Close requests shutdown; OnClosing is delivered by the
-        // window lifecycle after the current callback, not synchronously here.
+        // GameWindow.Close requests shutdown; Window::Run delivers OnClosing
+        // after the current callback, not synchronously here.
         _window->Close();
-        _closeRequested = true;
     }
 
     void ThumbnailCapture::OnLoad()
     {
         _scene->Size(ClientSize());
+        ThumbnailLog::Write(_roomKey + ": initializing preview diagnostics");
         ScreenCapture::EnableDebugOutput(
             [](const std::string& line) { ThumbnailLog::Write(line); });
+        ThumbnailLog::Write(_roomKey + ": loading preview scene");
         _scene->OnLoad();
         _window->BaseOnLoad();
 
@@ -828,25 +824,7 @@ namespace MphRead::Mods
 
     void ThumbnailCapture::Run()
     {
-        OnLoad();
-
-        auto previous = std::chrono::steady_clock::now();
-        while (!_closeRequested)
-        {
-            const auto current = std::chrono::steady_clock::now();
-            const double elapsed
-                = std::chrono::duration<double>(current - previous).count();
-            previous = current;
-
-            RendererPlatform::FrameEventArgs args{};
-            args.Time = elapsed;
-            OnRenderFrame(args);
-        }
-
-        // RendererPlatform does not yet expose GameWindow.Run/event dispatch.
-        // Keep closing delivery deferred until after the render callback so
-        // Scene cleanup has the same relative timing as the C# override.
-        OnClosing();
+        _window->Run(*this);
     }
 
     std::int32_t ThumbnailCapture::CaptureRooms(

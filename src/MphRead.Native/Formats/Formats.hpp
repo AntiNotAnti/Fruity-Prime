@@ -1357,6 +1357,7 @@ namespace MphRead
     private:
         static std::unordered_map<std::string, std::string> _allPaths;
 
+        [[nodiscard]] static std::string Absolute(const std::string& path);
         [[nodiscard]] static std::string Replace(std::string path);
     };
 
@@ -1366,6 +1367,19 @@ namespace MphRead
         template <typename T>
         [[nodiscard]] static std::span<const T> Slice(
             std::span<const T> source, std::uint32_t start)
+        {
+            const std::int32_t converted = ManagedInt32(start);
+            if (converted < 0
+                || static_cast<std::size_t>(converted) > source.size())
+            {
+                ThrowSpanRange();
+            }
+            return source.subspan(static_cast<std::size_t>(converted));
+        }
+
+        template <typename T>
+        [[nodiscard]] static std::span<T> Slice(
+            std::span<T> source, std::uint32_t start)
         {
             const std::int32_t converted = ManagedInt32(start);
             if (converted < 0

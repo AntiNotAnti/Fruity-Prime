@@ -431,8 +431,8 @@ namespace MphRead::Entities
         static std::uint8_t _visIndex1;
         static std::uint8_t _visIndex2;
 
-        static const std::array<std::array<std::uint32_t, 8>, 3> _botLevelRandomValues1;
-        static const std::array<std::uint32_t, 3> _botLevelRandomValues2;
+        static const std::array<std::array<std::uint32_t, 8>, 4> _botLevelRandomValues1;
+        static const std::array<std::uint32_t, 4> _botLevelRandomValues2;
 
         void ClearInput();
         void InitializeSub();
@@ -2014,8 +2014,8 @@ namespace MphRead::Entities
         std::int32_t Func3_213B000(AiContext&,const Formats::AiPersonalityData5&){return _player->BotLevel()!=0?1:0;}
         std::int32_t Func3_213AFE0(AiContext&,const Formats::AiPersonalityData5&){return _player->BotLevel()==1?1:0;}
         std::int32_t Func3_213AFC0(AiContext&,const Formats::AiPersonalityData5&){return _player->BotLevel()!=1?1:0;}
-        std::int32_t Func3_213AFA0(AiContext&,const Formats::AiPersonalityData5&){return _player->BotLevel()==2?1:0;}
-        std::int32_t Func3_213AF80(AiContext&,const Formats::AiPersonalityData5&){return _player->BotLevel()!=2?1:0;}
+        std::int32_t Func3_213AFA0(AiContext&,const Formats::AiPersonalityData5&){return _player->BotLevel()>=2?1:0;}
+        std::int32_t Func3_213AF80(AiContext&,const Formats::AiPersonalityData5&){return _player->BotLevel()<2?1:0;}
         std::int32_t Func3_213AF68(AiContext&,const Formats::AiPersonalityData5&){return _player->Hunter()==Hunter::Samus?1:0;}
         std::int32_t Func3_213AF50(AiContext&,const Formats::AiPersonalityData5&){return _player->Hunter()!=Hunter::Samus?1:0;}
         std::int32_t Func3_213AF38(AiContext&,const Formats::AiPersonalityData5&){return _player->Hunter()==Hunter::Kanden?1:0;}
@@ -2281,8 +2281,8 @@ namespace MphRead::Entities
         { Flags2 |= AiFlags2::TargetDoor; if (_targetDoor != door) _targetDoor = door; }
         void CheckUnmorph(){if(_player->IsAltForm()&&_touchButtons.Unmorph.FramesUp>20)_touchButtons.Unmorph.IsDown=true;}
 
-        static const std::array<float,3> _dotValues;
-        static const std::array<float,3> _aimValues;
+        static const std::array<float,4> _dotValues;
+        static const std::array<float,4> _aimValues;
 
         void Func2145C14(Vector3 position)
         {
@@ -2355,6 +2355,18 @@ namespace MphRead::Entities
                         else if(isCharged)finalSpeed=(weapon.MinChargeFinalSpeed+((weapon.ChargedFinalSpeed-weapon.MinChargeFinalSpeed)*chargePct))/4096.0F/2;
                         else finalSpeed=weapon.UnchargedFinalSpeed/4096.0F/2;
                         vec = DivideVector(vec, finalSpeed);
+                        if (_player->BotLevel() >= 3 && finalSpeed > 0.0F)
+                        {
+                            // Player speed is stored per 30 Hz game frame; projectiles move per 60 Hz tick.
+                            const Vector3 realTargetVel = ScaleVector(_targetPlayer->Speed(), 0.5F);
+                            Vector3 lead = ScaleVector(realTargetVel, muzzleDist / finalSpeed);
+                            for (std::int32_t i = 0; i < 4; ++i)
+                            {
+                                const float distance = Length(targetPos + lead - _player->_muzzlePos);
+                                lead = ScaleVector(realTargetVel, distance / finalSpeed);
+                            }
+                            vec = lead;
+                        }
                     }
                     _field1048=targetPos+vec;
                 }
@@ -2365,7 +2377,8 @@ namespace MphRead::Entities
                 float dot1=std::abs(Vector3::Dot(speedDiff,camVec));float dot2=std::abs(Vector3::Dot(speedDiff,_player->CameraInfo()->UpVector));float v52;float v66;
                 if(_player->BotLevel()==0){v52=dot1*5+0.25F;v66=dot2*5+0.25F;if((Flags4&AiFlags4::Bit2)==AiFlags4::None){v52+=targetDist/2;v66+=targetDist/2;}}
                 else if(_player->BotLevel()==1){v52=dot1*2+0.1F;v66=dot2*2+0.1F;if((Flags4&AiFlags4::Bit2)==AiFlags4::None){v52+=targetDist/9;v66+=targetDist/9;}}
-                else {v52=dot1*0.2F+0.01F;v66=dot2*0.2F+0.01F;if((Flags4&AiFlags4::Bit2)==AiFlags4::None){v52+=targetDist/50;v66+=targetDist/50;}}
+                else if(_player->BotLevel()==2){v52=dot1*0.2F+0.01F;v66=dot2*0.2F+0.01F;if((Flags4&AiFlags4::Bit2)==AiFlags4::None){v52+=targetDist/50;v66+=targetDist/50;}}
+                else {v52=0.0F;v66=0.0F;}
                 if(_player->_disruptedTimer>0){v52*=2;v66*=2;}if((Flags2&AiFlags2::Bit21)!=AiFlags2::None){v52/=2;v66/=2;}if(_player->ShockCoilTimer()>20){v52/=2;v66/=2;}
                 int v61=static_cast<int>(v52*4096);int v62=static_cast<int>(v66*4096);
                 float rand1=(Rng::GetRandomInt2(v61*2)-v61)/4096.0F;float rand2=(Rng::GetRandomInt2(v62*2)-v62)/4096.0F;
@@ -2412,7 +2425,7 @@ namespace MphRead::Entities
         void Func2143A40()
         {
             const auto& equip = *_player->EquipInfo(); const WeaponInfo& weapon = _player->EquipWeapon();int shotDelay;
-            if(_player->BotLevel()==0)shotDelay=60;else if(_player->BotLevel()==1)shotDelay=15;else shotDelay=5;
+            if(_player->BotLevel()==0)shotDelay=60;else if(_player->BotLevel()==1)shotDelay=15;else if(_player->BotLevel()==2)shotDelay=5;else shotDelay=0;
             if((Flags2&AiFlags2::Bit21)!=AiFlags2::None)shotDelay/=2;shotDelay*=2;
             BeamType beam=GetBeamType(_weapon1);if(beam!=BeamType::ShockCoil&&!_player->AvailableWeapons()[beam])return;
             auto setRandomDelay=[&](){_shotDelay=weapon.ShotCooldown*2+static_cast<int>(Rng::GetRandomInt2(shotDelay));};
@@ -2456,7 +2469,9 @@ namespace MphRead::Entities
                         if((Flags2&AiFlags2::TargetPlayer)!=AiFlags2::None)
                         {
                             assert(_targetPlayer);Vector3 toTarget=static_cast<Vector3>(_targetPlayer->Position) - static_cast<Vector3>(_player->Position);float distSqr=LengthSquared(toTarget);
-                            if((distSqr>9&&_player->BotLevel()==0)||(distSqr>11&&_player->BotLevel()==1)||distSqr>13)setRandomDelay();else _buttons.R.IsDown=true;
+                            if((distSqr>9&&_player->BotLevel()==0)||(distSqr>11&&_player->BotLevel()==1)
+                                ||(distSqr>13&&_player->BotLevel()==2)
+                                ||(distSqr>400&&_player->BotLevel()>=3))setRandomDelay();else _buttons.R.IsDown=true;
                         }
                         else setRandomDelay();
                     }
@@ -3107,6 +3122,21 @@ namespace MphRead::Entities
                 {
                     FindEntityRef(AiEntRefType::Type5);
                     _node3C = _entityRefs.Field5;
+                }
+                else if (_player->BotLevel() >= 3)
+                {
+                    FindEntityRef(AiEntRefType::Type35);
+                    _itemSpawnC4 = _entityRefs.Field35;
+                    if (_itemSpawnC4)
+                    {
+                        FindEntityRef(AiEntRefType::Type4);
+                        _node3C = _entityRefs.Field4;
+                    }
+                    else
+                    {
+                        FindEntityRef(AiEntRefType::Type0);
+                        _node3C = _entityRefs.Field0;
+                    }
                 }
                 else
                 {

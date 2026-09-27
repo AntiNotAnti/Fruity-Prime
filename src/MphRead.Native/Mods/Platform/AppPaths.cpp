@@ -16,13 +16,19 @@ namespace MphRead::Mods::Platform
     std::string AppPaths::ResourceDirectory()
     {
         const ::MphRead::NativeRuntime::DirectoryInfo executable(ExecutableDirectory());
+        if (!::MphRead::NativeRuntime::IsMacOS() || executable.Name() != "MacOS")
+        {
+            return ExecutableDirectory();
+        }
+
         const std::shared_ptr<::MphRead::NativeRuntime::DirectoryInfo> parent = executable.Parent();
-        const std::shared_ptr<::MphRead::NativeRuntime::DirectoryInfo> grandparent
-            = parent == nullptr ? nullptr : parent->Parent();
-        const bool bundled = ::MphRead::NativeRuntime::IsMacOS() && executable.Name() == "MacOS"
-            && parent != nullptr && parent->Name() == "Contents"
-            && grandparent != nullptr && grandparent->Extension() == ".app";
-        return bundled
+        if (parent == nullptr || parent->Name() != "Contents")
+        {
+            return ExecutableDirectory();
+        }
+
+        const std::shared_ptr<::MphRead::NativeRuntime::DirectoryInfo> grandparent = parent->Parent();
+        return grandparent != nullptr && grandparent->Extension() == ".app"
             ? ::MphRead::NativeRuntime::PathCombine(parent->FullName(), "Resources")
             : ExecutableDirectory();
     }

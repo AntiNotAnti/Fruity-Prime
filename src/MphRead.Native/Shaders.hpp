@@ -16,6 +16,8 @@ namespace MphRead
 
         static const std::string VertexShader;
         static const std::string FragmentShader;
+        static const std::string BackdropVertexShader;
+        static const std::string BackdropFragmentShader;
         static const std::string RttVertexShader;
         static const std::string RttFragmentShader;
         static const std::string CelFragmentShader;

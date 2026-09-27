@@ -55,7 +55,7 @@
 #endif
 
 using ::MphRead::NativeRuntime::AppContextBaseDirectory;
-using ::MphRead::NativeRuntime::FileAppendAllText;
+using ::MphRead::NativeRuntime::EnvironmentProcessPath;
 using ::MphRead::NativeRuntime::FileWriteAllText;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
@@ -98,6 +98,22 @@ namespace
         return std::string(version, sizeof(version) - 1);
 #else
         return "?";
+#endif
+    }
+
+    [[nodiscard]] std::string EntryAssemblyInformationalVersion()
+    {
+#if defined(MPHREAD_ENTRY_ASSEMBLY_INFORMATIONAL_VERSION)
+        constexpr char version[] = MPHREAD_ENTRY_ASSEMBLY_INFORMATIONAL_VERSION;
+        return std::string(version, sizeof(version) - 1);
+#elif defined(MPHREAD_BUILDVERSION_NO_ENTRY_ASSEMBLY) \
+    && defined(MPHREAD_BUILDVERSION_ASSEMBLY_INFORMATIONAL_VERSION)
+        constexpr char version[] = MPHREAD_BUILDVERSION_ASSEMBLY_INFORMATIONAL_VERSION;
+        return std::string(version, sizeof(version) - 1);
+#else
+        // Native has no CLR assembly attributes. Keep the C# null-coalescing
+        // fallback unless the build adapter supplies the informational value.
+        return "unknown";
 #endif
     }
 
@@ -579,7 +595,7 @@ namespace MphRead::Mods
             const std::string path = Path();
 
             std::string contents;
-            contents.reserve(192);
+            contents.reserve(320);
             contents += "=== ";
             contents += Branding::Name;
             contents += " preview generation, ";
@@ -592,6 +608,14 @@ namespace MphRead::Mods
             contents += EntryAssemblyVersion();
             contents += ", file ";
             contents += BaseDirectoryLastWriteTime();
+            contents += NewLine();
+            contents += "source ";
+            contents += EntryAssemblyInformationalVersion();
+            contents += "; executable ";
+            if (const std::optional<std::string> processPath = EnvironmentProcessPath())
+            {
+                contents += *processPath;
+            }
             contents += NewLine();
             contents += std::to_string(rooms);
             contents += " room(s) to render";
@@ -629,7 +653,7 @@ namespace MphRead::Mods
                 text += "] ";
                 text += line;
                 text += NewLine();
-                FileAppendAllText(path, text);
+                WriteBytes(PathFromUtf8(path), text, std::ios::app);
                 return;
             }
             catch (const std::ios_base::failure&)

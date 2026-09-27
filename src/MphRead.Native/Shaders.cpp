@@ -227,6 +227,40 @@ void main()
 }
 )shader";
 
+    const std::string Shaders::BackdropVertexShader = R"shader(
+#version 120
+
+varying vec2 photocoord;
+varying vec2 noisecoord;
+
+void main()
+{
+    gl_Position = vec4(gl_Vertex.xy, 0, 1);
+    photocoord = gl_MultiTexCoord0.xy;
+    noisecoord = gl_MultiTexCoord1.xy;
+}
+)shader";
+
+    const std::string Shaders::BackdropFragmentShader = R"shader(
+#version 120
+
+uniform sampler2D photo;
+uniform sampler2D noise;
+uniform float strength;
+varying vec2 photocoord;
+varying vec2 noisecoord;
+
+void main()
+{
+    vec3 b = texture2D(photo, photocoord).rgb;
+    vec3 s = texture2D(noise, noisecoord).rgb;
+    vec3 lo = 2.0 * b * s;
+    vec3 hi = 1.0 - 2.0 * (1.0 - b) * (1.0 - s);
+    vec3 over = mix(lo, hi, step(vec3(0.5), b));
+    gl_FragColor = vec4(mix(b, over, strength), 1.0);
+}
+)shader";
+
     const std::string Shaders::RttVertexShader = R"shader(
 #version 120
 

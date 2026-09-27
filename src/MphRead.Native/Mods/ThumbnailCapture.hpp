@@ -14,7 +14,7 @@ namespace MphRead
 
 namespace MphRead::Mods
 {
-    class ThumbnailCapture final
+    class ThumbnailCapture final : public RendererPlatform::WindowEvents
     {
     public:
         ThumbnailCapture(const ThumbnailCapture&) = delete;
@@ -34,6 +34,9 @@ namespace MphRead::Mods
             const std::string& roomKey,
             std::int32_t width,
             std::int32_t height);
+        [[nodiscard]] static RendererPlatform::WindowSettings WindowSettings(
+            std::int32_t width,
+            std::int32_t height);
 
     private:
         static constexpr std::int32_t SettleFrames = 12;
@@ -41,19 +44,16 @@ namespace MphRead::Mods
         static constexpr std::int32_t MaxAttempts = 3;
 
         [[nodiscard]] static RendererPlatform::WindowSettings GameSettings();
-        [[nodiscard]] static RendererPlatform::WindowSettings WindowSettings(
-            std::int32_t width,
-            std::int32_t height);
 
         ThumbnailCapture(
             const std::string& roomKey,
             std::int32_t width,
             std::int32_t height);
 
-        void OnLoad();
+        void OnLoad() override;
         void ApplyPreviewCamera();
-        void OnRenderFrame(const RendererPlatform::FrameEventArgs& args);
-        void OnClosing();
+        void OnRenderFrame(const RendererPlatform::FrameEventArgs& args) override;
+        void OnClosing() override;
         void Run();
         void Close();
 
@@ -74,6 +74,5 @@ namespace MphRead::Mods
             = OpenTK::Graphics::OpenGL::ErrorCode::NoError;
         OpenTK::Mathematics::Vector2i _asked{};
         bool _isVisible = false;
-        bool _closeRequested = false;
     };
 }

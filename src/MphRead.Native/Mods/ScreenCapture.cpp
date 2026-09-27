@@ -1,6 +1,7 @@
 #include "ScreenCapture.hpp"
 
 #include "../NativeRuntime/OpenTK/GL.hpp"
+#include "../NativeRuntime/OpenTK/GLFW.hpp"
 #include "../NativeRuntime/System/Console.hpp"
 #include "../NativeRuntime/System/Globalization.hpp"
 
@@ -13,7 +14,9 @@
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 
+#include <array>
 #include <bit>
+#include <charconv>
 #include <cstdint>
 #include <exception>
 #include <filesystem>
@@ -21,8 +24,10 @@
 #include <optional>
 #include <ostream>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -154,6 +159,60 @@ namespace
         return ::OpenTK::Graphics::OpenGL::GL::GetInteger(pname);
     }
 
+    [[nodiscard]] std::pair<std::int32_t, std::int32_t> ContextVersion()
+    {
+        const std::optional<std::string> version = GlGetString(GlVersion);
+        if (!version)
+        {
+            return {0, 0};
+        }
+
+        const std::string_view text(*version);
+        const std::string_view first = text.substr(0, text.find(' '));
+        std::array<std::int32_t, 4> components{};
+        std::size_t count = 0;
+        std::size_t start = 0;
+        while (start <= first.size())
+        {
+            if (count == components.size())
+            {
+                return {0, 0};
+            }
+            const std::size_t end = first.find('.', start);
+            const std::string_view component = first.substr(
+                start, end == std::string_view::npos ? end : end - start);
+            if (component.empty())
+            {
+                return {0, 0};
+            }
+            const auto [parsedEnd, error] = std::from_chars(
+                component.data(), component.data() + component.size(), components[count]);
+            if (error != std::errc{}
+                || parsedEnd != component.data() + component.size()
+                || components[count] < 0)
+            {
+                return {0, 0};
+            }
+            ++count;
+            if (end == std::string_view::npos)
+            {
+                break;
+            }
+            start = end + 1;
+        }
+        if (count < 2)
+        {
+            return {0, 0};
+        }
+        return {components[0], components[1]};
+    }
+
+    [[nodiscard]] bool ContextAtLeast(std::int32_t major, std::int32_t minor)
+    {
+        const auto [contextMajor, contextMinor] = ContextVersion();
+        return contextMajor > major
+            || (contextMajor == major && contextMinor >= minor);
+    }
 }
 
 namespace MphRead::Mods
@@ -183,6 +242,35 @@ namespace MphRead::Mods
             return scene->ReadWindowBuffer(width, height);
         };
         return Save(scene, path, read);
+    }
+
+    bool ScreenCapture::SaveWindow(
+        std::int32_t width, std::int32_t height, const std::string& path)
+    {
+        ReadPixels read = [width, height](std::int32_t& outWidth, std::int32_t& outHeight)
+            -> PixelBuffer
+        {
+            outWidth = width;
+            outHeight = height;
+            if (width <= 0 || height <= 0)
+            {
+                return std::nullopt;
+            }
+            const std::int32_t byteCount = UncheckedMultiply(
+                UncheckedMultiply(width, height), 3);
+            std::vector<std::uint8_t> buffer(static_cast<std::size_t>(byteCount));
+            ::OpenTK::Graphics::OpenGL::GL::BindFramebuffer(
+                ::OpenTK::Graphics::OpenGL::GL::FramebufferTarget::ReadFramebuffer, 0);
+            ::OpenTK::Graphics::OpenGL::GL::ReadBuffer(
+                ::OpenTK::Graphics::OpenGL::GL::ReadBufferMode::Back);
+            ::OpenTK::Graphics::OpenGL::GL::PixelStore(
+                ::OpenTK::Graphics::OpenGL::GL::PixelStoreParameter::PackAlignment, 1);
+            ::OpenTK::Graphics::OpenGL::GL::ReadPixels(0, 0, width, height,
+                ::OpenTK::Graphics::OpenGL::GL::PixelFormat::Rgb,
+                ::OpenTK::Graphics::OpenGL::GL::PixelType::UnsignedByte, buffer.data());
+            return buffer;
+        };
+        return Save(nullptr, path, read);
     }
 
     bool ScreenCapture::Save(Scene* scene, const std::string& path)
@@ -322,7 +410,14 @@ namespace MphRead::Mods
     {
         if (_debugCallback)
         {
-            _debugCallback(source, type, id, severity, length, message, param);
+            try
+            {
+                _debugCallback(source, type, id, severity, length, message, param);
+            }
+            catch (...)
+            {
+                // A managed diagnostic callback never throws through the GL driver.
+            }
         }
     }
 
@@ -330,6 +425,25 @@ namespace MphRead::Mods
     {
         try
         {
+#if defined(__ANDROID__)
+            InvokeReport(
+                report,
+                "GL debug output unavailable; continuing without optional diagnostics.");
+            return;
+#else
+            if ((!ContextAtLeast(4, 3)
+                    && !::OpenTK::Windowing::GraphicsLibraryFramework::GLFW::ExtensionSupported(
+                        "GL_KHR_debug"))
+                || ::OpenTK::Windowing::GraphicsLibraryFramework::GLFW::GetProcAddress(
+                    "glDebugMessageCallback") == nullptr)
+            {
+                InvokeReport(
+                    report,
+                    "GL debug output unavailable; continuing without optional diagnostics.");
+                return;
+            }
+#endif
+            _messagesLogged = 0;
             _debugCallback = [report](
                 std::int32_t source,
                 std::int32_t type,
@@ -346,15 +460,26 @@ namespace MphRead::Mods
                     return;
                 }
                 _messagesLogged = UncheckedAdd(_messagesLogged, 1);
-                const std::string text
-                    = std::string(message, static_cast<std::size_t>(length));
-                const std::string severityText = DebugSeverityName(severity);
-                const std::string typeText = DebugTypeName(type);
-                const std::string sourceText = DebugSourceName(source);
-                InvokeReport(
-                    report,
-                    "GL says: [" + severityText + "] " + typeText
-                        + " from " + sourceText + ": " + text);
+                try
+                {
+                    if (length < 0)
+                    {
+                        throw std::out_of_range("length");
+                    }
+                    const std::string text = message == nullptr
+                        ? std::string{}
+                        : std::string(message, static_cast<std::size_t>(length));
+                    const std::string severityText = DebugSeverityName(severity);
+                    const std::string typeText = DebugTypeName(type);
+                    const std::string sourceText = DebugSourceName(source);
+                    InvokeReport(
+                        report,
+                        "GL says: [" + severityText + "] " + typeText
+                            + " from " + sourceText + ": " + text);
+                }
+                catch (...)
+                {
+                }
             };
             GlEnable(GlDebugOutput);
             GlEnable(GlDebugOutputSynchronous);
@@ -377,16 +502,27 @@ namespace MphRead::Mods
             const std::string vendor = GlGetString(GlVendor).value_or("?");
             const std::string renderer = GlGetString(GlRenderer).value_or("?");
             const std::string version = GlGetString(GlVersion).value_or("?");
-            const std::int32_t flags = GlGetInteger(GlContextFlags);
+            const auto [major, minor] = ContextVersion();
+            const auto atLeast = [major, minor](std::int32_t requiredMajor,
+                                                std::int32_t requiredMinor)
+            {
+                return major > requiredMajor
+                    || (major == requiredMajor && minor >= requiredMinor);
+            };
+            const std::int32_t flags = atLeast(3, 0)
+                ? GlGetInteger(GlContextFlags) : 0;
             const std::string forward = (flags & GlContextFlagForwardCompatibleBit) != 0
                 ? ", FORWARD-COMPATIBLE (deprecated entry points removed, which is all of immediate mode)"
                 : "";
-            const std::int32_t mask = GlGetInteger(GlContextProfileMask);
-            const std::string profile = (mask & GlContextCoreProfileBit) != 0
-                ? "CORE (immediate mode is unavailable, which renders everything black)"
-                : (mask & GlContextCompatibilityProfileBit) != 0
-                    ? "compatibility"
-                    : "unreported";
+            const std::int32_t mask = atLeast(3, 2)
+                ? GlGetInteger(GlContextProfileMask) : 0;
+            const std::string profile = !atLeast(3, 2)
+                ? "legacy"
+                : (mask & GlContextCoreProfileBit) != 0
+                    ? "CORE (immediate mode is unavailable, which renders everything black)"
+                    : (mask & GlContextCompatibilityProfileBit) != 0
+                        ? "compatibility"
+                        : "unreported";
             return "GL " + version + ", profile " + profile + forward
                 + ", " + vendor + " / " + renderer;
         }
