@@ -12,24 +12,21 @@
 #include "MapTexturePack.hpp"
 #include "Q3Bsp.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
+#include "../../NativeRuntime/System/ExceptionText.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/OpenTK/Mathematics.hpp"
-#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
-#include <bit>
-#include <charconv>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
-#include <iomanip>
-#include <iostream>
 #include <limits>
 #include <memory>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -61,6 +58,8 @@ using ::OpenTK::Mathematics::Subtract;
 
 namespace
 {
+    namespace Runtime = ::MphRead::NativeRuntime;
+
     using MphRead::ItemType;
     using MphRead::ManagedArray;
     using MphRead::Mods::MapGen::BuiltFace;
@@ -69,6 +68,16 @@ namespace
     using OpenTK::Mathematics::Vector2;
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
+
+    void WriteLine(std::string_view value)
+    {
+        Runtime::ConsoleWriteLine(value);
+    }
+
+    void WriteLine()
+    {
+        Runtime::ConsoleWriteLine();
+    }
 
     [[noreturn]] void ArrayBounds()
     {
@@ -263,7 +272,7 @@ namespace MphRead::Mods::MapGen
             Q3Face* face = &RequireReference(faceValue);
             if (face->Type() != 1 && face->Type() != 2 && face->Type() != 3)
             {
-                ++skipped;
+                skipped = UncheckedAdd(skipped, 1);
                 continue;
             }
 
@@ -271,14 +280,14 @@ namespace MphRead::Mods::MapGen
             if ((texture->Flags()
                 & (Q3Bsp::SurfaceNoDraw | Q3Bsp::SurfaceHint | Q3Bsp::SurfaceSkip)) != 0)
             {
-                ++skipped;
+                skipped = UncheckedAdd(skipped, 1);
                 continue;
             }
 
             const bool sky = (texture->Flags() & Q3Bsp::SurfaceSky) != 0;
             if (sky && !import->KeepSky())
             {
-                ++skipped;
+                skipped = UncheckedAdd(skipped, 1);
                 continue;
             }
 
@@ -289,7 +298,7 @@ namespace MphRead::Mods::MapGen
             }
             else if (!pack->BySourceIndex().TryGetValue(face->Texture(), material))
             {
-                ++unpainted;
+                unpainted = UncheckedAdd(unpainted, 1);
                 continue;
             }
 
@@ -304,7 +313,7 @@ namespace MphRead::Mods::MapGen
             const bool patch = face->Type() == 2;
             if (patch)
             {
-                ++patches;
+                patches = UncheckedAdd(patches, 1);
             }
 
             MphRead::Enumerable<BuiltFace*> builtFaces = patch
@@ -329,7 +338,7 @@ namespace MphRead::Mods::MapGen
                 map->Faces().push_back(built);
                 if (patch)
                 {
-                    ++patchTriangles;
+                    patchTriangles = UncheckedAdd(patchTriangles, 1);
                 }
 
                 if (!sky)
@@ -381,7 +390,7 @@ namespace MphRead::Mods::MapGen
             const bool clip = (texture->Contents() & Q3Bsp::ContentsPlayerClip) != 0;
             if (!solid && clip && !import->KeepClip())
             {
-                ++clipBrushes;
+                clipBrushes = UncheckedAdd(clipBrushes, 1);
                 continue;
             }
             if (!solid && !clip)
@@ -390,7 +399,7 @@ namespace MphRead::Mods::MapGen
             }
             if (IsSky(bsp.get(), brush))
             {
-                ++shellBrushes;
+                shellBrushes = UncheckedAdd(shellBrushes, 1);
                 continue;
             }
 
@@ -418,11 +427,11 @@ namespace MphRead::Mods::MapGen
             }
             if (allOutside)
             {
-                ++shellBrushes;
+                shellBrushes = UncheckedAdd(shellBrushes, 1);
                 continue;
             }
 
-            ++solidBrushes;
+            solidBrushes = UncheckedAdd(solidBrushes, 1);
             if (brush->SideCount() < 0)
             {
                 throw System::OverflowException();
@@ -474,7 +483,7 @@ namespace MphRead::Mods::MapGen
                 side.Points, side.Normal, side.Brush,
                 brushPlanes, brushBounds, lookup))
             {
-                ++buried;
+                buried = UncheckedAdd(buried, 1);
                 continue;
             }
 
@@ -517,20 +526,18 @@ namespace MphRead::Mods::MapGen
 
             if (verbose)
             {
-                std::cout
-                    << "  suggested preview (paste into the map file to keep it):\n";
+                WriteLine("  suggested preview (paste into the map file to keep it):");
                 const std::vector<float>* position = preview->Position();
                 const std::vector<float>* target = preview->Target();
-                std::cout
-                    << "  \"preview\": { \"position\": ["
-                    << ::MphRead::NativeRuntime::ToString(ManagedAt(position, 0), "0.#") << ", "
-                    << ::MphRead::NativeRuntime::ToString(ManagedAt(position, 1), "0.#") << ", "
-                    << ::MphRead::NativeRuntime::ToString(ManagedAt(position, 2), "0.#")
-                    << "], \"target\": ["
-                    << ::MphRead::NativeRuntime::ToString(ManagedAt(target, 0), "0.#") << ", "
-                    << ::MphRead::NativeRuntime::ToString(ManagedAt(target, 1), "0.#") << ", "
-                    << ::MphRead::NativeRuntime::ToString(ManagedAt(target, 2), "0.#")
-                    << "] },\n";
+                WriteLine("  \"preview\": { \"position\": ["
+                    + Runtime::ToString(ManagedAt(position, 0), "0.#") + ", "
+                    + Runtime::ToString(ManagedAt(position, 1), "0.#") + ", "
+                    + Runtime::ToString(ManagedAt(position, 2), "0.#")
+                    + "], \"target\": ["
+                    + Runtime::ToString(ManagedAt(target, 0), "0.#") + ", "
+                    + Runtime::ToString(ManagedAt(target, 1), "0.#") + ", "
+                    + Runtime::ToString(ManagedAt(target, 2), "0.#")
+                    + "] },");
             }
         }
 
@@ -538,45 +545,48 @@ namespace MphRead::Mods::MapGen
         {
             if (pack != nullptr)
             {
-                std::cout << "  " << pack->Entries().size() << " baked textures";
+                std::string line = "  "
+                    + Runtime::ToString(static_cast<std::int32_t>(pack->Entries().size()))
+                    + " baked textures";
                 if (unpainted > 0)
                 {
-                    std::cout << ", " << unpainted
-                        << " surfaces dropped for want of one";
+                    line += ", " + Runtime::ToString(unpainted)
+                        + " surfaces dropped for want of one";
                 }
-                std::cout << '\n';
+                WriteLine(line);
             }
 
-            std::cout
-                << "  imported " << bsp->Faces().size()
-                << " surfaces -> " << map->Faces().size()
-                << " triangles (" << patches
-                << " patches tessellated to " << patchTriangles
-                << ", " << skipped
-                << " non-drawing surfaces skipped)\n";
+            WriteLine("  imported "
+                + Runtime::ToString(static_cast<std::int32_t>(bsp->Faces().size()))
+                + " surfaces -> "
+                + Runtime::ToString(static_cast<std::int32_t>(map->Faces().size()))
+                + " triangles (" + Runtime::ToString(patches)
+                + " patches tessellated to " + Runtime::ToString(patchTriangles)
+                + ", " + Runtime::ToString(skipped)
+                + " non-drawing surfaces skipped)");
 
-            std::cout
-                << "  " << solidBrushes
-                << " solid brushes -> " << map->Solid().size()
-                << " collision faces (" << shellBrushes
-                << " shell brushes outside the level left out, "
-                << buried << " sides buried inside other brushes";
+            std::string line = "  " + Runtime::ToString(solidBrushes)
+                + " solid brushes -> "
+                + Runtime::ToString(static_cast<std::int32_t>(map->Solid().size()))
+                + " collision faces (" + Runtime::ToString(shellBrushes)
+                + " shell brushes outside the level left out, "
+                + Runtime::ToString(buried) + " sides buried inside other brushes";
             if (clipBrushes > 0)
             {
-                std::cout << ", " << clipBrushes
-                    << " invisible-wall brushes dropped";
+                line += ", " + Runtime::ToString(clipBrushes)
+                    + " invisible-wall brushes dropped";
             }
-            std::cout << ")\n";
+            line += ')';
+            WriteLine(line);
 
             Vector3 min;
             Vector3 max;
             Bounds(map.get(), min, max);
-            std::cout
-                << "  extent " << ::MphRead::NativeRuntime::ToString(max.X - min.X, "0.0")
-                << " x " << ::MphRead::NativeRuntime::ToString(max.Y - min.Y, "0.0")
-                << " x " << ::MphRead::NativeRuntime::ToString(max.Z - min.Z, "0.0")
-                << " units at " << ::MphRead::NativeRuntime::ToString(unit, "0.#")
-                << " Quake units each\n";
+            WriteLine("  extent " + Runtime::ToString(max.X - min.X, "0.0")
+                + " x " + Runtime::ToString(max.Y - min.Y, "0.0")
+                + " x " + Runtime::ToString(max.Z - min.Z, "0.0")
+                + " units at " + Runtime::ToString(unit, "0.#")
+                + " Quake units each");
         }
 
         return map;
@@ -1020,19 +1030,17 @@ namespace MphRead::Mods::MapGen
 
             if (verbose)
             {
-                std::cout
-                    << "  baked " << result->Baked
-                    << " textures from " << PathGetFileName(*level)
-                    << " -> " << PathGetFileName(target) << '\n';
+                WriteLine("  baked " + Runtime::ToString(result->Baked)
+                    + " textures from " + PathGetFileName(*level)
+                    + " -> " + PathGetFileName(target));
             }
             return target;
         }
-        catch (const std::exception& exception)
+        catch (...)
         {
-            std::cout
-                << "[mapgen] could not bake textures from "
-                << PathGetFileName(*level) << ": "
-                << exception.what() << '\n';
+            WriteLine("[mapgen] could not bake textures from "
+                + PathGetFileName(*level) + ": "
+                + Runtime::ExceptionMessage(std::current_exception()));
             return std::nullopt;
         }
     }
@@ -1108,28 +1116,32 @@ namespace MphRead::Mods::MapGen
         }
 
         float minU = uvs.front().X;
-        for (std::size_t i = 1; i < uvs.size(); ++i)
+        for (std::size_t i = std::isnan(minU) ? uvs.size() : 1;
+            i < uvs.size(); ++i)
         {
-            if (std::isnan(uvs[i].X) || uvs[i].X < minU)
+            if (std::isnan(uvs[i].X))
             {
                 minU = uvs[i].X;
-                if (std::isnan(minU))
-                {
-                    break;
-                }
+                break;
+            }
+            if (uvs[i].X < minU)
+            {
+                minU = uvs[i].X;
             }
         }
 
         float minV = uvs.front().Y;
-        for (std::size_t i = 1; i < uvs.size(); ++i)
+        for (std::size_t i = std::isnan(minV) ? uvs.size() : 1;
+            i < uvs.size(); ++i)
         {
-            if (std::isnan(uvs[i].Y) || uvs[i].Y < minV)
+            if (std::isnan(uvs[i].Y))
             {
                 minV = uvs[i].Y;
-                if (std::isnan(minV))
-                {
-                    break;
-                }
+                break;
+            }
+            if (uvs[i].Y < minV)
+            {
+                minV = uvs[i].Y;
             }
         }
 
@@ -1220,7 +1232,8 @@ namespace MphRead::Mods::MapGen
         for (const std::string& key : materials->Keys())
         {
             if (::MphRead::NativeRuntime::StringStartsWithOrdinalIgnoreCase(shader, key)
-                && (!best.has_value() || key.size() > best->size()))
+                && (!best.has_value()
+                    || Runtime::Utf16Length(key) > Runtime::Utf16Length(*best)))
             {
                 best = key;
             }
@@ -1497,10 +1510,12 @@ namespace MphRead::Mods::MapGen
         Vector3 max(std::numeric_limits<float>::lowest(), std::numeric_limits<float>::lowest(), std::numeric_limits<float>::lowest());
         for (const Vector3 point : points)
         {
-            min = Vector3(std::min(min.X, point.X), std::min(min.Y, point.Y), std::min(min.Z, point.Z));
-            max = Vector3(std::max(max.X, point.X), std::max(max.Y, point.Y), std::max(max.Z, point.Z));
+            min = ComponentMin(min, point);
+            max = ComponentMax(max, point);
         }
-        const float tolerance = std::max(0.02F, std::sqrt(LengthSquared(Subtract(max, min))) * 0.001F);
+        const float tolerance = MathMax(
+            0.02F,
+            std::sqrt(LengthSquared(Subtract(max, min))) * 0.001F);
         const float square = tolerance * tolerance;
         std::vector<Vector3> result;
         for (const Vector3 point : points)
@@ -1675,7 +1690,7 @@ namespace MphRead::Mods::MapGen
                         MathMax(upper.Y - lower.Y, 0.8F),
                         MathMax(upper.Z - lower.Z, 0.8F)}));
                 jumpPads->push_back(std::move(pad));
-                ++pads;
+                pads = UncheckedAdd(pads, 1);
             }
         }
 
@@ -1697,7 +1712,7 @@ namespace MphRead::Mods::MapGen
                         pickup.Position.X, pickup.Position.Y, pickup.Position.Z}));
                 item->Type(::MphRead::ToString(pickup.Type));
                 mapItems->push_back(std::move(item));
-                ++items;
+                items = UncheckedAdd(items, 1);
             }
         }
 
@@ -1709,13 +1724,20 @@ namespace MphRead::Mods::MapGen
                 throw System::NullReferenceException();
             }
             const std::string note = import->KeepItems()
-                ? (items > 0 ? " (" + std::to_string(items) + " of them the level's own)" : std::string())
-                : (!pickups.empty() ? ", the level's " + std::to_string(pickups.size()) + " ignored" : std::string());
-            std::cout
-                << "  " << spawns->size()
-                << " spawns, " << pads
-                << " jump pads, " << mapItems->size()
-                << " items" << note << "\n";
+                ? (items > 0
+                    ? " (" + Runtime::ToString(items) + " of them the level's own)"
+                    : std::string())
+                : (!pickups.empty()
+                    ? ", the level's "
+                        + Runtime::ToString(static_cast<std::int32_t>(pickups.size()))
+                        + " ignored"
+                    : std::string());
+            WriteLine("  "
+                + Runtime::ToString(static_cast<std::int32_t>(spawns->size()))
+                + " spawns, " + Runtime::ToString(pads)
+                + " jump pads, "
+                + Runtime::ToString(static_cast<std::int32_t>(mapItems->size()))
+                + " items" + note);
         }
 
         MapBuilder::AddEntities(map, def);
