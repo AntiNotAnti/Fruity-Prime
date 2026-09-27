@@ -7,7 +7,7 @@
 列の意味 — **S**: C# 側の変更種別 (A 追加 / M 変更 / D 削除)、
 **+/-**: C# の追加・削除行数、**対**: 既にある C++ の対応物
 （`-` は新規に書き起こすもの）。
-**進捗**: `完了` / `一部完了` / `監査中` / `保留` / `未反映（作業中）`。`監査中` は移植済みだが、C#原本との今回の対比監査が未完了の項目。`—` は、現在の `develop2` でこのバックログ差分の移植を確認できていない項目。共通ランタイム化など別目的の変更だけでは進捗扱いにしない。
+**進捗**: `完了` / `一部完了` / `監査待ち` / `監査中` / `保留` / `未反映（作業中）`。`監査待ち` は移植済みだが今回のC#対比監査に未着手の項目、`監査中` は着手済みで未完了の項目。移植の完了と今回の監査完了は分けて記録する。`—` は、現在の `develop2` でこのバックログ差分の移植を確認できていない項目。共通ランタイム化など別目的の変更だけでは進捗扱いにしない。
 
 作業の規則は `MphRead-Native-CSharp-to-Cpp-Basic-Policy.md` と
 `MphRead-Native-CSharp-to-Cpp-Pitfalls.md` のとおり。1つのバッチを終える
@@ -76,10 +76,10 @@
 - 10: Q3Import（三角形法線・Clip クランプ・Weld 許容誤差・Pickups）・Q3Convert（-noitems・AddItems）・
   MapReport.ListItems。MapCheck（-mapcheck）・AltFormProbe（-altprobe）・MapReport.ListItems（-mapitems）は
   ModEntryから配線・監査済み。セクション10 完了。
-- 11 Launcher portable: 移植は完了。LaunchPlan（LobbyContext）、GameFiles（Root=AppPaths、RomWhitelist 照合）、
-  TextLauncher（InputEnded・insane・StartupForced）、NativeFilePicker（NativeRuntime に
-  ProcessRunCaptureOutput）は移植時の確認を完了。現在、C#原本との再監査を一ファイルずつ実施中で、
-  RomWhitelist と TextLauncher の再監査を完了。MatchStart は RenderWindow の1ウィンドウ API を使う形へ移植し、
+- 11 Launcher portable: 移植済み。C#原本との再監査は移植状況と別に一ファイルずつ実施中。
+  RomWhitelist と TextLauncher は監査完了、GameFiles は監査中、LaunchPlan は監査待ち。
+  LaunchPlan（LobbyContext）、GameFiles（Root=AppPaths、RomWhitelist 照合）、TextLauncher（InputEnded・insane・StartupForced）、
+  NativeFilePicker（NativeRuntime に ProcessRunCaptureOutput）は移植時の確認を完了。MatchStart は RenderWindow の1ウィンドウ API を使う形へ移植し、
   C#原本との静的監査とWindows Release buildを完了。
 - 12 完了。C# は Avalonia headless + Skia CPU ラスタ → GL 転送（UiTopLevel/UiSurface/UiOverlay）。
   旧 NativeRuntime/Gui（Element ツリー + GL 直描画、グラデーション・楕円・パス・影なし）では足りないので、
@@ -735,8 +735,8 @@
 | M | +87/-8 | `Mods/Launcher/Portable/LauncherPrefs.cs` | .cpp,.hpp | 完了（C#全文・Load/Save/Directory直接接続監査済、catch(Exception)境界を修正、Windows Release native build済。runtime未実施） |
 | A | +67/-0 | `Mods/Launcher/Portable/RomWhitelist.cs` | — 新規 | 完了（C#全文・Program/GameFiles直接呼出し監査済、MD5 file I/OをFile.OpenRead相当へ修正、Windows Release build済。実ROM runtime未実施） |
 | M | +24/-7 | `Mods/Launcher/Portable/TextLauncher.cs` | .cpp,.hpp | 完了（C#全文・ModEntry/各設定/ネットワーク/GameFiles/MatchStart直接接続監査済、整数parse overflow・例外stack出力を修正、Windows Release build済。UI runtime未実施） |
-| M | +15/-3 | `Mods/Launcher/Portable/GameFiles.cs` | .cpp,.hpp | 完了 |
-| M | +4/-0 | `Mods/Launcher/Portable/LaunchPlan.cs` | .cpp,.hpp | 完了 |
+| M | +15/-3 | `Mods/Launcher/Portable/GameFiles.cs` | .cpp,.hpp | 監査中（C#原本・native実装・呼び出し照合中） |
+| M | +4/-0 | `Mods/Launcher/Portable/LaunchPlan.cs` | .cpp,.hpp | 監査待ち |
 
 ## 12. Launcher GUI — 70 ファイル (新規 50), C# +22132 行
 
@@ -1071,3 +1071,4 @@
 - `Mods/Launcher/Portable/LauncherPrefs.cs` 全文とnative `.hpp/.cpp`を照合。全既定値、launcher.txtのpath、行/キー/value trim、key別の空値・範囲条件、Invariant整数/Boolean/Hunter enum parsing、color clamp、window mode/geometry parser、保存キーと順序を確認。Shell/StartScreen/ModEntry/TextLauncher/各GUI・WindowGeometry/Diagnostics/Android MainActivity・PreviewService・AndroidApp のLoad/Save/Directory直接接続も照合。C# `catch (Exception)` に対しnative `Load`/`Save` が `std::exception` のみだったためcatch-allを追加。`git diff --check`通過、Windows Release `fruity_mphread_native` compile/link green。runtime未実施。Android buildは全Androidファイル監査完了後。
 - `Mods/Launcher/Portable/RomWhitelist.cs` 全文、native `.hpp/.cpp`、`Program` のROM drag-and-drop入口、`GameFiles::RunSetup` の共通setup入口を照合。7件のMD5/label、lowercase化、認識時のlabel・不一致/読込失敗時のnullと拒否文を確認した。NativeRuntime監査は今回追加されたMD5 file helperだけに限定。`std::ifstream`を使っていたためC# `File.OpenRead`のUTF-8 path、`FileShare.Read`、open/read例外分類と異なっていた箇所を、同じ設定の `FileStream` に変更。`git diff --check`通過、Windows Release全体の `ninja -k 0` 成功。実ROM runtime未実施。Android buildは全Androidファイル監査完了後。
 - `Mods/Launcher/Portable/TextLauncher.cs` 全文とnative `.hpp/.cpp`、`ModEntry` のGUI/text fallback・`-launcher`分岐、GameFiles setup、Updater、LauncherPrefs、room/mode/hunter選択、directory browse、online join、host request/start、AdventureSave、MatchStartの直接接続を照合。menu loop・EOF終了、設定の保存順、endpoint parse、各既定値と失敗分岐は一致。C# invariant `Int32.TryParse` に対しnativeのuint64桁あふれがwrapして有効値になる差を、乗算前の上限判定で修正。C#例外stack行がnativeで常に空だった差は、既存のnative stack captureを共通API化してconsoleへ出すよう修正。`git diff --check`通過、Windows Release全体の `ninja -k 0` 成功（既存`offsetof`警告）。UI runtime未実施。Android buildは全Androidファイル監査完了後。
+- `Mods/Launcher/Portable/GameFiles.cs` は監査中。C#原本、native `.hpp/.cpp` と直接呼び出しを一ファイル単位で照合し、Version.TryParseの境界挙動と抽出子プロセス終了処理を確認している。監査・修正・buildは未完了。
