@@ -32,6 +32,9 @@
 - Section 14 のAndroid 17ファイルは監査完了。`NativeRuntime/Avalonia/Base.hpp` のMSVC対応後、Android arm64-v8a・x86_64をそれぞれ最新ソースで最終buildし、両方とも成功（各75段階、静的ライブラリをリンク）。runtime/device確認は未実施。
 - 上記の `完了` はPR #1由来の302項目の移植差分監査を指す。別件のプレイ中不具合監査まで完了した意味ではない。C#版にはないとユーザーから報告された症状について、以前の「C#も同じ」とする9月27日の記録は結論として扱わず、現行ソースで再監査する。
 - 別件の不具合監査は継続中: 試合中のカーソル表示・画面端でエイムが止まる問題を最初に監査中。次に Online の `did not answer`、続いて Online/Offline 等のメニューの重さ・メモリ使用を確認する。9月27日のカーソル/サーバー記録は当時の調査メモとして残し、今回の再監査で再確認する。
+- `InputSettings.cs` と `.cpp/.hpp` を一ファイル単位で再照合。現行C#・C++とも `stylus_mode` の明示値だけでStylusModeを有効にし、`pointer_jump_guard` は独立設定として扱う。読み込み・保存に差異なし。
+- `Renderer.cs` と `Renderer.cpp` のカーソル取得条件、PlayerInputへのpointer sample・acceptsInput引数を照合。条件と順序は一致し、C++ `CursorState::Grabbed` も OpenTK と同じ `GLFW_CURSOR_DISABLED` に対応する。コード上は同じ入力状態なら両版ともカーソルを隠し、画面端に制限されない。
+- 未完了の確認点: native `GlfwWindow` はカーソル位置を `OnCursorPos` callbackで更新する一方、C# OpenTK 4.9.4 の `MouseState.NewFrame` は `glfwGetCursorPos` でも毎入力フレーム位置を読む。NativeRuntimeのこの差が報告症状に関係するか、続けて呼び出し順と実行時状態を調べる。現時点で再現実行はしていない。
 
 ### 2026-09-28 C++固有のフリーズ対策
 
