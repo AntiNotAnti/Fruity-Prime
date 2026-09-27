@@ -7,7 +7,7 @@
 列の意味 — **S**: C# 側の変更種別 (A 追加 / M 変更 / D 削除)、
 **+/-**: C# の追加・削除行数、**対**: 既にある C++ の対応物
 （`-` は新規に書き起こすもの）。
-**進捗**: `完了` / `一部完了` / `保留` / `未反映（作業中）`。`—` は、現在の `develop2` でこのバックログ差分の移植を確認できていない項目。共通ランタイム化など別目的の変更だけでは進捗扱いにしない。
+**進捗**: `完了` / `一部完了` / `監査中` / `保留` / `未反映（作業中）`。`監査中` は移植済みだが、C#原本との今回の対比監査が未完了の項目。`—` は、現在の `develop2` でこのバックログ差分の移植を確認できていない項目。共通ランタイム化など別目的の変更だけでは進捗扱いにしない。
 
 作業の規則は `MphRead-Native-CSharp-to-Cpp-Basic-Policy.md` と
 `MphRead-Native-CSharp-to-Cpp-Pitfalls.md` のとおり。1つのバッチを終える
@@ -720,7 +720,7 @@
 | M | +120/-0 | `Mods/MapGen/MapDefinition.cs` | .cpp,.hpp | 完了 |
 | M | +113/-2 | `Mods/MapGen/MapReport.cs` | .cpp,.hpp | 完了 |
 | M | +91/-8 | `Mods/MapGen/Q3Convert.cs` | .cpp,.hpp | 完了 |
-| M | +48/-1 | `Mods/MapGen/MapPacker.cs` | .cpp,.hpp | 完了 |
+| M | +48/-1 | `Mods/MapGen/MapPacker.cs` | .cpp,.hpp | 完了（C#対比監査済、MapPacker/CustomRooms/ModEntry対象object compile green、runtime未実施） |
 | M | +19/-0 | `Mods/MapGen/BuiltMap.cs` | .cpp,.hpp | 完了 |
 | M | +19/-0 | `Mods/MapGen/MapBundle.cs` | .cpp,.hpp | 完了 |
 | M | +3/-2 | `Mods/MapGen/CustomRooms.cs` | .cpp,.hpp | 完了 |
@@ -1056,6 +1056,7 @@
 
 - `Mods/MapGen/MapDefinition.cs` を全文とnative `.hpp/.cpp`、`CustomRooms`/`MapBundle`/`MapPacker`/`MapCheck`/`Q3Import`/`MapReport`/`Q3Convert` の直呼び出しで照合。全プロパティ、既定値、null/ignore、camelCase、case-insensitive読込、コメント・trailing comma、Load後の基準path設定、Import/Collisionの候補順とbundle優先を確認。`collision.source: null` はC#既定JsonSerializerで保持されるがnativeが読込時点で拒否していたため、optional化し、シリアライズ省略、`ReadBytes`/`Resolve`/`MapPacker`/`MapBundle`のnull参照例外と`MapCheck`の連結結果をC#に揃えた。`git diff --check`通過、Windows Releaseの `MapDefinition.cpp.obj`/`MapBundle.cpp.obj`/`MapPacker.cpp.obj`/`MapCheck.cpp.obj` compile green（既存警告のみ）。実map読込・runtime/harness未実施。
 - `Mods/MapGen/Q3Convert.cs` を全文とnative `.hpp/.cpp`、`ModEntry` の `-q3convert` オプション解析・直接呼出しで照合。map選択と既定名、出力path、Bounds/scale、skyを含めたScaleFactor、clip判定、spawn候補と向き、pickup変換・`-noitems`、definition保存と全終了条件を確認。処理の差はなく、全出力をC# `Console.WriteLine` 相当のUTF-8・環境別改行・行単位書込みへ変更し、数値をcurrent-culture formatterに統一。C# `catch (Exception)` とnative `std::exception` の差は `Q3Bsp::Load` と `ModEntry` の直接呼出しでcatch-all/message helperへ修正。`git diff --check`通過、Windows Release `Q3Convert.cpp.obj` と `ModEntry.cpp.obj` compile green（既存警告のみ）。実.pk3変換・runtime/harness未実施。
+- `Mods/MapGen/MapPacker.cs` を全文とnative `.hpp/.cpp`、`MapCheck`/`CustomRooms`/`ModEntry` の直接呼出しで照合。モデル素材の初出順・重複排除、面のmaterial別順序、三角形fan、opcode padding、packed座標・法線・texcoord、collisionの属性・面順、出力順と失敗境界を確認した。`Console.WriteLine` のUTF-8/環境改行/current-culture書式、null参照時の例外順、vertex/countのunchecked加算を合わせ、C++ TU内の `Repack`/`CollisionDataEditor` の重複宣言をcanonical header参照へ置換してODR違反を除去。`ModEntry -mapgen` と `CustomRooms.GenerateMissing` の直接呼出しもcatch-all/message・console出力・unchecked countへ合わせた。`git diff --check`通過、Windows Release `MapPacker.cpp.obj`/`CustomRooms.cpp.obj`/`ModEntry.cpp.obj` compile green（既存警告のみ）。mapgen実行・runtime/harness未実施。
 - `Mods/MapGen/AltFormProbe.cs` を全文とnative `.hpp/.cpp`、`ModEntry` の `-altprobe` 引数・`TraceDelay` 設定で照合。window/scene/player初期化、slot 1 の入力駆動、reset・settle・jump/morph・trial/reportの順序、終了条件と終了コードを確認。nativeの `std::min/max` を `MathF.Min/Max` 相当の `Runtime::MathMin/Max` にし、delay/frameの加算・減算・incrementをC#のunchecked `int` と同じにした。数値表示と列幅をcurrent-culture `ToString` / `StringPadLeft` に揃え、出力をUTF-8・行単位の `ConsoleWriteLine` に統一。Player/Keybindの参照取得もC#の `IReadOnlyList` / 配列境界・null例外へ合わせた。`git diff --check`通過、Windows Release `AltFormProbe.cpp.obj` compile green（既存 `offsetof` 警告のみ）。実マップ実行・runtime/harnessは未実施。native例外はC# `Exception.StackTrace` を保持しないため、その行は空出力のまま。
 - `Mods/MapGen/MapReport.cs` を全文とnative `.hpp/.cpp`、`ModEntry` の `-q3shaders`/`-mapitems`/`-mapmaterials` 分岐・引数変換で照合。shader件数の first-seen 順と安定降順、pickup列挙・GroupBy/安定ソート、materialsの添字・表示順、例外報告と戻り値を確認。C#のUTF-16列幅/current-culture数値/UTF-8行出力、`IReadOnlyList`境界、unchecked件数加算、`.NET 10 MathF.Round(value, 2)`のfloat丸め経路を合わせた。再監査で見つけた集計行の`TrimEnd()`差（Unicode空白）と `Resolve() ?? Source` のlazy評価差も修正。`git diff --check`通過、Windows Release `MapReport.cpp.obj` compile green（既存`offsetof`警告のみ）。実マップ読込・runtime/harness未実施。
 - `Mods/MapGen/Q3Import.cs` を全文とnative `.hpp/.cpp`、`MapCheck`/`MapPacker`/`MapBundle`/`Q3Convert`/`MapReport` の直接呼出しで照合。surface/patch生成順、collision brushのshell・clip・buried判定、texture bake、spawn/jump pad/item変換、pickup列挙を確認。shader prefixの最長判定をC# `string.Length`相当のUTF-16長へ、`Weld`の`Vector3.ComponentMin/Max`と`MathF.Max`を.NETのNaN/符号付きzero動作へ修正。LINQ `Min`のNaN先頭・途中時の選択順、unchecked件数加算、float floor→int変換も照合。verbose出力をcurrent-culture formatterとUTF-8行出力に統一し、texture bake失敗のcatch/messageをC#相当にした。`git diff --check`通過、Windows Release `Q3Import.cpp.obj` compile green（既存`offsetof`警告のみ）。実マップ読込・runtime/harness未実施。

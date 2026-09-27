@@ -8,6 +8,8 @@
 #include "../../Metadata/Rooms.hpp"
 #include "../../Read.hpp"
 #include "../../NativeRuntime/System/Encoding.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
+#include "../../NativeRuntime/System/ExceptionText.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
@@ -546,9 +548,8 @@ namespace MphRead::Mods::MapGen
                     continue;
                 }
 
-                const std::string buildingMessage =
-                    "[mapgen] building " + def->Name();
-                std::cout << buildingMessage << std::endl;
+                ::MphRead::NativeRuntime::ConsoleWriteLine(
+                    "[mapgen] building " + def->Name());
 
                 const std::string archiveDirectory =
                     ArchiveDirectory(def.get());
@@ -564,12 +565,14 @@ namespace MphRead::Mods::MapGen
                     nodeDirectory,
                     false);
             }
-            catch (const std::exception& ex)
+            catch (...)
             {
                 const std::string name = def->Name();
+                const std::exception_ptr error = std::current_exception();
                 const std::string failureMessage =
-                    "[mapgen] " + name + " could not be built: " + ex.what();
-                std::cout << failureMessage << std::endl;
+                    "[mapgen] " + name + " could not be built: "
+                    + ::MphRead::NativeRuntime::ExceptionMessage(error);
+                ::MphRead::NativeRuntime::ConsoleWriteLine(failureMessage);
             }
         }
     }

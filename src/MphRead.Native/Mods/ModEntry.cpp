@@ -86,6 +86,7 @@
 #include "Update/Updater.hpp"
 #include "WindowMode.hpp"
 #include "../NativeRuntime/System/Encoding.hpp"
+#include "../NativeRuntime/System/Console.hpp"
 #include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
@@ -1744,17 +1745,20 @@ namespace MphRead::Mods
                         MapGen::CustomRooms::ArchiveDirectory(definition.get()),
                         MapGen::CustomRooms::EntityDirectory(),
                         MapGen::CustomRooms::NodeDirectory(), true /* verbose */);
-                    ++count;
+                    count = ::MphRead::NativeRuntime::UncheckedAdd(count, 1);
                 }
-                catch (const std::exception& ex)
+                catch (...)
                 {
-                    WriteLine(RequireReference(definition).Name() + ": " + ex.what());
-                    ++failed;
+                    const std::exception_ptr error = std::current_exception();
+                    ::MphRead::NativeRuntime::ConsoleWriteLine(
+                        RequireReference(definition).Name() + ": "
+                        + ::MphRead::NativeRuntime::ExceptionMessage(error));
+                    failed = ::MphRead::NativeRuntime::UncheckedAdd(failed, 1);
                 }
             }
             if (count == 0 && failed == 0)
             {
-                WriteLine("No maps to generate. Put a map JSON in "
+                ::MphRead::NativeRuntime::ConsoleWriteLine("No maps to generate. Put a map JSON in "
                     + MapGen::CustomRooms::MapDirectory() + ".");
             }
             SetExitCode(failed == 0 ? 0 : 1);

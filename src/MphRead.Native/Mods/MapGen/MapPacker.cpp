@@ -15,7 +15,10 @@
 #include "Q3Import.hpp"
 #include "RawStructs.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../Utility/Repack.hpp"
+#include "../../Utility/RepackCollision.hpp"
 #include "../../NativeRuntime/System/Encoding.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
@@ -65,132 +68,6 @@ using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::Utf8ToUtf16;
 using ::MphRead::NativeRuntime::Utf8ToUtf32;
 
-namespace MphRead::Utility
-{
-    // RepackAccess.cs deliberately exposes the otherwise-private entity packer.
-    // Native currently carries that access shim separately from Repack.hpp, so
-    // this translation unit binds the exact members used by MapPacker.cs without
-    // including two competing Native declarations of the same C# partial class.
-    class Repack final
-    {
-    public:
-        enum class RepackTexture : std::int32_t
-        {
-            Inline = 0,
-            Separate = 1,
-            Shared = 2
-        };
-
-        enum class ComputeBounds : std::int32_t
-        {
-            None = 0,
-            Capped = 1,
-            Uncapped = 2
-        };
-
-        class RepackOptions
-        {
-        public:
-            RepackTexture Texture = RepackTexture::Inline;
-            bool IsRoom = false;
-            Repack::ComputeBounds ComputeBounds = Repack::ComputeBounds::None;
-            bool WriteFile = false;
-            bool Compare = false;
-        };
-
-        class TextureInfo
-        {
-        public:
-            const TextureFormat Format;
-            const bool Opaque;
-            const std::uint16_t Height;
-            const std::uint16_t Width;
-            const std::shared_ptr<const std::vector<std::uint8_t>> Data;
-
-            TextureInfo(
-                TextureFormat format,
-                bool opaque,
-                std::uint16_t height,
-                std::uint16_t width,
-                std::shared_ptr<const std::vector<std::uint8_t>> data);
-        };
-
-        class PaletteInfo
-        {
-        public:
-            std::shared_ptr<const std::vector<std::uint16_t>> Data;
-
-            explicit PaletteInfo(
-                std::shared_ptr<const std::vector<std::uint16_t>> data);
-        };
-
-        [[nodiscard]] static std::vector<std::uint8_t> PackEntities(
-            std::span<Editor::EntityEditorBase* const> entities);
-
-        [[nodiscard]] static std::pair<std::vector<std::uint8_t>, std::vector<std::uint8_t>>
-            PackModel(
-                std::int32_t scale,
-                const std::shared_ptr<const std::vector<std::int32_t>>& nodeMtxIds,
-                const std::shared_ptr<const std::vector<std::int32_t>>& nodePosScaleCounts,
-                const std::shared_ptr<const std::vector<std::shared_ptr<Material>>>& materials,
-                const std::shared_ptr<const std::vector<std::shared_ptr<TextureInfo>>>& textures,
-                const std::shared_ptr<const std::vector<std::shared_ptr<PaletteInfo>>>& palettes,
-                const std::shared_ptr<const std::vector<std::shared_ptr<Node>>>& nodes,
-                const std::shared_ptr<const std::vector<std::shared_ptr<Mesh>>>& meshes,
-                const std::shared_ptr<const std::vector<
-                    std::shared_ptr<const std::vector<std::shared_ptr<RenderInstruction>>>>>& renders,
-                const std::shared_ptr<const std::vector<DisplayList>>& dlists,
-                const std::shared_ptr<RepackOptions>& options);
-
-        [[nodiscard]] static std::shared_ptr<TextureInfo> ConvertData(
-            const Texture& texture,
-            const std::shared_ptr<const std::vector<TextureData>>& data);
-
-        Repack() = delete;
-    };
-
-    // This is the existing RepackCollision Native layout used by
-    // MapCollisionPacker. Only the C# members touched by MapPacker are invoked.
-    class CollisionDataEditor
-    {
-    public:
-        const std::shared_ptr<std::vector<OpenTK::Mathematics::Vector3>> Points
-            = std::make_shared<std::vector<OpenTK::Mathematics::Vector3>>();
-        OpenTK::Mathematics::Vector4 Plane{};
-        std::uint16_t LayerMask = 0;
-        MphRead::Formats::Collision::CollisionFlags Flags
-            = MphRead::Formats::Collision::CollisionFlags::None;
-
-        CollisionDataEditor() = default;
-        CollisionDataEditor(const CollisionDataEditor&) = delete;
-        CollisionDataEditor& operator=(const CollisionDataEditor&) = delete;
-        CollisionDataEditor(CollisionDataEditor&&) = delete;
-        CollisionDataEditor& operator=(CollisionDataEditor&&) = delete;
-
-        [[nodiscard]] bool Damaging() const noexcept;
-        void Damaging(bool value) noexcept;
-        [[nodiscard]] bool Reflect() const noexcept;
-        void Reflect(bool value) noexcept;
-        [[nodiscard]] bool Players() const noexcept;
-        void Players(bool value) noexcept;
-        [[nodiscard]] bool Beams() const noexcept;
-        void Beams(bool value) noexcept;
-        [[nodiscard]] bool Scan() const noexcept;
-        void Scan(bool value) noexcept;
-        [[nodiscard]] std::int32_t Slipperiness() const noexcept;
-        void Slipperiness(std::int32_t value);
-        [[nodiscard]] MphRead::Terrain Terrain() const noexcept;
-        void Terrain(MphRead::Terrain value);
-
-    private:
-        [[nodiscard]] bool Check(
-            MphRead::Formats::Collision::CollisionFlags flag) const noexcept;
-        void Update(
-            MphRead::Formats::Collision::CollisionFlags flag,
-            bool value) noexcept;
-    };
-}
-
 namespace
 {
     using MphRead::ColorRgb;
@@ -216,6 +93,11 @@ namespace
     using OpenTK::Mathematics::Vector2;
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
+
+    void WriteLine(std::string_view value)
+    {
+        ::MphRead::NativeRuntime::ConsoleWriteLine(value);
+    }
 
     [[nodiscard]] std::int32_t ListCount(std::size_t count)
     {
@@ -1285,19 +1167,25 @@ namespace MphRead::Mods::MapGen
 
         if (verbose)
         {
-            std::cout
-                << def->Name() << ": " << ListCount(map->Faces().size())
-                << " polygons (" << vertices << " vertices), "
-                << ListCount(map->Solid().size()) << " collision faces, "
-                << ListCount(map->Entities().size()) << " entities\n";
-            std::cout
-                << "  " << nodeCount << " bot waypoints, " << edges
-                << " routes between them\n";
-            std::cout
-                << "  model " << ::MphRead::NativeRuntime::ToString(model.size(), "N0")
-                << " B, collision " << ::MphRead::NativeRuntime::ToString(collision.size(), "N0")
-                << " B, entities " << ::MphRead::NativeRuntime::ToString(entities.size(), "N0")
-                << " B, nodes " << ::MphRead::NativeRuntime::ToString(nodes.size(), "N0") << " B\n";
+            WriteLine(def->Name() + ": "
+                + ::MphRead::NativeRuntime::ToString(ListCount(map->Faces().size()))
+                + " polygons (" + ::MphRead::NativeRuntime::ToString(vertices)
+                + " vertices), "
+                + ::MphRead::NativeRuntime::ToString(ListCount(map->Solid().size()))
+                + " collision faces, "
+                + ::MphRead::NativeRuntime::ToString(ListCount(map->Entities().size()))
+                + " entities");
+            WriteLine("  " + ::MphRead::NativeRuntime::ToString(nodeCount)
+                + " bot waypoints, " + ::MphRead::NativeRuntime::ToString(edges)
+                + " routes between them");
+            WriteLine("  model "
+                + ::MphRead::NativeRuntime::ToString(model.size(), "N0")
+                + " B, collision "
+                + ::MphRead::NativeRuntime::ToString(collision.size(), "N0")
+                + " B, entities "
+                + ::MphRead::NativeRuntime::ToString(entities.size(), "N0")
+                + " B, nodes "
+                + ::MphRead::NativeRuntime::ToString(nodes.size(), "N0") + " B");
         }
     }
 
@@ -1324,6 +1212,10 @@ namespace MphRead::Mods::MapGen
     // list, so the bots' waypoints follow the edit.
     void MapPacker::ApplyCollision(BuiltMap* map, MapDefinition* def, bool verbose)
     {
+        if (def == nullptr)
+        {
+            throw System::NullReferenceException();
+        }
         MapCollision* collision = def->Collision();
         if (collision == nullptr)
         {
@@ -1343,15 +1235,25 @@ namespace MphRead::Mods::MapGen
                 "to go back to the collision the geometry makes.");
         }
         const CollisionObj::Result read = CollisionObj::Read(*bytes, source, collision->ZUp);
-        const auto replaced = static_cast<std::int32_t>(map->Solid().size());
+        if (map == nullptr)
+        {
+            throw System::NullReferenceException();
+        }
+        const std::int32_t replaced = ListCount(map->Solid().size());
         map->Solid().clear();
         map->Solid().insert(map->Solid().end(), read.Faces.begin(), read.Faces.end());
         if (verbose)
         {
-            std::cout << "  collision from " << source << ": " << read.Faces.size() << " faces"
-                << " over " << read.Vertices << " vertices, in place of the geometry's " << replaced
-                << (read.Degenerate > 0 ? " (" + std::to_string(read.Degenerate) + " enclosing no area, skipped)" : std::string())
-                << '\n';
+            const std::string degenerate = read.Degenerate > 0
+                ? " (" + ::MphRead::NativeRuntime::ToString(read.Degenerate)
+                    + " enclosing no area, skipped)"
+                : std::string();
+            WriteLine("  collision from " + source + ": "
+                + ::MphRead::NativeRuntime::ToString(ListCount(read.Faces.size()))
+                + " faces over "
+                + ::MphRead::NativeRuntime::ToString(read.Vertices)
+                + " vertices, in place of the geometry's "
+                + ::MphRead::NativeRuntime::ToString(replaced) + degenerate);
         }
     }
 
