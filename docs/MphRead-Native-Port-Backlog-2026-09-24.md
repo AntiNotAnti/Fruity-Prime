@@ -611,7 +611,7 @@
 | A | +97/-0 | `Mods/Render/HunterShot.cs` | — 新規 | 完了（C# interface/stateとnative `.hpp`を全文照合、nullable Task→optional shared_future・全state既定値一致。AndroidHunterShotのBGRA/top-down/tightly-packed契約も確認しnative API commentに反映。Android buildは未実施） |
 | M | +77/-0 | `Mods/Render/FrameTimingCheck.cs` | .cpp,.hpp | 完了（C#全文・ModEntryの両headless入口を監査済、7 frame-rate case/2秒stall/Lockjaw noise invariant/出力とexit code一致。seeded Randomも照合、差分なし。Windows Release build green） |
 | A | +70/-0 | `Mods/Render/PlayerEntityTeamScoreboard.cs` | — 新規 | 完了（C#全文・PlayerHud/TeamVisuals/DrawText2D接続監査済、current-culture整数表示と.NET 10 float→int変換を修正。Windows Release build済） |
-| A | +62/-0 | `Mods/Render/LockjawTrailProbe.cs` | — 新規 | 完了 |
+| A | +62/-0 | `Mods/Render/LockjawTrailProbe.cs` | — 新規 | 完了（C#全文・MapAudit呼出時点/RenderItem/LinkedList列挙監査済、null参照時の例外とunchecked件数加算を修正。Windows Release build済） |
 | M | +51/-0 | `Mods/Render/PlayerEntityStylusHud.cs` | .cpp,.hpp | 完了 |
 | A | +43/-0 | `Mods/Render/DesktopGlContext.cs` | .cpp,.hpp | 完了（C#原本監査済、Renderer経由で接続） |
 | M | +31/-0 | `Mods/Render/GlEs.cs` | .cpp,.hpp | 完了 |
@@ -969,6 +969,7 @@
 - `Mods/Render/HunterShot.cs` をC#全文とnative `.hpp`、HunterStandのproducer/consumer接続、AndroidHunterShotの戻り値形式で照合。Current/InFrame/hole/frame propertiesの既定値、Hunter.Samus、nullable Taskとoptional shared_futureが一致。BGRA・上から下・tight packingの戻り値契約をnative interface commentへ明記。Android buildは全Androidファイル監査後のため未実施。
 - `Mods/Render/FrameTimingCheck.cs` をC#全文とnative `.cpp/.hpp`、ModEntryのheadless dispatch接続で照合。7 frame-rate caseと上限step数、jitter seed、2秒stall、LockjawNoise invariants/Rng1不変、diagnostic reset、出力とexit codeが一致。seed付きRandom sequenceも既存NativeRuntime実装で照合、修正なし。Windows Release build green。
 - `Mods/Render/PlayerEntityTeamScoreboard.cs` をC#全文とnative `.cpp/.hpp`、PlayerHudのモード判定・列位置・ping表示、TeamVisuals、DrawText2DのUTF-16 maxLength処理まで照合。勝者/チーム/プレイヤー行の順序、mode別TIME/POINTS・DEATHS/KILLS、色・尺度・間隔は一致。整数値のToStringをcurrent-culture helperへ、名前幅のfloat→intを.NET 10 cast helperへ変更。
+- `Mods/Render/LockjawTrailProbe.cs` をC#全文とnative `.cpp/.hpp`、MapAuditの呼出タイミング、RenderItem保持キュー、BombEntity列挙を照合。対象条件・順序・FNV-1a入力とfloat bit pattern、pool返却前の採取タイミングが一致。C#でnull参照例外となるRenderItem/BombEntity/Pointsをnativeでも`RequireReference`経由にし、`trailCount++`をC# unchecked wrap helperに変更。
 
 ### 2026-09-27 native launcher regression audit
 

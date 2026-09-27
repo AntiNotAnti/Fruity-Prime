@@ -2,11 +2,15 @@
 
 #include "../../Entities/BombEntity.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <bit>
 
 namespace MphRead
 {
+    using ::MphRead::NativeRuntime::IncrementInPlace;
+    using ::MphRead::NativeRuntime::RequireReference;
+
     // Audit only. Read before the next OnDrawFrame returns these Points arrays to the pool.
     std::pair<std::uint64_t, std::int32_t> Scene::ModLockjawTrailSignature()
     {
@@ -17,7 +21,7 @@ namespace MphRead
 
         for (const std::shared_ptr<::MphRead::RenderItem>& itemPtr : _usedRenderItems)
         {
-            const ::MphRead::RenderItem& item = *itemPtr;
+            const ::MphRead::RenderItem& item = RequireReference(itemPtr);
             if (item.Type != RenderItemType::TrailMulti || item.ItemCount != 40)
             {
                 continue;
@@ -25,7 +29,7 @@ namespace MphRead
             bool lockjawTrail = false;
             for (auto enumerator = GetBombEntities().GetEnumerator(); enumerator.MoveNext();)
             {
-                const Entities::BombEntity& bomb = *enumerator.Current();
+                const Entities::BombEntity& bomb = RequireReference(enumerator.Current());
                 const OpenTK::Mathematics::Vector3 position = bomb.Position;
                 if (bomb.Active && bomb.BombType() == BombType::Lockjaw
                     && bomb.BombIndex() > 0 && bomb.ModLockjawTrailBindingId() > 0
@@ -42,7 +46,7 @@ namespace MphRead
             {
                 continue;
             }
-            trailCount++;
+            IncrementInPlace(trailCount);
             // ItemCount is the number of Vector3 entries, not the pool array length.
             signature = (signature ^ static_cast<std::uint32_t>(item.ItemCount)) * prime;
             signature = (signature ^ static_cast<std::uint32_t>(item.TextureBindingId)) * prime;
@@ -51,7 +55,7 @@ namespace MphRead
             signature = (signature ^ std::bit_cast<std::uint32_t>(item.Transform.M43)) * prime;
             for (std::int32_t i = 0; i < item.ItemCount; i++)
             {
-                const OpenTK::Mathematics::Vector3 point = (*item.Points)[i];
+                const OpenTK::Mathematics::Vector3 point = RequireReference(item.Points)[i];
                 signature = (signature ^ std::bit_cast<std::uint32_t>(point.X)) * prime;
                 signature = (signature ^ std::bit_cast<std::uint32_t>(point.Y)) * prime;
                 signature = (signature ^ std::bit_cast<std::uint32_t>(point.Z)) * prime;
