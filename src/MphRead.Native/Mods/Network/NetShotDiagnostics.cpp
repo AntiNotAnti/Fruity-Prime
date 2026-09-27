@@ -37,9 +37,9 @@ namespace MphRead::Mods::Network
 
     std::string ShotKey::ToString() const
     {
-        return std::to_string(AuthorityEpoch) + "/" + std::to_string(MatchId) + "/"
-            + std::to_string(ShooterSlot) + "/" + std::to_string(Generation) + "/"
-            + std::to_string(LifeId) + "/" + std::to_string(LaunchFrame);
+        return Runtime::ToString(AuthorityEpoch) + "/" + Runtime::ToString(MatchId) + "/"
+            + Runtime::ToString(ShooterSlot) + "/" + Runtime::ToString(Generation) + "/"
+            + Runtime::ToString(LifeId) + "/" + Runtime::ToString(LaunchFrame);
     }
 
     std::array<std::array<std::int64_t, NetShotDiagnostics::ResultCount>, NetShotDiagnostics::WeaponCount>
@@ -66,21 +66,21 @@ namespace MphRead::Mods::Network
     void NetShotDiagnostics::Continuous(::MphRead::Entities::BeamProjectileEntity& beam, std::int32_t ammo)
     {
         const auto b = static_cast<std::size_t>(Bucket(beam.Beam()));
-        ContinuousTicks[b]++;
+        Runtime::IncrementInPlace(ContinuousTicks[b]);
         if (beam.Damage() > 0)
         {
-            ContinuousDamageTicks[b]++;
+            Runtime::IncrementInPlace(ContinuousDamageTicks[b]);
         }
         if (beam.Target() != nullptr)
         {
-            ContinuousAcquired[b]++;
+            Runtime::IncrementInPlace(ContinuousAcquired[b]);
         }
-        ContinuousAmmo[b] += ammo;
+        ContinuousAmmo[b] = Runtime::UncheckedAdd(ContinuousAmmo[b], ammo);
         if (NetLog::Enabled())
         {
             Trace("continuous", beam.ModLaunchKey(), beam.Beam(),
-                "phase=" + std::to_string(beam.ModContinuousPhase) + " damage="
-                + Runtime::ToString(beam.Damage()) + " ammo=" + std::to_string(ammo)
+                "phase=" + Runtime::ToString(beam.ModContinuousPhase) + " damage="
+                + Runtime::ToString(beam.Damage()) + " ammo=" + Runtime::ToString(ammo)
                 + " acquired=" + (beam.Target() != nullptr ? "True" : "False"));
         }
     }
@@ -98,7 +98,7 @@ namespace MphRead::Mods::Network
         {
             NetLog::Event("[shot] key=" + key.ToString() + " stage=" + std::string(stage)
                 + " weapon=" + ::MphRead::ToString(weapon) + " authorityFrame="
-                + std::to_string(NetSession::NetFrame()) + " " + std::string(detail));
+                + Runtime::ToString(NetSession::NetFrame()) + " " + std::string(detail));
         }
     }
 
@@ -107,8 +107,8 @@ namespace MphRead::Mods::Network
     {
         if (NetSession::Active())
         {
-            Outcomes[static_cast<std::size_t>(Bucket(shooter.CurrentWeapon()))]
-                [static_cast<std::size_t>(result)]++;
+            Runtime::IncrementInPlace(Outcomes[static_cast<std::size_t>(Bucket(shooter.CurrentWeapon()))]
+                [static_cast<std::size_t>(result)]);
             if (result == ShotAttemptResult::Spawned)
             {
                 NetDamage::NoteFired(shooter, shot, aim);
@@ -118,10 +118,10 @@ namespace MphRead::Mods::Network
                 const std::int32_t slot = shooter.SlotIndex();
                 Trace("attempt", ShotKey::For(slot, NetUnlagged::LaunchFrameFor(shooter)),
                     shooter.CurrentWeapon(), "result=" + ToString(result)
-                    + " health=" + std::to_string(shooter.Health())
+                    + " health=" + Runtime::ToString(shooter.Health())
                     + " shoot=" + (shooter.Controls().Shoot().IsDown() ? "True" : "False")
                     + " press=" + (shooter.Controls().Shoot().IsPressed() ? "True" : "False")
-                    + " pressAge=" + std::to_string(Runtime::ManagedAt(NetPlayerBridge::ShootPressAge, slot)));
+                    + " pressAge=" + Runtime::ToString(Runtime::ManagedAt(NetPlayerBridge::ShootPressAge, slot)));
             }
         }
         return result == ShotAttemptResult::Spawned;
@@ -152,9 +152,11 @@ namespace MphRead::Mods::Network
             std::int64_t attempted = 0;
             for (std::size_t r = 0; r < ResultCount; r++)
             {
-                attempted += Outcomes[i][r];
+                attempted = Runtime::UncheckedAdd(attempted, Outcomes[i][r]);
             }
-            if (attempted + LocalHits[i] + AuthorityHits[i] + Claims[i] == 0)
+            const std::int64_t observed = Runtime::UncheckedAdd(
+                Runtime::UncheckedAdd(Runtime::UncheckedAdd(attempted, LocalHits[i]), AuthorityHits[i]), Claims[i]);
+            if (observed == 0)
             {
                 continue;
             }
@@ -164,28 +166,28 @@ namespace MphRead::Mods::Network
                 : 100.0 * static_cast<double>(RewindClamps[i]) / static_cast<double>(RewindSamples[i]);
             text += (b == WeaponCount - 1 ? std::string("alt/bomb")
                 : ::MphRead::ToString(static_cast<::MphRead::BeamType>(b)))
-                + " " + std::to_string(attempted) + " " + std::to_string(Outcomes[i][0])
-                + " " + std::to_string(LocalHits[i]) + " " + std::to_string(AuthorityHits[i])
-                + " " + std::to_string(Predictions[i]) + " " + std::to_string(Claims[i])
-                + " " + std::to_string(Rescues[i]) + " " + std::to_string(Refusals[i])
-                + " " + std::to_string(PredictedDamage[i]) + " " + std::to_string(AuthorityDamage[i])
-                + " " + std::to_string(LocalHeadshots[i]) + " " + std::to_string(AuthorityHeadshots[i])
+                + " " + Runtime::ToString(attempted) + " " + Runtime::ToString(Outcomes[i][0])
+                + " " + Runtime::ToString(LocalHits[i]) + " " + Runtime::ToString(AuthorityHits[i])
+                + " " + Runtime::ToString(Predictions[i]) + " " + Runtime::ToString(Claims[i])
+                + " " + Runtime::ToString(Rescues[i]) + " " + Runtime::ToString(Refusals[i])
+                + " " + Runtime::ToString(PredictedDamage[i]) + " " + Runtime::ToString(AuthorityDamage[i])
+                + " " + Runtime::ToString(LocalHeadshots[i]) + " " + Runtime::ToString(AuthorityHeadshots[i])
                 + " " + Runtime::ToString(meanRewind, "F2") + " " + Runtime::ToString(clamp, "F1")
                 + std::string(Runtime::EnvironmentNewLine());
             if (ContinuousTicks[i] > 0)
             {
-                text += "  continuous ticks=" + std::to_string(ContinuousTicks[i])
-                    + " nonzero=" + std::to_string(ContinuousDamageTicks[i])
-                    + " acquired=" + std::to_string(ContinuousAcquired[i])
-                    + " ammo=" + std::to_string(ContinuousAmmo[i])
-                    + " drainCredit=" + std::to_string(DrainCredit[i]) + std::string(Runtime::EnvironmentNewLine());
+                text += "  continuous ticks=" + Runtime::ToString(ContinuousTicks[i])
+                    + " nonzero=" + Runtime::ToString(ContinuousDamageTicks[i])
+                    + " acquired=" + Runtime::ToString(ContinuousAcquired[i])
+                    + " ammo=" + Runtime::ToString(ContinuousAmmo[i])
+                    + " drainCredit=" + Runtime::ToString(DrainCredit[i]) + std::string(Runtime::EnvironmentNewLine());
             }
             for (std::size_t r = 1; r < ResultCount; r++)
             {
                 if (Outcomes[i][r] != 0)
                 {
                     text += "  " + ToString(static_cast<ShotAttemptResult>(r)) + "="
-                        + std::to_string(Outcomes[i][r]) + std::string(Runtime::EnvironmentNewLine());
+                        + Runtime::ToString(Outcomes[i][r]) + std::string(Runtime::EnvironmentNewLine());
                 }
             }
         }

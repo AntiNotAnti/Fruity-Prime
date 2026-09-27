@@ -294,12 +294,13 @@ namespace MphRead::Mods::Network
                 && (damage >= static_cast<std::uint32_t>(victim.Health()) || HasFlag(flags, Entities::DamageFlags::Death));
             const std::uint32_t claimedDamage = damage;
             const auto weapon = Index(NetShotDiagnostics::Bucket(beam));
-            NetShotDiagnostics::LocalHits[weapon]++;
-            NetShotDiagnostics::Predictions[weapon]++;
-            NetShotDiagnostics::PredictedDamage[weapon] += damage;
+            Runtime::IncrementInPlace(NetShotDiagnostics::LocalHits[weapon]);
+            Runtime::IncrementInPlace(NetShotDiagnostics::Predictions[weapon]);
+            NetShotDiagnostics::PredictedDamage[weapon] = Runtime::UncheckedAdd(
+                NetShotDiagnostics::PredictedDamage[weapon], static_cast<std::int64_t>(damage));
             if (HasFlag(flags, Entities::DamageFlags::Headshot))
             {
-                NetShotDiagnostics::LocalHeadshots[weapon]++;
+                Runtime::IncrementInPlace(NetShotDiagnostics::LocalHeadshots[weapon]);
             }
             if (attacker != nullptr && NetLog::Enabled())
             {
@@ -539,7 +540,9 @@ namespace MphRead::Mods::Network
         _healAmount[Index(tail)] = amount;
         _healCount++;
         _drainPredicted += amount;
-        NetShotDiagnostics::DrainCredit[Index(NetShotDiagnostics::Bucket(::MphRead::BeamType::ShockCoil))] += amount;
+        auto& drainCredit = NetShotDiagnostics::DrainCredit[
+            Index(NetShotDiagnostics::Bucket(::MphRead::BeamType::ShockCoil))];
+        drainCredit = Runtime::UncheckedAdd(drainCredit, static_cast<std::int64_t>(amount));
     }
 
     std::int32_t NetHitPrediction::Debit(std::int32_t slot)

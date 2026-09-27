@@ -229,7 +229,8 @@ namespace MphRead::Mods::Network
             _nextId = 1;
         }
         _declared++;
-        NetShotDiagnostics::Claims[static_cast<std::size_t>(NetShotDiagnostics::Bucket(beam))]++;
+        Runtime::IncrementInPlace(
+            NetShotDiagnostics::Claims[static_cast<std::size_t>(NetShotDiagnostics::Bucket(beam))]);
         if (NetLog::Enabled())
         {
             NetShotDiagnostics::Trace("claim", ShotKey::For(attacker.SlotIndex(), launchFrame), beam,
@@ -358,11 +359,11 @@ namespace MphRead::Mods::Network
                     NetShotDiagnostics::Bucket(static_cast<::MphRead::BeamType>(entry.Beam)));
                 if (result == HitVerdictPacket::ResultApplied)
                 {
-                    NetShotDiagnostics::Rescues[weapon]++;
+                    Runtime::IncrementInPlace(NetShotDiagnostics::Rescues[weapon]);
                 }
                 else if (result != HitVerdictPacket::ResultDuplicate)
                 {
-                    NetShotDiagnostics::Refusals[weapon]++;
+                    Runtime::IncrementInPlace(NetShotDiagnostics::Refusals[weapon]);
                 }
                 if (NetLog::Enabled())
                 {
@@ -617,8 +618,8 @@ namespace MphRead::Mods::Network
             const auto claimAt = static_cast<std::size_t>(claim.ClaimId % SeenCapacity);
             _seenBeams[s][claimAt] = static_cast<::MphRead::BeamType>(claim.Beam);
             _seenKeys[s][claimAt] = ShotKey::For(shooterSlot, claim.LaunchFrame);
-            NetShotDiagnostics::Claims[static_cast<std::size_t>(
-                NetShotDiagnostics::Bucket(static_cast<::MphRead::BeamType>(claim.Beam)))]++;
+            Runtime::IncrementInPlace(NetShotDiagnostics::Claims[static_cast<std::size_t>(
+                NetShotDiagnostics::Bucket(static_cast<::MphRead::BeamType>(claim.Beam)))]);
             Remember(shooterSlot, claim.ClaimId, ResultPending);
             const std::uint8_t immediate = Judge(shooterSlot, claim);
             if (immediate != HitVerdictPacket::ResultApplied)
@@ -1099,11 +1100,11 @@ namespace MphRead::Mods::Network
             const auto weapon = static_cast<std::size_t>(NetShotDiagnostics::Bucket(_seenBeams[s][at]));
             if (result == HitVerdictPacket::ResultApplied)
             {
-                NetShotDiagnostics::Rescues[weapon]++;
+                Runtime::IncrementInPlace(NetShotDiagnostics::Rescues[weapon]);
             }
             else if (result != HitVerdictPacket::ResultDuplicate)
             {
-                NetShotDiagnostics::Refusals[weapon]++;
+                Runtime::IncrementInPlace(NetShotDiagnostics::Refusals[weapon]);
             }
             if (NetLog::Enabled())
             {
