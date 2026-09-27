@@ -21,7 +21,7 @@ namespace MphRead::Mods::MapGen
     class MapJumpPad;
     class MapItem;
 
-    class MapDefinition
+    class MapDefinition : public std::enable_shared_from_this<MapDefinition>
     {
     public:
         using MaterialList = std::vector<std::shared_ptr<MapMaterial>>;

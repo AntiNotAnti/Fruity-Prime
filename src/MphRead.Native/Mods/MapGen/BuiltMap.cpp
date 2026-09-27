@@ -1,13 +1,20 @@
 #include "BuiltMap.hpp"
 
+#include "MapDefinition.hpp"
+#include "../../Formats/EntityClass.hpp"
 #include "../../Formats/Types.hpp"
 
 namespace MphRead::Mods::MapGen
 {
     BuiltMap::BuiltMap(MapDefinition* definition) noexcept
-        : _definition(definition)
+        : _definitionOwner(definition == nullptr
+              ? std::shared_ptr<MapDefinition>{}
+              : definition->weak_from_this().lock()),
+          _definition(definition)
     {
     }
+
+    BuiltMap::~BuiltMap() = default;
 
     MapDefinition* BuiltMap::Definition() const noexcept
     {
@@ -29,14 +36,29 @@ namespace MphRead::Mods::MapGen
         return _entities;
     }
 
+    BuiltFace* BuiltMap::OwnFace(std::unique_ptr<BuiltFace> face)
+    {
+        BuiltFace* result = face.get();
+        _ownedFaces.push_back(std::move(face));
+        return result;
+    }
+
+    Editor::EntityEditorBase* BuiltMap::OwnEntity(
+        std::unique_ptr<Editor::EntityEditorBase> entity)
+    {
+        Editor::EntityEditorBase* result = entity.get();
+        _ownedEntities.push_back(std::move(entity));
+        return result;
+    }
+
     BuiltFace::BuiltFace(
-        Interop::ManagedArray<OpenTK::Mathematics::Vector3>* points,
-        Interop::ManagedArray<OpenTK::Mathematics::Vector2>* texcoords,
+        std::unique_ptr<MphRead::ManagedArray<OpenTK::Mathematics::Vector3>> points,
+        std::unique_ptr<MphRead::ManagedArray<OpenTK::Mathematics::Vector2>> texcoords,
         OpenTK::Mathematics::Vector3 normal,
         std::int32_t material,
         float shade) noexcept
-        : _points(points),
-          _texcoords(texcoords),
+        : _points(std::move(points)),
+          _texcoords(std::move(texcoords)),
           _normalX(normal.X),
           _normalY(normal.Y),
           _normalZ(normal.Z),
@@ -45,14 +67,16 @@ namespace MphRead::Mods::MapGen
     {
     }
 
-    Interop::ManagedArray<OpenTK::Mathematics::Vector3>* BuiltFace::Points() const noexcept
+    BuiltFace::~BuiltFace() = default;
+
+    MphRead::ManagedArray<OpenTK::Mathematics::Vector3>* BuiltFace::Points() const noexcept
     {
-        return _points;
+        return _points.get();
     }
 
-    Interop::ManagedArray<OpenTK::Mathematics::Vector2>* BuiltFace::Texcoords() const noexcept
+    MphRead::ManagedArray<OpenTK::Mathematics::Vector2>* BuiltFace::Texcoords() const noexcept
     {
-        return _texcoords;
+        return _texcoords.get();
     }
 
     OpenTK::Mathematics::Vector3 BuiltFace::Normal() const noexcept

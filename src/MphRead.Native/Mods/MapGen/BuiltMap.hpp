@@ -3,6 +3,7 @@
 #include "../../Formats/Enums.hpp"
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace OpenTK::Mathematics
@@ -13,27 +14,29 @@ namespace OpenTK::Mathematics
 
 namespace MphRead
 {
+    template <typename T>
+    class ManagedArray;
+
     namespace Editor
     {
         class EntityEditorBase;
     }
 
-    namespace Interop
-    {
-        template <typename T>
-        class ManagedArray;
-    }
 }
 
 namespace MphRead::Mods::MapGen
 {
     class MapDefinition;
+    class MapBuilder;
+    class MapPacker;
+    class Q3Import;
     class BuiltFace;
 
     class BuiltMap
     {
     public:
         explicit BuiltMap(MapDefinition* definition) noexcept;
+        virtual ~BuiltMap();
 
         BuiltMap(const BuiltMap&) = delete;
         BuiltMap& operator=(const BuiltMap&) = delete;
@@ -46,7 +49,18 @@ namespace MphRead::Mods::MapGen
         [[nodiscard]] std::vector<Editor::EntityEditorBase*>& Entities() noexcept;
 
     private:
+        friend class MapBuilder;
+        friend class MapPacker;
+        friend class Q3Import;
+
+        [[nodiscard]] BuiltFace* OwnFace(std::unique_ptr<BuiltFace> face);
+        [[nodiscard]] Editor::EntityEditorBase* OwnEntity(
+            std::unique_ptr<Editor::EntityEditorBase> entity);
+
+        std::shared_ptr<MapDefinition> _definitionOwner{};
         MapDefinition* const _definition;
+        std::vector<std::unique_ptr<BuiltFace>> _ownedFaces{};
+        std::vector<std::unique_ptr<Editor::EntityEditorBase>> _ownedEntities{};
         std::vector<BuiltFace*> _faces{};
         std::vector<BuiltFace*> _solid{};
         std::vector<Editor::EntityEditorBase*> _entities{};
@@ -56,19 +70,20 @@ namespace MphRead::Mods::MapGen
     {
     public:
         BuiltFace(
-            Interop::ManagedArray<OpenTK::Mathematics::Vector3>* points,
-            Interop::ManagedArray<OpenTK::Mathematics::Vector2>* texcoords,
+            std::unique_ptr<MphRead::ManagedArray<OpenTK::Mathematics::Vector3>> points,
+            std::unique_ptr<MphRead::ManagedArray<OpenTK::Mathematics::Vector2>> texcoords,
             OpenTK::Mathematics::Vector3 normal,
             std::int32_t material,
             float shade) noexcept;
+        virtual ~BuiltFace();
 
         BuiltFace(const BuiltFace&) = delete;
         BuiltFace& operator=(const BuiltFace&) = delete;
         BuiltFace(BuiltFace&&) = delete;
         BuiltFace& operator=(BuiltFace&&) = delete;
 
-        [[nodiscard]] Interop::ManagedArray<OpenTK::Mathematics::Vector3>* Points() const noexcept;
-        [[nodiscard]] Interop::ManagedArray<OpenTK::Mathematics::Vector2>* Texcoords() const noexcept;
+        [[nodiscard]] MphRead::ManagedArray<OpenTK::Mathematics::Vector3>* Points() const noexcept;
+        [[nodiscard]] MphRead::ManagedArray<OpenTK::Mathematics::Vector2>* Texcoords() const noexcept;
         [[nodiscard]] OpenTK::Mathematics::Vector3 Normal() const noexcept;
         [[nodiscard]] std::int32_t Material() const noexcept;
         [[nodiscard]] float Shade() const noexcept;
@@ -89,8 +104,8 @@ namespace MphRead::Mods::MapGen
         bool IgnoreScan = false;
 
     private:
-        Interop::ManagedArray<OpenTK::Mathematics::Vector3>* const _points;
-        Interop::ManagedArray<OpenTK::Mathematics::Vector2>* const _texcoords;
+        std::unique_ptr<MphRead::ManagedArray<OpenTK::Mathematics::Vector3>> _points;
+        std::unique_ptr<MphRead::ManagedArray<OpenTK::Mathematics::Vector2>> _texcoords;
         const float _normalX;
         const float _normalY;
         const float _normalZ;

@@ -215,14 +215,14 @@ namespace MphRead::Mods::MapGen
             Runtime::IncrementInPlace(result.Degenerate);
             return;
         }
-        auto* world = new ManagedArray<Vector3>(corners.size());
-        auto* texcoords = new ManagedArray<Vector2>(corners.size());
+        auto world = std::make_unique<ManagedArray<Vector3>>(corners.size());
+        auto texcoords = std::make_unique<ManagedArray<Vector2>>(corners.size());
         for (std::size_t i = 0; i < corners.size(); i++)
         {
             (*world)[i] = corners[i];
         }
-        auto* face = new BuiltFace(reinterpret_cast<Interop::ManagedArray<Vector3>*>(world),
-            reinterpret_cast<Interop::ManagedArray<Vector2>*>(texcoords), normal, 0, 1.0F);
+        auto face = std::make_unique<BuiltFace>(
+            std::move(world), std::move(texcoords), normal, 0, 1.0F);
         face->Terrain(surface.Terrain);
         face->Damaging(surface.Damaging);
         face->Slipperiness = surface.Slipperiness;
@@ -230,7 +230,7 @@ namespace MphRead::Mods::MapGen
         face->IgnorePlayers = surface.IgnorePlayers;
         face->IgnoreBeams = surface.IgnoreBeams;
         face->IgnoreScan = surface.IgnoreScan;
-        result.Faces.push_back(face);
+        result.Faces.push_back(std::move(face));
         const auto found = std::find_if(result.Materials.begin(), result.Materials.end(),
             [&materialName](const auto& entry) { return entry.first == materialName; });
         if (found == result.Materials.end())

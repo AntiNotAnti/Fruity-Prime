@@ -84,25 +84,13 @@ namespace
         throw System::IndexOutOfRangeException();
     }
 
-    [[nodiscard]] MphRead::Interop::ManagedArray<Vector3>* BuiltPoints(
-        ManagedArray<Vector3>* points) noexcept
-    {
-        return reinterpret_cast<MphRead::Interop::ManagedArray<Vector3>*>(points);
-    }
-
-    [[nodiscard]] MphRead::Interop::ManagedArray<Vector2>* BuiltTexcoords(
-        ManagedArray<Vector2>* texcoords) noexcept
-    {
-        return reinterpret_cast<MphRead::Interop::ManagedArray<Vector2>*>(texcoords);
-    }
-
     [[nodiscard]] ManagedArray<Vector3>* FacePoints(BuiltFace* face)
     {
         if (face == nullptr)
         {
             throw System::NullReferenceException();
         }
-        auto* points = reinterpret_cast<ManagedArray<Vector3>*>(face->Points());
+        auto* points = face->Points();
         if (points == nullptr)
         {
             throw System::NullReferenceException();
@@ -116,7 +104,7 @@ namespace
         {
             throw System::NullReferenceException();
         }
-        auto* texcoords = reinterpret_cast<ManagedArray<Vector2>*>(face->Texcoords());
+        auto* texcoords = face->Texcoords();
         if (texcoords == nullptr)
         {
             throw System::NullReferenceException();
@@ -326,6 +314,8 @@ namespace MphRead::Mods::MapGen
 
             for (BuiltFace* built : builtFaces)
             {
+                std::unique_ptr<BuiltFace> builtOwner(built);
+                built = map->OwnFace(std::move(builtOwner));
                 if (sky)
                 {
                     ProjectSky(
@@ -487,20 +477,21 @@ namespace MphRead::Mods::MapGen
                 continue;
             }
 
-            auto* world = new ManagedArray<Vector3>(side.Points.size());
-            auto* texcoords = new ManagedArray<Vector2>(side.Points.size());
+            auto world = std::make_unique<ManagedArray<Vector3>>(side.Points.size());
+            auto texcoords = std::make_unique<ManagedArray<Vector2>>(side.Points.size());
             for (std::size_t i = 0; i < side.Points.size(); ++i)
             {
                 (*world)[i] = ToWorld(side.Points[i], unit);
             }
             const std::vector<float> direction{
                 side.Normal.X, side.Normal.Y, side.Normal.Z};
-            map->Solid().push_back(new BuiltFace(
-                BuiltPoints(world),
-                BuiltTexcoords(texcoords),
+            auto face = std::make_unique<BuiltFace>(
+                std::move(world),
+                std::move(texcoords),
                 ToDirection(std::addressof(direction)),
                 0,
-                1.0F));
+                1.0F);
+            map->Solid().push_back(map->OwnFace(std::move(face)));
         }
 
         AddEntities(map.get(), def, bsp.get(), import, verbose);
@@ -940,8 +931,8 @@ namespace MphRead::Mods::MapGen
             std::swap(uvs[1], uvs[2]);
         }
 
-        auto* pointArray = new ManagedArray<Vector3>(points.size());
-        auto* uvArray = new ManagedArray<Vector2>(uvs.size());
+        auto pointArray = std::make_unique<ManagedArray<Vector3>>(points.size());
+        auto uvArray = std::make_unique<ManagedArray<Vector2>>(uvs.size());
         for (std::size_t i = 0; i < points.size(); ++i)
         {
             (*pointArray)[i] = points[i];
@@ -952,8 +943,8 @@ namespace MphRead::Mods::MapGen
         }
 
         return new BuiltFace(
-            BuiltPoints(pointArray),
-            BuiltTexcoords(uvArray),
+            std::move(pointArray),
+            std::move(uvArray),
             normal,
             material,
             shade);

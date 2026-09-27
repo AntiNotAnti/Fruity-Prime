@@ -53,7 +53,7 @@ namespace MphRead::Mods::MapGen
 
         [[nodiscard]] Face Read(const BuiltFace* face)
         {
-            const auto* points = reinterpret_cast<const ManagedArray<Vector3>*>(face->Points());
+            const auto* points = face->Points();
             Face result{face, {}, face->Normal()};
             for (std::size_t i = 0; i < points->Length(); i++)
             {

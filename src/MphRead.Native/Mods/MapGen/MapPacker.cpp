@@ -137,7 +137,7 @@ namespace
         {
             throw System::NullReferenceException();
         }
-        auto* points = reinterpret_cast<ManagedArray<Vector3>*>(face->Points());
+        auto* points = face->Points();
         if (points == nullptr)
         {
             throw System::NullReferenceException();
@@ -151,24 +151,12 @@ namespace
         {
             throw System::NullReferenceException();
         }
-        auto* texcoords = reinterpret_cast<ManagedArray<Vector2>*>(face->Texcoords());
+        auto* texcoords = face->Texcoords();
         if (texcoords == nullptr)
         {
             throw System::NullReferenceException();
         }
         return texcoords;
-    }
-
-    [[nodiscard]] MphRead::Interop::ManagedArray<Vector3>* BuiltPoints(
-        ManagedArray<Vector3>* points) noexcept
-    {
-        return reinterpret_cast<MphRead::Interop::ManagedArray<Vector3>*>(points);
-    }
-
-    [[nodiscard]] MphRead::Interop::ManagedArray<Vector2>* BuiltTexcoords(
-        ManagedArray<Vector2>* texcoords) noexcept
-    {
-        return reinterpret_cast<MphRead::Interop::ManagedArray<Vector2>*>(texcoords);
     }
 
     struct LowerInvariantEntry final
@@ -579,8 +567,8 @@ namespace
             (*Texcoords)[1] = t1;
             (*Texcoords)[2] = t2;
             Face = std::make_unique<BuiltFace>(
-                BuiltPoints(Points.get()),
-                BuiltTexcoords(Texcoords.get()),
+                std::move(Points),
+                std::move(Texcoords),
                 normal,
                 material,
                 shade);
@@ -1234,14 +1222,18 @@ namespace MphRead::Mods::MapGen
                 + ", or with the game files. Write one with tools/collision-to-obj.py, or take the \"collision\" key out "
                 "to go back to the collision the geometry makes.");
         }
-        const CollisionObj::Result read = CollisionObj::Read(*bytes, source, collision->ZUp);
+        CollisionObj::Result read = CollisionObj::Read(*bytes, source, collision->ZUp);
         if (map == nullptr)
         {
             throw System::NullReferenceException();
         }
         const std::int32_t replaced = ListCount(map->Solid().size());
+        const std::int32_t readFaceCount = ListCount(read.Faces.size());
         map->Solid().clear();
-        map->Solid().insert(map->Solid().end(), read.Faces.begin(), read.Faces.end());
+        for (std::unique_ptr<BuiltFace>& face : read.Faces)
+        {
+            map->Solid().push_back(map->OwnFace(std::move(face)));
+        }
         if (verbose)
         {
             const std::string degenerate = read.Degenerate > 0
@@ -1249,7 +1241,7 @@ namespace MphRead::Mods::MapGen
                     + " enclosing no area, skipped)"
                 : std::string();
             WriteLine("  collision from " + source + ": "
-                + ::MphRead::NativeRuntime::ToString(ListCount(read.Faces.size()))
+                + ::MphRead::NativeRuntime::ToString(readFaceCount)
                 + " faces over "
                 + ::MphRead::NativeRuntime::ToString(read.Vertices)
                 + " vertices, in place of the geometry's "

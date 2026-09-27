@@ -220,17 +220,6 @@ namespace
         return value;
     }
 
-    [[nodiscard]] MphRead::Interop::ManagedArray<Vector3>* BuiltPoints(
-        MphRead::ManagedArray<Vector3>* points) noexcept
-    {
-        return reinterpret_cast<MphRead::Interop::ManagedArray<Vector3>*>(points);
-    }
-
-    [[nodiscard]] MphRead::Interop::ManagedArray<Vector2>* BuiltTexcoords(
-        MphRead::ManagedArray<Vector2>* texcoords) noexcept
-    {
-        return reinterpret_cast<MphRead::Interop::ManagedArray<Vector2>*>(texcoords);
-    }
 }
 
 namespace MphRead::Mods::MapGen
@@ -504,8 +493,8 @@ namespace MphRead::Mods::MapGen
 
         for (std::size_t i = 0; i < 6; ++i)
         {
-            auto* points = new MphRead::ManagedArray<Vector3>(4);
-            auto* texcoords = new MphRead::ManagedArray<Vector2>(4);
+            auto points = std::make_unique<MphRead::ManagedArray<Vector3>>(4);
+            auto texcoords = std::make_unique<MphRead::ManagedArray<Vector2>>(4);
             for (std::size_t j = 0; j < 4; ++j)
             {
                 (*points)[j] = sidePoints[i][j];
@@ -514,9 +503,9 @@ namespace MphRead::Mods::MapGen
 
             const std::int32_t faceMaterial = brush->Material();
             const float faceShade = _faceShades[i] * brush->Shade();
-            auto* face = new BuiltFace(
-                BuiltPoints(points),
-                BuiltTexcoords(texcoords),
+            auto face = std::make_unique<BuiltFace>(
+                std::move(points),
+                std::move(texcoords),
                 normals[i],
                 faceMaterial,
                 faceShade);
@@ -527,10 +516,11 @@ namespace MphRead::Mods::MapGen
             {
                 throw System::NullReferenceException();
             }
-            map->Faces().push_back(face);
+            BuiltFace* ownedFace = map->OwnFace(std::move(face));
+            map->Faces().push_back(ownedFace);
             if (brush->Solid())
             {
-                map->Solid().push_back(face);
+                map->Solid().push_back(ownedFace);
             }
         }
     }
@@ -581,7 +571,7 @@ namespace MphRead::Mods::MapGen
             constexpr float DegreesToRadians = 0.017453292519943295769F;
             const float yaw = spawn->Yaw() * DegreesToRadians;
 
-            auto* entity = new Editor::PlayerSpawnEntityEditor();
+            auto entity = std::make_unique<Editor::PlayerSpawnEntityEditor>();
             entity->Id = PostIncrement(id);
             entity->LayerMask = 0xFFFFU;
             entity->Position = ToVector(spawn->Position());
@@ -591,7 +581,7 @@ namespace MphRead::Mods::MapGen
             entity->Active = true;
             entity->Availability = 0;
             entity->TeamIndex = -1;
-            map->Entities().push_back(entity);
+            map->Entities().push_back(map->OwnEntity(std::move(entity)));
         }
 
         MapDefinition::JumpPadList* jumpPads = def->JumpPads();
@@ -604,7 +594,7 @@ namespace MphRead::Mods::MapGen
             MapJumpPad* pad = &RequireReference(padValue);
             const auto [beam, speed] = SolveJumpPad(pad);
 
-            auto* entity = new Editor::JumpPadEntityEditor();
+            auto entity = std::make_unique<Editor::JumpPadEntityEditor>();
             entity->Id = PostIncrement(id);
             entity->LayerMask = 0xFFFFU;
             entity->Position = ToVector(pad->Position());
@@ -623,7 +613,7 @@ namespace MphRead::Mods::MapGen
             entity->TriggerFlags = Entities::TriggerFlags::PlayerBiped
                 | Entities::TriggerFlags::PlayerAlt
                 | Entities::TriggerFlags::IncludeBots;
-            map->Entities().push_back(entity);
+            map->Entities().push_back(map->OwnEntity(std::move(entity)));
         }
 
         MapDefinition::ItemList* items = def->Items();
@@ -654,7 +644,7 @@ namespace MphRead::Mods::MapGen
                     + JoinMultiplayerItems(MultiplayerItems) + ".");
             }
 
-            auto* entity = new Editor::ItemSpawnEntityEditor();
+            auto entity = std::make_unique<Editor::ItemSpawnEntityEditor>();
             entity->Id = PostIncrement(id);
             entity->LayerMask = 0xFFFFU;
             entity->Position = ToVector(item->Position());
@@ -671,7 +661,7 @@ namespace MphRead::Mods::MapGen
             entity->SpawnDelay = 0;
             entity->NotifyEntityId = -1;
             entity->CollectedMessage = Message::None;
-            map->Entities().push_back(entity);
+            map->Entities().push_back(map->OwnEntity(std::move(entity)));
         }
 
         if (map->Entities().empty())

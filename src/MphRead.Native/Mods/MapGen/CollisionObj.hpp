@@ -2,9 +2,11 @@
 
 #include "../../Formats/Enums.hpp"
 #include "../../NativeRuntime/OpenTK/Mathematics.hpp"
+#include "BuiltMap.hpp"
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <string>
 #include <utility>
@@ -12,8 +14,6 @@
 
 namespace MphRead::Mods::MapGen
 {
-    class BuiltFace;
-
     // A room's collision read from a Wavefront OBJ. A material named
     // <terrain>[_attribute...] carries everything the format holds per face,
     // and winding is what says which side blocks.
@@ -24,7 +24,7 @@ namespace MphRead::Mods::MapGen
 
         struct Result
         {
-            std::vector<BuiltFace*> Faces{};
+            std::vector<std::unique_ptr<BuiltFace>> Faces{};
             std::int32_t Degenerate = 0;
             std::int32_t Vertices = 0;
             // Dictionary<string, int>, in the order the materials were met.
