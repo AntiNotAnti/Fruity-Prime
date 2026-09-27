@@ -1,6 +1,7 @@
 #include "WindowsGamepadHaptics.hpp"
 
 #include "GamepadAnalog.hpp"
+#include "../../NativeRuntime/System/Exceptions.hpp"
 
 #include <algorithm>
 
@@ -112,10 +113,12 @@ namespace MphRead::Mods::Input
     {
 #if defined(_WIN32)
         XInputVibration vibration{low, high};
-        if (Library().SetState != nullptr)
+        if (Library().SetState == nullptr)
         {
-            Library().SetState(_index, &vibration);
+            throw ::System::EntryPointNotFoundException(
+                "Unable to find XInputSetState in xinput1_4.dll.");
         }
+        Library().SetState(_index, &vibration);
 #else
         static_cast<void>(low);
         static_cast<void>(high);
