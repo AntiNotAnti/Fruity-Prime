@@ -234,14 +234,16 @@ namespace MphRead
             GL::UseProgram(0);
             return true;
         }
-        catch (const std::exception& ex)
+        catch (...)
         {
+            const std::exception_ptr exception = std::current_exception();
             // A preview that will not draw is the launcher's boxes again, not
             // a dead launcher. Said once: this is a per-frame path.
             if (!_previewComplained)
             {
                 _previewComplained = true;
-                Mods::DebugLog::Line("ui", std::string("the hunter preview could not be drawn: ") + ex.what());
+                Mods::DebugLog::Line("ui", "the hunter preview could not be drawn: "
+                    + ExceptionMessage(exception));
             }
             LauncherPreview = false;
             return false;
