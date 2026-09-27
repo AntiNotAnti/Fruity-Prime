@@ -801,7 +801,7 @@
 
 | S | +/- | C# | C++ | 進捗 |
 |---|---|---|---|---|
-| M | +1050/-99 | `Renderer.cs` | .cpp,.hpp | 完了（C#追加差分監査・4差分修正・Windows Release build済、runtime未実施） |
+| M | +1050/-99 | `Renderer.cs` | .cpp,.hpp | 完了（C#全文・直接呼出元再照合済、Scene.ShowCursorのWeaponWheel.Absolute条件漏れを修正してマウスホイール中のcursor captureを一致。Windows Release native library build済、runtime未実施） |
 | M | +872/-49 | `Mods/ModEntry.cs` | .cpp,.hpp | 完了（C#全分岐・引数照合、`teamprobe`/network/MapGen/server/launcher配線、Windows Release build済） |
 | M | +376/-94 | `Entities/Players/PlayerHud.cs` | .cpp,.hpp | 完了 |
 | M | +185/-40 | `Entities/Players/PlayerInput.cs` | .cpp,.hpp | 完了 |

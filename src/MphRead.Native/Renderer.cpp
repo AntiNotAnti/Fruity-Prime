@@ -55,6 +55,7 @@
 #include "Mods/Input/InputSourceTracker.hpp"
 #include "Mods/Input/PointerInput.hpp"
 #include "Mods/Input/StylusZone.hpp"
+#include "Mods/Input/WeaponWheel.hpp"
 #include "Mods/Network/DemoClip.hpp"
 #include "Mods/Network/DemoPlayback.hpp"
 #include "Mods/Network/DemoRecorder.hpp"
@@ -392,7 +393,8 @@ namespace MphRead
     bool Scene::ShowCursor() const
     {
         const auto main = Entities::PlayerEntity::Main();
-        return main && TypeExtensions::TestFlag(main->Flags1(), Entities::PlayerFlags1::WeaponMenuOpen);
+        return Mods::Input::WeaponWheel::Absolute() && main
+            && TypeExtensions::TestFlag(main->Flags1(), Entities::PlayerFlags1::WeaponMenuOpen);
     }
     MphRead::Formats::Culling::FrustumInfo& Scene::FrustumInfo() const { return *_frustumInfo; }
     bool Scene::FrameAdvance() const noexcept { return _frameAdvanceOn; }
