@@ -69,11 +69,11 @@ namespace MphRead::Entities
         }
         _aimSourceRevision = Input::AimInputSourceTracker::Revision();
         _assistRoom = room;
-        const std::int64_t now = ::MphRead::NativeRuntime::EnvironmentTickCount64();
         Input::AimInputSourceTracker::Pointer(_input.MouseDeltaX(), _input.MouseDeltaY(),
-            Input::PointerDevice::Active() && Input::PointerDevice::Current().Device != Input::PointerDeviceType::Mouse, now);
+            Input::PointerDevice::Active() && Input::PointerDevice::Current().Device != Input::PointerDeviceType::Mouse,
+            ::MphRead::NativeRuntime::EnvironmentTickCount64());
         const auto aim = Input::GamepadInput::AimStick();
-        Input::AimInputSourceTracker::Stick(aim.first, aim.second, now);
+        Input::AimInputSourceTracker::Stick(aim.first, aim.second, ::MphRead::NativeRuntime::EnvironmentTickCount64());
         const bool eligible = snapshot.State.Connected && Input::GamepadContexts::Focused() && !Input::GamepadContexts::MenuVisible()
             && Input::GamepadContexts::Current() == Input::GamepadContext::Gameplay && !Input::GamepadInput::WheelHeld()
             && Input::AimInputSourceTracker::Current() == Input::AimInputSource::Gamepad && _health > 0
@@ -147,7 +147,9 @@ namespace MphRead::Entities
         const std::span<const AimAssistTarget> found(candidates.data(), count);
         AimAssistResult result = Mods::Input::AimAssist::AimAssist::Apply(_controllerAssist, found, NVector2(x, y),
             std::sqrt(aim.first * aim.first + aim.second * aim.second), move, 1.0F / 60, eligible, profile);
-        AimAssistTarget chosen{};
+        // C# `default(AimAssistTarget)` zeros fields instead of applying
+        // the record constructor's defaults (Eligible=true, UpperChest).
+        AimAssistTarget chosen{0, 0, {}, {}, 0.0F, false, false, false, AimAssistPointType::CenterMass};
         for (const AimAssistTarget& candidate : found)
         {
             if (candidate.Slot == result.TargetSlot)
