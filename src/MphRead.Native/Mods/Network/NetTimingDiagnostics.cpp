@@ -3,6 +3,7 @@
 #include "NetSession.hpp"
 
 #include "../../Entities/Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/System/Number.hpp"
 #include "../../NativeRuntime/System/Stopwatch.hpp"
 
@@ -63,11 +64,11 @@ namespace MphRead::Mods::Network
         if (_stallAt != 0
             && Runtime::TimeSpanTotalMilliseconds(Runtime::StopwatchGetElapsedTicks(_stallAt)) < 250)
         {
-            CorrectionsAfterLocalStall++;
+            Runtime::IncrementInPlace(CorrectionsAfterLocalStall);
         }
         else
         {
-            CorrectionsWithoutLocalStall++;
+            Runtime::IncrementInPlace(CorrectionsWithoutLocalStall);
         }
     }
 
@@ -86,16 +87,18 @@ namespace MphRead::Mods::Network
         _positionFrame[i] = NetSession::NetFrame();
         if (snapshot)
         {
-            SnapshotPositionFrames++;
+            Runtime::IncrementInPlace(SnapshotPositionFrames);
             _fallback[i] = 0;
         }
         else
         {
-            if (_fallback[i]++ == 0)
+            const std::int64_t previousFallback = _fallback[i];
+            Runtime::IncrementInPlace(_fallback[i]);
+            if (previousFallback == 0)
             {
-                IntentFallbackEntries++;
+                Runtime::IncrementInPlace(IntentFallbackEntries);
             }
-            IntentFallbackFrames++;
+            Runtime::IncrementInPlace(IntentFallbackFrames);
             LongestIntentFallback = std::max(LongestIntentFallback, _fallback[i]);
         }
     }
@@ -121,15 +124,15 @@ namespace MphRead::Mods::Network
 
     std::string NetTimingDiagnostics::Describe()
     {
-        return "positions: snapshots=" + std::to_string(SnapshotPositionFrames)
-            + " fallback entries=" + std::to_string(IntentFallbackEntries)
-            + " frames=" + std::to_string(IntentFallbackFrames)
-            + " longest=" + std::to_string(LongestIntentFallback) + "; "
+        return "positions: snapshots=" + Runtime::ToString(SnapshotPositionFrames)
+            + " fallback entries=" + Runtime::ToString(IntentFallbackEntries)
+            + " frames=" + Runtime::ToString(IntentFallbackFrames)
+            + " longest=" + Runtime::ToString(LongestIntentFallback) + "; "
             + "timing ms: snapshot=" + Runtime::ToString(SnapshotIntervalMs, "F1")
             + " worst=" + Runtime::ToString(WorstSnapshotIntervalMs, "F1")
             + " simulation=" + Runtime::ToString(SimulationIntervalMs, "F1")
             + " worst=" + Runtime::ToString(WorstSimulationIntervalMs, "F1") + "; "
-            + "playout snaps: after local stall=" + std::to_string(CorrectionsAfterLocalStall)
-            + " without local stall=" + std::to_string(CorrectionsWithoutLocalStall);
+            + "playout snaps: after local stall=" + Runtime::ToString(CorrectionsAfterLocalStall)
+            + " without local stall=" + Runtime::ToString(CorrectionsWithoutLocalStall);
     }
 }
