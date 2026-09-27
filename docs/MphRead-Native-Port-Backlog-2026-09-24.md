@@ -28,7 +28,7 @@
 
 ### 2026-09-28 現在の監査状態
 
-- 表の302項目はすべてC#対比監査済み。`GameFiles.cs`もC#全文・直接呼出し監査済みで、POSIX修正のmacOS/Clang・Linux/GCC CIとWindows Release buildを確認済み。個別監査の詳細は末尾ログを参照。現在の未解決ゲートはWindows/MSVC buildのみで、run `36344368855` は `NativeRuntime/System/Net.cpp` のWindows SDK header includeで失敗。`iphlpapi.h` includeへ変更しWindows Release `ninja -k 0` 成功、修正後のMSVC CI待ち。
+- 表の302項目はすべてC#対比監査済み。`GameFiles.cs`もC#全文・直接呼出し監査済みで、POSIX修正のmacOS/Clang・Linux/GCC CIとWindows Release buildを確認済み。個別監査の詳細は末尾ログを参照。最新 `2b6d9d49` CIでは総合build・Android・Linux/GCC・macOS/Clangが成功、Windows/MSVCは `Number.cpp` のC2015と `Runtime.cpp` のC2137で失敗。UnicodeコードポイントとNUL文字のリテラル表記を修正し、Windows Release `ninja -k 0` 成功。修正後MSVC CI待ち。
 - Section 14 のAndroid 17ファイルは監査完了。`NativeRuntime/Avalonia/Base.hpp` のMSVC対応後、Android arm64-v8a・x86_64をそれぞれ最新ソースで最終buildし、両方とも成功（各75段階、静的ライブラリをリンク）。runtime/device確認は未実施。
 
 - 済: 1 Platform helpers / 3 Mods leaves / 8 Multiplayer・teams
@@ -1092,3 +1092,5 @@
 - Windows/MSVC CI run `36342122622` の失敗を確認し、`NativeRuntime/Avalonia/Base.hpp` の `Rect(Point, Point)` からMSVCでconstexpr評価できない `std::abs` を含むコンストラクターの `constexpr` 指定だけを外した。幾何計算式は変更なし。`git diff --check`、Windows Release `ninja -k 0`、Android arm64-v8a・x86_64各75段階の最終build成功。MSVC修正後CI待ち。
 
 - 修正後のMSVC run `36344368855` は `Rect` のC3615を越え、次に `NativeRuntime/System/Net.cpp` のWindows SDK `netioapi.h` includeで失敗した。Windowsの `if_nametoindex` は `iphlpapi.h` 経由で宣言されるため、`windows.h` 後に `<iphlpapi.h>` をincludeする形へ変更。C#側のIP scope parsingや実行時の式は変更していない。`git diff --check`・Windows Release `ninja -k 0` 成功。MSVC再CI待ち。
+
+- MSVC run `36346606444` は `Number.cpp` のUnicode非ASCII文字リテラル（C2015）と `Runtime.cpp` のソース内NUL文字リテラル（C2137）で失敗。Numberのdash/NBSP/NNBSPは同一Unicode値のescape表記へ変更し、RuntimeのNUL値は `\0` 表記へ変更。C#相当の数値token比較・command-line null separatorの値は不変。`git diff --check` とWindows Release `ninja -k 0` 成功。修正後MSVC CI待ち。

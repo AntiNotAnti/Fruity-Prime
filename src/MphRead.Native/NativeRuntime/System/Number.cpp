@@ -48,13 +48,13 @@ namespace MphRead::NativeRuntime
             }
             switch (scalar.Value)
             {
-            case U'‒':
-            case U'⁻':
-            case U'₋':
-            case U'−':
-            case U'➖':
-            case U'﹣':
-            case U'－':
+            case U'\u2012':
+            case U'\u207B':
+            case U'\u208B':
+            case U'\u2212':
+            case U'\u2796':
+            case U'\uFE63':
+            case U'\uFF0D':
                 return true;
             default:
                 return false;
@@ -100,8 +100,8 @@ namespace MphRead::NativeRuntime
                     }
                     break;
                 case u' ':
-                case u' ':
-                case u' ':
+                case u'\u00A0':
+                case u'\u202F':
                     if (!space)
                     {
                         space = true;
@@ -1497,7 +1497,7 @@ namespace MphRead::NativeRuntime
                     return 0;
                 }
                 const Utf8Scalar scalar = DecodeUtf8Scalar(token, k);
-                if ((scalar.Value == U' ' || scalar.Value == U' ') && text[t] == ' ')
+                if ((scalar.Value == U'\u00A0' || scalar.Value == U'\u202F') && text[t] == ' ')
                 {
                     ++t;
                 }

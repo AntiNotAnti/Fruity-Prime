@@ -373,7 +373,7 @@ namespace MphRead::NativeRuntime
         {
             return std::string();
         }
-        std::string result(static_cast<std::size_t>(length - 1), ' ');
+        std::string result(static_cast<std::size_t>(length - 1), '\0');
         ::WideCharToMultiByte(CP_UTF8, 0, line, -1, result.data(), length, nullptr, nullptr);
         return result;
 #else
@@ -385,7 +385,7 @@ namespace MphRead::NativeRuntime
         std::size_t start = 0;
         while (start < raw.size())
         {
-            const std::size_t end = raw.find(' ', start);
+            const std::size_t end = raw.find('\0', start);
             const std::string argument = raw.substr(
                 start, end == std::string::npos ? std::string::npos : end - start);
             if (!result.empty())
