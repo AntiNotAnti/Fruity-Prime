@@ -2151,6 +2151,7 @@ namespace MphRead
                 {
                     (void)key;
                     GL::DeleteTexture(value.BindingId);
+                    _flatColors.erase(value.BindingId);
                 }
                 _texPalMap.erase(mapIt);
             }
@@ -3619,6 +3620,7 @@ namespace MphRead
             }
         }
         _texPalMap.clear();
+        _flatColors.clear();
         for (const std::int32_t listId : _displayLists)
         {
             if (listId != 0)

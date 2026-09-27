@@ -2759,6 +2759,7 @@ namespace MphRead
                     foreach (KeyValuePair<int, (int BindingId, bool OnlyOpaque)> kvp in map)
                     {
                         GL.DeleteTexture(kvp.Value.BindingId);
+                        _flatColors.Remove(kvp.Value.BindingId);
                     }
                     _texPalMap.Remove(model.Id);
                 }
@@ -4347,6 +4348,7 @@ namespace MphRead
                 }
             }
             _texPalMap.Clear();
+            _flatColors.Clear();
             foreach (int listId in _displayLists)
             {
                 if (listId != 0)
