@@ -28,7 +28,7 @@
 
 ### 2026-09-28 現在の監査状態
 
-- 表の302項目中292項目はC#対比監査済み、9項目は監査待ち、1項目は監査中。監査待ちは `TapCheck.cs` と Section 13 の8ファイル。GameFilesのPOSIX修正はmacOS/Clang・Linux/GCC CIで成功。Windows/MSVC CIのC2015を受け、`Globalization.hpp`の非ASCII文字リテラルを同じUnicode値のescape表記へ置換し、Windows Release build成功。MSVC CIで再確認中。
+- 表の302項目中293項目はC#対比監査済み、8項目は監査待ち、1項目は監査中。監査待ちはSection 13の8ファイル。TapCheckはC#全文・14ケース・`-tapcheck`接続を監査し、Windows Releaseで14件すべて成功。GameFilesのPOSIX修正はmacOS/Clang・Linux/GCC CIで成功。Windows/MSVC CIのC2015を受け、`Globalization.hpp`の非ASCII文字リテラルを同じUnicode値のescape表記へ置換し、Windows Release build成功。MSVC CIで再確認中。
 - Section 14 のAndroid 17ファイルは監査完了。共通nativeコードの残り監査・修正後に、arm64-v8aとx86_64の最終buildを実施する。
 
 - 済: 1 Platform helpers / 3 Mods leaves / 8 Multiplayer・teams
@@ -771,7 +771,7 @@
 | M | +268/-64 | `Mods/Launcher/Gui/UiCapture.cs` | .cpp,.hpp | 完了（C# / PR #1差分監査済、`-uishot`入口をModEntryへ接続） |
 | A | +239/-0 | `Mods/Launcher/Gui/GamepadUiChecks.cs` | .cpp,.hpp | 完了（35 assertion を C# と順序照合、GamepadChecks から shell build で接続） |
 | A | +227/-0 | `Mods/Launcher/Gui/Flags.cs` | — 新規 | 完了（C#監査済） |
-| A | +222/-0 | `Mods/Launcher/Gui/TapCheck.cs` | — 新規 | 監査待ち（C#原本との個別対比監査前） |
+| A | +222/-0 | `Mods/Launcher/Gui/TapCheck.cs` | — 新規 | 完了（C#全文・14ケースの順序/座標/期待値/出力とModEntryの`-tapcheck`接続を監査、Windows Release `-tapcheck` 14/14成功） |
 | M | +220/-26 | `Mods/Launcher/Gui/Rows.cs` | .cpp,.hpp | 完了（C#監査済） |
 | A | +202/-0 | `Mods/Launcher/Gui/InGameMenu.cs` | .cpp,.hpp | 完了（C#全体・Shell直接接続監査済、verified no-op。Windows Release build済（2026-09-27）） |
 | A | +197/-0 | `Mods/Launcher/Gui/UiWord.cs` | — 新規 | 完了（C#監査済） |
@@ -1080,3 +1080,4 @@
 - `Mods/Launcher/Portable/LaunchPlan.cs` 全文、native `.hpp/.cpp`、Hunterのenum値とResolve/Reroll呼出し、LobbyContext/LaunchPlanの生成・保持・MatchStart利用を照合。Random hunterをNetLaunchのIdentify前に一度だけ確定する順序、front screen再表示時の再抽選、全Plan項目の既定値・enum値・copy/WithRoomKey相当を確認。C# recordのinit-only性に対してnative LobbyContextの値が変更可能だったため、3フィールドをconst化。`git diff --check`通過、Windows Release全体の `ninja -k 0` 成功（既存`offsetof`警告）。画面runtime未実施。Android buildは全Androidファイル監査完了後。
 - macOS/Clang CIでGameFilesのDarwin signal-set macrosに対する`::`修飾と、macOS未提供の`sigtimedwait`を検出。`sigwait`を使うPOSIX共通処理へ変更し、再ビルドで確認中。
 - Windows/MSVC CIで`Globalization.hpp::CharIsWhiteSpace`の非ASCII character literalがC2015になることを検出。該当コードポイントだけをC# `char.IsWhiteSpace`と照合してUnicode escapeへ置換し、NativeRuntimeの確認を変更範囲に限定した。`git diff --check`とWindows Release全体の `ninja -k 0` 成功。MSVC CIで再確認中。
+- `Mods/Launcher/Gui/TapCheck.cs` 全文とnative `TapCheck.hpp/.cpp` の14ケースを順序・gesture・座標・期待値・出力まで照合し、C#/native両ModEntryの`-tapcheck`接続を確認。差異なし。Windows Release `FruityPrime.exe -tapcheck` は14/14成功。
