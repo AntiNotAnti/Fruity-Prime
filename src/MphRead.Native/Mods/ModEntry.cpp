@@ -794,6 +794,19 @@ namespace
                 + " -- it may be down, or UDP may not reach it");
             return;
         }
+        if (result.CanHost == true)
+        {
+            WriteLine("[servers] this directory will start games for players");
+        }
+        else if (result.CanHost == false)
+        {
+            WriteLine("[servers] this directory starts no games (no host port range)");
+        }
+        else
+        {
+            WriteLine("[servers] this directory is from before it could say whether it "
+                "starts games; it is offered anyway, since hosting is the default");
+        }
         if (RequireReference(result.Servers).empty())
         {
             WriteLine("[servers] the directory is up and has nobody listed");

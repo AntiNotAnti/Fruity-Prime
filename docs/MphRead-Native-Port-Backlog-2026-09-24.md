@@ -487,6 +487,13 @@
 - `Menu.cs` の唯一の追加 `FieldOfView = "78"` をC#と照合。native `MenuSettings::FieldOfView` に同名・同じ既定値がすでにあり、変更不要。直前のWindows Release build済み。
 - `Scene.cs` のC#変更を照合し、`GetFlagBaseEntities` が誤って `FhBomb` リストを参照していたnative実装を `FlagBase` に修正。Windows Release `ninja -k 0` 成功（`%TEMP%\fruity-prime-scene-audit-20260927.log`）。
 
+### 2026-09-27 試合中カーソル修正
+
+- 症状: C++ 版で試合中にマウスカーソルが表示されたまま動き、画面端でエイムが止まる。
+- 原因: InputSettings の読み込みで `stylus_mode` が無いとき `pointer_jump_guard` をスタイラスの切替として読んでいた。
+  旧ビルドは既定値 true でこれを常に書いていたため、古い controls.txt は全員スタイラスモード（カーソル解放）になる。C# 側も同じ。
+- 修正: 明示的な `stylus_mode=true` のときだけスタイラスモード。C++（Mods/InputSettings.cpp）と C#（Mods/InputSettings.cs）の両方を同じ形で変更し一対一を維持。
+
 ## 1. Platform helpers — 2 ファイル (新規 2), C# +73 行
 
 | S | +/- | C# | C++ | 進捗 |
@@ -648,7 +655,7 @@
 | A | +536/-0 | `Mods/Network/NetLobbyTest.cs` | — 新規 | 完了（C#全文・native `.hpp/.cpp`を照合し、packet/protocol境界、team layout、client state、全lobby/continuous/client-sessionシナリオとassert順を確認。`ModEntry`を含む直接呼出し元は両側にないことを確認。C# `IsBackground`/`Join(5000)`に対しnative Rigの無期限joinと起動失敗時のjoinable threadが不一致だったため、共有thread state・例外伝播・5秒join/detachを実装。Windows Release build green、シナリオ実行は未実施） |
 | M | +489/-116 | `Mods/Network/NetSession.cs` | .cpp,.hpp | 完了（C#全文・native `.hpp/.cpp`を照合。接続/再接続、role・packet受理順、host roster、slot intent、authority handoff、session/match/rosterの世代検証、snapshot/health/time同期、demo記録とcleanupを確認。Renderer/NetHooksのtick・send/apply順、NetLaunch.Connect、DedicatedServer/ServerSimのauthority・roster・intent接続も照合。C# `Encoding.ASCII`の補助平面文字が2つの`?`になるのにnativeが1つだったため修正。C# unchecked `long++`相当の診断カウンター加算を`IncrementInPlace`へ変更。Windows Release build green、runtime未実施） |
 | M | +481/-22 | `Mods/Network/NetUnlagged.cs` | .cpp,.hpp | 完了（C#全文・PlayerInputのBeginShot/Spawn/EndShot、NetSessionのReset/Record、NetHitClaims/NetSmoothing/NetPlayerLifecycle/NetPlayerBridge/NetShotDiagnosticsの直接接続を監査。履歴・subframe rewind・世代/life照合・補間・restore・beam catch-up・診断出力の順序と条件が一致。C# unchecked `long` カウンター加算をnativeの`IncrementInPlace`/`UncheckedAdd`へ修正。Windows Release build green、runtime未実施） |
-| M | +384/-12 | `Mods/Network/NetMaster.cs` | .cpp,.hpp | 完了 |
+| M | +384/-12 | `Mods/Network/NetMaster.cs` | .cpp,.hpp | 完了（C#全文・DedicatedServerのheartbeat/Farewell/hosted reporter、ModEntryの`-masterserver`/`-servers`/`-hosts`/`-hostgame`、TextLauncher・CreateServerScreen・PlayScreenのquery/probe/request接続を監査。heartbeat、expiry、host port cooldown/reap、list分割とCanHostの三状態、並列probe callback、request応答検証が一致。C#のfloat→int変換とprobe経過long→int unchecked wrapをnative helperへ合わせ、`-servers`のCanHost説明欠落も追加。Windows Release build green、runtime未実施） |
 | M | +366/-389 | `Mods/Network/NetPlayerBridge.cs` | .cpp,.hpp | 完了 |
 | M | +307/-47 | `Mods/Network/NetDamage.cs` | .cpp,.hpp | 完了 |
 | A | +296/-0 | `Mods/Network/LobbyCommands.cs` | — 新規 | 完了 |
@@ -989,3 +996,4 @@
 - `NativeRuntime/System/Tasks.cpp` の `TaskRun` を `Tasks.hpp` とC# `Task.Run`、全native直接呼出元（特に `NetMasterClient::FindHosts` のサーバー行ごとの並列問い合わせ）で照合。C#は共有ThreadPoolへ投入するがnativeは呼出しごとにOSスレッドをdetachしていた。hardware concurrencyまで遅延拡張する共有キューに変更し、行数に比例するスレッド・スタック生成を止めた。Windows Releaseのnative static library compile/link成功。ネットワーク実サーバーでの応答確認は未実施。
 - Launcher CPU/memory診断: `-uibench maps -uibenchsize 1280x720 -uibenchonly Paint` はrender 97.09 ms、約10 fps。併せたプロセスメモリ採取はprivate bytes最大57.5 MB、working set最大65.4 MB、5 threadsで、この測定内に増え続けるメモリは観測しなかった。1920x1080ではrender 229.08 ms、約4 fps。従ってOffline画面の再描画はCPU描画の重さが直接確認できたが、この診断だけではユーザーPC全体のフリーズ原因や1080pのメモリ状態は確定しない。UI描画の修正とOnline画面の実サーバー確認は継続。
 - `Mods/Network/NetUnlagged.cs` をC#全文とnative `.cpp/.hpp`で照合。履歴・subframe rewind・世代/life照合・補間・restore・beam catch-up・診断出力を確認し、PlayerInputの`BeginShot`→`Spawn`→`EndShot`、NetSessionのreset/record、NetHitClaims/NetSmoothing/NetPlayerLifecycle/NetPlayerBridge/NetShotDiagnosticsの直接接続も照合。C# unchecked `long` カウンターの加算・共有rewind統計の加算をnative `IncrementInPlace`/`UncheckedAdd`に変更。`git diff --check`通過、Windows Release native build green。runtime未実施。
+- `Mods/Network/NetMaster.cs` をC#全文とnative `.cpp/.hpp`で照合。DedicatedServerのheartbeat/Farewell/hosted reporter、ModEntryの`-masterserver`/`-servers`/`-hosts`/`-hostgame`、TextLauncher・CreateServerScreen・PlayScreenのquery/probe/request接続を確認。heartbeat、expiry、host port cooldown/reap、list分割とCanHostの三状態、並列probe callback、request応答検証は一致。C#のfloat→int変換とprobe経過long→int unchecked wrapをnative helperへ合わせ、`-servers`のCanHost説明欠落も追加。`git diff --check`通過、Windows Release native library/executable build green。runtime未実施。

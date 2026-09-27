@@ -759,8 +759,9 @@ namespace MphRead::Mods::Network
             {
                 const auto started = std::chrono::steady_clock::now();
                 const MasterListResult listing = Query(masterHost, masterPort, timeoutMs);
-                const auto elapsed = static_cast<std::int32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now() - started).count());
+                const auto elapsed = NativeRuntime::Int64ToInt32(static_cast<std::int64_t>(
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - started).count()));
                 HostCandidate directory{};
                 directory.Label = masterHost;
                 directory.Host = masterHost;
@@ -805,8 +806,9 @@ namespace MphRead::Mods::Network
                         {
                             status = ServerStatus{};
                         }
-                        const auto took = static_cast<std::int32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::steady_clock::now() - clock).count());
+                        const auto took = NativeRuntime::Int64ToInt32(static_cast<std::int64_t>(
+                            std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - clock).count()));
                         HostCandidate candidate{};
                         candidate.Label = !row.ServerName.empty() ? row.ServerName : row.Endpoint();
                         candidate.Host = row.Address;
@@ -880,8 +882,9 @@ namespace MphRead::Mods::Network
         {
             answer = MasterListResult{std::make_shared<std::vector<MasterListing>>(), false, std::nullopt};
         }
-        const auto elapsed = static_cast<std::int32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - clock).count());
+        const auto elapsed = NativeRuntime::Int64ToInt32(static_cast<std::int64_t>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - clock).count()));
         HostCandidate candidate{};
         candidate.Label = label;
         candidate.Host = host;
@@ -944,7 +947,7 @@ namespace MphRead::Mods::Network
                     Entities::PlayerEntity::SlotCapacity));
                 request.Mode = static_cast<std::uint8_t>(static_cast<std::int32_t>(mode));
                 request.TimeLimit = static_cast<std::uint16_t>(std::clamp(
-                    static_cast<std::int32_t>(timeLimit), 0,
+                    NativeRuntime::ConvertToInt32Net9(timeLimit), 0,
                     static_cast<std::int32_t>(std::numeric_limits<std::uint16_t>::max())));
                 request.PointGoal = static_cast<std::uint16_t>(std::clamp(pointGoal, 0,
                     static_cast<std::int32_t>(std::numeric_limits<std::uint16_t>::max())));
