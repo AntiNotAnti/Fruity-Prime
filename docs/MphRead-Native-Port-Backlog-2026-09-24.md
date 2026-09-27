@@ -643,7 +643,7 @@
 | M | +883/-78 | `Mods/Network/NetHitPrediction.cs` | .cpp,.hpp | 完了（C#全文・native `.hpp/.cpp`・PlayerEntity.TakeDamage/NetDamage/NetPlayerBridge/BeamProjectile/Renderer/PlayerHud/NetHitClaims/NetPlayerLifecycle/NetSession/ModEntry の直接接続を監査。hold/grace・リング寿命・claim settlement・体力補正・撃破/marker/reset条件一致。修正なし、静的監査のみ） |
 | M | +704/-105 | `Mods/Network/DedicatedServer.cs` | .cpp,.hpp | 完了（C#全文・native `.cpp/.hpp`・ModEntry/NetHostSession/HostPool/NetMasterの直接接続を監査。loop順序、Hello/Welcome/refusal/status、authoritative/relay、snapshot/intent、投票/rotation、ping/roster、切断/cleanupが一致。修正なし、静的監査のみ） |
 | A | +609/-0 | `Mods/Network/HitRig.cs` | — 新規 | 完了（C#全文・native `.cpp/.hpp`・ModEntry/NetTestScript/NetCheckClient/PlayerEntityの直接接続を監査。役割/照準/距離/発射cadence/controls edge/reportが一致。nativeの符号付きカウンター加算をC# unchecked wrapにし、snapshot frameのuint→intをbit reinterpretへ修正。Windows Release build green、runtime未実施） |
-| A | +558/-0 | `Mods/Network/NetSmoothing.cs` | — 新規 | 完了 |
+| A | +558/-0 | `Mods/Network/NetSmoothing.cs` | — 新規 | 完了（C#全文・native `.cpp/.hpp`・NetSession/NetHooks/NetPlayerBridge/NetPlayerLifecycle/NetUnlagged/NetHitClaims/NetLog/NetCheckClient/ModEntry の直接接続を監査。snapshot記録、playout tick、補間/hold条件、life/generation guard、subframe ack、reset/rebase、診断値と呼び出し順が一致。nativeの符号付きカウンターをC# unchecked wrapへ修正。Windows Release build green、runtime未実施） |
 | A | +536/-0 | `Mods/Network/LocalServer.cs` | — 新規 | 完了 |
 | A | +536/-0 | `Mods/Network/NetLobbyTest.cs` | — 新規 | 完了 |
 | M | +489/-116 | `Mods/Network/NetSession.cs` | .cpp,.hpp | 完了 |

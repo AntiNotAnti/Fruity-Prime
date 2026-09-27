@@ -153,7 +153,7 @@ namespace MphRead::Mods::Network
             // moving at the wrong speed, which is a worse thing to look at
             // than one jump.
             _readFrame = target;
-            _snaps++;
+            Runtime::IncrementInPlace(_snaps);
             NetTimingDiagnostics::Correction();
         }
         else
@@ -167,7 +167,7 @@ namespace MphRead::Mods::Network
             // -- and a guessed position puts a player through a wall and then
             // snaps them out of it.
             _readFrame = _newest;
-            _starved++;
+            Runtime::IncrementInPlace(_starved);
             _sinceStarved = 0;
             if (_delay < MaxDelayFrames && _sinceGrew >= GrowCooldownFrames)
             {
@@ -175,12 +175,16 @@ namespace MphRead::Mods::Network
                 _sinceGrew = 0;
             }
         }
-        else if (++_sinceStarved > ShrinkAfterFrames && _delay > MinDelayFrames)
+        else
         {
-            _delay--;
-            _sinceStarved = 0;
+            Runtime::IncrementInPlace(_sinceStarved);
+            if (_sinceStarved > ShrinkAfterFrames && _delay > MinDelayFrames)
+            {
+                _delay--;
+                _sinceStarved = 0;
+            }
         }
-        _sinceGrew++;
+        Runtime::IncrementInPlace(_sinceGrew);
     }
 
     bool NetSmoothing::Sample(std::int32_t slot, Vector3& position, bool& altForm)
@@ -209,7 +213,7 @@ namespace MphRead::Mods::Network
             // different centres, so blending them slides the model half a
             // body. Hold the near one.
             position = a;
-            _held++;
+            Runtime::IncrementInPlace(_held);
             NoteStep(slot, position);
             return true;
         }
@@ -221,12 +225,12 @@ namespace MphRead::Mods::Network
             // NetUnlagged.Reconcile makes the same refusal at the other end and
             // falls back to the near side, so both worlds stay the same world.
             position = a;
-            _held++;
+            Runtime::IncrementInPlace(_held);
             NoteStep(slot, position);
             return true;
         }
         position = a + OpenTK::Mathematics::Multiply(travel, fraction);
-        _interpolated++;
+        Runtime::IncrementInPlace(_interpolated);
         NoteStep(slot, position);
         return true;
     }
@@ -259,7 +263,7 @@ namespace MphRead::Mods::Network
             const float step = OpenTK::Mathematics::Length(position - _lastSampled[s]);
             if (std::isfinite(step))
             {
-                _steps++;
+                Runtime::IncrementInPlace(_steps);
                 _stepSum += step;
                 if (step > _worstStep)
                 {
@@ -267,8 +271,8 @@ namespace MphRead::Mods::Network
                 }
                 if (step < 0.0005F)
                 {
-                    _stalledFrames++;
-                    _stallRun[s]++;
+                    Runtime::IncrementInPlace(_stalledFrames);
+                    Runtime::IncrementInPlace(_stallRun[s]);
                     if (_stallRun[s] > _worstStall)
                     {
                         _worstStall = _stallRun[s];
