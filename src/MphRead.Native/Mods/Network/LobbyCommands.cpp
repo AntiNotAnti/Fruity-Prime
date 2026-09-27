@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdio>
 #include <exception>
 
@@ -31,7 +32,12 @@ namespace MphRead::Mods::Network
         definition.RoomKey = entry.RoomKey;
         definition.Mode = entry.Mode;
         definition.Format = _format;
-        definition.TimeLimitSeconds = static_cast<std::uint16_t>(std::clamp(entry.TimeLimit, 0.0F, 65535.0F));
+        const float clampedTimeLimit = std::clamp(entry.TimeLimit, 0.0F, 65535.0F);
+        // Math.Clamp preserves NaN, and C#'s unchecked float-to-integer
+        // conversion leaves that case unspecified. Pick a stable value here
+        // instead of invoking C++'s undefined float-to-integer conversion.
+        definition.TimeLimitSeconds = std::isnan(clampedTimeLimit)
+            ? 0 : static_cast<std::uint16_t>(clampedTimeLimit);
         definition.PointGoal = static_cast<std::uint16_t>(std::clamp(entry.PointGoal, 0, 0xFFFF));
         definition.FriendlyFire = _friendlyFire;
         definition.AffinityWeapons = _affinityWeapons;
