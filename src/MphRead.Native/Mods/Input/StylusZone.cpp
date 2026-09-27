@@ -2,6 +2,7 @@
 
 #include "PointerInput.hpp"
 #include "../DebugLog.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -39,7 +40,7 @@ namespace MphRead::Mods::Input
     {
         _width = std::clamp(width, 0.10F, 1.0F);
         _left = std::clamp(left, 0.0F, 1 - _width);
-        _top = std::clamp(top, 0.0F, std::max(0.0F, 1 - Height()));
+        _top = std::clamp(top, 0.0F, ::MphRead::NativeRuntime::MathMax(0.0F, 1 - Height()));
     }
 
     void StylusZone::BeginPlacement() noexcept
@@ -75,10 +76,10 @@ namespace MphRead::Mods::Input
         y = std::clamp(y, 0.0F, 1.0F);
         _width = std::clamp(std::abs(x - _placeAnchorX), 0.10F, 1.0F);
         const float height = Height();
-        const float left = std::min(_placeAnchorX, x);
+        const float left = ::MphRead::NativeRuntime::MathMin(_placeAnchorX, x);
         const float top = y >= _placeAnchorY ? _placeAnchorY : _placeAnchorY - height;
-        _left = std::clamp(left, 0.0F, std::max(0.0F, 1 - _width));
-        _top = std::clamp(top, 0.0F, std::max(0.0F, 1 - height));
+        _left = std::clamp(left, 0.0F, ::MphRead::NativeRuntime::MathMax(0.0F, 1 - _width));
+        _top = std::clamp(top, 0.0F, ::MphRead::NativeRuntime::MathMax(0.0F, 1 - height));
     }
 
     void StylusZone::Nudge(float dx, float dy) noexcept
@@ -87,8 +88,8 @@ namespace MphRead::Mods::Input
         {
             return;
         }
-        _left = std::clamp(_left + dx, 0.0F, std::max(0.0F, 1 - _width));
-        _top = std::clamp(_top + dy, 0.0F, std::max(0.0F, 1 - Height()));
+        _left = std::clamp(_left + dx, 0.0F, ::MphRead::NativeRuntime::MathMax(0.0F, 1 - _width));
+        _top = std::clamp(_top + dy, 0.0F, ::MphRead::NativeRuntime::MathMax(0.0F, 1 - Height()));
     }
 
     void StylusZone::Resize(float by) noexcept

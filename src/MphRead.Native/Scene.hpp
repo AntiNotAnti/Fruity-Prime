@@ -901,6 +901,9 @@ namespace MphRead
         MPHREAD_SCENE_LOCKJAW_TRAIL_PROBE_MEMBERS
 
     private:
+        struct PointerCheckTag final {};
+        explicit Scene(PointerCheckTag);
+
         using EntityNode = LinkedListNode<Entities::EntityBase>;
         using EntityNodePtr = std::shared_ptr<EntityNode>;
         using EntityNodeMap = SceneDetail::ManagedDictionary<EntityType, EntityNodePtr>;

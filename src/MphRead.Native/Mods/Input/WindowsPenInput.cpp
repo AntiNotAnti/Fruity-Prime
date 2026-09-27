@@ -2,6 +2,8 @@
 
 #include "../DebugLog.hpp"
 #include "../../Entities/Players/PlayerInput.hpp"
+#include "../../NativeRuntime/System/ExceptionText.hpp"
+#include "../../NativeRuntime/System/Exceptions.hpp"
 
 #include <exception>
 #include <string>
@@ -35,6 +37,7 @@ namespace MphRead::Mods::Input
         // first use so that a system without them is a DllNotFoundException.
         struct Library final
         {
+            bool ComctlLoaded = false;
             decltype(&::SetWindowSubclass) SetWindowSubclass = nullptr;
             decltype(&::RemoveWindowSubclass) RemoveWindowSubclass = nullptr;
             decltype(&::DefSubclassProc) DefSubclassProc = nullptr;
@@ -49,6 +52,7 @@ namespace MphRead::Mods::Input
                 Library result{};
                 if (const HMODULE comctl = ::LoadLibraryW(L"comctl32.dll"))
                 {
+                    result.ComctlLoaded = true;
                     result.SetWindowSubclass = reinterpret_cast<decltype(result.SetWindowSubclass)>(
                         reinterpret_cast<void*>(::GetProcAddress(comctl, "SetWindowSubclass")));
                     result.RemoveWindowSubclass = reinterpret_cast<decltype(result.RemoveWindowSubclass)>(
@@ -68,6 +72,16 @@ namespace MphRead::Mods::Input
             return library;
         }
 
+        template <typename T>
+        void RequireEntryPoint(T address, const char* name, const char* library)
+        {
+            if (address == nullptr)
+            {
+                throw System::EntryPointNotFoundException("Unable to find an entry point named '"
+                    + std::string(name) + "' in DLL '" + library + "'.");
+            }
+        }
+
         LRESULT CALLBACK Callback(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR id, DWORD_PTR data)
         {
             return static_cast<LRESULT>(WindowsPenInput::WindowProc(hwnd, message, wParam, lParam, id, data));
@@ -83,12 +97,27 @@ namespace MphRead::Mods::Input
             return;
         }
         const HWND handle = ::glfwGetWin32Window(window);
-        if (Api().SetWindowSubclass == nullptr || Api().DefSubclassProc == nullptr)
+        const Library& api = Api();
+        try
         {
-            DebugLog::Line("input", "Windows pen observer unavailable: Unable to load DLL 'comctl32.dll'.");
+            if (!api.ComctlLoaded)
+            {
+                throw System::DllNotFoundException("Unable to load DLL 'comctl32.dll'.");
+            }
+            RequireEntryPoint(api.SetWindowSubclass, "SetWindowSubclass", "comctl32.dll");
+            RequireEntryPoint(api.DefSubclassProc, "DefSubclassProc", "comctl32.dll");
+        }
+        catch (const System::DllNotFoundException& ex)
+        {
+            DebugLog::Line("input", std::string("Windows pen observer unavailable: ") + ex.what());
             return;
         }
-        if (Api().SetWindowSubclass(handle, &Callback, 1, 0) != FALSE)
+        catch (const System::EntryPointNotFoundException& ex)
+        {
+            DebugLog::Line("input", std::string("Windows pen observer unavailable: ") + ex.what());
+            return;
+        }
+        if (api.SetWindowSubclass(handle, &Callback, 1, 0) != FALSE)
         {
             _window = handle;
             _failed = false;
@@ -160,6 +189,7 @@ namespace MphRead::Mods::Input
         {
             if (message == 0x0082) // WM_NCDESTROY
             {
+                RequireEntryPoint(Api().RemoveWindowSubclass, "RemoveWindowSubclass", "comctl32.dll");
                 Api().RemoveWindowSubclass(static_cast<HWND>(hwnd), &Callback, id);
                 _window = nullptr;
                 _pen = {};
@@ -209,7 +239,7 @@ namespace MphRead::Mods::Input
                 }
             }
         }
-        catch (const std::exception& ex)
+        catch (...)
         {
             if (!_failed)
             {
@@ -218,7 +248,8 @@ namespace MphRead::Mods::Input
                 PointerDevice::Reset();
                 try
                 {
-                    DebugLog::Line("input", std::string("Windows pen observer failed; using GLFW: ") + ex.what());
+                    DebugLog::Line("input", "Windows pen observer failed; using GLFW: "
+                        + ::MphRead::NativeRuntime::ExceptionMessage(std::current_exception()));
                 }
                 catch (...)
                 {
@@ -243,8 +274,9 @@ namespace MphRead::Mods::Input
         {
             return;
         }
+        RequireEntryPoint(Api().GetPointerType, "GetPointerType", "user32.dll");
         POINTER_INPUT_TYPE type = 0;
-        if (Api().GetPointerType == nullptr || Api().GetPointerType(id, &type) == FALSE)
+        if (Api().GetPointerType(id, &type) == FALSE)
         {
             if (id == _pen.Id)
             {
@@ -257,7 +289,8 @@ namespace MphRead::Mods::Input
             return;
         }
         POINTER_PEN_INFO info{};
-        if (Api().GetPointerPenInfo == nullptr || Api().GetPointerPenInfo(id, &info) == FALSE)
+        RequireEntryPoint(Api().GetPointerPenInfo, "GetPointerPenInfo", "user32.dll");
+        if (Api().GetPointerPenInfo(id, &info) == FALSE)
         {
             if (id == _pen.Id)
             {

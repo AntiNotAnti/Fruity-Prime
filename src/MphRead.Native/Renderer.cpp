@@ -377,6 +377,12 @@ namespace MphRead
         Music::Init();
     }
 
+    Scene::Scene(PointerCheckTag)
+    {
+        // RuntimeHelpers.GetUninitializedObject in PointerCheck.cs skips the
+        // normal scene setup and its cache, game-state, player and music resets.
+    }
+
     Vector2i Scene::Size() const noexcept { return _rendererSize; }
     void Scene::Size(Vector2i value) noexcept { _rendererSize = value; }
     Matrix4 Scene::PerspectiveMatrix() const noexcept { return _perspectiveMatrix; }

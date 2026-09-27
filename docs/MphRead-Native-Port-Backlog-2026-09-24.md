@@ -541,11 +541,11 @@
 
 | S | +/- | C# | C++ | 進捗 |
 |---|---|---|---|---|
-| A | +350/-0 | `Mods/Input/PointerCheck.cs` | — 新規 | 完了 |
-| A | +309/-0 | `Mods/Input/PadBindingState.cs` | — 新規 | 完了 |
+| A | +350/-0 | `Mods/Input/PointerCheck.cs` | — 新規 | 完了（C#全文監査済、Scene fixture/finallyを修正） |
+| A | +309/-0 | `Mods/Input/PadBindingState.cs` | — 新規 | 完了（C#全文監査済、bounds/revisionを修正） |
 | A | +301/-0 | `Mods/Input/GamepadChecks.cs` | .cpp,.hpp | 完了（shell build で GamepadUiChecks を C# と同じ位置で実行） |
-| A | +264/-0 | `Mods/Input/WindowsPenInput.cs` | — 新規 | 完了 |
-| M | +261/-34 | `Mods/Input/StylusZone.cs` | .cpp,.hpp | 完了 |
+| A | +264/-0 | `Mods/Input/WindowsPenInput.cs` | — 新規 | 完了（C#全文監査済、Win32 fallback/exception parity修正） |
+| M | +261/-34 | `Mods/Input/StylusZone.cs` | .cpp,.hpp | 完了（C#全文監査済、NaN時のMathMin/Maxを修正） |
 | A | +258/-0 | `Mods/Input/MouseFlick.cs` | — 新規 | 完了 |
 | A | +210/-0 | `Mods/Input/GamepadManager.cs` | — 新規 | 完了 |
 | A | +199/-0 | `Mods/Input/GamepadProfiles.cs` | — 新規 | 完了 |
@@ -892,3 +892,20 @@
 - `Mods/Multiplayer/ResourceAudit.cs` をC#全文とnative `.cpp/.hpp` で照合。18シナリオのlabel/mode/player数/順、room/layer走査、healthと
   objective集計、重複・安定fingerprint検査、列出力と最終summaryが一致。距離集計のC# `Math.Min/Max` はNaNを伝播させるため、
   nativeの`std::min/max`を既存のC#互換`MathMin/MathMax`へ変更。差分以外の修正なし。
+- `Mods/Input/PointerCheck.cs` をC#全文とnative `.cpp/.hpp` で照合。binding/movement/zone/player-input/settings/Win32 signatureの
+  検査順とassertion内容は一致。C#が`RuntimeHelpers.GetUninitializedObject`で作るSceneに合わせ、通常Scene ctorのcache/GameState/Music初期化を
+  行わないprivate test fixture ctorを追加し、Movie indexはC#の`-1`状態を保った。`Run`のcatch-all error formattingを`ExceptionToString`へ、
+  PointerDevice cleanupをRAIIへ変更してC# catch/finally相当を合わせた。nativeの例外文字列はtype/messageを出し、CLR stack traceは持たない。
+- `Mods/Input/PadBindingState.cs` をC#全文とnative `.cpp/.hpp` および直接呼び出しで照合。23個のdefault bindingsと23個のActionOrder、
+  Set/SetSlot/LoadSlots、modifier chord、Evaluate/ChordButtons、conflict resolution、preset/clone/reset、text/setting keyの順序と値が一致。
+  invalid action/slotのnative例外をC#配列と同じ`IndexOutOfRangeException`にし、SetSlotの引数検査順を修正。`Revision++`をC#のunchecked
+  `long` wrapと同じ`IncrementInPlace`に変更。直接呼び出しのslotは0または1。
+- `Mods/Input/WindowsPenInput.cs` をC#全文とnative `.cpp/.hpp`、`Renderer.cs`/`Renderer.cpp`のAttach/Read呼び出しで照合。
+  Win32 message分岐、promoted mouse判定、接触/hover/release状態、座標scale、pen pressure/tilt、GLFW fallbackの内容と順序が一致。
+  C# P/Invokeで欠落APIが例外になる箇所をnativeのnull関数ポインター呼出しにせず、`DllNotFoundException`/
+  `EntryPointNotFoundException`相当のログ/fallbackへ変更。window callbackのcatchをcatch-allにし、現在例外のMessageを記録する。
+  差分修正以外はなし。実機ペン入力runtimeは未実施。
+- `Mods/Input/StylusZone.cs` をC#全文とnative `.cpp/.hpp`、renderer/settings/player-input/HUDの使用箇所で照合。
+  状態遷移、ボタン定義と順序、配置ドラッグ、nudge/resize、capture/aim条件、遷移ログが一致。
+  `SetRect`/`PlacementDrag`/`Nudge`の上限計算とドラッグ始点計算をC# `Math.Max/Min`同様のNaN伝播をする既存helperへ変更。
+  差分修正以外はなし。実機タブレット入力runtimeは未実施。

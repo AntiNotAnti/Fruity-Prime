@@ -15,6 +15,7 @@
 #include "../../Scene.hpp"
 #include "../../NativeRuntime/System/Console.hpp"
 #include "../../NativeRuntime/System/Exceptions.hpp"
+#include "../../NativeRuntime/System/ExceptionText.hpp"
 #include "../../NativeRuntime/System/Guid.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 
@@ -32,10 +33,16 @@ namespace MphRead::Mods::Input
     namespace
     {
         using Delta = std::pair<float, float>;
+
+        struct ResetPointerDevice final
+        {
+            ~ResetPointerDevice() noexcept { PointerDevice::Reset(); }
+        };
     }
 
     std::int32_t PointerCheck::Run()
     {
+        const ResetPointerDevice resetPointerDevice{};
         std::int32_t result = 0;
         try
         {
@@ -55,12 +62,12 @@ namespace MphRead::Mods::Input
             Runtime::ConsoleWriteLine("POINTERCHECK PASS (" + std::to_string(_checks) + " assertions)");
             result = 0;
         }
-        catch (const std::exception& ex)
+        catch (...)
         {
-            Runtime::ConsoleWriteLine(std::string("POINTERCHECK FAIL: ") + ex.what());
+            Runtime::ConsoleWriteLine("POINTERCHECK FAIL: "
+                + Runtime::ExceptionToString(std::current_exception()));
             result = 1;
         }
-        PointerDevice::Reset();
         return result;
     }
 
@@ -224,8 +231,7 @@ namespace MphRead::Mods::Input
         // RuntimeHelpers.GetUninitializedObject(typeof(Scene)) with the two
         // fields the input pass reads set by reflection; a constructed scene
         // already has no movie frame.
-        auto scene = std::make_shared<Scene>(OpenTK::Mathematics::Vector2i(256, 192), *keyboard, *mouse,
-            [](std::string) {}, []() {});
+        auto scene = std::shared_ptr<Scene>(new Scene(Scene::PointerCheckTag{}));
         scene->_cameraMode = CameraMode::Player;
         Entities::PlayerEntity::Reset();
         Entities::PlayerEntity::Construct(scene.get());

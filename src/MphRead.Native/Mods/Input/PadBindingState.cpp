@@ -3,6 +3,7 @@
 #include "GamepadGlyphs.hpp"
 #include "../../NativeRuntime/System/Exceptions.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <stdexcept>
 
@@ -17,7 +18,7 @@ namespace MphRead::Mods::Input
             const auto index = static_cast<std::int32_t>(action);
             if (index < 0 || index >= PadActionCount)
             {
-                throw std::out_of_range("Index was outside the bounds of the array.");
+                throw ::System::IndexOutOfRangeException();
             }
             return static_cast<std::size_t>(index);
         }
@@ -26,7 +27,7 @@ namespace MphRead::Mods::Input
         {
             if (slot < 0 || slot > 1)
             {
-                throw std::out_of_range("Index was outside the bounds of the array.");
+                throw ::System::IndexOutOfRangeException();
             }
             return static_cast<std::size_t>(slot);
         }
@@ -105,7 +106,7 @@ namespace MphRead::Mods::Input
             }
         }
         _preset = "Custom";
-        _revision++;
+        Runtime::IncrementInPlace(_revision);
     }
 
     GamepadButtons PadBindingState::Default(PadAction action) const
@@ -120,11 +121,11 @@ namespace MphRead::Mods::Input
 
     void PadBindingState::SetSlot(PadAction action, std::int32_t slot, GamepadButtons button, GamepadButtons modifier)
     {
-        const std::size_t index = Index(action);
         if (!Single(button) || !Single(modifier) || (button != GamepadButtons::None && button == modifier))
         {
             throw System::ArgumentException("A binding needs distinct single buttons.");
         }
+        const std::size_t index = Index(action);
         Modifiers[index][SlotIndex(slot)] = button == GamepadButtons::None ? GamepadButtons::None : modifier;
         const GamepadButtons old = Slot(action, slot);
         if (slot == 0)
@@ -137,7 +138,7 @@ namespace MphRead::Mods::Input
         }
         _current[index] = (_current[index] & ~old) | Primary[index] | Secondary[index];
         _preset = "Custom";
-        _revision++;
+        Runtime::IncrementInPlace(_revision);
     }
 
     bool PadBindingState::Single(GamepadButtons button) const noexcept
@@ -321,7 +322,7 @@ namespace MphRead::Mods::Input
                     }
                 }
                 _current[index] = (Get(other) & ~button) | replacement | Primary[index] | Secondary[index];
-                _revision++;
+                Runtime::IncrementInPlace(_revision);
             }
         }
         SetSlot(action, slot, button, modifier);
