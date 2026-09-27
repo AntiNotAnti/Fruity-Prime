@@ -4,6 +4,7 @@
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../GameState.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/System/Number.hpp"
 
 #include <algorithm>
 
@@ -11,6 +12,8 @@ namespace MphRead::Entities
 {
     using ::MphRead::NativeRuntime::ManagedAt;
     using ::MphRead::NativeRuntime::RequireReference;
+    using ::MphRead::NativeRuntime::ToString;
+    using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 
     void PlayerEntity::ModDrawTeamScoreboard()
     {
@@ -60,12 +63,12 @@ namespace MphRead::Entities
                     TeamScoreValue(timed, ManagedAt(GameState::TeamTime(), team), ManagedAt(GameState::TeamPoints(), team)),
                     visual.Color));
                 static_cast<void>(DrawText2D(ModScoreColumn2(), y, Hud::Align::Center, 0,
-                    std::to_string(deaths ? ManagedAt(GameState::TeamDeaths(), team) : ManagedAt(GameState::TeamKills(), team)),
+                    ToString(deaths ? ManagedAt(GameState::TeamDeaths(), team) : ManagedAt(GameState::TeamKills(), team)),
                     visual.Color));
                 previous = team;
                 y += 12;
             }
-            const std::int32_t nameLength = std::clamp(static_cast<std::int32_t>(
+            const std::int32_t nameLength = std::clamp(ConvertToInt32Net9(
                 (ModScoreColumn1() - ModScoreNameColumn() - 6) / (6.4F * HudAspectFix())), 4, 20);
             const std::string name = (player.IsMainPlayer() ? "> " : "  ") + ManagedAt(GameState::Nicknames(), slot);
             static_cast<void>(DrawText2D(ModScoreNameColumn() - 18, y, Hud::Align::Left, 0, name, ink, 1.0F, -1.0F,
@@ -73,7 +76,7 @@ namespace MphRead::Entities
             static_cast<void>(DrawText2D(ModScoreColumn1(), y, Hud::Align::Center, 0,
                 TeamScoreValue(timed, ManagedAt(GameState::Time(), slot), ManagedAt(GameState::Points(), slot)), ink));
             static_cast<void>(DrawText2D(ModScoreColumn2(), y, Hud::Align::Center, 0,
-                std::to_string(deaths ? ManagedAt(GameState::Deaths(), slot) : ManagedAt(GameState::Kills(), slot)), ink));
+                ToString(deaths ? ManagedAt(GameState::Deaths(), slot) : ManagedAt(GameState::Kills(), slot)), ink));
             ModDrawPingRow(y, ink, slot);
             y += 13;
         }
@@ -81,6 +84,6 @@ namespace MphRead::Entities
 
     std::string PlayerEntity::TeamScoreValue(bool timed, float time, std::int32_t points) const
     {
-        return !timed ? std::to_string(points) : time < 0 ? std::string("MAX") : FormatTime(time);
+        return !timed ? ToString(points) : time < 0 ? std::string("MAX") : FormatTime(time);
     }
 }
