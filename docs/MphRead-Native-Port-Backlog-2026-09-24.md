@@ -608,7 +608,7 @@
 | M | +138/-3 | `Mods/Render/PreviewPass.cs` | .cpp,.hpp | 完了（C#全文・Rendererのstep/collect/draw順とAddRenderItem、LauncherHunter/HunterStand/EndScreen接続を監査済、preview state/座標/GL pass一致。単独描画時のcatch範囲をC#に合わせて修正。Windows Release build済） |
 | A | +132/-0 | `Mods/Render/AppIcon.cs` | .cpp,.hpp | 完了（C#原本監査済、GLFW Window::SetIcon 経由で接続） |
 | A | +116/-0 | `Mods/Render/Radar.cs` | — 新規 | 完了（C#全文・PlayerHud/Features/ModEntry/SettingsViewの参照を監査済、設定既定値・全weapon item分類・palette値一致。readonly Paletteをnativeのprivate storage/getter value型へ反映。Windows Release build済） |
-| A | +97/-0 | `Mods/Render/HunterShot.cs` | — 新規 | 完了 |
+| A | +97/-0 | `Mods/Render/HunterShot.cs` | — 新規 | 完了（C# interface/stateとnative `.hpp`を全文照合、nullable Task→optional shared_future・全state既定値一致。AndroidHunterShotのBGRA/top-down/tightly-packed契約も確認しnative API commentに反映。Android buildは未実施） |
 | M | +77/-0 | `Mods/Render/FrameTimingCheck.cs` | .cpp,.hpp | 完了 |
 | A | +70/-0 | `Mods/Render/PlayerEntityTeamScoreboard.cs` | — 新規 | 完了 |
 | A | +62/-0 | `Mods/Render/LockjawTrailProbe.cs` | — 新規 | 完了 |
@@ -966,6 +966,7 @@
 - `Mods/Render/NoiseField.cs` をC#全文とnative `.cpp/.hpp`、LauncherNoise/MovingBackdropの直接参照で照合。固定seedの`Random.NextDouble`、Stopwatch elapsed、CellsFor/clamp、resize falloff、domain-warp noise、RGB byte計算が通常入力で一致。`CellsFor`のdouble→intを.NET 10のNaN/範囲外規則を持つ`ConvertToInt32Net9`に変更し、C#のbyte[] `Pixels` getterに合わせてnativeも非const instanceからmutable bufferを返す。Windows Release build済。
 - `Mods/Render/PreviewPass.cs` をC#全文とnative `.cpp/.hpp`、Rendererのsimulation step/item collection/draw順、AddRenderItem、LauncherHunter/HunterStand/EndScreenの接続で照合。state既定値、preview model更新、collection時のfinally、scissor/depth/camera/GL復元、MathF.RoundのToEven conversionが一致。`ModDrawPreviewAlone`の例外処理をC# `catch (Exception)`相当のcatch-allとNativeRuntime message helperへ変更。Windows Release build済。
 - `Mods/Render/Radar.cs` をC#全文とnative `.cpp/.hpp`、PlayerHud/Features/ModEntry/SettingsViewの直接参照で照合。Enabled/ShowBackground/ShowOutlinesの既定値、Range、IsWeaponItemの全15項目、7色のpalette値が一致。C# readonly structをnative側で書き換えできたためprivate storage/getterのvalue型にし、HUD参照を更新。Windows Release build済。
+- `Mods/Render/HunterShot.cs` をC#全文とnative `.hpp`、HunterStandのproducer/consumer接続、AndroidHunterShotの戻り値形式で照合。Current/InFrame/hole/frame propertiesの既定値、Hunter.Samus、nullable Taskとoptional shared_futureが一致。BGRA・上から下・tight packingの戻り値契約をnative interface commentへ明記。Android buildは全Androidファイル監査後のため未実施。
 
 ### 2026-09-27 native launcher regression audit
 

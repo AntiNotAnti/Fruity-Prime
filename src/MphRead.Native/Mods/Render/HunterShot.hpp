@@ -17,6 +17,9 @@ namespace MphRead::Mods::Render
     {
     public:
         virtual ~IHunterShot() = default;
+        // A value is tightly packed BGRA pixels, top down, four bytes per
+        // pixel. An empty optional is the C# null result; failures propagate
+        // through the future when it is read.
         [[nodiscard]] virtual std::shared_future<std::optional<std::vector<std::uint8_t>>> RenderAsync(
             Hunter hunter, std::int32_t suit, std::int32_t width, std::int32_t height) = 0;
     };
