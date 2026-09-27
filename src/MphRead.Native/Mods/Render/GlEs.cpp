@@ -17,7 +17,6 @@ using ::MphRead::NativeRuntime::UncheckedSubtract;
 #include <cstdint>
 #include <iostream>
 #include <limits>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -106,7 +105,7 @@ namespace
         case GlTrianglesAdjacency: return "TrianglesAdjacency";
         case GlTriangleStripAdjacency: return "TriangleStripAdjacency";
         case GlPatches: return "Patches";
-        default: return std::to_string(mode);
+        default: return ::MphRead::NativeRuntime::ToString(mode);
         }
     }
 
@@ -695,9 +694,9 @@ namespace MphRead::Mods::Render
         }
         if (translated == nullptr)
         {
-            throw std::runtime_error("Object reference not set to an instance of an object.");
+            throw ::System::NullReferenceException();
         }
-        const GLchar* string = translated->empty() ? nullptr : translated->c_str();
+        const GLchar* string = translated->c_str();
         const GLint length = DotNetStringLength(*translated);
         glShaderSource(GlName(shader), 1, &string, &length);
     }
@@ -710,7 +709,7 @@ namespace MphRead::Mods::Render
         glGetShaderiv(glShader, GL_COMPILE_STATUS, &status);
         if (status == 0)
         {
-            std::cout << "[gles] shader " << shader << " failed to compile: "
+            std::cout << "[gles] shader " << ::MphRead::NativeRuntime::ToString(shader) << " failed to compile: "
                 << ShaderInfoLog(glShader) << std::endl;
         }
     }
@@ -760,7 +759,8 @@ namespace MphRead::Mods::Render
         glGetProgramiv(glProgram, GL_LINK_STATUS, &status);
         if (status == 0)
         {
-            throw MphRead::ProgramException("Failed to link program " + std::to_string(program)
+            throw MphRead::ProgramException("Failed to link program "
+                + ::MphRead::NativeRuntime::ToString(program)
                 + ": " + ProgramInfoLog(glProgram));
         }
     }
@@ -789,8 +789,8 @@ namespace MphRead::Mods::Render
 
     std::int32_t GlEs::GetUniformLocation(std::int32_t program, const std::string* name)
     {
-        return glGetUniformLocation(GlName(program),
-            name == nullptr || name->empty() ? nullptr : name->c_str());
+        const std::string& uniformName = ::MphRead::NativeRuntime::RequireReference(name);
+        return glGetUniformLocation(GlName(program), uniformName.c_str());
     }
 
     void GlEs::Enable(std::int32_t cap)
@@ -1102,7 +1102,8 @@ namespace MphRead::Mods::Render
 
     void GlEs::Uniform4(std::int32_t location, std::array<float, 4>* vector)
     {
-        glUniform4f(location, (*vector)[0], (*vector)[1], (*vector)[2], (*vector)[3]);
+        const std::array<float, 4>& value = ::MphRead::NativeRuntime::RequireReference(vector);
+        glUniform4f(location, value[0], value[1], value[2], value[3]);
     }
 
     void GlEs::Uniform4(std::int32_t location, float v0, float v1, float v2, float v3)
@@ -1119,7 +1120,8 @@ namespace MphRead::Mods::Render
     void GlEs::UniformMatrix4(std::int32_t location, bool transpose,
         std::array<float, 16>* matrix)
     {
-        glUniformMatrix4fv(location, 1, transpose ? GL_TRUE : GL_FALSE, matrix->data());
+        const std::array<float, 16>& value = ::MphRead::NativeRuntime::RequireReference(matrix);
+        glUniformMatrix4fv(location, 1, transpose ? GL_TRUE : GL_FALSE, value.data());
     }
 
     void GlEs::UniformMatrix4(std::int32_t location, std::int32_t count, bool transpose,

@@ -614,7 +614,7 @@
 | A | +62/-0 | `Mods/Render/LockjawTrailProbe.cs` | — 新規 | 完了（C#全文・MapAudit呼出時点/RenderItem/LinkedList列挙監査済、null参照時の例外とunchecked件数加算を修正。Windows Release build済） |
 | M | +51/-0 | `Mods/Render/PlayerEntityStylusHud.cs` | .cpp,.hpp | 完了（C#全文・PlayerHudのWeaponSelect/UpdateWeaponArc・StylusZone/DrawHudFlatBox接続監査済、座標・scale・ellipse描画と.NET cast/Math MinMax一致。差分なし、Windows Release build green） |
 | A | +43/-0 | `Mods/Render/DesktopGlContext.cs` | .cpp,.hpp | 完了（C#原本監査済、Renderer経由で接続） |
-| M | +31/-0 | `Mods/Render/GlEs.cs` | .cpp,.hpp | 完了 |
+| M | +31/-0 | `Mods/Render/GlEs.cs` | .cpp,.hpp | 完了（C#全文監査済、Android ES state/primitive/list/texture/shader/framebuffer/uniform動作を照合。null/empty source/name、例外型、current-cultureログ書式を修正。Android nativeのGL dispatch接続は別途要確認。Android buildは全Android監査後） |
 | A | +28/-0 | `Mods/Render/LockjawTrailNoise.cs` | — 新規 | 完了 |
 | M | +26/-0 | `Mods/Render/HunterPreview.cs` | .cpp,.hpp | 完了 |
 | M | +17/-1 | `Mods/Render/PlayerEntityEndScreen.cs` | .cpp,.hpp | 完了 |
@@ -971,6 +971,7 @@
 - `Mods/Render/PlayerEntityTeamScoreboard.cs` をC#全文とnative `.cpp/.hpp`、PlayerHudのモード判定・列位置・ping表示、TeamVisuals、DrawText2DのUTF-16 maxLength処理まで照合。勝者/チーム/プレイヤー行の順序、mode別TIME/POINTS・DEATHS/KILLS、色・尺度・間隔は一致。整数値のToStringをcurrent-culture helperへ、名前幅のfloat→intを.NET 10 cast helperへ変更。
 - `Mods/Render/LockjawTrailProbe.cs` をC#全文とnative `.cpp/.hpp`、MapAuditの呼出タイミング、RenderItem保持キュー、BombEntity列挙を照合。対象条件・順序・FNV-1a入力とfloat bit pattern、pool返却前の採取タイミングが一致。C#でnull参照例外となるRenderItem/BombEntity/Pointsをnativeでも`RequireReference`経由にし、`trailCount++`をC# unchecked wrap helperに変更。
 - `Mods/Render/PlayerEntityStylusHud.cs` をC#全文とnative `.cpp/.hpp`、PlayerHudの武器ホイール初期座標・描画・UpdateWeaponArc、StylusZoneの寸法/5ボタン配列、Scene.DrawHudFlatBoxを照合。ゾーン矩形、6位置の変換、scale、輪郭/楕円spanの順序とalpha、.NET cast・Math Min/Maxの特殊値処理が一致。差分修正なし。
+- `Mods/Render/GlEs.cs` をC#全文とnative `.cpp/.hpp`、Android shared rendererのGL利用箇所と照合。primitive分解、display list/dynamic buffer、current color/alpha-test、texture-name map、shader translation、GL state、framebuffer、uniform配列の値・順序が一致。null shader sourceの例外、空shader/uniform名のpointer、ref相当引数のnull参照、compile/link diagnosticsと未知primitive enumのcurrent-culture数値表示を修正。Android buildは全Androidファイル監査後のため未実施。別途、C# Android headはglobal `GL` aliasで本クラスを使う一方、native shared `Renderer` は `OpenTK::Graphics::OpenGL::GL` を使い、Android CMakeはdesktop `GL.cpp` を除外する。native Android側の直接呼出しは `GlEs::Reset` と `PreviewRun` の `Viewport` のみ確認できたため、実Android renderer dispatch/link接続はプラットフォームcloseoutで別途解決・確認する。
 
 ### 2026-09-27 native launcher regression audit
 
