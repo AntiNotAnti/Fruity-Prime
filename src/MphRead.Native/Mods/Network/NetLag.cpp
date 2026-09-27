@@ -150,17 +150,17 @@ namespace MphRead::Mods::Network
             return std::nullopt;
         }
         std::string text = _roundTripMs > 0
-            ? "+" + std::to_string(_roundTripMs) + " ms round trip"
+            ? "+" + Runtime::ToString(_roundTripMs) + " ms round trip"
             : std::string("no added latency");
         if (_jitterMs > 0)
         {
-            text += " (jitter up to " + std::to_string(_jitterMs) + " ms each way)";
+            text += " (jitter up to " + Runtime::ToString(_jitterMs) + " ms each way)";
         }
         if (_lossPercent > 0)
         {
             text += ", " + Runtime::ToString(_lossPercent, "0.##") + "% packet loss each way";
         }
         return text + ", reorder " + Runtime::ToString(_reorderRate, "P1") + ", duplicate "
-            + Runtime::ToString(_duplicateRate, "P1") + ", seed " + std::to_string(_seed);
+            + Runtime::ToString(_duplicateRate, "P1") + ", seed " + Runtime::ToString(_seed);
     }
 }

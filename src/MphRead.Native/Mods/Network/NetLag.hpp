@@ -1,6 +1,7 @@
 #pragma once
 
 #include "NetFaultQueue.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -26,7 +27,8 @@ namespace MphRead::Mods::Network
         template <typename T>
         [[nodiscard]] static NetFaultQueue<T> CreateQueue(bool outbound)
         {
-            return NetFaultQueue<T>(static_cast<std::int32_t>(static_cast<std::uint32_t>(_seed) + (outbound ? 1U : 0U)),
+            return NetFaultQueue<T>(::MphRead::NativeRuntime::UncheckedAdd(
+                _seed, outbound ? std::int32_t{1} : std::int32_t{0}),
                 _roundTripMs / 2.0, _jitterMs, _lossPercent / 100, _reorderRate, _duplicateRate);
         }
 
