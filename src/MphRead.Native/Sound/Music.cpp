@@ -35,36 +35,64 @@ namespace NCSFPlayer
     class PlayerState final
     {
     public:
-        explicit PlayerState(std::shared_ptr<NCSFPlayer::Player> player) noexcept
-            : _player(std::move(player))
+        PlayerState(std::shared_ptr<NCSFPlayer::Player> player, std::recursive_mutex& mutex) noexcept
+            : _player(std::move(player)), _mutex(mutex)
         {
         }
 
         [[nodiscard]] std::uint16_t TempoRatio() const noexcept
         {
+            std::lock_guard<std::recursive_mutex> guard(_mutex);
             return _player ? _player->TempoRatio() : std::uint16_t{0};
         }
 
         void TempoRatio(std::uint16_t value) noexcept
         {
+            std::lock_guard<std::recursive_mutex> guard(_mutex);
             if (_player)
             {
                 _player->TempoRatio(value);
             }
         }
 
-        [[nodiscard]] NCSFCommon::Track* GetTrack(std::int32_t index) noexcept
+        [[nodiscard]] std::optional<std::uint8_t> TrackVolume(std::int32_t index) const noexcept
         {
+            std::lock_guard<std::recursive_mutex> guard(_mutex);
             if (!_player)
             {
-                return nullptr;
+                return std::nullopt;
             }
             const std::shared_ptr<NCSFCommon::Track> track = _player->GetTrack(index);
-            return track.get();
+            return track ? std::optional<std::uint8_t>(track->Volume()) : std::nullopt;
+        }
+
+        void TrackVolume(std::int32_t index, std::uint8_t value) noexcept
+        {
+            std::lock_guard<std::recursive_mutex> guard(_mutex);
+            if (_player)
+            {
+                if (const std::shared_ptr<NCSFCommon::Track> track = _player->GetTrack(index))
+                {
+                    track->Volume(value);
+                }
+            }
+        }
+
+        void TrackMute(std::int32_t index, bool value) noexcept
+        {
+            std::lock_guard<std::recursive_mutex> guard(_mutex);
+            if (_player)
+            {
+                if (const std::shared_ptr<NCSFCommon::Track> track = _player->GetTrack(index))
+                {
+                    track->Mute(value);
+                }
+            }
         }
 
     private:
         std::shared_ptr<NCSFPlayer::Player> _player;
+        std::recursive_mutex& _mutex;
     };
 
     // NCSFPlayerStream itself, whose path is UTF-16 there and UTF-8 here.
@@ -81,7 +109,7 @@ namespace NCSFPlayer
                   defaultLengthInMS, defaultFadeInMS, volumeType,
                   peakType, playForever, volume,
                   channelMutes, trackMutes, ignoreVolume)),
-              _player(_stream->Player())
+              _player(_stream->Player(), _mutex)
         {
         }
 
@@ -89,16 +117,19 @@ namespace NCSFPlayer
 
         std::int32_t Read(std::span<std::uint8_t> buffer, std::int32_t offset, std::int32_t count)
         {
+            std::lock_guard<std::recursive_mutex> guard(_mutex);
             return _stream ? _stream->Read(buffer, offset, count) : 0;
         }
 
         [[nodiscard]] float VolumeModification() const noexcept
         {
+            std::lock_guard<std::recursive_mutex> guard(_mutex);
             return _stream ? _stream->VolumeModification() : 0.0F;
         }
 
         void VolumeModification(float value) noexcept
         {
+            std::lock_guard<std::recursive_mutex> guard(_mutex);
             if (_stream)
             {
                 _stream->VolumeModification(value);
@@ -107,10 +138,15 @@ namespace NCSFPlayer
 
         [[nodiscard]] PlayerState& Player() noexcept { return _player; }
 
-        // Stream.Dispose: the object is released, and nothing reads it after.
-        void Dispose() noexcept { _stream.reset(); }
+        // Serialize disposal with a device callback already inside Read().
+        void Dispose() noexcept
+        {
+            std::lock_guard<std::recursive_mutex> guard(_mutex);
+            _stream.reset();
+        }
 
     private:
+        mutable std::recursive_mutex _mutex;
         std::shared_ptr<NCSF123::NCSFPlayerStream> _stream;
         PlayerState _player;
     };
@@ -774,7 +810,7 @@ namespace MphRead
             {
                 if ((tracks & (1U << i)) != 0)
                 {
-                    if (auto* track = MusicPlayer::GetTrack(i)) track->Volume(volume);
+                    MusicPlayer::TrackVolume(i, volume);
                 }
             }
             if ((g_mutedTracks & tracks) != 0)
@@ -785,7 +821,7 @@ namespace MphRead
                     {
                         if ((tracks & (1U << i)) != 0)
                         {
-                            if (auto* track = MusicPlayer::GetTrack(i)) track->Mute(false);
+                            MusicPlayer::TrackMute(i, false);
                         }
                     }
                 }
@@ -800,7 +836,7 @@ namespace MphRead
                 {
                     if ((tracks & (1U << i)) != 0)
                     {
-                        if (auto* track = MusicPlayer::GetTrack(i)) track->Mute(true);
+                        MusicPlayer::TrackMute(i, true);
                     }
                 }
             }
@@ -817,7 +853,7 @@ namespace MphRead
             if ((tracks & (1U << i)) != 0)
             {
                 TrackFaderState& fader = g_trackFaders[static_cast<std::size_t>(i)];
-                if (auto* track = MusicPlayer::GetTrack(i)) fader.Start = track->Volume();
+                if (const std::optional<std::uint8_t> value = MusicPlayer::TrackVolume(i)) fader.Start = *value;
                 fader.Target = target;
                 fader.TimeMs = time * 1000;
                 fader.Timer.Restart();
@@ -835,22 +871,23 @@ namespace MphRead
             TrackFaderState& fader = g_trackFaders[static_cast<std::size_t>(i)];
             if (fader.Timer.IsRunning())
             {
-                NCSFCommon::Track* track = MusicPlayer::GetTrack(i);
-                if (track != nullptr && track->Volume() != fader.Target)
+                const std::optional<std::uint8_t> current = MusicPlayer::TrackVolume(i);
+                if (current.has_value() && *current != fader.Target)
                 {
                     const float pct = static_cast<float>(fader.Timer.ElapsedMilliseconds()) / fader.TimeMs;
+                    std::uint8_t next = fader.Target;
                     if (pct >= 1)
                     {
-                        UpdateTrackVolume(static_cast<std::uint16_t>(1U << i), fader.Target);
                         fader.Timer.Stop();
                         g_fadingTracks = static_cast<std::uint16_t>(g_fadingTracks & static_cast<std::uint16_t>(~(1U << i)));
                     }
                     else
                     {
-                        UpdateTrackVolume(static_cast<std::uint16_t>(1U << i), static_cast<std::uint8_t>(
-                            fader.Start + (fader.Target - fader.Start) * pct));
+                        next = static_cast<std::uint8_t>(
+                            fader.Start + (fader.Target - fader.Start) * pct);
                     }
-                    track->Mute(track->Volume() == 0);
+                    UpdateTrackVolume(static_cast<std::uint16_t>(1U << i), next);
+                    MusicPlayer::TrackMute(i, next == 0);
                 }
             }
         }
@@ -928,11 +965,8 @@ namespace MphRead
                 {
                     if ((tracks & (1U << i)) == 0)
                     {
-                        if (auto* track = MusicPlayer::GetTrack(i))
-                        {
-                            track->Volume(0);
-                            track->Mute(true);
-                        }
+                        MusicPlayer::TrackVolume(i, 0);
+                        MusicPlayer::TrackMute(i, true);
                     }
                 }
                 if (g_stopLoading.load(std::memory_order_acquire)) return;
@@ -1040,12 +1074,28 @@ namespace MphRead
         if (stream) stream->Player().TempoRatio(value);
     }
 
-    NCSFCommon::Track* MusicPlayer::GetTrack(std::int32_t index) noexcept
+    std::optional<std::uint8_t> MusicPlayer::TrackVolume(std::int32_t index) noexcept
     {
         EnsureMusicPlayerInitialized();
         std::shared_ptr<NCSFPlayerStream> stream;
         { std::lock_guard<std::recursive_mutex> guard(g_playerMutex); stream = g_stream; }
-        return stream ? stream->Player().GetTrack(index) : nullptr;
+        return stream ? stream->Player().TrackVolume(index) : std::nullopt;
+    }
+
+    void MusicPlayer::TrackVolume(std::int32_t index, std::uint8_t value) noexcept
+    {
+        EnsureMusicPlayerInitialized();
+        std::shared_ptr<NCSFPlayerStream> stream;
+        { std::lock_guard<std::recursive_mutex> guard(g_playerMutex); stream = g_stream; }
+        if (stream) stream->Player().TrackVolume(index, value);
+    }
+
+    void MusicPlayer::TrackMute(std::int32_t index, bool value) noexcept
+    {
+        EnsureMusicPlayerInitialized();
+        std::shared_ptr<NCSFPlayerStream> stream;
+        { std::lock_guard<std::recursive_mutex> guard(g_playerMutex); stream = g_stream; }
+        if (stream) stream->Player().TrackMute(index, value);
     }
 
     void MusicPlayer::Stop()

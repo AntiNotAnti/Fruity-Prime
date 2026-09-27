@@ -219,7 +219,9 @@ namespace MphRead
         static void Volume(float value) noexcept;
         [[nodiscard]] static std::uint16_t Tempo() noexcept;
         static void Tempo(std::uint16_t value) noexcept;
-        [[nodiscard]] static NCSFCommon::Track* GetTrack(std::int32_t index) noexcept;
+        [[nodiscard]] static std::optional<std::uint8_t> TrackVolume(std::int32_t index) noexcept;
+        static void TrackVolume(std::int32_t index, std::uint8_t value) noexcept;
+        static void TrackMute(std::int32_t index, bool value) noexcept;
         static void Stop();
         static void Remove(bool shutdown = false);
     };
