@@ -29,16 +29,16 @@
 #include "../../Scene.hpp"
 #include "../../NativeRuntime/System/Console.hpp"
 #include "../../NativeRuntime/System/Encoding.hpp"
+#include "../../NativeRuntime/System/ExceptionText.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/System/Number.hpp"
 #include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
-#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <array>
-#include <cctype>
 #include <cmath>
-#include <cstdlib>
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
@@ -47,11 +47,16 @@
 #include <stdexcept>
 #include <string_view>
 #include <type_traits>
-#include <typeinfo>
 #include <utility>
 
 using ::MphRead::NativeRuntime::EnvironmentGetVariable;
+using ::MphRead::NativeRuntime::ExceptionToString;
+using ::MphRead::NativeRuntime::IncrementInPlace;
+using ::MphRead::NativeRuntime::NumberFormatInfo;
+using ::MphRead::NativeRuntime::NumberStyles;
 using ::MphRead::NativeRuntime::PathCombine;
+using ::MphRead::NativeRuntime::TryParseDouble;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::MphRead::NativeRuntime::Utf16Length;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::Length;
@@ -90,140 +95,6 @@ namespace
             value.append(width - length, ' ');
         }
         return value;
-    }
-
-    [[nodiscard]] bool TryParseInvariantDouble(const std::string& input, double& value)
-    {
-        std::size_t first = 0;
-        while (first < input.size()
-            && std::isspace(static_cast<unsigned char>(input[first])) != 0)
-        {
-            ++first;
-        }
-        std::size_t last = input.size();
-        while (last > first
-            && std::isspace(static_cast<unsigned char>(input[last - 1])) != 0)
-        {
-            --last;
-        }
-        if (first == last)
-        {
-            value = 0.0;
-            return false;
-        }
-
-        std::string text(input.substr(first, last - first));
-        if (text == "NaN")
-        {
-            value = std::numeric_limits<double>::quiet_NaN();
-            return true;
-        }
-        if (text == "Infinity" || text == "+Infinity")
-        {
-            value = std::numeric_limits<double>::infinity();
-            return true;
-        }
-        if (text == "-Infinity")
-        {
-            value = -std::numeric_limits<double>::infinity();
-            return true;
-        }
-
-        // Double.TryParse(string, InvariantCulture, out ...) uses the default
-        // floating-point NumberStyles: sign, decimal point, exponent and
-        // thousands separators. Group separators belong to the integral
-        // significand; they are not stripped from the fractional or exponent
-        // portions, where doing so would accept strings the managed parser
-        // rejects (for example, an exponent containing a comma).
-        std::size_t index = 0;
-        if (index < text.size() && (text[index] == '+' || text[index] == '-'))
-        {
-            ++index;
-        }
-        bool haveDigits = false;
-        bool previousWasGroup = false;
-        std::string normalized;
-        normalized.reserve(text.size());
-        if (index > 0)
-        {
-            normalized.push_back(text[0]);
-        }
-        while (index < text.size())
-        {
-            const char ch = text[index];
-            if (ch >= '0' && ch <= '9')
-            {
-                haveDigits = true;
-                previousWasGroup = false;
-                normalized.push_back(ch);
-                ++index;
-                continue;
-            }
-            if (ch == ',')
-            {
-                if (!haveDigits || previousWasGroup || index + 1 >= text.size()
-                    || text[index + 1] < '0' || text[index + 1] > '9')
-                {
-                    value = 0.0;
-                    return false;
-                }
-                previousWasGroup = true;
-                ++index;
-                continue;
-            }
-            break;
-        }
-        if (index < text.size() && text[index] == '.')
-        {
-            normalized.push_back('.');
-            ++index;
-            while (index < text.size() && text[index] >= '0' && text[index] <= '9')
-            {
-                haveDigits = true;
-                normalized.push_back(text[index]);
-                ++index;
-            }
-        }
-        if (!haveDigits)
-        {
-            value = 0.0;
-            return false;
-        }
-        if (index < text.size() && (text[index] == 'e' || text[index] == 'E'))
-        {
-            normalized.push_back(text[index]);
-            ++index;
-            if (index < text.size() && (text[index] == '+' || text[index] == '-'))
-            {
-                normalized.push_back(text[index]);
-                ++index;
-            }
-            const std::size_t exponentStart = index;
-            while (index < text.size() && text[index] >= '0' && text[index] <= '9')
-            {
-                normalized.push_back(text[index]);
-                ++index;
-            }
-            if (index == exponentStart)
-            {
-                value = 0.0;
-                return false;
-            }
-        }
-        if (index != text.size())
-        {
-            value = 0.0;
-            return false;
-        }
-
-        char* end = nullptr;
-        value = std::strtod(normalized.c_str(), &end);
-        if (end == normalized.c_str() || end == nullptr || *end != '\0')
-        {
-            value = 0.0;
-            return false;
-        }
-        return true;
     }
 
     [[nodiscard]] std::string OptionalInterpolation(
@@ -349,7 +220,7 @@ namespace MphRead::Mods::Network
         {
             return;
         }
-        ++_frame;
+        IncrementInPlace(_frame);
         UpdateSpectating();
         DriveVoteTest();
         DriveRebindTest();
@@ -362,7 +233,7 @@ namespace MphRead::Mods::Network
                 *_shotDirectory, _name + "-" + TwoDigits(_shots) + ".png");
             if (Capture(path))
             {
-                ++_shots;
+                IncrementInPlace(_shots);
                 _litFraction = std::max(
                     _litFraction, Mods::ScreenCapture::NonBlackFraction(_scene.get()));
             }
@@ -372,17 +243,17 @@ namespace MphRead::Mods::Network
         {
             if (Capture(PathCombine(*_shotDirectory, _name + "-end-" + TwoDigits(_endShots) + ".png")))
             {
-                ++_endShots;
+                IncrementInPlace(_endShots);
             }
         }
         if (_shotDirectory.has_value() && _opponentInView && _duelShots < 8
-            && _frame - _lastDuelShotFrame > 45)
+            && UncheckedSubtract(_frame, _lastDuelShotFrame) > 45)
         {
             const std::string path = PathCombine(
                 *_shotDirectory, _name + "-duel-" + TwoDigits(_duelShots) + ".png");
             if (Mods::ScreenCapture::Save(_scene.get(), path))
             {
-                ++_duelShots;
+                IncrementInPlace(_duelShots);
                 _lastDuelShotFrame = _frame;
             }
         }
@@ -449,7 +320,7 @@ namespace MphRead::Mods::Network
         }
         if (SpectatorMode::IsSpectating())
         {
-            ++_spectatingFrames;
+            IncrementInPlace(_spectatingFrames);
         }
         for (std::int32_t slot = 0; slot < Entities::PlayerEntity::MaxPlayers(); ++slot)
         {
@@ -462,7 +333,7 @@ namespace MphRead::Mods::Network
                 = Entities::PlayerEntity::Players().at(static_cast<std::size_t>(slot));
             if (TestFlag(player->Flags2(), PlayerFlags2::Spectating))
             {
-                ++_remoteSpectatingFrames.at(static_cast<std::size_t>(slot));
+                IncrementInPlace(_remoteSpectatingFrames.at(static_cast<std::size_t>(slot)));
             }
         }
     }
@@ -501,7 +372,9 @@ namespace MphRead::Mods::Network
         }
         const std::optional<std::string> at = EnvironmentGetVariable("MPHREAD_NET_REBIND");
         double seconds = 0.0;
-        if (!at.has_value() || !TryParseInvariantDouble(*at, seconds))
+        if (!at.has_value() || !TryParseDouble(*at,
+            NumberStyles::Float | NumberStyles::AllowThousands,
+            NumberFormatInfo::InvariantInfo(), seconds))
         {
             return;
         }
@@ -540,7 +413,7 @@ namespace MphRead::Mods::Network
             if (want != _lastBallotRoom)
             {
                 _lastBallotRoom = want;
-                _mapVotesCast++;
+                IncrementInPlace(_mapVotesCast);
                 std::cout << "[mapvote] " << _name << " picked " << want << '\n';
             }
             Mods::MapPick::Choose(Mods::MapPick::IndexOf(want));
@@ -548,7 +421,7 @@ namespace MphRead::Mods::Network
         if (::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase(Mods::EndScreen::NextRoomKey(), want)
             && _mapVotesCarried < _mapVotesCast)
         {
-            _mapVotesCarried++;
+            IncrementInPlace(_mapVotesCarried);
             std::cout << "[mapvote] " << _name << " sees the server agree: next is " << want << '\n';
         }
     }
@@ -561,7 +434,7 @@ namespace MphRead::Mods::Network
         {
             if (_lastRoomId != -1)
             {
-                ++_roomChanges;
+                IncrementInPlace(_roomChanges);
                 _everSawSomeone |= AnyoneSeen();
                 _features->Reset();
                 for (std::unique_ptr<RemoteView>& remote : _remotes)
@@ -590,21 +463,21 @@ namespace MphRead::Mods::Network
             _minHealthSeen = std::min(_minHealthSeen, me->Health());
             if (_wasAliveLocal && me->Health() == 0)
             {
-                ++_myDeaths;
+                IncrementInPlace(_myDeaths);
             }
             if (_lastLocalHealth > 0 && me->Health() > 0 && me->Health() < _lastLocalHealth)
             {
-                ++_damageTaken;
+                IncrementInPlace(_damageTaken);
             }
             _lastLocalHealth = me->Health();
             _wasAliveLocal = me->Health() > 0;
             if (me->IsAltForm())
             {
-                ++_myAltFrames;
+                IncrementInPlace(_myAltFrames);
             }
             if (me->ModDamageIndicatorActive())
             {
-                ++_indicatorFrames;
+                IncrementInPlace(_indicatorFrames);
             }
         }
         for (std::int32_t slot = 0; slot < Entities::PlayerEntity::MaxPlayers(); ++slot)
@@ -621,12 +494,12 @@ namespace MphRead::Mods::Network
             {
                 continue;
             }
-            ++view.FramesActive;
+            IncrementInPlace(view.FramesActive);
             if (!TestFlag(other->LoadFlags(), LoadFlags::Spawned))
             {
                 continue;
             }
-            ++view.FramesSpawned;
+            IncrementInPlace(view.FramesSpawned);
             if (view.FirstSpawnFrame < 0)
             {
                 view.FirstSpawnFrame = _frame;
@@ -634,11 +507,11 @@ namespace MphRead::Mods::Network
             view.MinHealth = std::min(view.MinHealth, other->Health());
             if (view.WasAlive && other->Health() == 0)
             {
-                ++view.Deaths;
+                IncrementInPlace(view.Deaths);
             }
             if (view.LastHealth > 0 && other->Health() > 0 && other->Health() < view.LastHealth)
             {
-                ++view.Hits;
+                IncrementInPlace(view.Hits);
             }
             view.LastHealth = other->Health();
             view.WasAlive = other->Health() > 0;
@@ -651,7 +524,7 @@ namespace MphRead::Mods::Network
                 }
                 if (step > 0.05F)
                 {
-                    ++view.DistinctPositions;
+                    IncrementInPlace(view.DistinctPositions);
                 }
             }
             view.LastPosition = other->Position;
@@ -659,7 +532,7 @@ namespace MphRead::Mods::Network
             view.Hunter = other->Hunter();
             if (other->IsAltForm())
             {
-                ++view.AltFormFrames;
+                IncrementInPlace(view.AltFormFrames);
             }
             if (NetSession::RemoteStateValid.at(static_cast<std::size_t>(slot)))
             {
@@ -668,11 +541,11 @@ namespace MphRead::Mods::Network
                         & PlayerState::FlagAltForm) != 0;
                 if (wanted)
                 {
-                    ++view.AltFormWantedFrames;
+                    IncrementInPlace(view.AltFormWantedFrames);
                 }
                 if (wanted != other->IsAltForm())
                 {
-                    ++view.AltFormDisagreeFrames;
+                    IncrementInPlace(view.AltFormDisagreeFrames);
                 }
             }
             if (me && other->Health() > 0 && !_opponentInView)
@@ -1018,11 +891,11 @@ namespace MphRead::Mods::Network
             window->Report();
             result = window->Passed() && window->_featureFailures == 0 ? 0 : 1;
         }
-        catch (const std::exception& ex)
+        catch (...)
         {
             std::cout
                 << "[netcheck] " << name << " crashed: "
-                << typeid(ex).name() << ": " << ex.what() << '\n';
+                << ExceptionToString(std::current_exception()) << '\n';
             result = 2;
         }
 
