@@ -142,6 +142,8 @@ namespace MphRead.Mods.Render
                 if (_glStale && !window.HasScene)
                 {
                     _glStale = false;
+                    // Its render targets are its own and would be left behind.
+                    _scene?.UnloadGl();
                     _scene = null;
                 }
                 Scene? scene = window.HasScene ? window.Scene : _scene;

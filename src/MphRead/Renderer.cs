@@ -797,7 +797,7 @@ namespace MphRead
 
             _frameBuffer = GL.GenFramebuffer();
             GL.BindFramebuffer(FramebufferTarget.Framebuffer, _frameBuffer);
-            _screenTexture = GL.GenTexture();
+            _screenTexture = Mods.Render.GlNames.NextTexture();
             _textureCount++;
             Vector2i renderTarget = RenderSize;
             _targetSize = renderTarget;
@@ -818,7 +818,7 @@ namespace MphRead
 
             // The ink pass's copy of the scene. Same size and same filtering;
             // it is only ever sampled texel for texel.
-            _celTexture = GL.GenTexture();
+            _celTexture = Mods.Render.GlNames.NextTexture();
             _textureCount++;
             GL.BindTexture(TextureTarget.Texture2D, _celTexture);
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgb, renderTarget.X, renderTarget.Y, 0,
@@ -2038,7 +2038,7 @@ namespace MphRead
                 _depthTexture = 0;
                 return;
             }
-            _depthTexture = GL.GenTexture();
+            _depthTexture = Mods.Render.GlNames.NextTexture();
             _textureCount++;
             GL.BindTexture(TextureTarget.Texture2D, _depthTexture);
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Depth24Stencil8,

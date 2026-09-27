@@ -135,6 +135,11 @@ namespace MphRead::Mods::Render
             if (_glStale && !window.HasScene())
             {
                 _glStale = false;
+                // Its render targets are its own and would be left behind.
+                if (_scene)
+                {
+                    _scene->UnloadGl();
+                }
                 _scene.reset();
             }
             ::MphRead::Scene* scene = window.HasScene() ? &window.Scene() : _scene.get();

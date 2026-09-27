@@ -87,6 +87,7 @@
 #if defined(MPHREAD_SHELL)
 #include "Mods/Launcher/Gui/KeyRow.hpp"
 #include "Mods/Launcher/Gui/Shell.hpp"
+#include "Mods/Render/GlNames.hpp"
 #include "Mods/Render/LauncherHunter.hpp"
 #include "Mods/Render/UiOverlay.hpp"
 #include "NativeRuntime/Avalonia/Media.hpp"
@@ -870,7 +871,7 @@ namespace MphRead
 
         _frameBuffer = GL::GenFramebuffer();
         GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, _frameBuffer);
-        _screenTexture = GL::GenTexture();
+        _screenTexture = Mods::Render::GlNames::NextTexture();
         ++_textureCount;
         Vector2i renderTarget = RenderSize();
         _targetSize = renderTarget;
@@ -886,7 +887,7 @@ namespace MphRead
         GL::FramebufferTexture2D(GL::FramebufferTarget::Framebuffer, GL::FramebufferAttachment::ColorAttachment0,
             GL::TextureTarget::Texture2D, _screenTexture, 0);
 
-        _celTexture = GL::GenTexture();
+        _celTexture = Mods::Render::GlNames::NextTexture();
         ++_textureCount;
         GL::BindTexture(GL::TextureTarget::Texture2D, _celTexture);
         GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgb,
@@ -1743,7 +1744,7 @@ namespace MphRead
             _depthTexture = 0;
             return;
         }
-        _depthTexture = GL::GenTexture();
+        _depthTexture = Mods::Render::GlNames::NextTexture();
         ++_textureCount;
         GL::BindTexture(GL::TextureTarget::Texture2D, _depthTexture);
         GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Depth24Stencil8,

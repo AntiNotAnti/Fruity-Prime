@@ -56,7 +56,7 @@ namespace MphRead::Mods::Network
         reason.clear();
         const bool formatDefined = static_cast<std::uint8_t>(match.Format) <= static_cast<std::uint8_t>(MatchFormat::Custom);
         if (Runtime::StringIsNullOrWhiteSpace(match.RoomKey)
-            || static_cast<std::int32_t>(match.RoomKey->size()) > HostRequestPacket::MaxRoomBytes
+            || Runtime::Utf16Length(*match.RoomKey) > HostRequestPacket::MaxRoomBytes
             || !formatDefined || !::MphRead::IsDefinedGameMode(static_cast<std::uint64_t>(match.Mode))
             || match.Mode == ::MphRead::GameMode::SinglePlayer || match.Mode == ::MphRead::GameMode::None
             || match.Mode == ::MphRead::GameMode::Unknown15)
@@ -92,18 +92,16 @@ namespace MphRead::Mods::Network
         const std::int32_t required = exact ? layout.TotalPlayers() : match.Format == MatchFormat::FreeForAll ? 2 : 1;
         if (roster.Count < required || (exact && roster.Count != required))
         {
-            reason = exact ? layout.ToString() + " requires exactly " + std::to_string(required) + " players."
-                : "At least " + std::to_string(required) + " players must join.";
+            reason = exact ? layout.ToString() + " requires exactly " + Runtime::ToString(required) + " players."
+                : "At least " + Runtime::ToString(required) + " players must join.";
             return LobbyResultCode::NotEnoughPlayers;
         }
         std::array<std::int32_t, 4> counts{};
-        const auto& teams = Runtime::RequireReference(roster.Teams);
-        const auto& ready = Runtime::RequireReference(roster.LobbyReady);
-        const auto& names = Runtime::RequireReference(roster.Names);
         for (std::int32_t i = 0; i < roster.Count; i++)
         {
             if (layout.TeamCount > 0)
             {
+                const auto& teams = Runtime::RequireReference(roster.Teams);
                 const std::int32_t team = Runtime::ManagedAt(teams, i);
                 if (team < 0 || team >= layout.TeamCount)
                 {
@@ -112,10 +110,15 @@ namespace MphRead::Mods::Network
                 }
                 counts[static_cast<std::size_t>(team)]++;
             }
-            if (requireReady && !Runtime::ManagedAt(ready, i))
+            if (requireReady)
             {
-                reason = "Waiting for " + Runtime::ManagedAt(names, i).value_or("") + " to ready.";
-                return LobbyResultCode::PlayersNotReady;
+                const auto& ready = Runtime::RequireReference(roster.LobbyReady);
+                if (!Runtime::ManagedAt(ready, i))
+                {
+                    const auto& names = Runtime::RequireReference(roster.Names);
+                    reason = "Waiting for " + Runtime::ManagedAt(names, i).value_or("") + " to ready.";
+                    return LobbyResultCode::PlayersNotReady;
+                }
             }
         }
         for (std::int32_t team = 0; team < layout.TeamCount; team++)
@@ -124,8 +127,8 @@ namespace MphRead::Mods::Network
             const std::int32_t count = counts[static_cast<std::size_t>(team)];
             if (count > capacity || (exact && count != capacity))
             {
-                reason = std::string("Team ") + static_cast<char>('A' + team) + " needs " + std::to_string(capacity)
-                    + " players (currently " + std::to_string(count) + ").";
+                reason = std::string("Team ") + static_cast<char>('A' + team) + " needs " + Runtime::ToString(capacity)
+                    + " players (currently " + Runtime::ToString(count) + ").";
                 return LobbyResultCode::InvalidTeam;
             }
         }
