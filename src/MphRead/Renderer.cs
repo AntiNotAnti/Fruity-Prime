@@ -4339,10 +4339,12 @@ namespace MphRead
             {
                 return;
             }
+#if MPHREAD_SHELL
             if (!SideScene)
             {
                 Mods.Render.LauncherHunter.NoteGlUnloaded();
             }
+#endif
             foreach (TextureMap map in _texPalMap.Values)
             {
                 foreach (KeyValuePair<int, (int BindingId, bool OnlyOpaque)> kvp in map)

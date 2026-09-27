@@ -65,7 +65,7 @@ namespace MphRead::NativeRuntime::Avalonia::Media
     public:
         virtual ~IBrush() = default;
         double Opacity = 1.0;
-        std::shared_ptr<Transform> Transform{};
+        std::shared_ptr<::MphRead::NativeRuntime::Avalonia::Media::Transform> Transform{};
         RelativePoint TransformOrigin{0, 0, RelativeUnit::Relative};
     };
 
