@@ -3675,6 +3675,16 @@ namespace MphRead
                 program = 0;
             }
         };
+        if (_topMovieBinding != -1)
+        {
+            GL::DeleteTexture(_topMovieBinding);
+            _topMovieBinding = -1;
+        }
+        if (_botMovieBinding != -1)
+        {
+            GL::DeleteTexture(_botMovieBinding);
+            _botMovieBinding = -1;
+        }
         deleteTexture(_screenTexture);
         deleteTexture(_celTexture);
         deleteTexture(_depthTexture);

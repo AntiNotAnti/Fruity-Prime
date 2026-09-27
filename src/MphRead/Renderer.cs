@@ -4385,6 +4385,16 @@ namespace MphRead
                 GL.DeleteRenderbuffer(_renderBuffer);
                 _renderBuffer = 0;
             }
+            if (_topMovieBinding != -1)
+            {
+                GL.DeleteTexture(_topMovieBinding);
+                _topMovieBinding = -1;
+            }
+            if (_botMovieBinding != -1)
+            {
+                GL.DeleteTexture(_botMovieBinding);
+                _botMovieBinding = -1;
+            }
             DeleteTexture(ref _screenTexture);
             DeleteTexture(ref _celTexture);
             DeleteTexture(ref _depthTexture);
