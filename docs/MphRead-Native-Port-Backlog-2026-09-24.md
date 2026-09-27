@@ -76,9 +76,10 @@
 - 10: Q3Import（三角形法線・Clip クランプ・Weld 許容誤差・Pickups）・Q3Convert（-noitems・AddItems）・
   MapReport.ListItems。MapCheck（-mapcheck）・AltFormProbe（-altprobe）・MapReport.ListItems（-mapitems）は
   ModEntryから配線・監査済み。セクション10 完了。
-- 11 Launcher portable: LaunchPlan（LobbyContext）、GameFiles（Root=AppPaths、RomWhitelist 照合）、
+- 11 Launcher portable: 移植は完了。LaunchPlan（LobbyContext）、GameFiles（Root=AppPaths、RomWhitelist 照合）、
   TextLauncher（InputEnded・insane・StartupForced）、NativeFilePicker（NativeRuntime に
-  ProcessRunCaptureOutput）完了。MatchStart は RenderWindow の1ウィンドウ API を使う形へ移植し、
+  ProcessRunCaptureOutput）は移植時の確認を完了。現在、C#原本との再監査を一ファイルずつ実施中で、
+  RomWhitelist の再監査を完了。MatchStart は RenderWindow の1ウィンドウ API を使う形へ移植し、
   C#原本との静的監査とWindows Release buildを完了。
 - 12 完了。C# は Avalonia headless + Skia CPU ラスタ → GL 転送（UiTopLevel/UiSurface/UiOverlay）。
   旧 NativeRuntime/Gui（Element ツリー + GL 直描画、グラデーション・楕円・パス・影なし）では足りないので、
@@ -732,7 +733,7 @@
 | A | +320/-0 | `Mods/Launcher/Portable/NativeFilePicker.cs` | — 新規 | 完了（C#全文・SetupScreen/PlayScreen/Shell接続監査済、PATH/UTF-8出力/例外境界/COM cleanupを修正、Windows Release native build済。Linux/macOS picker runtime未実施） |
 | M | +98/-42 | `Mods/Launcher/Portable/MatchStart.cs` | .cpp,.hpp | 完了（静的監査済み、Section 12 後にビルド） |
 | M | +87/-8 | `Mods/Launcher/Portable/LauncherPrefs.cs` | .cpp,.hpp | 完了（C#全文・Load/Save/Directory直接接続監査済、catch(Exception)境界を修正、Windows Release native build済。runtime未実施） |
-| A | +67/-0 | `Mods/Launcher/Portable/RomWhitelist.cs` | — 新規 | 完了 |
+| A | +67/-0 | `Mods/Launcher/Portable/RomWhitelist.cs` | — 新規 | 完了（C#全文・Program/GameFiles直接呼出し監査済、MD5 file I/OをFile.OpenRead相当へ修正、Windows Release build済。実ROM runtime未実施） |
 | M | +24/-7 | `Mods/Launcher/Portable/TextLauncher.cs` | .cpp,.hpp | 完了 |
 | M | +15/-3 | `Mods/Launcher/Portable/GameFiles.cs` | .cpp,.hpp | 完了 |
 | M | +4/-0 | `Mods/Launcher/Portable/LaunchPlan.cs` | .cpp,.hpp | 完了 |
@@ -1068,3 +1069,4 @@
 
 - `Mods/Launcher/Portable/NativeFilePicker.cs` 全文をnative `.hpp/.cpp`と照合。WindowsのSTA dialog/owner/filter/flags、LinuxのPATH検索順とzenity/kdialog引数、macOS osascript escaping、cancel時null・既存file確認・失敗ログを確認。`SetupScreen`/`PlayScreen`のpicker選択後処理と`Shell`のOwner/Suppressed設定も照合。nativeのPATH読込を `EnvironmentGetVariable`、tool stdoutを.NET互換UTF-8 decode、例外捕捉をC# `catch (Exception)`相当へ修正し、COM apartment cleanupをRAIIで保証した。`git diff --check`通過、Windows Release `fruity_mphread_native` compile/link green。Linux/macOS picker実行は未実施。
 - `Mods/Launcher/Portable/LauncherPrefs.cs` 全文とnative `.hpp/.cpp`を照合。全既定値、launcher.txtのpath、行/キー/value trim、key別の空値・範囲条件、Invariant整数/Boolean/Hunter enum parsing、color clamp、window mode/geometry parser、保存キーと順序を確認。Shell/StartScreen/ModEntry/TextLauncher/各GUI・WindowGeometry/Diagnostics/Android MainActivity・PreviewService・AndroidApp のLoad/Save/Directory直接接続も照合。C# `catch (Exception)` に対しnative `Load`/`Save` が `std::exception` のみだったためcatch-allを追加。`git diff --check`通過、Windows Release `fruity_mphread_native` compile/link green。runtime未実施。Android buildは全Androidファイル監査完了後。
+- `Mods/Launcher/Portable/RomWhitelist.cs` 全文、native `.hpp/.cpp`、`Program` のROM drag-and-drop入口、`GameFiles::RunSetup` の共通setup入口を照合。7件のMD5/label、lowercase化、認識時のlabel・不一致/読込失敗時のnullと拒否文を確認した。NativeRuntime監査は今回追加されたMD5 file helperだけに限定。`std::ifstream`を使っていたためC# `File.OpenRead`のUTF-8 path、`FileShare.Read`、open/read例外分類と異なっていた箇所を、同じ設定の `FileStream` に変更。`git diff --check`通過、Windows Release全体の `ninja -k 0` 成功。実ROM runtime未実施。Android buildは全Androidファイル監査完了後。

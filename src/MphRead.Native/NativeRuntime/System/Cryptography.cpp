@@ -1,13 +1,10 @@
 #include "Cryptography.hpp"
 
-#include "Exceptions.hpp"
+#include "Streams.hpp"
 
 #include <algorithm>
 #include <bit>
 #include <cstring>
-#include <filesystem>
-#include <fstream>
-#include <vector>
 
 namespace MphRead::NativeRuntime
 {
@@ -149,29 +146,21 @@ namespace MphRead::NativeRuntime
 
     std::array<std::uint8_t, 16> Md5ComputeHashOfFile(const std::string& path)
     {
-        std::ifstream file(
-            std::filesystem::path(std::u8string(path.begin(), path.end())), std::ios::binary);
-        if (!file)
-        {
-            throw System::IO::FileNotFoundException("Could not find file '" + path + "'.");
-        }
+        FileStream file(path, FileMode::Open, FileAccess::Read, FileShare::Read);
         Md5 md5;
-        std::vector<char> buffer(64U * 1024U);
-        while (file)
+        std::array<std::uint8_t, 64U * 1024U> buffer{};
+        while (true)
         {
-            file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-            const std::streamsize read = file.gcount();
-            if (read > 0)
+            const std::size_t read = file.Read(std::span<std::uint8_t>(buffer));
+            if (read == 0)
             {
-                md5.Append(reinterpret_cast<const std::uint8_t*>(buffer.data()),
-                    static_cast<std::size_t>(read));
+                break;
             }
+            md5.Append(buffer.data(), read);
         }
-        if (file.bad())
-        {
-            throw System::IO::IOException("Could not read '" + path + "'.");
-        }
-        return md5.Finish();
+        const std::array<std::uint8_t, 16> digest = md5.Finish();
+        file.Dispose();
+        return digest;
     }
 
     std::string ConvertToHexString(std::span<const std::uint8_t> bytes)
