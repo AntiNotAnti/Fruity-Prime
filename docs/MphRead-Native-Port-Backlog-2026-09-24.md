@@ -36,10 +36,13 @@
 - `Renderer.cs` と `Renderer.cpp` のカーソル取得条件、PlayerInputへのpointer sample・acceptsInput引数を照合。条件と順序は一致し、C++ `CursorState::Grabbed` も OpenTK と同じ `GLFW_CURSOR_DISABLED` に対応する。コード上は同じ入力状態なら両版ともカーソルを隠し、画面端に制限されない。
 - `NativeRuntime/OpenTK/RendererPlatform.cpp` をOpenTK 4.9.4の `NativeWindow` / `MouseState` と照合。C#はcallback差分用 `_lastReportedMousePos` と `MouseState.NewFrame` のポーリング位置を分けるが、nativeは `_mouse.X/Y` を両方に使い、`glfwGetCursorPos` を呼んでいなかった。nativeに別々の差分基準と、window作成時・event pump前の位置取得を追加。C#と同じくcallback差分と現在位置を別管理する。Windows Release `ninja -k 0` 成功（既存 `offsetof` 警告のみ）。
 - `Renderer.cpp` は `-debuglog` が有効な場合にgrab要求・focus・各解除条件を状態遷移時に記録するようにした。設定読込、Rendererのgrab条件、`GLFW_CURSOR_DISABLED` への対応は現行C#と一致し、同じ状態ならカーソルは隠れて端に制限されない。位置ポーリング差は修正済みだが、これだけで可視カーソル症状が解消したとは未確認。次のruntime再現ではdebug logを使い、grab要求が外れているかを確認する。
+- Windows上で試合中のマウス操作を自動再現できるUI操作手段がないため、カーソル症状のruntime確認は保留。既存のゲームデータは利用可能。ゲーム内で再現する際は `-debuglog` の `cursor grab=... focus=...` 行を採取し、grab解除条件を確認する。
+- Online監査開始: `PlayScreen.cs/.cpp` のサーバー一覧更新・個別status問い合わせと `NetMaster.cs/.cpp` の `Query`、`NetStatus.cs/.cpp` を一ファイルずつ比較。依頼処理・UDP query/response判定・タイムアウト時の「did not answer」表示に現時点で差異なし。Windows Release C# buildは成功（既存のobsolete警告4件）。Android buildは未実施。
+- 同一Windows環境で既存C++ Release版とC# Release版の `-servers -debuglog` を続けて実行。両方とも `net.livetek.fr:27889` から「4 listed」を受け取り、4件すべての直接status queryが「did not answer」。この再現ではC#とC++に差は出ず、現環境で報告されたC++固有差を確認できなかった。サーバーまたは経路の一時的状態と区別するため、transport実装の残りと、既知のC#正常環境での結果を引き続き確認する。
 
 ### 2026-09-28 C++固有のフリーズ対策
 
-- ユーザー指定のフリーズ対策コミットはすべて現在の `HEAD`（`68c26d7c746a2d30f94648743c836fffbb7c78c3`）の祖先であることを確認した。これらは今回のC#対比監査で差異として扱わず、意図的なC++固有修正として維持する。
+- ユーザー指定のフリーズ対策コミットはすべて監査時点の `HEAD`（`229c35a282f0e44d895d5478ce97f137f7710217`）の祖先であることを再確認した。これらは今回のC#対比監査で差異として扱わず、意図的なC++固有修正として維持する。
 - Windows watchdog の render thread 強制停止を除去: `852bc7a50f340f80af6575ad17399a82b0a60058`。shader の配列範囲修正: `09f469273d32eafed15a8f75a93f62b9e91021a8`、`c782a756fd72269e10f0a48408463ca64a8549a9`。DS matrix restore index のmask: `30966b618379f05e723f3e7bbc3ff6e4ff8b4c98`。matrix upload bounds: `deba61b4048e46abb4dfab732c7aea57f0a5fa6e`。
 - Scene間のGL texture ID衝突修正: `5365698188263af96ab4c74d61fc84a088935568`、`54b17780f071e430e2d445da07984243466a18b3`。display list のScene所有化: `6bedab56b72ab088715b23855fcd5ed84fe0c250`。GL resource cleanup: `056f6eed4d51ef360ce990e03f2108eaf3542b12`、`d021335fc0a8eff380c167fcf078b4523de9be94`、`3137f43d2171b211d9bae4c730a6e3c4bcc6dbbb`、`4f88766a31b9f6061bff1a3a8aa5a98e1038b0a1`。
 - miniaudio callback の寿命/data race 修正: `61c132f4eef5b89637872ac3850efa1870478ba7`、`deb50ccf627ca56f8e116507054c1773efeab3c9`。コミットと現HEADへの包含は確認済み。今回、通常プレイでの再発有無を実機確認したものではない。
