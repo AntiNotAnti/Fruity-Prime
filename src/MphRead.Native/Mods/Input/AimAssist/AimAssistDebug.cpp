@@ -47,7 +47,7 @@ namespace MphRead::Mods::Input::AimAssist
             const GamepadSnapshot snapshot = GamepadManager::Snapshot();
             _lines = {
                 std::string("Aim: ") + ToString(AimInputSourceTracker::Current()) + " pad: " + snapshot.DeviceId.value_or(""),
-                "Target " + std::to_string(Result.TargetSlot) + " score " + N(Result.Score, "0.00") + " distance "
+                "Target " + ::MphRead::NativeRuntime::ToString(Result.TargetSlot) + " score " + N(Result.Score, "0.00") + " distance "
                     + N(Target.Distance, "0.0") + " body " + N(Target.BodyError.Length(), "0.00") + " head "
                     + N(Target.HeadError.Length(), "0.00"),
                 std::string("LOS body ") + B(Target.BodyVisible) + " head " + B(Target.HeadVisible) + " point "
