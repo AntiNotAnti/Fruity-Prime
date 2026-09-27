@@ -122,7 +122,7 @@ namespace MphRead::NativeRuntime::Avalonia
             : Width(size.Width), Height(size.Height)
         {
         }
-        constexpr Rect(Point a, Point b) noexcept
+        Rect(Point a, Point b) noexcept
             : X(std::min(a.X, b.X)), Y(std::min(a.Y, b.Y)), Width(std::abs(b.X - a.X)), Height(std::abs(b.Y - a.Y))
         {
         }
