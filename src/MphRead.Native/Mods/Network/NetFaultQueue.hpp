@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../NativeRuntime/System/Exceptions.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/System/Random.hpp"
 
 #include <algorithm>
@@ -50,26 +51,26 @@ namespace MphRead::Mods::Network
         {
             if (_random.NextDouble() < _loss)
             {
-                ++_dropped;
+                ::MphRead::NativeRuntime::IncrementInPlace(_dropped);
                 return;
             }
             // Jitter alone retains the old FIFO contract. Explicit reordering
             // delays one datagram without holding the following datagrams back.
             const double jitter = _random.NextDouble() * _jitter;
-            double due = std::max(_lastDue, nowMs + _delay + jitter + extraDelayMs);
+            double due = DotNetMathMax(_lastDue, nowMs + _delay + jitter + extraDelayMs);
             _lastDue = due;
             if (_random.NextDouble() < _reorder)
             {
                 const double spread = 1 + _random.NextDouble();
                 due += std::max(20.0, _jitter + _delay) * spread;
-                ++_reordered;
+                ::MphRead::NativeRuntime::IncrementInPlace(_reordered);
             }
             Add(value, due);
             if (_random.NextDouble() < _duplicate)
             {
                 const double extra = 1 + _random.NextDouble() * std::max(1.0, _jitter);
                 Add(value, due + extra);
-                ++_duplicated;
+                ::MphRead::NativeRuntime::IncrementInPlace(_duplicated);
             }
         }
 
@@ -100,6 +101,16 @@ namespace MphRead::Mods::Network
         {
             [[nodiscard]] bool operator()(const Entry& left, const Entry& right) const noexcept
             {
+                // ValueTuple<double, long> uses Double.CompareTo, where NaN
+                // sorts before every number and equals another NaN.
+                if (std::isnan(left.Due))
+                {
+                    return std::isnan(right.Due) && left.Order > right.Order;
+                }
+                if (std::isnan(right.Due))
+                {
+                    return true;
+                }
                 return left.Due != right.Due ? left.Due > right.Due : left.Order > right.Order;
             }
         };
@@ -113,10 +124,27 @@ namespace MphRead::Mods::Network
         {
             if (static_cast<std::int32_t>(_queue.size()) >= _capacity)
             {
-                ++_dropped;
+                ::MphRead::NativeRuntime::IncrementInPlace(_dropped);
                 return;
             }
-            _queue.push(Entry{due, _order++, value});
+            const std::int64_t order = _order;
+            ::MphRead::NativeRuntime::IncrementInPlace(_order);
+            _queue.push(Entry{due, order, value});
+        }
+
+        // Math.Max(double) propagates either NaN and returns +0 when one input
+        // is +0. std::max has different NaN and signed-zero rules.
+        [[nodiscard]] static double DotNetMathMax(double left, double right) noexcept
+        {
+            if (left != right)
+            {
+                if (!std::isnan(left))
+                {
+                    return right < left ? left : right;
+                }
+                return left;
+            }
+            return std::signbit(right) ? left : right;
         }
 
         std::priority_queue<Entry, std::vector<Entry>, Later> _queue;
