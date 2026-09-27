@@ -29,7 +29,8 @@
 - 済: 1 Platform helpers / 3 Mods leaves の大半 / 8 Multiplayer・teams
   （ea3398e9 まで）。
 - 9 Network — 進行中:
-  - 済 (f661cce0 ほか): NetProtocol（protocol 14）、NetSession・NetSessionLobby、
+  - 済 (f661cce0 ほか): NetProtocol（protocol 14、C#原典とnative実装の静的監査済）、
+    NetSession・NetSessionLobby、
     SessionProtocol、LobbyRules、MatchDefinition、NetLifecycleTracker、
     NetPlayerLifecycle、ContinuousWeaponPhase、FormReconciliation、NetFaultQueue、
     NetMatchTimeSync、NetHealthSync、NetHudHealth、NetShotDiagnostics、
@@ -638,7 +639,7 @@
 | S | +/- | C# | C++ | 進捗 |
 |---|---|---|---|---|
 | A | +1952/-0 | `Mods/Network/NetHitClaims.cs` | — 新規 | 完了（C#全文・native `.hpp/.cpp`とRenderer/NetSession/NetDamage/NetHitPrediction/Lifecycle接続を監査。claim検証・grace/ledger/死因順序・rescue抑止・cleanup一致。NearestLedgerOffsetのunchecked差分/Math.Abs境界を修正、Windows Release build green） |
-| M | +934/-33 | `Mods/Network/NetProtocol.cs` | .cpp,.hpp | 完了 |
+| M | +934/-33 | `Mods/Network/NetProtocol.cs` | .cpp,.hpp | 完了（C#全文・native `.hpp/.cpp`・NetSession/DedicatedServer/NetMaster/NetHitClaims の直接送受信箇所を監査。PacketType・サイズ/offset・byte order・文字列置換・旧長さ互換・既定値/境界を照合し一致。修正なし、静的監査のみ） |
 | M | +883/-78 | `Mods/Network/NetHitPrediction.cs` | .cpp,.hpp | 完了 |
 | M | +704/-105 | `Mods/Network/DedicatedServer.cs` | .cpp,.hpp | 完了 |
 | A | +609/-0 | `Mods/Network/HitRig.cs` | — 新規 | 完了 |
