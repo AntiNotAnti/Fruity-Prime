@@ -210,7 +210,7 @@ namespace MphRead::Mods::Network
         }
         if (!Sane(intent.Aim))
         {
-            _rejectedUpdates++;
+            NativeRuntime::IncrementInPlace(_rejectedUpdates);
             NetLog::Event("slot " + std::to_string(player.SlotIndex()) + " intent rejected: aim=" + intent.Aim.ToString());
             return;
         }
@@ -391,7 +391,7 @@ namespace MphRead::Mods::Network
         }
         if (!Sane(state.Position) || !Sane(state.Speed) || !Sane(state.Facing))
         {
-            _rejectedUpdates++;
+            NativeRuntime::IncrementInPlace(_rejectedUpdates);
             return;
         }
         const auto s = Index(slot);
@@ -576,7 +576,7 @@ namespace MphRead::Mods::Network
     {
         if (!Sane(intent.Position))
         {
-            _rejectedUpdates++;
+            NativeRuntime::IncrementInPlace(_rejectedUpdates);
             return;
         }
         if (FrozenInPlace(player))
@@ -598,7 +598,7 @@ namespace MphRead::Mods::Network
         const float distance = Length(delta);
         if (distance > SnapDistance)
         {
-            _snaps++;
+            NativeRuntime::IncrementInPlace(_snaps);
             _worstSnap = std::max(_worstSnap, distance);
             Move(player, reported);
             return;

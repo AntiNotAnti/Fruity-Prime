@@ -360,7 +360,7 @@ namespace MphRead::Entities
         }
 
         _modNodeUnresolved = true;
-        Mods::Network::NetPlayerBridge::NodeLookupsUnresolved++;
+        NativeRuntime::IncrementInPlace(Mods::Network::NetPlayerBridge::NodeLookupsUnresolved);
         const Formats::Culling::NodeRef currentForCheck = (*this).NodeRef;
         if (currentForCheck != Formats::Culling::NodeRef::None)
         {
