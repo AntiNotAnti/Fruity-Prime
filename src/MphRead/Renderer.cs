@@ -1242,8 +1242,8 @@ namespace MphRead
                         // NDS MTX_RESTORE uses only parameter bits 0-4. The
                         // remaining bits are ignored by the hardware and must
                         // not become an out-of-range shader array index.
-                        int requested = (int)(instruction.Arguments[0] & 0x1F);
-                        int matrixCount = model.NodeMatrixIds.Count;
+                        uint requested = instruction.Arguments[0] & 0x1F;
+                        uint matrixCount = (uint)model.NodeMatrixIds.Count;
                         matrixId = matrixCount == 0 ? 0 : Math.Min(requested, matrixCount - 1);
                     }
                     GL.TexCoord3(texX, texY, matrixId);
