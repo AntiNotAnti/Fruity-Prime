@@ -189,8 +189,8 @@ namespace MphRead::Mods::Network
             if (age > 0)
             {
                 depth += age;
-                _stalePresses++;
-                _stalePressFrames += age;
+                Runtime::IncrementInPlace(_stalePresses);
+                _stalePressFrames = Runtime::UncheckedAdd(_stalePressFrames, age);
             }
         }
         requested = static_cast<std::int32_t>(std::min(Runtime::RoundToEven(depth), static_cast<double>(HistoryFrames)));
@@ -223,7 +223,7 @@ namespace MphRead::Mods::Network
         const double rewind = RewindFor(slot, requested);
         if (requested > 0 && requested < static_cast<std::int32_t>(DepthHistogram.size()))
         {
-            DepthHistogram[static_cast<std::size_t>(requested)]++;
+            Runtime::IncrementInPlace(DepthHistogram[static_cast<std::size_t>(requested)]);
         }
         if (requested > _worstRequested)
         {
@@ -231,16 +231,17 @@ namespace MphRead::Mods::Network
         }
         const auto served = static_cast<std::int32_t>(Runtime::RoundToEven(rewind));
         const auto weapon = static_cast<std::size_t>(NetShotDiagnostics::Bucket(shooter.CurrentWeapon()));
-        NetShotDiagnostics::RewindSamples[weapon]++;
-        NetShotDiagnostics::RewindFrames[weapon] += served;
+        Runtime::IncrementInPlace(NetShotDiagnostics::RewindSamples[weapon]);
+        NetShotDiagnostics::RewindFrames[weapon] = Runtime::UncheckedAdd(
+            NetShotDiagnostics::RewindFrames[weapon], served);
         if (requested > served)
         {
-            NetShotDiagnostics::RewindClamps[weapon]++;
+            Runtime::IncrementInPlace(NetShotDiagnostics::RewindClamps[weapon]);
         }
         if (requested > served)
         {
-            _shotsClamped++;
-            _framesRefused += requested - served;
+            Runtime::IncrementInPlace(_shotsClamped);
+            _framesRefused = Runtime::UncheckedAdd(_framesRefused, requested - served);
             MeasureClampError(slot, requested, served);
         }
         if (rewind <= 0)
@@ -250,13 +251,13 @@ namespace MphRead::Mods::Network
         const double target = NetSession::NetFrame() - rewind;
         if (!Reconcile(slot, target))
         {
-            _historyMisses++;
+            Runtime::IncrementInPlace(_historyMisses);
             return;
         }
         _shooter = &shooter;
         _rewind = static_cast<std::int32_t>(std::ceil(rewind));
-        _shotsCompensated++;
-        _framesRewound += served;
+        Runtime::IncrementInPlace(_shotsCompensated);
+        _framesRewound = Runtime::UncheckedAdd(_framesRewound, served);
         if (served > _worstRewind)
         {
             _worstRewind = served;
@@ -299,7 +300,7 @@ namespace MphRead::Mods::Network
     {
         if (shooterSlot >= 0 && shooterSlot < Slots)
         {
-            ClampedByShooter[static_cast<std::size_t>(shooterSlot)]++;
+            Runtime::IncrementInPlace(ClampedByShooter[static_cast<std::size_t>(shooterSlot)]);
         }
         const std::uint32_t now = NetSession::NetFrame();
         if (now < static_cast<std::uint32_t>(requested))
@@ -327,7 +328,7 @@ namespace MphRead::Mods::Network
             }
             const float length = OpenTK::Mathematics::Length(error);
             const float vertical = std::abs(error.Y);
-            _clampErrorSamples++;
+            Runtime::IncrementInPlace(_clampErrorSamples);
             _clampErrorSum += length;
             _clampErrorVerticalSum += vertical;
             if (length > _clampErrorWorst)
@@ -449,7 +450,7 @@ namespace MphRead::Mods::Network
             {
                 if (frame <= _newest)
                 {
-                    _historyMisses++;
+                    Runtime::IncrementInPlace(_historyMisses);
                     break;
                 }
                 Restore();
@@ -463,12 +464,12 @@ namespace MphRead::Mods::Network
                 }
                 Entities::BeamProjectileEntity& beam = RequireReference(beams[i]);
                 const bool hit = TestFlag(beam.Flags(), Entities::BeamFlags::Collided);
-                _catchUpSteps++;
+                Runtime::IncrementInPlace(_catchUpSteps);
                 if (!beam.Process() || TestFlag(beam.Flags(), Entities::BeamFlags::Collided))
                 {
                     if (!hit && TestFlag(beam.Flags(), Entities::BeamFlags::Collided))
                     {
-                        _catchUpHits++;
+                        Runtime::IncrementInPlace(_catchUpHits);
                     }
                     _beamsBefore[b] = false;
                     --newCount;
