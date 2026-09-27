@@ -810,7 +810,7 @@
 | A | +181/-0 | `Mods/Launcher/Gui/DeckSide.cs` | — 新規 | 完了（C#監査済） |
 | M | +181/-41 | `Mods/Launcher/Gui/PadRow.cs` | .cpp,.hpp | 完了（C#監査済） |
 | M | +178/-123 | `Mods/Launcher/Gui/PauseMenuView.cs` | .cpp,.hpp | 完了（C#監査済、StartScreen・InGameMenu・UiCapture接続済） |
-| A | +166/-0 | `Mods/Launcher/Gui/Tap.cs` | — 新規 | 完了 |
+| A | +166/-0 | `Mods/Launcher/Gui/Tap.cs` | — 新規 | 完了（C#全文対比監査済み、Touch runtime未実施） |
 | A | +165/-0 | `Mods/Launcher/Gui/UiMark.cs` | — 新規 | 完了（C#監査済） |
 | A | +162/-0 | `Mods/Launcher/Gui/UiScaleHost.cs` | .cpp,.hpp | 完了（C#監査済） |
 | A | +159/-0 | `Mods/Launcher/Gui/ServerBadge.cs` | — 新規 | 完了（C#原本・ServerRow/GeoCountry/Flags直接接続監査済、変更したIPAddress runtime APIも.NET 10と一致。Windows Release build済（2026-09-27）） |
@@ -1109,6 +1109,7 @@
 - macOS/Clang CIでGameFilesのDarwin signal-set macrosに対する`::`修飾と、macOS未提供の`sigtimedwait`を検出。`sigwait`を使うPOSIX共通処理へ変更し、再ビルドで確認中。
 - Windows/MSVC CIで`Globalization.hpp::CharIsWhiteSpace`の非ASCII character literalがC2015になることを検出。該当コードポイントだけをC# `char.IsWhiteSpace`と照合してUnicode escapeへ置換し、NativeRuntimeの確認を変更範囲に限定した。`git diff --check`とWindows Release全体の `ninja -k 0` 成功。MSVC CIで再確認中。
 - `Mods/Launcher/Gui/TapCheck.cs` 全文とnative `TapCheck.hpp/.cpp` の14ケースを順序・gesture・座標・期待値・出力まで照合し、C#/native両ModEntryの`-tapcheck`接続を確認。差異なし。Windows Release `FruityPrime.exe -tapcheck` は14/14成功。
+- `Mods/Launcher/Gui/Tap.cs` 全文とnative `Tap.hpp/.cpp`、`TapCheck`のplain-value呼出しを照合。pointer種別、8点slopの境界、取消後の非復活、Releaseのpointer identityとinclusive bounds、Sidewaysのtie処理、Cancel後状態は一致。直接利用する行・slider・list・wordの呼出しとTopLevelのpointer所有/TouchEnd dispatch寿命も確認し、native pointerはgesture内でidentity比較のみ。差異修正なし（verified no-op）。Touch device runtimeは未実施。
 - `Entities/BeamProjectileEntity.cs` をPR #1 base `dcdc900f` からC# head `fe453ce6` までの差分（+66/-33）で全hunk照合し、native `.hpp/.cpp` と直接接続を比較。projectile shot identity、stale ricochet parent拒否、continuous weapon phase/ammo・damage cadence、team ally時のlife drain/homing除外、diagnostic、pooled beam spawn transformはnative実装と一致。`ModLaunchKey`だけC# `internal set` に対しnative setterがpublicだったため、`NetPlayerLifecycle` friendだけが書けるprivate setterへ修正。`git diff --check`とWindows Release全体 `ninja -k 0` 成功（既存`offsetof`警告）。ゲームruntime未実施。
 - `Entities/Players/PlayerCollision.cs` を同じPR base/head間の差分（+30/-1）で全hunk照合。衝突平面Y・penetration・factorからstepを作り、form別 `AltColRadius`/`BipedColRadius` の対称境界へclampしてposition.Yへ加える式はnativeの`std::clamp`と一致。PlayerInputからの`CheckCollision`呼出し箇所・前後の状態処理も照合し、native差分修正なし（verified no-op）。`git diff --check`通過、Windows Release全体 `ninja -k 0` 成功（no work to do）。ゲームruntime/`-altprobe`未実施。
 - `Entities/NodeDefenseEntity.cs` をC#全文とPR #1 base/head間の全差分（+26/-20）、native `.hpp/.cpp`、PlayerHud/PlayerAi/MapAuditTeams/TeamGameplayTestの直接参照で照合。`NoTeam=-1`への変更とHUD伝播、team indexのunsigned境界判定、Active/aliveのcapture条件、`IsOccupied`・前回占有状態・`Complete`の全8 slot走査を確認し、native実装は一致。TeamVisualsの中立owner処理も両側で一致し、古いliteral 4 sentinel参照は残っていない。コード修正なし（verified no-op）。`git diff --check`通過。Windows Release `ninja -k 0` はno work to do。ゲームruntime/harness未実施.
