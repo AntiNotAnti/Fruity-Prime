@@ -18,32 +18,32 @@ namespace MphRead::Mods::Input
         const GamepadState pad = GamepadInput::State();
         const auto move = GamepadAnalog::ApplyRadialDeadZone(pad.LeftX, pad.LeftY, GamepadOptions::LeftInner(), GamepadOptions::LeftOuter());
         SpectatorInput input{};
-        input.NextPlayer = GamepadInput::TakePress(GamepadButtons::RightBumper);
-        input.PreviousPlayer = GamepadInput::TakePress(GamepadButtons::LeftBumper);
-        input.ToggleView = GamepadInput::TakePress(GamepadButtons::Y);
-        input.Scoreboard = pad.Down(GamepadButtons::Back);
-        input.OpenMenu = GamepadInput::TakePress(GamepadButtons::Start);
-        input.MoveX = move.first;
-        input.MoveY = move.second;
-        input.LookX = GamepadInput::AimDeltaX();
-        input.LookY = GamepadInput::AimDeltaY();
-        input.Ascend = pad.RightTrigger;
-        input.Descend = pad.LeftTrigger;
+        input._nextPlayer = GamepadInput::TakePress(GamepadButtons::RightBumper);
+        input._previousPlayer = GamepadInput::TakePress(GamepadButtons::LeftBumper);
+        input._toggleView = GamepadInput::TakePress(GamepadButtons::Y);
+        input._scoreboard = pad.Down(GamepadButtons::Back);
+        input._openMenu = GamepadInput::TakePress(GamepadButtons::Start);
+        input._moveX = move.first;
+        input._moveY = move.second;
+        input._lookX = GamepadInput::AimDeltaX();
+        input._lookY = GamepadInput::AimDeltaY();
+        input._ascend = pad.RightTrigger;
+        input._descend = pad.LeftTrigger;
         return input;
     }
 
     void SpectatorInput::ApplyView(bool replay) const
     {
         static_cast<void>(replay);
-        if (NextPlayer)
+        if (_nextPlayer)
         {
             SpectatorMode::CycleNext();
         }
-        if (PreviousPlayer)
+        if (_previousPlayer)
         {
             SpectatorMode::CyclePrevious();
         }
-        if (ToggleView)
+        if (_toggleView)
         {
             SpectatorMode::ToggleView();
         }

@@ -1493,15 +1493,15 @@ namespace MphRead
                 const Mods::Input::SpectatorInput spectator = Mods::Input::SpectatorInput::ReadController();
                 spectator.ApplyView();
                 Mods::SpectatorMode::NoteScoreboard(
-                    _keyboardState->IsKeyDown(RendererPlatform::Key::Tab) || spectator.Scoreboard);
+                    _keyboardState->IsKeyDown(RendererPlatform::Key::Tab) || spectator.Scoreboard());
                 if (_freeCam)
                 {
                     _cameraPosition = _cameraPosition
-                        + Multiply(_cameraFacing, spectator.MoveY * 0.15F)
-                        + Multiply(_cameraRight, spectator.MoveX * 0.15F);
-                    _cameraPosition.Y += (spectator.Ascend - spectator.Descend) * 0.15F;
-                    UpdateCameraRotation(DegreesToRadians(spectator.LookX),
-                        DegreesToRadians(spectator.LookY));
+                        + Multiply(_cameraFacing, spectator.MoveY() * 0.15F)
+                        + Multiply(_cameraRight, spectator.MoveX() * 0.15F);
+                    _cameraPosition.Y += (spectator.Ascend() - spectator.Descend()) * 0.15F;
+                    UpdateCameraRotation(DegreesToRadians(spectator.LookX()),
+                        DegreesToRadians(spectator.LookY()));
                 }
             }
             Mods::EndScreen::PollGamepad();
