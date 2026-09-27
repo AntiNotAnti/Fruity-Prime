@@ -20,13 +20,11 @@
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <filesystem>
-#include <iostream>
-#include <locale>
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -221,7 +219,7 @@ namespace
     {
         if (index >= values.size())
         {
-            throw std::out_of_range("Index was outside the bounds of the array.");
+            throw System::IndexOutOfRangeException();
         }
         return values[index];
     }
@@ -326,18 +324,20 @@ namespace MphRead::Mods::MapGen
                             + ": its source level " + source
                             + " is not here. Put it in " + directory
                             + " to have this map.";
-                        std::cout << message << std::endl;
+                        ::MphRead::NativeRuntime::ConsoleWriteLine(message);
                         continue;
                     }
                 }
                 results->push_back(std::move(definition));
             }
-            catch (const std::exception& ex)
+            catch (...)
             {
+                const std::exception_ptr error = std::current_exception();
                 const std::string fileName = PathGetFileName(path);
                 const std::string message =
-                    "Ignoring map " + fileName + ": " + ex.what();
-                std::cout << message << std::endl;
+                    "Ignoring map " + fileName + ": "
+                    + ::MphRead::NativeRuntime::ExceptionMessage(error);
+                ::MphRead::NativeRuntime::ConsoleWriteLine(message);
             }
         }
         return results;
