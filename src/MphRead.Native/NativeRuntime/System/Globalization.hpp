@@ -21,10 +21,10 @@ namespace MphRead::NativeRuntime
     [[nodiscard]] constexpr bool CharIsWhiteSpace(char32_t value) noexcept
     {
         return (value >= U'\u0009' && value <= U'\u000D') || value == U' '
-            || value == U'\u0085' || value == U' ' || value == U' '
-            || (value >= U' ' && value <= U' ') || value == U' '
-            || value == U' ' || value == U' ' || value == U' '
-            || value == U'　';
+            || value == U'\u0085' || value == U'\u00A0' || value == U'\u1680'
+            || (value >= U'\u2000' && value <= U'\u200A') || value == U'\u2028'
+            || value == U'\u2029' || value == U'\u202F' || value == U'\u205F'
+            || value == U'\u3000';
     }
     // char.IsLetterOrDigit(c) for one UTF-16 unit: the Unicode letter and
     // decimal-digit categories, which no culture changes.

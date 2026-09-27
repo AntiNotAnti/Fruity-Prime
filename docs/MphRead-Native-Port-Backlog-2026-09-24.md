@@ -26,9 +26,14 @@
 
 作業中に更新する。コミットは develop2。
 
-- 済: 1 Platform helpers / 3 Mods leaves の大半 / 8 Multiplayer・teams
+### 2026-09-28 現在の監査状態
+
+- 表の302項目中292項目はC#対比監査済み、9項目は監査待ち、1項目は監査中。監査待ちは `TapCheck.cs` と Section 13 の8ファイル。GameFilesのPOSIX修正はmacOS/Clang・Linux/GCC CIで成功。Windows/MSVC CIのC2015を受け、`Globalization.hpp`の非ASCII文字リテラルを同じUnicode値のescape表記へ置換し、Windows Release build成功。MSVC CIで再確認中。
+- Section 14 のAndroid 17ファイルは監査完了。共通nativeコードの残り監査・修正後に、arm64-v8aとx86_64の最終buildを実施する。
+
+- 済: 1 Platform helpers / 3 Mods leaves / 8 Multiplayer・teams
   （ea3398e9 まで）。
-- 9 Network — 進行中:
+- 9 Network — 完了（56項目すべてC#対比監査済み。runtime/harnessは各行の記録を参照）:
   - 済 (f661cce0 ほか): NetProtocol（protocol 14、C#原典とnative実装の静的監査済）、
     NetSession・NetSessionLobby、
     SessionProtocol、LobbyRules、MatchDefinition、NetLifecycleTracker、
@@ -61,7 +66,7 @@
   ModEntry の `-gamepadassisttelemetry` をC#と照合・配線済み。
 - 6 完了: 検査系 6 本（PointerCheck は Scene/PlayerEntity に friend、GamepadUiChecks 呼び出しは 12 で）。
   NativeRuntime に DirectoryDelete・DirectoryGetFiles。
-- 7 描画 着手: HunterPreview・ProHud・VoteHud・GlEs・Radar・TeamScoreboard・StylusHud と、それらが載る
+- 7 描画 完了: HunterPreview・ProHud・VoteHud・GlEs・Radar・TeamScoreboard・StylusHud と、それらが載る
   PlayerHud.cs 差分（13 の行）を移植。Scene に DrawFlat{Disc,Ring,Line,Square,Polygon}（Renderer.cs 分）。
 - 7: MapThumbnail・PlayerEntityMapPick・EndScreen 部分クラス、EndScreen.cs（PanelUp・Tick・結果画面の
   パッド操作）。Scene::DrawHudTexture。呼び出し側（EndScreen::Tick・MapThumbnail::BeginFrame）は 13 の Renderer。
@@ -77,7 +82,7 @@
   MapReport.ListItems。MapCheck（-mapcheck）・AltFormProbe（-altprobe）・MapReport.ListItems（-mapitems）は
   ModEntryから配線・監査済み。セクション10 完了。
 - 11 Launcher portable: 移植済み。C#原本との再監査は移植状況と別に一ファイルずつ実施中。
-  RomWhitelist・TextLauncher・LaunchPlan は監査完了。GameFiles はmacOS POSIX build修正中。
+  NativeFilePicker・LauncherPrefs・MatchStart・RomWhitelist・TextLauncher・LaunchPlan は監査完了。GameFiles はWindows/MSVC build確認中。
   LaunchPlan（LobbyContext）、GameFiles（Root=AppPaths、RomWhitelist 照合）、TextLauncher（InputEnded・insane・StartupForced）、
   NativeFilePicker（NativeRuntime に ProcessRunCaptureOutput）は移植時の確認を完了。MatchStart は RenderWindow の1ウィンドウ API を使う形へ移植し、
   C#原本との静的監査とWindows Release buildを完了。
@@ -735,7 +740,7 @@
 | M | +87/-8 | `Mods/Launcher/Portable/LauncherPrefs.cs` | .cpp,.hpp | 完了（C#全文・Load/Save/Directory直接接続監査済、catch(Exception)境界を修正、Windows Release native build済。runtime未実施） |
 | A | +67/-0 | `Mods/Launcher/Portable/RomWhitelist.cs` | — 新規 | 完了（C#全文・Program/GameFiles直接呼出し監査済、MD5 file I/OをFile.OpenRead相当へ修正、Windows Release build済。実ROM runtime未実施） |
 | M | +24/-7 | `Mods/Launcher/Portable/TextLauncher.cs` | .cpp,.hpp | 完了（C#全文・ModEntry/各設定/ネットワーク/GameFiles/MatchStart直接接続監査済、整数parse overflow・例外stack出力を修正、Windows Release build済。UI runtime未実施） |
-| M | +15/-3 | `Mods/Launcher/Portable/GameFiles.cs` | .cpp,.hpp | 監査中（macOS CIでDarwin POSIX API差を検出、修正中。Windows Release build済。POSIX runtime・抽出runtime未実施） |
+| M | +15/-3 | `Mods/Launcher/Portable/GameFiles.cs` | .cpp,.hpp | 監査中（POSIX SIGPIPE修正のmacOS/Clang・Linux/GCC CI成功。MSVC build blockerを修正し、Windows Release build済・MSVC CI待ち。POSIX runtime・抽出runtime未実施） |
 | M | +4/-0 | `Mods/Launcher/Portable/LaunchPlan.cs` | .cpp,.hpp | 完了（C#全文・直接呼出し監査済、LobbyContextのinit-only性をnativeにも適用、Windows Release build済。runtime未実施） |
 
 ## 12. Launcher GUI — 70 ファイル (新規 50), C# +22132 行
@@ -766,7 +771,7 @@
 | M | +268/-64 | `Mods/Launcher/Gui/UiCapture.cs` | .cpp,.hpp | 完了（C# / PR #1差分監査済、`-uishot`入口をModEntryへ接続） |
 | A | +239/-0 | `Mods/Launcher/Gui/GamepadUiChecks.cs` | .cpp,.hpp | 完了（35 assertion を C# と順序照合、GamepadChecks から shell build で接続） |
 | A | +227/-0 | `Mods/Launcher/Gui/Flags.cs` | — 新規 | 完了（C#監査済） |
-| A | +222/-0 | `Mods/Launcher/Gui/TapCheck.cs` | — 新規 | 完了 |
+| A | +222/-0 | `Mods/Launcher/Gui/TapCheck.cs` | — 新規 | 監査待ち（C#原本との個別対比監査前） |
 | M | +220/-26 | `Mods/Launcher/Gui/Rows.cs` | .cpp,.hpp | 完了（C#監査済） |
 | A | +202/-0 | `Mods/Launcher/Gui/InGameMenu.cs` | .cpp,.hpp | 完了（C#全体・Shell直接接続監査済、verified no-op。Windows Release build済（2026-09-27）） |
 | A | +197/-0 | `Mods/Launcher/Gui/UiWord.cs` | — 新規 | 完了（C#監査済） |
@@ -824,7 +829,7 @@
 | M | +102/-126 | `GameState.cs` | .cpp,.hpp | 完了（C# PR #1差分監査・PlayPickedMap接続・Windows Release build済、runtime未実施） |
 | M | +95/-11 | `Entities/Players/PlayerAi.cs` | .cpp,.hpp | 完了（C# PR #1差分監査・Insane AI移植・Windows Release build済、runtime未実施） |
 | M | +71/-3 | `Formats/Formats.cs` | .cpp,.hpp | 完了（C# PR #1差分監査・Paths/Span対応・Windows Release build済） |
-| M | +66/-33 | `Entities/BeamProjectileEntity.cs` | .cpp,.hpp | 完了 |
+| M | +66/-33 | `Entities/BeamProjectileEntity.cs` | .cpp,.hpp | 監査待ち（C#原本との個別対比監査前） |
 | M | +54/-0 | `Shaders.cs` | .cpp,.hpp | 完了（LauncherPhoto依存の2 shaderをC#と完全一致照合） |
 | M | +48/-6 | `Entities/Players/PlayerEntity.cs` | .cpp,.hpp | 完了（C# PR #1差分監査済、Windows Release build済） |
 | M | +45/-12 | `Read.cs` | .cpp,.hpp | 完了（C# PR #1差分監査・memory archive展開/診断・Windows Release build済、runtime未実施） |
@@ -833,20 +838,20 @@
 | M | +37/-8 | `Entities/BombEntity.cs` | .cpp,.hpp | 完了 |
 | M | +36/-2 | `Program.cs` | .cpp,.hpp | 完了 |
 | M | +36/-2 | `Utility/Console.cs` | .cpp,.hpp | 完了 |
-| M | +30/-1 | `Entities/Players/PlayerCollision.cs` | .cpp,.hpp | 完了 |
-| M | +26/-20 | `Entities/NodeDefenseEntity.cs` | .cpp,.hpp | 完了 |
+| M | +30/-1 | `Entities/Players/PlayerCollision.cs` | .cpp,.hpp | 監査待ち（C#原本との個別対比監査前） |
+| M | +26/-20 | `Entities/NodeDefenseEntity.cs` | .cpp,.hpp | 監査待ち（C#原本との個別対比監査前） |
 | M | +19/-1 | `Features.cs` | .cpp,.hpp | 完了（C#差分監査・Radar設定のLoad/Commit・Windows Release build済） |
 | M | +11/-3 | `SceneSetup.cs` | .cpp,.hpp | 完了（C#差分監査・resource profile/health reset接続・Windows Release build済） |
-| M | +6/-2 | `Mods/Credits.cs` | .cpp,.hpp | 完了 |
+| M | +6/-2 | `Mods/Credits.cs` | .cpp,.hpp | 監査待ち（C#原本との個別対比監査前） |
 | M | +6/-1 | `Mods/DebugLog.cs` | .cpp,.hpp | 完了 |
 | M | +6/-2 | `Utility/Archive.cs` | .cpp,.hpp | 完了（C#差分監査・byte span Extract overload・Windows Release build済） |
 | M | +5/-3 | `Metadata/Metadata.cs` | .cpp,.hpp | 完了（C#差分監査・entity layer/4チーム色・Windows Release build済） |
 | M | +4/-3 | `Utility/Extract.cs` | .cpp,.hpp | 完了（C#差分監査・相対root/interactive pause・Windows Release build済） |
 | M | +3/-1 | `Sound/Sfx.cs` | .cpp,.hpp | 完了（C#差分監査・PlatformDiagnostics.Report接続・Windows Release build済） |
-| M | +2/-2 | `Entities/Enemies/18_AlimbicTurret.cs` | .cpp,.hpp | 完了 |
-| M | +2/-2 | `Entities/ItemInstanceEntity.cs` | .cpp,.hpp | 完了 |
-| M | +2/-1 | `Entities/Players/HalfturretEntity.cs` | .cpp,.hpp | 完了 |
-| M | +1/-9 | `Entities/Players/PlayerDraw.cs` | .cpp,.hpp | 完了 |
+| M | +2/-2 | `Entities/Enemies/18_AlimbicTurret.cs` | .cpp,.hpp | 監査待ち（C#原本との個別対比監査前） |
+| M | +2/-2 | `Entities/ItemInstanceEntity.cs` | .cpp,.hpp | 監査待ち（C#原本との個別対比監査前） |
+| M | +2/-1 | `Entities/Players/HalfturretEntity.cs` | .cpp,.hpp | 監査待ち（C#原本との個別対比監査前） |
+| M | +1/-9 | `Entities/Players/PlayerDraw.cs` | .cpp,.hpp | 監査待ち（C#原本との個別対比監査前） |
 | M | +1/-0 | `Entities/Players/PlayerSound.cs` | .cpp,.hpp | 完了（C#差分監査済、着地feedbackの条件・種別・SFX順が一致） |
 | M | +1/-0 | `Menu.cs` | .cpp,.hpp | 完了（C#差分監査・FieldOfView既定値の既反映を確認） |
 | M | +1/-1 | `Scene.cs` | .cpp,.hpp | 完了（C#差分監査・FlagBase iterator修正・Windows Release build済） |
@@ -1074,3 +1079,4 @@
 - `Mods/Launcher/Portable/GameFiles.cs` 全文、native `.hpp/.cpp` と直接呼び出しを一ファイル単位で照合。paths.txtの読込・version境界・Paths初期化、ROM whitelist、desktop子プロセスの引数/作業ディレクトリ/標準入出力/10分timeout、Android in-process setup、ReportWriter、SetupScreen/TextLauncher/MatchStart/Shell/Android root設定の接続を確認した。`Version.TryParse` が受理する `-0` をnative parserが拒否する差を修正。POSIX timeoutを子孫プロセスにも適用する専用process groupを設け、入力pipeの `SIGPIPE` を全thread共通のsignal dispositionで抑止していた箇所を、呼出しthreadだけのsignal maskへ変更した。`git diff --check`通過、Windows Release全体の `ninja -k 0` 成功（既存 `offsetof` 警告）。POSIX build/runtime、実ROM抽出runtimeは未実施。Android buildは全Androidファイル監査完了後。
 - `Mods/Launcher/Portable/LaunchPlan.cs` 全文、native `.hpp/.cpp`、Hunterのenum値とResolve/Reroll呼出し、LobbyContext/LaunchPlanの生成・保持・MatchStart利用を照合。Random hunterをNetLaunchのIdentify前に一度だけ確定する順序、front screen再表示時の再抽選、全Plan項目の既定値・enum値・copy/WithRoomKey相当を確認。C# recordのinit-only性に対してnative LobbyContextの値が変更可能だったため、3フィールドをconst化。`git diff --check`通過、Windows Release全体の `ninja -k 0` 成功（既存`offsetof`警告）。画面runtime未実施。Android buildは全Androidファイル監査完了後。
 - macOS/Clang CIでGameFilesのDarwin signal-set macrosに対する`::`修飾と、macOS未提供の`sigtimedwait`を検出。`sigwait`を使うPOSIX共通処理へ変更し、再ビルドで確認中。
+- Windows/MSVC CIで`Globalization.hpp::CharIsWhiteSpace`の非ASCII character literalがC2015になることを検出。該当コードポイントだけをC# `char.IsWhiteSpace`と照合してUnicode escapeへ置換し、NativeRuntimeの確認を変更範囲に限定した。`git diff --check`とWindows Release全体の `ninja -k 0` 成功。MSVC CIで再確認中。
