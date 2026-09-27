@@ -3,6 +3,7 @@
 #include "BuiltMap.hpp"
 #include "../../Formats/Types.hpp"
 #include "../../Program.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Number.hpp"
@@ -18,60 +19,53 @@ namespace MphRead::Mods::MapGen
 
     namespace
     {
-        // StreamReader.ReadLine over bytes read as UTF-8: a leading BOM
-        // dropped, and \n, \r and \r\n all end a line.
-        [[nodiscard]] std::vector<std::string> ReadLines(std::span<const std::uint8_t> bytes)
+        // StreamReader.ReadLine: detect the same BOMs, then treat \n, \r and
+        // \r\n as line endings without retaining the whole file as line strings.
+        template <typename T>
+        void ForEachLine(std::span<const std::uint8_t> bytes, T&& visit)
         {
-            std::string text(bytes.begin(), bytes.end());
-            if (text.size() >= 3 && static_cast<unsigned char>(text[0]) == 0xEF
-                && static_cast<unsigned char>(text[1]) == 0xBB && static_cast<unsigned char>(text[2]) == 0xBF)
-            {
-                text.erase(0, 3);
-            }
-            std::vector<std::string> lines;
-            std::string current;
-            bool pending = false;
+            const std::string text = Runtime::StreamReaderDecode(bytes);
+            std::size_t start = 0;
             for (std::size_t i = 0; i < text.size(); i++)
             {
                 const char c = text[i];
                 if (c == '\r' || c == '\n')
                 {
-                    lines.push_back(current);
-                    current.clear();
-                    pending = false;
+                    visit(std::string_view(text).substr(start, i - start));
                     if (c == '\r' && i + 1 < text.size() && text[i + 1] == '\n')
                     {
                         i++;
                     }
+                    start = i + 1;
                     continue;
                 }
-                current += c;
-                pending = true;
             }
-            if (pending)
+            if (start < text.size())
             {
-                lines.push_back(current);
+                visit(std::string_view(text).substr(start));
             }
-            return lines;
         }
 
         // String.Split(null, RemoveEmptyEntries): any white space separates.
-        [[nodiscard]] std::vector<std::string> Words(const std::string& text)
+        [[nodiscard]] std::vector<std::string> Words(std::string_view text)
         {
             std::vector<std::string> words;
             std::string current;
-            for (const char c : text)
+            for (std::size_t offset = 0; offset < text.size();)
             {
-                if (c == ' ' || c == '\t' || c == '\v' || c == '\f' || c == '\r' || c == '\n')
+                const Runtime::Utf8Scalar scalar = Runtime::DecodeUtf8Scalar(text, offset);
+                if (Runtime::CharIsWhiteSpace(scalar.Value))
                 {
                     if (!current.empty())
                     {
                         words.push_back(current);
                         current.clear();
                     }
+                    offset += scalar.Length;
                     continue;
                 }
-                current += c;
+                current.append(text.substr(offset, scalar.Length));
+                offset += scalar.Length;
             }
             if (!current.empty())
             {
@@ -112,13 +106,13 @@ namespace MphRead::Mods::MapGen
         Surface surface{};
         std::string materialName = "(none)";
         std::int32_t line = 0;
-        for (const std::string& text : ReadLines(bytes))
+        ForEachLine(bytes, [&](std::string_view text)
         {
-            line++;
+            Runtime::IncrementInPlace(line);
             const std::vector<std::string> parts = Words(text);
             if (parts.empty() || parts[0].starts_with('#'))
             {
-                continue;
+                return;
             }
             if (parts[0] == "v")
             {
@@ -133,7 +127,7 @@ namespace MphRead::Mods::MapGen
             {
                 AddFace(result, points, parts, surface, materialName, name, line);
             }
-        }
+        });
         result.Vertices = static_cast<std::int32_t>(points.size());
         if (result.Faces.empty())
         {
@@ -151,15 +145,16 @@ namespace MphRead::Mods::MapGen
 
     Vector3 CollisionObj::Snap(Vector3 point) noexcept
     {
-        return Vector3(std::nearbyint(point.X * FixedOne) / FixedOne, std::nearbyint(point.Y * FixedOne) / FixedOne,
-            std::nearbyint(point.Z * FixedOne) / FixedOne);
+        return Vector3(Runtime::RoundToEven(point.X * FixedOne) / FixedOne,
+            Runtime::RoundToEven(point.Y * FixedOne) / FixedOne,
+            Runtime::RoundToEven(point.Z * FixedOne) / FixedOne);
     }
 
     Vector3 CollisionObj::Vertex(const std::vector<std::string>& parts, const std::string& name, std::int32_t line)
     {
         if (parts.size() < 4)
         {
-            throw ProgramException(name + " line " + std::to_string(line) + ": a vertex needs three numbers.");
+            throw ProgramException(name + " line " + Runtime::ToString(line) + ": a vertex needs three numbers.");
         }
         return Vector3(Number(parts[1], name, line), Number(parts[2], name, line), Number(parts[3], name, line));
     }
@@ -169,7 +164,7 @@ namespace MphRead::Mods::MapGen
         float value = 0;
         if (!Runtime::SingleTryParseInvariant(text, value))
         {
-            throw ProgramException(name + " line " + std::to_string(line) + ": " + text + " is not a number.");
+            throw ProgramException(name + " line " + Runtime::ToString(line) + ": " + text + " is not a number.");
         }
         return value;
     }
@@ -189,13 +184,15 @@ namespace MphRead::Mods::MapGen
             std::int32_t index = 0;
             if (!Runtime::Int32TryParseInvariant(field, index) || index == 0)
             {
-                throw ProgramException(name + " line " + std::to_string(line) + ": " + parts[i] + " is not a vertex reference.");
+                throw ProgramException(name + " line " + Runtime::ToString(line) + ": " + parts[i] + " is not a vertex reference.");
             }
-            const std::int32_t resolved = index > 0 ? index - 1 : static_cast<std::int32_t>(points.size()) + index;
+            const std::int32_t resolved = index > 0 ? index - 1
+                : Runtime::UncheckedAdd(static_cast<std::int32_t>(points.size()), index);
             if (resolved < 0 || resolved >= static_cast<std::int32_t>(points.size()))
             {
-                throw ProgramException(name + " line " + std::to_string(line) + ": vertex " + std::to_string(index)
-                    + " is not one of the " + std::to_string(points.size()) + " declared before it.");
+                throw ProgramException(name + " line " + Runtime::ToString(line) + ": vertex " + Runtime::ToString(index)
+                    + " is not one of the " + Runtime::ToString(static_cast<std::int32_t>(points.size()))
+                    + " declared before it.");
             }
             const Vector3 point = points[static_cast<std::size_t>(resolved)];
             if (corners.empty() || !OpenTK::Mathematics::Equal(corners.back(), point))
@@ -209,13 +206,13 @@ namespace MphRead::Mods::MapGen
         }
         if (corners.size() < 3)
         {
-            result.Degenerate++;
+            Runtime::IncrementInPlace(result.Degenerate);
             return;
         }
         const Vector3 normal = Newell(corners);
         if (OpenTK::Mathematics::Equal(normal, Vector3()))
         {
-            result.Degenerate++;
+            Runtime::IncrementInPlace(result.Degenerate);
             return;
         }
         auto* world = new ManagedArray<Vector3>(corners.size());
@@ -242,7 +239,7 @@ namespace MphRead::Mods::MapGen
         }
         else
         {
-            found->second++;
+            found->second = Runtime::UncheckedAdd(found->second, 1);
         }
     }
 
@@ -257,7 +254,7 @@ namespace MphRead::Mods::MapGen
         nx /= length;
         ny /= length;
         nz /= length;
-        const double largest = std::max(std::abs(nx), std::max(std::abs(ny), std::abs(nz)));
+        const double largest = Runtime::MathMax(std::abs(nx), Runtime::MathMax(std::abs(ny), std::abs(nz)));
         const double floor = largest * 1e-6;
         nx = std::abs(nx) < floor ? 0 : nx;
         ny = std::abs(ny) < floor ? 0 : ny;
@@ -311,7 +308,7 @@ namespace MphRead::Mods::MapGen
         std::string name = Runtime::ToLowerInvariant(ToString(face.Terrain()));
         if (face.Slipperiness != 0)
         {
-            name += "_slip" + std::to_string(face.Slipperiness);
+            name += "_slip" + Runtime::ToString(face.Slipperiness);
         }
         if (face.Damaging())
         {
@@ -371,7 +368,7 @@ namespace MphRead::Mods::MapGen
                 return surface;
             }
         }
-        throw ProgramException(file + " line " + std::to_string(line) + ": \"" + material
+        throw ProgramException(file + " line " + Runtime::ToString(line) + ": \"" + material
             + "\" does not begin with a terrain. A material is <terrain>[_attribute...]; the terrains are "
             + TerrainNames() + ". A face with no material at all is plain metal, so naming none is also an "
             "answer -- but a name that is not one of these is a typo, and a typo on a "
@@ -398,7 +395,7 @@ namespace MphRead::Mods::MapGen
             {
                 attributes += std::string(i == 0 ? "" : ", ") + Attributes[i];
             }
-            throw ProgramException(file + " line " + std::to_string(line) + ": \"" + material + "\" has no attribute \""
+            throw ProgramException(file + " line " + Runtime::ToString(line) + ": \"" + material + "\" has no attribute \""
                 + word + "\". The attributes are " + attributes + ". This is refused rather "
                 "than ignored on purpose: a misspelt \"damaging\" would silently be an "
                 "ordinary floor, and a misspelt anything on a lava face is a floor that "
