@@ -28,7 +28,7 @@
 
 ### 2026-09-28 現在の監査状態
 
-- 表の302項目はすべてC#対比監査済み。`GameFiles.cs`もC#全文・直接呼出し監査済みで、POSIX修正のmacOS/Clang・Linux/GCC CIとWindows Release buildを確認済み。個別監査の詳細は末尾ログを参照。最新Native C++ CI run `36348842034`（source `8c67ca37`）はWindows/MSVC・Android・Linux/GCC・macOS/Clangすべて成功。Windows Release `ninja -k 0`も成功。総合build run `36348842072` は `the dedicated-server startup contract holds` と `bounded thumbnail worker regression` の2 stepが失敗し、調査未完了。
+- 表の302項目はすべてC#対比監査済み。`GameFiles.cs`もC#全文・直接呼出し監査済みで、POSIX修正のmacOS/Clang・Linux/GCC CIとWindows Release buildを確認済み。個別監査の詳細は末尾ログを参照。最新Native C++ CI run `36348842034`（source `8c67ca37`）はWindows/MSVC・Android・Linux/GCC・macOS/Clangすべて成功。Windows Release `ninja -k 0`も成功。総合build run `36350578764`（source `6bfac073`）も全job成功。先行run `36348842072` で一度失敗したdedicated-server startup contractとbounded thumbnail worker regressionは再実行で成功し、失敗は再現しなかった。
 - Section 14 のAndroid 17ファイルは監査完了。`NativeRuntime/Avalonia/Base.hpp` のMSVC対応後、Android arm64-v8a・x86_64をそれぞれ最新ソースで最終buildし、両方とも成功（各75段階、静的ライブラリをリンク）。runtime/device確認は未実施。
 
 - 済: 1 Platform helpers / 3 Mods leaves / 8 Multiplayer・teams
@@ -1096,3 +1096,5 @@
 - MSVC run `36346606444` は `Number.cpp` のUnicode非ASCII文字リテラル（C2015）と `Runtime.cpp` のソース内NUL文字リテラル（C2137）で失敗。Numberのdash/NBSP/NNBSPは同一Unicode値のescape表記へ変更し、RuntimeのNUL値は `\0` 表記へ変更。C#相当の数値token比較・command-line null separatorの値は不変。`git diff --check` とWindows Release `ninja -k 0` 成功。修正後MSVC CI待ち。
 
 - 修正後のNative C++ CI run `36348842034`（commit `8c67ca37`）はWindows/MSVC成功。run `36348842030` Android、`36348842046` Linux/GCC、`36348842020` macOS/Clangも成功。総合build run `36348842072` はWindows dedicated-server startup contract（プロセスが起動拒否後も稼働しexit 1にならない）とLinux bounded thumbnail worker regression（C# `ThumbnailBatch.StopWorker`内の`Process.Dispose`でNullReferenceException）の2 step失敗。今回のNativeRuntime portability修正との因果は未確認。
+
+- 総合build run `36350578764`（source `6bfac073`）は全job成功。直前run `36348842072` で一度失敗したWindows dedicated-server startup contractとLinux bounded thumbnail worker regressionも、再実行ではそれぞれ成功し、今回のNativeRuntime portability修正との関連は認められなかった。Native C++ platform CI run `36348842034`（MSVC）・`36348842030`（Android）・`36348842046`（Linux/GCC）・`36348842020`（macOS/Clang）もすべて成功。
