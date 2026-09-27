@@ -4,6 +4,7 @@
 #include "NetProtocol.hpp"
 
 #include "../../NativeRuntime/System/BinaryPrimitives.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 
@@ -62,7 +63,8 @@ namespace MphRead::Mods::Network
 
     void SessionStatePacket::Write(std::span<std::uint8_t> dest) const
     {
-        std::fill_n(dest.begin(), Size, std::uint8_t{0});
+        const std::span<std::uint8_t> packet = Runtime::SpanSlice(dest, 0, Size);
+        std::fill(packet.begin(), packet.end(), std::uint8_t{0});
         dest[0] = static_cast<std::uint8_t>(Phase);
         dest[1] = static_cast<std::uint8_t>(Policy);
         Runtime::WriteUInt16LittleEndian(Runtime::SpanSlice(dest, 2), Revision);
@@ -84,7 +86,7 @@ namespace MphRead::Mods::Network
         dest[24] = Match.CustomTeams.TeamD;
         dest[25] = WorldProfile.EntityLayerPlayers;
         dest[26] = static_cast<std::uint8_t>(WorldProfile.Resources);
-        NetText::Write(dest.subspan(27, HostRequestPacket::MaxRoomBytes), Match.RoomKey);
+        NetText::Write(Runtime::SpanSlice(dest, 27, HostRequestPacket::MaxRoomBytes), Match.RoomKey);
         Runtime::WriteUInt64LittleEndian(Runtime::SpanSlice(dest, Size - 8), AuthorityEpoch);
     }
 
@@ -144,7 +146,8 @@ namespace MphRead::Mods::Network
 
     void LobbyCommandPacket::Write(std::span<std::uint8_t> dest) const
     {
-        std::fill_n(dest.begin(), Size, std::uint8_t{0});
+        const std::span<std::uint8_t> packet = Runtime::SpanSlice(dest, 0, Size);
+        std::fill(packet.begin(), packet.end(), std::uint8_t{0});
         Runtime::WriteUInt32LittleEndian(dest, CommandId);
         Runtime::WriteUInt16LittleEndian(Runtime::SpanSlice(dest, 4), ExpectedRevision);
         dest[6] = static_cast<std::uint8_t>(Type);
@@ -181,9 +184,9 @@ namespace MphRead::Mods::Network
     void LobbyCommandResultPacket::Write(std::span<std::uint8_t> dest) const
     {
         Runtime::WriteUInt32LittleEndian(dest, CommandId);
-        dest[4] = static_cast<std::uint8_t>(ResultCode);
+        Runtime::ManagedAt(dest, 4) = static_cast<std::uint8_t>(ResultCode);
         Runtime::WriteUInt16LittleEndian(Runtime::SpanSlice(dest, 5), CurrentRevision);
-        NetText::Write(dest.subspan(7, 96), Reason);
+        NetText::Write(Runtime::SpanSlice(dest, 7, 96), Reason);
     }
 
     bool LobbyCommandResultPacket::TryRead(std::span<const std::uint8_t> src, LobbyCommandResultPacket& result)
@@ -215,7 +218,7 @@ namespace MphRead::Mods::Network
     void MatchLoadFailedPacket::Write(std::span<std::uint8_t> dest) const
     {
         Runtime::WriteUInt16LittleEndian(dest, MatchId);
-        NetText::Write(dest.subspan(2, 96), Reason);
+        NetText::Write(Runtime::SpanSlice(dest, 2, 96), Reason);
     }
 
     bool MatchLoadFailedPacket::TryRead(std::span<const std::uint8_t> src, MatchLoadFailedPacket& packet)
