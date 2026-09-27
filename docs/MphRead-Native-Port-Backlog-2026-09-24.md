@@ -549,7 +549,7 @@
 | A | +258/-0 | `Mods/Input/MouseFlick.cs` | — 新規 | 完了（C#全文監査済、Firedのunchecked加算を修正） |
 | A | +210/-0 | `Mods/Input/GamepadManager.cs` | — 新規 | 完了（C#全文監査済、revision wrap/event valueを修正） |
 | A | +199/-0 | `Mods/Input/GamepadProfiles.cs` | — 新規 | 完了（C#全文監査済、UTF-16/JSON/revision parity修正） |
-| A | +158/-0 | `Mods/Input/GamepadEnhancementChecks.cs` | — 新規 | 完了 |
+| A | +158/-0 | `Mods/Input/GamepadEnhancementChecks.cs` | — 新規 | 完了（C#全文監査済、チェック順・条件・例外を照合、Windows Release build済） |
 | A | +141/-0 | `Mods/Input/WeaponWheel.cs` | — 新規 | 完了 |
 | A | +117/-0 | `Mods/Input/GamepadOptionState.cs` | — 新規 | 完了 |
 | A | +116/-0 | `Mods/Input/GamepadUiRouter.cs` | — 新規 | 完了 |
@@ -920,3 +920,5 @@
   file size/count制限、profile validation、runtime構築、適用/保存/読込/import/export、assign/unassign、device key、atomic writeの順序を確認。
   .NET `string.Length` と `char.IsControl`に合わせ、name/line/keyをUTF-16単位で検査し、C1制御文字も拒否、import名の40-unit切詰めを修正。
   JSON `Version`はInt32範囲・整数表現で読み、revisionをunchecked wrapにした。差分修正以外はなし。
+- `Mods/Input/GamepadEnhancementChecks.cs` をC#全文とnative `.cpp/.hpp`で照合。assertionの順序・条件・対象・メッセージ、synthetic calibration/mapping、実際のPlayerControls keybind、profile import/assign/cleanupの流れが一致。
+  `GamepadProbe.Actions`は入力bindingを読むだけの処理であり、C#の2回評価とnativeの1回キャッシュによる結果差はない。native差分修正なし。Windows Release build済、check harness自体は未実行。
