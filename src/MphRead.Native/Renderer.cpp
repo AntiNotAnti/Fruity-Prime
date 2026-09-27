@@ -3603,6 +3603,12 @@ namespace MphRead
             GL::DeleteFramebuffer(_frameBuffer);
             _frameBuffer = 0;
         }
+        if (_celFrameBuffer != 0)
+        {
+            GL::DeleteFramebuffer(_celFrameBuffer);
+            _celFrameBuffer = 0;
+            _celFrameBufferColor = 0;
+        }
         if (_renderBuffer != 0)
         {
             GL::DeleteRenderbuffer(_renderBuffer);
