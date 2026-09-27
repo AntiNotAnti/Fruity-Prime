@@ -8,11 +8,20 @@
 #include "WindowsGamepadHaptics.hpp"
 #include "../../NativeRuntime/OpenTK/GLFW.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/System/Runtime.hpp"
 
 namespace MphRead::Mods::Input
 {
     namespace Glfw = ::OpenTK::Windowing::GraphicsLibraryFramework;
+
+    namespace
+    {
+        void OnJoystickChanged(std::int32_t jid, std::int32_t)
+        {
+            GamepadDesktop::DeviceChanged(jid);
+        }
+    }
 
     std::array<GamepadDesktop::Slot, 16> GamepadDesktop::Slots{};
 
@@ -60,6 +69,11 @@ namespace MphRead::Mods::Input
         {
             return;
         }
+        if (!_callbackRegistered)
+        {
+            Glfw::GLFW::SetJoystickCallback(&OnJoystickChanged);
+            _callbackRegistered = true;
+        }
         if (GamepadMappings::ReloadRequested)
         {
             GamepadMappings::ReloadRequested = false;
@@ -83,7 +97,7 @@ namespace MphRead::Mods::Input
             }
             if (!slot.Id.has_value())
             {
-                slot.Generation++;
+                ::MphRead::NativeRuntime::IncrementInPlace(slot.Generation);
                 const std::string guid = Glfw::GLFW::GetJoystickGUID(i).value_or("");
                 slot.XInput = ::MphRead::NativeRuntime::StringStartsWithOrdinalIgnoreCase(guid, "78696e707574");
                 slot.Id = "glfw:" + guid + ":" + std::to_string(i) + ":" + std::to_string(slot.Generation);

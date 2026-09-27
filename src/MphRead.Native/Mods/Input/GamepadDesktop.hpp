@@ -66,5 +66,6 @@ namespace MphRead::Mods::Input
 
         static std::array<Slot, 16> Slots;
         inline static bool _unavailable = false;
+        inline static bool _callbackRegistered = false;
     };
 }

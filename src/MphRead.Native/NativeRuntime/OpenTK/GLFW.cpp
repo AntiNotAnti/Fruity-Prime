@@ -22,6 +22,7 @@ namespace OpenTK::Windowing::GraphicsLibraryFramework::GLFW
     bool Init() { Unavailable("glfwInit"); }
     void Terminate() { Unavailable("glfwTerminate"); }
     void PollEvents() { Unavailable("glfwPollEvents"); }
+    void SetJoystickCallback(JoystickCallback) { Unavailable("glfwSetJoystickCallback"); }
     bool ExtensionSupported(const std::string&) { Unavailable("glfwExtensionSupported"); }
     ProcAddress GetProcAddress(const std::string&) { Unavailable("glfwGetProcAddress"); }
     void GetVersion(std::int32_t&, std::int32_t&, std::int32_t&) { Unavailable("glfwGetVersion"); }
@@ -76,6 +77,11 @@ namespace OpenTK::Windowing::GraphicsLibraryFramework::GLFW
     void PollEvents()
     {
         ::glfwPollEvents();
+    }
+
+    void SetJoystickCallback(JoystickCallback callback)
+    {
+        ::glfwSetJoystickCallback(callback);
     }
 
     bool ExtensionSupported(const std::string& extension)

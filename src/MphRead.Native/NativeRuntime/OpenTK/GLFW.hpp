@@ -31,10 +31,12 @@ namespace OpenTK::Windowing::GraphicsLibraryFramework
     namespace GLFW
     {
         using ProcAddress = void (*)();
+        using JoystickCallback = void (*)(std::int32_t jid, std::int32_t event);
 
         [[nodiscard]] bool Init();
         void Terminate();
         void PollEvents();
+        void SetJoystickCallback(JoystickCallback callback);
         [[nodiscard]] bool ExtensionSupported(const std::string& extension);
         [[nodiscard]] ProcAddress GetProcAddress(const std::string& procedure);
         void GetVersion(std::int32_t& major, std::int32_t& minor, std::int32_t& revision);

@@ -560,7 +560,7 @@
 | A | +87/-0 | `Mods/Input/AimAssist/AimAssistTelemetry.cs` | — 新規 | 完了（C#全文・Hit/Shot/Record呼出元監査済、unchecked集計を修正、Windows Release build済） |
 | A | +85/-0 | `Mods/Input/GamepadMappingWizard.cs` | — 新規 | 完了（C#全文・Desktop/Setup/Checks呼出元監査済、nameのUnicode control/UTF-16切詰めを修正、Windows Release build済） |
 | M | +82/-117 | `Mods/Input/GamepadInput.cs` | .cpp,.hpp | 完了（C#全文・desktop Renderer呼出順監査済、native差分なし。Android GameViewのBeginFrame呼出有無は別途確認対象） |
-| M | +79/-274 | `Mods/Input/GamepadDesktop.cs` | .cpp,.hpp | 完了 |
+| M | +79/-274 | `Mods/Input/GamepadDesktop.cs` | .cpp,.hpp | 完了（C#全文・Renderer/UiSurface/GamepadProbe呼出元監査済、GLFW接続通知とgeneration wrapを修正、Windows Release build済） |
 | A | +77/-0 | `Mods/Input/WindowsGamepadHaptics.cs` | — 新規 | 完了 |
 | A | +76/-0 | `Mods/Input/AimAssist/AimAssistChecks.cs` | — 新規 | 完了 |
 | A | +76/-0 | `Mods/Input/GamepadPlatformChecks.cs` | — 新規 | 完了 |
@@ -942,3 +942,5 @@
   C# `char.IsControl`/`Take(100)`がUTF-16 code unit単位である点に合わせ、Unicode control除外とname切詰めをUTF-16経由へ修正。Windows Release build済。
 - `Mods/Input/GamepadInput.cs` をC#全文とnative `.cpp/.hpp`、desktopの`Renderer`入出力呼出順で照合。snapshot/runtime反映、edge/reset/block処理、focus/disconnect、aim、press消費、移動・全binding合成、weapon wheel/last-weapon、keybind統合順が一致し、native差分修正なし。
   Android側は`GameView`から`TakePress`/`TakeMenuPress`を呼ぶ一方、`src/MphRead.Android`内に`GamepadInput.BeginFrame`呼出しが見つからなかったため、Android統合の別監査項目として記録。Android buildは実行していない。
+- `Mods/Input/GamepadDesktop.cs` をC#全文とnative `.cpp/.hpp`、`Renderer`/`UiSurface`/`GamepadProbe`呼出元で照合。GLFW slot走査、mapped/raw read、軸変換、button indices、capability/name/family、wizard snapshot、haptics同期が一致。
+  C# `OnJoystickConnected`がconnect/disconnect両通知で`DeviceChanged`を呼ぶ点に対しnativeの通知配線がなかったため、対象のGLFW callback APIだけを追加して同じcleanupを接続。slot generationの加算もC# unchecked wrapに合わせた。Windows Release build済。
