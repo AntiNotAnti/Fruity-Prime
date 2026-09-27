@@ -7,9 +7,13 @@
 #include "DedicatedServer.hpp"
 #include "MapRotation.hpp"
 
+#include "../../NativeRuntime/System/Console.hpp"
+#include "../../NativeRuntime/System/ExceptionText.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
+#include "../../NativeRuntime/System/Tasks.hpp"
+
 #include <chrono>
 #include <exception>
-#include <iostream>
 #include <memory>
 #include <optional>
 #include <stop_token>
@@ -69,9 +73,11 @@ namespace MphRead::Mods::Network
             server->ServerName(std::get<2>(value));
             server->Reporter(std::make_shared<MasterReporter>(
                 std::get<0>(value), std::get<1>(value)));
-            std::cout << "[net] listing this game on " << std::get<0>(value)
-                << ":" << std::get<1>(value) << " as \""
-                << std::get<2>(value) << "\"" << std::endl;
+            const std::string message = "[net] listing this game on "
+                + std::get<0>(value) + ":"
+                + ::MphRead::NativeRuntime::ToString(std::get<1>(value))
+                + " as \"" + std::get<2>(value) + "\"";
+            ::MphRead::NativeRuntime::ConsoleWriteLine(message);
         }
 
         auto cancel = std::make_shared<std::stop_source>();
@@ -82,11 +88,13 @@ namespace MphRead::Mods::Network
         {
             try
             {
+                ::MphRead::NativeRuntime::SetCurrentThreadName("MphRead host server");
                 server->Run(cancel->get_token());
             }
-            catch (const std::exception& ex)
+            catch (...)
             {
-                SetLastError(std::string(ex.what()));
+                SetLastError(::MphRead::NativeRuntime::ExceptionMessage(
+                    std::current_exception()));
             }
         });
         _thread->detach();
