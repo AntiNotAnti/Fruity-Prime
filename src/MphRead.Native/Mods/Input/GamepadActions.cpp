@@ -11,7 +11,10 @@ namespace MphRead::Mods::Input
     {
         [[nodiscard]] std::uint64_t Bit(PadAction action) noexcept
         {
-            return 1ULL << static_cast<std::int32_t>(action);
+            // C# masks a 64-bit shift count to six bits; shifting by a
+            // negative or >=64 value directly is undefined in C++.
+            const std::uint32_t shift = static_cast<std::uint32_t>(static_cast<std::int32_t>(action)) & 63U;
+            return 1ULL << shift;
         }
     }
 
