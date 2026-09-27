@@ -748,13 +748,13 @@
 
 | S | +/- | C# | C++ | 進捗 |
 |---|---|---|---|---|
-| A | +609/-0 | `Mods/MapGen/MapCheck.cs` | — 新規 | 完了 |
-| A | +430/-0 | `Mods/MapGen/CollisionObj.cs` | — 新規 | 完了 |
-| A | +369/-0 | `Mods/MapGen/AltFormProbe.cs` | — 新規 | 完了 |
-| M | +213/-20 | `Mods/MapGen/Q3Import.cs` | .cpp,.hpp | 完了 |
-| M | +120/-0 | `Mods/MapGen/MapDefinition.cs` | .cpp,.hpp | 完了 |
-| M | +113/-2 | `Mods/MapGen/MapReport.cs` | .cpp,.hpp | 完了 |
-| M | +91/-8 | `Mods/MapGen/Q3Convert.cs` | .cpp,.hpp | 完了 |
+| A | +609/-0 | `Mods/MapGen/MapCheck.cs` | — 新規 | 完了（C#全文対比監査済み、runtime/harness未実施） |
+| A | +430/-0 | `Mods/MapGen/CollisionObj.cs` | — 新規 | 完了（C#全文対比監査済み、runtime/harness未実施） |
+| A | +369/-0 | `Mods/MapGen/AltFormProbe.cs` | — 新規 | 完了（C#全文対比監査済み、runtime/harness未実施） |
+| M | +213/-20 | `Mods/MapGen/Q3Import.cs` | .cpp,.hpp | 完了（C#全文対比監査済み、runtime/harness未実施） |
+| M | +120/-0 | `Mods/MapGen/MapDefinition.cs` | .cpp,.hpp | 完了（C#全文対比監査済み、runtime/harness未実施） |
+| M | +113/-2 | `Mods/MapGen/MapReport.cs` | .cpp,.hpp | 完了（C#全文対比監査済み、runtime/harness未実施） |
+| M | +91/-8 | `Mods/MapGen/Q3Convert.cs` | .cpp,.hpp | 完了（C#全文対比監査済み、runtime/harness未実施） |
 | M | +48/-1 | `Mods/MapGen/MapPacker.cs` | .cpp,.hpp | 完了（C#対比監査済、MapPacker/CustomRooms/ModEntry対象object compile green、runtime未実施） |
 | M | +19/-0 | `Mods/MapGen/BuiltMap.cs` | .cpp,.hpp | 完了（C#対比監査済、Windows Release native library compile/link green、runtime未実施） |
 | M | +19/-0 | `Mods/MapGen/MapBundle.cs` | .cpp,.hpp | 完了（C#対比監査済、Windows Release native library compile/link green、runtime未実施） |
