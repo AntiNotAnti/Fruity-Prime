@@ -78,7 +78,7 @@ namespace MphRead
             ActivePlayers(ActivePlayers() + 1);
             if (Teams())
             {
-                represented[static_cast<std::size_t>(player.TeamIndex())] = true;
+                ManagedAt(represented, player.TeamIndex()) = true;
             }
         }
         for (std::int32_t i = 0; i < ActivePlayers(); ++i)
@@ -123,7 +123,7 @@ namespace MphRead
             {
                 for (std::int32_t other = 0; other < TeamCount(); ++other)
                 {
-                    if (represented[static_cast<std::size_t>(other)]
+                    if (ManagedAt(represented, other)
                         && CompareTeams(other, team) > 0)
                     {
                         ++rank;

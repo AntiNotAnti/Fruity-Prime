@@ -1,9 +1,13 @@
 #include "TeamLayout.hpp"
 
 #include "../../GameState.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 namespace MphRead::Mods::Multiplayer
 {
+    using ::MphRead::NativeRuntime::ManagedAt;
+    using ::MphRead::NativeRuntime::UncheckedMultiply;
+
     std::string TeamLayout::ToString() const
     {
         switch (TeamCount)
@@ -34,20 +38,22 @@ namespace MphRead::Mods::Multiplayer
         for (std::int32_t team = 0; team < layout.TeamCount; ++team)
         {
             const std::int32_t capacity = layout.Capacity(team);
-            if (capacity == 0 || counts[static_cast<std::size_t>(team)] >= capacity)
+            if (capacity == 0 || ManagedAt(counts, team) >= capacity)
             {
                 continue;
             }
-            const std::int32_t teamCount = counts[static_cast<std::size_t>(team)];
+            const std::int32_t teamCount = ManagedAt(counts, team);
             if (best < 0)
             {
                 best = team;
                 continue;
             }
-            const std::int32_t bestCount = counts[static_cast<std::size_t>(best)];
+            const std::int32_t bestCount = ManagedAt(counts, best);
             const std::int32_t bestCapacity = layout.Capacity(best);
-            if (teamCount * bestCapacity < bestCount * capacity
-                || (teamCount * bestCapacity == bestCount * capacity && teamCount < bestCount))
+            const std::int32_t teamProduct = UncheckedMultiply(teamCount, bestCapacity);
+            const std::int32_t bestProduct = UncheckedMultiply(bestCount, capacity);
+            if (teamProduct < bestProduct
+                || (teamProduct == bestProduct && teamCount < bestCount))
             {
                 best = team;
             }

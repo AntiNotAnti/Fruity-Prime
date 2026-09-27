@@ -2,6 +2,7 @@
 
 #include "../../Metadata/Rooms.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
+#include "../../NativeRuntime/System/Exceptions.hpp"
 #include "../../Read.hpp"
 
 #include <algorithm>
@@ -88,8 +89,12 @@ namespace MphRead::Mods::Multiplayer
     MapResourceRules::EntityList MapResourceRules::Resolve(
         const ::MphRead::RoomMetadata& room, ResourceSpawnProfile profile, EntityList original)
     {
+        if (!room.Multiplayer || room.FirstHunt || !room.EntityPath.has_value())
+        {
+            return original;
+        }
         const std::vector<std::int16_t>* found = FindHighHealth(room.Name);
-        if (!room.Multiplayer || room.FirstHunt || !room.EntityPath.has_value() || found == nullptr)
+        if (found == nullptr)
         {
             return original;
         }
@@ -108,6 +113,11 @@ namespace MphRead::Mods::Multiplayer
                 : std::vector<std::int16_t>{5, 11, 12, 26, 37, 57, 58};
         }
 
+        // List<Entity>(original) throws ArgumentNullException("collection").
+        if (!original)
+        {
+            throw ::System::ArgumentNullException("collection");
+        }
         auto result = std::make_shared<std::vector<std::shared_ptr<::MphRead::Entity>>>(*original);
         std::set<std::int16_t> used;
         for (const std::shared_ptr<::MphRead::Entity>& entity : *original)
@@ -134,7 +144,7 @@ namespace MphRead::Mods::Multiplayer
                 const auto* other = AsItemSpawn(*existing);
                 if (other != nullptr && other->Data.Enabled != 0
                     && IsHealth(other->Data.ItemType)
-                    && DistanceSquared(existing->Position, entity->Position) < 1.0F)
+                    && ::OpenTK::Mathematics::LengthSquared(existing->Position - entity->Position) < 1.0F)
                 {
                     overlaps = true;
                     break;

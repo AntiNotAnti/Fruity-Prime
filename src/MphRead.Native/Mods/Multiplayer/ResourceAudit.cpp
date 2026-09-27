@@ -9,6 +9,7 @@
 #include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../NativeRuntime/System/Console.hpp"
 #include "../../NativeRuntime/System/Cryptography.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/System/Number.hpp"
 #include "../../Program.hpp"
 #include "../../Read.hpp"
@@ -72,10 +73,10 @@ namespace MphRead::Mods::Multiplayer
                 float nearest = std::numeric_limits<float>::max();
                 for (const std::shared_ptr<ItemSpawn>& item : health)
                 {
-                    nearest = std::min(nearest,
+                    nearest = ::MphRead::NativeRuntime::MathMin(nearest,
                         OpenTK::Mathematics::Length(item->Position - position));
                 }
-                max = std::max(max, nearest);
+                max = ::MphRead::NativeRuntime::MathMax(max, nearest);
             }
             return any ? ::MphRead::NativeRuntime::ToStringInvariant(max, "F2") : "n/a";
         }

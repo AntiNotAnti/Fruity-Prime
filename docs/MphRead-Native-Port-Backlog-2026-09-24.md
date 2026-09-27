@@ -625,13 +625,13 @@
 
 | S | +/- | C# | C++ | 進捗 |
 |---|---|---|---|---|
-| A | +118/-0 | `Mods/Multiplayer/ResourceAudit.cs` | — 新規 | 完了 |
-| A | +99/-0 | `Mods/Multiplayer/MapResourceRules.cs` | — 新規 | 完了 |
-| A | +95/-0 | `Mods/Multiplayer/TeamGameplayTest.cs` | — 新規 | 完了 |
-| A | +89/-0 | `Mods/Multiplayer/GameStateTeams.cs` | — 新規 | 完了 |
-| A | +46/-0 | `Mods/Multiplayer/TeamLayout.cs` | — 新規 | 完了 |
-| A | +37/-0 | `Mods/Multiplayer/TeamVisuals.cs` | — 新規 | 完了 |
-| A | +19/-0 | `Mods/Multiplayer/MatchWorldProfile.cs` | — 新規 | 完了 |
+| A | +118/-0 | `Mods/Multiplayer/ResourceAudit.cs` | — 新規 | 完了（C#全文監査済、Math.Min/Maxを修正） |
+| A | +99/-0 | `Mods/Multiplayer/MapResourceRules.cs` | — 新規 | 完了（C#全文監査済、評価順/null例外を修正） |
+| A | +95/-0 | `Mods/Multiplayer/TeamGameplayTest.cs` | — 新規 | 完了（C#全文監査済） |
+| A | +89/-0 | `Mods/Multiplayer/GameStateTeams.cs` | — 新規 | 完了（C#全文監査済、span boundsを修正） |
+| A | +46/-0 | `Mods/Multiplayer/TeamLayout.cs` | — 新規 | 完了（C#全文監査済、span bounds/unchecked積を修正） |
+| A | +37/-0 | `Mods/Multiplayer/TeamVisuals.cs` | — 新規 | 完了（C#全文監査済、Windows Release build済） |
+| A | +19/-0 | `Mods/Multiplayer/MatchWorldProfile.cs` | — 新規 | 完了（C#全文監査済、Windows Release build済） |
 
 ## 9. Network — 56 ファイル (新規 26), C# +12807 行
 
@@ -867,3 +867,28 @@
   両ABIともstatic library link成功（`build/native-android-arm64-v8a/build-retry10.log`、
   `build/native-android-x86_64/build-retry10.log`）。端末・実機runtimeは未実施。
 - この時点でAndroid側のソース更新は両ABI buildの後にない。Windows/macOSの画面runtimeとmacOS native buildは未検証。
+
+### 2026-09-27 complete-only audit
+
+- `Mods/Multiplayer/MatchWorldProfile.cs` をC#全文とnative `.cpp/.hpp` で照合。enum byte値、default struct値、
+  `IsValid` のplayer/resource組合せとEnum.IsDefined相当、configured player数の2〜8 clamp、entity layer上限4、
+  Low/Standard/Highの境界を確認した。差分修正なし。
+- `Mods/Multiplayer/TeamVisuals.cs` をC#全文とnative `.cpp/.hpp` で照合。4 teamとneutralのlabel/RGBA/radar color/
+  model team/recolor、負値・範囲外indexのneutral fallback、Apply時のteam設定と既存recolor保持/解除条件が一致。
+  nativeの返却参照はstatic const tableへ限られ、呼び出し側はC# record structの値と同じ観測値。差分修正なし。
+- `Mods/Multiplayer/TeamLayout.cs` をC#全文とnative `.cpp/.hpp` および`NetLobbyTest`/serverの直接呼び出しで照合。
+  layout field/default、capacity、validation、ToString、allies、normalized occupancy/tie-break順は一致。
+  span長不足時のC#例外をnativeでも`ManagedAt`で再現し、C#通常unchecked積を`UncheckedMultiply`へ変更した。
+- `Mods/Multiplayer/TeamGameplayTest.cs` をC#全文とnative `.cpp/.hpp` で比較。初期化/全assertionの順、team standingsとtie、
+  Survival勝者・FFA、PlayerEntity全slotの準備とfinally時の全state復元が一致。nativeのcatch/rethrowはfinally cleanup相当。
+  差分修正なし。
+- `Mods/Multiplayer/GameStateTeams.cs` をC#全文とnative `.cpp/.hpp` で照合。tie判定、active/team範囲filter、team/member sortの
+  tie-break、represented teamからの順位計算、FFA rankと空配列初期化が一致。C# `stackalloc bool[4]` はinitializerなしで内容が
+  未規定のため、nativeは未初期化読取を避けてゼロ初期化を維持。`represented`の両アクセスを`ManagedAt`にし範囲外例外も対応。
+- `Mods/Multiplayer/MapResourceRules.cs` をC#全文とnative `.cpp/.hpp` で照合。27部屋の候補IDと順序、Health判定、profile別の
+  Transfer Lock例外、元list複製、既存ID/親/Enabled/重複距離の条件、source順追加、spawn intervalの300上限と72-byte書換を確認。
+  RoomMetadataの早期条件後に辞書lookupするC#の評価順へnativeを変更。適用対象でnullのoriginalはC# `List<Entity>` と同じ
+  `ArgumentNullException("collection")` にし、未定義動作を除去。差分修正以外はなし。
+- `Mods/Multiplayer/ResourceAudit.cs` をC#全文とnative `.cpp/.hpp` で照合。18シナリオのlabel/mode/player数/順、room/layer走査、healthと
+  objective集計、重複・安定fingerprint検査、列出力と最終summaryが一致。距離集計のC# `Math.Min/Max` はNaNを伝播させるため、
+  nativeの`std::min/max`を既存のC#互換`MathMin/MathMax`へ変更。差分以外の修正なし。
