@@ -15,6 +15,7 @@
 #include "../../GameState.hpp"
 #include "../../Scene.hpp"
 #include "../../NativeRuntime/System/ExceptionText.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
@@ -37,7 +38,14 @@
 #include <utility>
 
 using ::MphRead::NativeRuntime::ExceptionTypeName;
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::IncrementInPlace;
+using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::MathMin;
 using ::MphRead::NativeRuntime::PathCombine;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::AddY;
 using ::OpenTK::Mathematics::IsZero;
@@ -274,7 +282,7 @@ namespace MphRead::Mods::Network
           _scene(nullptr),
           _bots(bots)
     {
-        NetTestScript::SetPhaseSeconds(std::max(1.5, seconds / NetTestScript::PhaseCount()));
+        NetTestScript::SetPhaseSeconds(MathMax(1.5, seconds / NetTestScript::PhaseCount()));
         Entities::PlayerEntity::SetMaxPlayers(std::max(Entities::PlayerEntity::MaxPlayers(), players));
         _forceEveryone = true;
         Mods::WorldEvents::Watching(true);
@@ -345,10 +353,10 @@ namespace MphRead::Mods::Network
                 const std::pair<std::uint64_t, std::int32_t> trail = _scene->ModLockjawTrailSignature();
                 if (i > 0 && (trail.second > 0 || previousTrail.second > 0))
                 {
-                    _lockjawTrailChecks++;
+                    IncrementInPlace(_lockjawTrailChecks);
                     if (trail != previousTrail)
                     {
-                        _lockjawTrailMismatches++;
+                        IncrementInPlace(_lockjawTrailMismatches);
                     }
                 }
                 previousTrail = trail;
@@ -363,10 +371,10 @@ namespace MphRead::Mods::Network
         _lockjawDrawRngChanges = Entities::BombEntity::ModLockjawDrawRngChanges;
         if (_scene->FrameCount() != frameCountBefore)
         {
-            ++_drawAdvancedTheGame;
+            IncrementInPlace(_drawAdvancedTheGame);
         }
 
-        ++_frame;
+        IncrementInPlace(_frame);
 
         if (_itemProbe)
         {
@@ -816,14 +824,15 @@ namespace MphRead::Mods::Network
     void MapAudit::StepScoreboard()
     {
         const std::int32_t total
-            = std::max<std::int32_t>(60, static_cast<std::int32_t>(_seconds * 60.0));
+            = MathMax(std::int32_t{60}, ConvertToInt32Net9(_seconds * 60.0));
         const bool show
             = (_frame > total / 6 && _frame < total / 6 + 90)
-            || (_frame > total * 2 / 3 && _frame < total * 2 / 3 + 90);
+            || (_frame > UncheckedMultiply(total, 2) / 3
+                && _frame < UncheckedMultiply(total, 2) / 3 + 90);
         Entities::PlayerEntity::SetModForceScoreboard(show);
         if (show)
         {
-            ++_scoreboardFrames;
+            IncrementInPlace(_scoreboardFrames);
         }
     }
 
@@ -844,7 +853,7 @@ namespace MphRead::Mods::Network
                 continue;
             }
 
-            ++_spawned;
+            IncrementInPlace(_spawned);
             _everSpawned[static_cast<std::size_t>(slot)] = true;
             SampleNodeLookup(*player);
             SamplePuppetNode(*player);
@@ -868,12 +877,12 @@ namespace MphRead::Mods::Network
 
             if (_lastHealth[static_cast<std::size_t>(slot)] > 0 && player->Health() == 0)
             {
-                ++_deaths[static_cast<std::size_t>(slot)];
+                IncrementInPlace(_deaths[static_cast<std::size_t>(slot)]);
             }
             _lastHealth[static_cast<std::size_t>(slot)] = player->Health();
 
             const Vector3 position = player->Position;
-            _lowestY = std::min(_lowestY, static_cast<double>(position.Y));
+            _lowestY = MathMin(_lowestY, static_cast<double>(position.Y));
 
             if (_haveLastSeen[static_cast<std::size_t>(slot)])
             {
@@ -923,17 +932,17 @@ namespace MphRead::Mods::Network
 
         const Formats::Culling::NodeRef found
             = _scene->GetNodeRefByPosition(static_cast<Vector3>(player.Position));
-        ++_nodeLookupSamples;
+        IncrementInPlace(_nodeLookupSamples);
 
         const bool walkedVisible = _scene->IsNodeRefVisible(walked);
         if (walkedVisible)
         {
-            ++_nodeLookupWalkedVisible;
+            IncrementInPlace(_nodeLookupWalkedVisible);
         }
 
         if (found.PartIndex == -1)
         {
-            ++_nodeLookupNone;
+            IncrementInPlace(_nodeLookupNone);
             return;
         }
 
@@ -942,15 +951,15 @@ namespace MphRead::Mods::Network
             return;
         }
 
-        ++_nodeLookupWrong;
+        IncrementInPlace(_nodeLookupWrong);
         const bool foundVisible = _scene->IsNodeRefVisible(found);
         if (walkedVisible && !foundVisible)
         {
-            ++_nodeLookupHidden;
+            IncrementInPlace(_nodeLookupHidden);
         }
         else if (!walkedVisible && foundVisible)
         {
-            ++_nodeLookupShown;
+            IncrementInPlace(_nodeLookupShown);
         }
     }
 
@@ -991,10 +1000,10 @@ namespace MphRead::Mods::Network
             return;
         }
 
-        ++_puppetSamples;
+        IncrementInPlace(_puppetSamples);
         if (next.PartIndex == -1)
         {
-            ++_puppetNone;
+            IncrementInPlace(_puppetNone);
             return;
         }
 
@@ -1003,10 +1012,10 @@ namespace MphRead::Mods::Network
             return;
         }
 
-        ++_puppetWrong;
+        IncrementInPlace(_puppetWrong);
         if (_scene->IsNodeRefVisible(walked) && !_scene->IsNodeRefVisible(next))
         {
-            ++_puppetHidden;
+            IncrementInPlace(_puppetHidden);
         }
     }
 
@@ -1236,7 +1245,7 @@ namespace MphRead::Mods::Network
         }
 
         const double lit = Mods::ScreenCapture::NonBlackFraction(_scene.get());
-        ++_litSamples;
+        IncrementInPlace(_litSamples);
         _litTotal += lit;
 
         if (_litFirst < 0.0)
@@ -1263,7 +1272,7 @@ namespace MphRead::Mods::Network
                 : Mods::ScreenCapture::Save(_scene.get(), path);
             if (saved)
             {
-                ++_shotsSaved;
+                IncrementInPlace(_shotsSaved);
             }
         }
     }
@@ -1381,7 +1390,7 @@ namespace MphRead::Mods::Network
             {
                 ++disruptedEver;
             }
-            totalDeaths += _deaths[index];
+            totalDeaths = UncheckedAdd(totalDeaths, _deaths[index]);
         }
 
         std::ostringstream line;
@@ -1401,7 +1410,7 @@ namespace MphRead::Mods::Network
             {
                 ++moved;
             }
-            furthest = std::max(furthest, travelled);
+            furthest = MathMax(furthest, travelled);
         }
 
         line << " | moved " << moved << '/' << _players
@@ -1451,7 +1460,9 @@ namespace MphRead::Mods::Network
         if (_nodeLookupSamples > 0)
         {
             const std::int32_t agreed
-                = _nodeLookupSamples - _nodeLookupWrong - _nodeLookupNone;
+                = UncheckedSubtract(
+                    UncheckedSubtract(_nodeLookupSamples, _nodeLookupWrong),
+                    _nodeLookupNone);
             line << " | node lookup " << agreed << '/' << _nodeLookupSamples
                  << " agreed (" << _nodeLookupNone << " none, "
                  << _nodeLookupWrong << " wrong part, "
@@ -1462,7 +1473,8 @@ namespace MphRead::Mods::Network
 
         if (_puppetSamples > 0)
         {
-            const std::int32_t agreed = _puppetSamples - _puppetWrong - _puppetNone;
+            const std::int32_t agreed = UncheckedSubtract(
+                UncheckedSubtract(_puppetSamples, _puppetWrong), _puppetNone);
             line << " | remote node " << agreed << '/' << _puppetSamples
                  << " agreed (" << _puppetNone << " none, "
                  << _puppetWrong << " wrong part, "
@@ -1532,7 +1544,7 @@ namespace MphRead::Mods::Network
                     << " spawn point(s) end in a frame with no room in it"
                     << '\n';
             }
-            return _spawnFailures + lockjawFailures;
+            return UncheckedAdd(_spawnFailures, lockjawFailures);
         }
 
         std::vector<std::string> problems;
@@ -1636,7 +1648,7 @@ namespace MphRead::Mods::Network
             std::cout << "MAPFAIL " << _room << " | " << problem << '\n';
         }
 
-        return static_cast<std::int32_t>(problems.size()) + lockjawFailures;
+        return UncheckedAdd(static_cast<std::int32_t>(problems.size()), lockjawFailures);
     }
 
     std::int32_t MapAudit::Run(
