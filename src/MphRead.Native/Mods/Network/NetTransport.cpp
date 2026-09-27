@@ -16,7 +16,6 @@
 #include <limits>
 #include <mutex>
 #include <new>
-#include <stdexcept>
 #include <system_error>
 #include <thread>
 #include <utility>
@@ -41,6 +40,7 @@
 #endif
 
 using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::ManagedAt;
 
 using ::MphRead::NativeRuntime::SetCurrentThreadName;
 using ::MphRead::NativeRuntime::StopwatchGetTimestamp;
@@ -90,7 +90,7 @@ namespace MphRead::Mods::Network
         {
             throw System::NullReferenceException();
         }
-        return static_cast<PacketType>(Data->at(0));
+        return static_cast<PacketType>(ManagedAt(*Data, 0));
     }
 
     std::span<const std::uint8_t> ReceivedPacket::Payload() const
@@ -98,7 +98,7 @@ namespace MphRead::Mods::Network
         if (!Data || Length < 1
             || static_cast<std::size_t>(Length) > Data->size())
         {
-            throw std::out_of_range("length");
+            throw System::ArgumentOutOfRangeException("start");
         }
         return std::span<const std::uint8_t>(Data->data() + 1,
             static_cast<std::size_t>(Length - 1));
@@ -196,7 +196,8 @@ namespace MphRead::Mods::Network
         {
             if (payload.size() > static_cast<std::size_t>(NetConfig::MaxPacketSize - 1))
             {
-                throw std::invalid_argument("Destination is too short. (Parameter 'destination')");
+                throw System::ArgumentException(
+                    "Destination is too short. (Parameter 'destination')");
             }
 
             std::array<std::uint8_t, NetConfig::MaxPacketSize> buffer;
@@ -508,7 +509,9 @@ namespace MphRead::Mods::Network
             std::lock_guard lock(state->CancellationLock);
             if (state->CancellationDisposed)
             {
-                throw System::ObjectDisposedException("System.Threading.CancellationTokenSource", "Cannot access a disposed object.");
+                throw System::ObjectDisposedException(
+                    "System.Threading.CancellationTokenSource",
+                    "The CancellationTokenSource has been disposed.");
             }
             state->CancellationRequested = true;
         }
