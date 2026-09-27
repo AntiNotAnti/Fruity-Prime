@@ -1505,8 +1505,9 @@ namespace MphRead::NativeRuntime::Skia
         }
         const std::vector<Path::Contour> contours = path.Flatten(Current().Transform);
         // An axis-aligned rectangle -- a background, a scrim, a bar -- has
-        // exact coverage per row and column, so it needs no mask at all.
-        if (contours.size() == 1 && Current().ClipMask == nullptr)
+        // exact coverage per row and column. BlendSpan applies any active
+        // clip mask, so the rectangle itself needs no intermediate mask.
+        if (contours.size() == 1)
         {
             std::vector<Point> points = contours[0].Points;
             if (points.size() == 5 && points[4].X == points[0].X && points[4].Y == points[0].Y)
@@ -1620,6 +1621,7 @@ namespace MphRead::NativeRuntime::Skia
         const double sy = source.Height() / destination.Height();
         (void)local;
         const bool axisAligned = m.SkewX == 0 && m.SkewY == 0;
+        const bool hasClip = Current().ClipMask != nullptr;
         Mask mask;
         std::int32_t left = 0;
         std::int32_t top = 0;
@@ -1655,10 +1657,10 @@ namespace MphRead::NativeRuntime::Skia
             right = mask.X + mask.Width;
             bottom = mask.Y + mask.Height;
         }
-        // The common case, done in integers: an axis-aligned blit with no
-        // path clip, drawn source-over -- every backdrop and card picture.
-        // Columns and rows are mapped to the source once each, not per pixel.
-        if (axisAligned && Current().ClipMask == nullptr)
+        // The common case, done in integers: an axis-aligned blit drawn
+        // source-over. Columns and rows are mapped to the source once each,
+        // not per pixel; an active path clip is applied during blending.
+        if (axisAligned)
         {
             const double stepU0 = std::abs(sx * inverse->ScaleX);
             const double stepV0 = std::abs(sy * inverse->ScaleY);
@@ -1730,8 +1732,13 @@ namespace MphRead::NativeRuntime::Skia
                         + static_cast<std::size_t>(left)) * 4;
                     for (std::int32_t i = 0; i < cols; i++, out += 4)
                     {
-                        const std::int32_t cov = ccov[static_cast<std::size_t>(i)] * rowCov >> 8;
-                        if (cov <= 0)
+                        const std::int32_t baseCov = ccov[static_cast<std::size_t>(i)] * rowCov >> 8;
+                        if (baseCov <= 0)
+                        {
+                            continue;
+                        }
+                        const float clipCoverage = hasClip ? ClipAt(left + i, dy) : 1.0F;
+                        if (clipCoverage <= 0.0F)
                         {
                             continue;
                         }
@@ -1758,6 +1765,41 @@ namespace MphRead::NativeRuntime::Skia
                                 c[k] = (t * (256 - wyu) + bo * wyu + 32768) >> 16;
                             }
                         }
+                        if (hasClip && clipCoverage < 1.0F)
+                        {
+                            const float cov = (static_cast<float>(baseCov) / 256.0F) * clipCoverage;
+                            const float sa = (c[3] / 255.0F) * cov;
+                            if (sa <= 0.0F)
+                            {
+                                continue;
+                            }
+                            if (blend == BlendMode::Overlay)
+                            {
+                                const float da = out[3] / 255.0F;
+                                for (int k = 0; k < 3; k++)
+                                {
+                                    const float sv = (c[k] / 255.0F) * cov;
+                                    const float dc = out[k] / 255.0F;
+                                    const float term = 2 * dc <= da ? 2 * sv * dc : sa * da - 2 * (da - dc) * (sa - sv);
+                                    const float value = term + sv * (1 - da) + dc * (1 - sa);
+                                    out[k] = static_cast<std::uint8_t>(std::clamp(value * 255.0F + 0.5F, 0.0F, 255.0F));
+                                }
+                                out[3] = static_cast<std::uint8_t>(std::clamp((sa + da - sa * da) * 255.0F + 0.5F,
+                                    0.0F, 255.0F));
+                                continue;
+                            }
+                            const float inv = 1.0F - sa;
+                            for (int k = 0; k < 3; k++)
+                            {
+                                const float sv = (c[k] / 255.0F) * cov;
+                                out[k] = static_cast<std::uint8_t>(std::clamp(
+                                    (sv + out[k] / 255.0F * inv) * 255.0F + 0.5F, 0.0F, 255.0F));
+                            }
+                            out[3] = static_cast<std::uint8_t>(std::clamp(
+                                (sa + out[3] / 255.0F * inv) * 255.0F + 0.5F, 0.0F, 255.0F));
+                            continue;
+                        }
+                        const std::int32_t cov = baseCov;
                         if (blend == BlendMode::Overlay)
                         {
                             // Skia's kOverlay, premultiplied.

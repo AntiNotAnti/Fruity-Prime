@@ -39,10 +39,10 @@
 - Windows上で試合中のマウス操作を自動再現できるUI操作手段がないため、カーソル症状のruntime確認は保留。既存のゲームデータは利用可能。ゲーム内で再現する際は `-debuglog` の `cursor grab=... focus=...` 行を採取し、grab解除条件を確認する。
 - Online監査開始: `PlayScreen.cs/.cpp` のサーバー一覧更新・個別status問い合わせと `NetMaster.cs/.cpp` の `Query`、`NetStatus.cs/.cpp` を一ファイルずつ比較。依頼処理・UDP query/response判定・タイムアウト時の「did not answer」表示に現時点で差異なし。Windows Release C# buildは成功（既存のobsolete警告4件）。Android buildは未実施。
 - 同一Windows環境で既存C++ Release版とC# Release版の `-servers -debuglog` を続けて実行。両方とも `net.livetek.fr:27889` から「4 listed」を受け取り、4件すべての直接status queryが「did not answer」。この再現ではC#とC++に差は出ず、現環境で報告されたC++固有差を確認できなかった。サーバーまたは経路の一時的状態と区別するため、transport実装の残りと、既知のC#正常環境での結果を引き続き確認する。
-- Online/Offline等のメニュー性能監査を開始。Windows Release版を同じ `-uibench` 条件（2560x1440ウィンドウ、1920x1080の描画面）で測定したところ、Offline mapsのScrollはC++ 70.69 ms/描画（約14 fps）、C# 8.32 ms（約117 fps）。RepaintはC++ 38.87 ms（約25 fps）、C# 14.08 ms（約70 fps）。少なくともこの画面・条件ではC++の描画コストが大きいが、実画面全般の原因やユーザー報告のPC全体フリーズを確定する値ではない。
-- `-uibench play ... -uibenchonly Scroll` は非同期のサーバー一覧がベンチ中に揃わず描画0件だったため、Online行の測定結果として扱わない。メモリ使用量・増加傾向もまだ計測しておらず、メモリリークとは判定していない。
-- 描画監査中に、native `NativeRuntime/Skia/Skia.cpp` の `Canvas::FillPath` がclip付き矩形をmask生成・一時バッファ経由で処理する経路を確認。C#側との描画意味を保ったまま差分を一ファイル単位で監査中で、これがベンチ差の原因かは未確定。現時点で修正はまだ入れていない。次はこのラスタ経路と画像blit、画面遷移時のリソース寿命をC#側と照合し、差異を見つけた場合に修正・再測定する。
-
+- `NativeRuntime/Skia/Skia.cpp` を一ファイル監査し、C# `DeckTile.cs` の `PushClip(face)` 内での `DrawImage(_ground)` / 矩形描画と照合。nativeは角丸clipがあると軸平行bitmapの専用blitを使わず、pixelごとの逆変換・画像sampleへ落ちていた。専用blitで列/行のsample位置を再利用し、clip coverageを合成してからblendするよう修正。矩形fillもclip maskを保持したまま解析的coverage経路を利用する。Windows Release `ninja -k 0` 成功。
+- 同じ `-uibench` 条件（2560x1440ウィンドウ、1920x1080描画面）のOffline mapsで、C++ Scrollは修正前71.40 ms/描画から21.67 ms（約46 fps）へ、Repaintは39.33 msから22.66 ms（約44 fps）へ短縮。C#の同条件はScroll 8.42 ms、Repaint 14.46 ms。描画差は大きく縮んだがまだ残り、これだけでユーザー報告のPC全体フリーズが解決したとは判定しない。
+- C++/C#双方で `-uishot` を実行し各26画面を生成。`play-offline` を目視比較し、修正によるclip境界の破綻は見られなかった。Onlineの `-uibench play ... -uibenchonly Scroll` は非同期サーバー一覧が揃わず描画0件のため、Online行の測定には使えない。
+- メモリ使用量・長時間の増加傾向はまだ計測しておらず、リークとは判定していない。次は残る描画差とメモリ懸念について、テキスト描画・画面遷移時のリソース寿命をC#側と一ファイルずつ照合し、差異があれば修正・再測定する。
 ### 2026-09-28 C++固有のフリーズ対策
 
 - ユーザー指定のフリーズ対策コミットはすべて監査時点の `HEAD`（`229c35a282f0e44d895d5478ce97f137f7710217`）の祖先であることを再確認した。これらは今回のC#対比監査で差異として扱わず、意図的なC++固有修正として維持する。
@@ -105,7 +105,7 @@
   LaunchPlan（LobbyContext）、GameFiles（Root=AppPaths、RomWhitelist 照合）、TextLauncher（InputEnded・insane・StartupForced）、
   NativeFilePicker（NativeRuntime に ProcessRunCaptureOutput）は移植時の確認を完了。MatchStart は RenderWindow の1ウィンドウ API を使う形へ移植し、
   C#原本との静的監査とWindows Release buildを完了。
-- 12 完了。C# は Avalonia headless + Skia CPU ラスタ → GL 転送（UiTopLevel/UiSurface/UiOverlay）。
+- 12 完了（移植差分）。今回のカーソル・Online・メニュー性能のruntime不具合監査は上記進捗ログで別途継続。C# は Avalonia headless + Skia CPU ラスタ → GL 転送（UiTopLevel/UiSurface/UiOverlay）。
   旧 NativeRuntime/Gui（Element ツリー + GL 直描画、グラデーション・楕円・パス・影なし）では足りないので、
   C# と同じ形で NativeRuntime に再現する:
   (A) NativeRuntime/Skia: CPU RGBA premul キャンバス（AA パス塗り、ストローク、線形/放射グラデーション、
