@@ -3,7 +3,7 @@
 #include "../AimInputSourceTracker.hpp"
 #include "../GamepadManager.hpp"
 #include "../../Chat/ChatFont.hpp"
-#include "../../../Hud/HudInfo.hpp"
+#include "../../../HUD/HudInfo.hpp"
 #include "../../../Scene.hpp"
 #include "../../../NativeRuntime/System/Number.hpp"
 #include "../../../NativeRuntime/System/Runtime.hpp"
