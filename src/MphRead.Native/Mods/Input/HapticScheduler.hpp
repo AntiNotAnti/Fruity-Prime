@@ -13,7 +13,7 @@ namespace MphRead::Mods::Input
         HapticScheduler();
 
         void Reset() noexcept;
-        [[nodiscard]] bool Accept(GamepadFeedback feedback, std::int64_t now, std::int32_t duration) noexcept;
+        [[nodiscard]] bool Accept(GamepadFeedback feedback, std::int64_t now, std::int32_t duration);
 
     private:
         std::array<std::int64_t, 7> _last{};

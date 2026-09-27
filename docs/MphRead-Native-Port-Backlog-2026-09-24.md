@@ -584,7 +584,7 @@
 | A | +24/-0 | `Mods/Input/GamepadRuntimeConfig.cs` | — 新規 | 完了 |
 | A | +24/-0 | `Mods/Input/SpectatorInput.cs` | — 新規 | 完了 |
 | A | +23/-0 | `Mods/Input/GamepadDeviceSnapshot.cs` | — 新規 | 完了 |
-| A | +20/-0 | `Mods/Input/HapticScheduler.cs` | — 新規 | 完了 |
+| A | +20/-0 | `Mods/Input/HapticScheduler.cs` | — 新規 | 完了（C#全文・GamepadHaptics直接呼出監査済、undefined feedbackの範囲外アクセスをIndexOutOfRangeExceptionへ修正、Windows Release build済） |
 | A | +19/-0 | `Mods/Input/InputPrompt.cs` | — 新規 | 完了 |
 | A | +19/-0 | `Mods/Input/InputSourceTracker.cs` | — 新規 | 完了 |
 | A | +17/-0 | `Mods/Input/AimAssist/AimAssistMath.cs` | — 新規 | 完了 |
