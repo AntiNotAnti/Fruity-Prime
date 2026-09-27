@@ -11,6 +11,7 @@
 #include "../InputSettings.hpp"
 #include "../../NativeRuntime/OpenTK/GLFW.hpp"
 #include "../../NativeRuntime/System/Console.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/Number.hpp"
 #include "../../NativeRuntime/System/Stopwatch.hpp"
 
@@ -30,10 +31,16 @@ namespace MphRead::Mods::Input
             return Runtime::ToString(value, format);
         }
 
+        [[nodiscard]] std::string Number(double value, std::string_view format)
+        {
+            return Runtime::ToString(value, format);
+        }
+
         // $"{value,5:0.00}": right-aligned in `width`.
         [[nodiscard]] std::string Pad(const std::string& text, std::size_t width)
         {
-            return text.size() >= width ? text : std::string(width - text.size(), ' ') + text;
+            const std::size_t length = Runtime::Utf16Length(text);
+            return length >= width ? text : std::string(width - length, ' ') + text;
         }
 
         [[nodiscard]] std::string Pair(std::pair<float, float> value)
@@ -78,7 +85,7 @@ namespace MphRead::Mods::Input
 
     std::int32_t GamepadProbe::Watch(double seconds, bool verbose)
     {
-        Runtime::ConsoleWriteLine("[gamepad] watching for " + Number(static_cast<float>(seconds), "0") + " s. "
+        Runtime::ConsoleWriteLine("[gamepad] watching for " + Number(seconds, "0") + " s. "
             + "dead zone " + Number(InputSettings::GamepadDeadZone(), "0.00") + ", "
             + "look " + Number(InputSettings::GamepadLookSensitivity(), "0.00") + ", "
             + "invert y " + (InputSettings::GamepadInvertY() ? "on" : "off"));
@@ -144,7 +151,7 @@ namespace MphRead::Mods::Input
             if (line != last)
             {
                 last = line;
-                Runtime::ConsoleWriteLine("  " + Pad(Number(static_cast<float>(elapsed()), "0.0"), 5) + "s " + line);
+                Runtime::ConsoleWriteLine("  " + Pad(Number(elapsed(), "0.0"), 5) + "s " + line);
                 everMoved |= state.Connected
                     && (state.Buttons != GamepadButtons::None
                         || std::abs(state.LeftX) > 0.5F || std::abs(state.LeftY) > 0.5F
