@@ -35,6 +35,9 @@ BANNED_EXT='nds|bin|arc|narc|sdat|sbin|spc|wav|mp3|ogg|brstm|png|jpg|jpeg|gif|bm
 BANNED_LEVEL='(^|/)pak[0-9]+\.pk3$'
 # A level is legitimately larger than source; nothing else under maps/ is.
 BIG_OK='(^|/)maps/.*\.(pk3|bsp)$'
+# miniaudio's upstream single-file library embeds its implementation and docs.
+# Keep this exact source path exempt from the size limit; asset/path checks run first.
+BIG_SOURCE_OK='^src/MphRead\.Native/ThirdParty/miniaudio/miniaudio\.h$'
 # Directories the extraction and the preview cache write into.
 BANNED_PATH='(^|/)(thumbnails|files|_archives|Savedata|netcheck-shots)/|(^|/)paths\.txt$|(^|/)netlog-[^/]*\.txt$'
 # Nothing *tracked by git* should be this big; an asset dump would be. Build
@@ -46,6 +49,7 @@ allowed() {
   [ -f "$ALLOW_FILE" ] || return 1
   local path="$1" pattern
   while IFS= read -r pattern; do
+    pattern=${pattern%$'\r'}
     case "$pattern" in ''|'#'*) continue ;; esac
     # shellcheck disable=SC2254
     case "$path" in $pattern) return 0 ;; esac
@@ -83,6 +87,9 @@ check_list() {
     if echo "$path" | grep -qiE "$BIG_OK"; then
       continue
     fi
+    if echo "$path" | grep -qE "$BIG_SOURCE_OK"; then
+      continue
+    fi
     if [ "$CHECK_SIZE" -eq 1 ] && [ -f "$path" ]; then
       local size
       size=$(wc -c < "$path")
@@ -98,7 +105,7 @@ if [ "$#" -eq 0 ]; then
   tracked=()
   while IFS= read -r -d '' path; do tracked+=("$path"); done < <(git ls-files -z)
   check_list "tracked by git" "${tracked[@]}"
-  if ! grep -q '^thumbnails/$' .gitignore; then
+  if ! grep -q '^thumbnails/$' <(tr -d '\r' < .gitignore); then
     report ".gitignore" "no longer ignores thumbnails/, so previews can be committed"
   fi
 else

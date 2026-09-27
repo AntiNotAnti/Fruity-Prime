@@ -14,6 +14,7 @@
 
 #if defined(__APPLE__)
 #include "../../Mods/Platform/AppPaths.hpp"
+#include "../System/IO.hpp"
 #include "../System/NativeLibrary.hpp"
 #include "../System/Runtime.hpp"
 
