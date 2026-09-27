@@ -29,6 +29,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <exception>
 #include <mutex>
 #include <thread>
@@ -272,30 +273,71 @@ namespace MphRead::Mods::Network
 
     class NetLobbyTest::Rig final
     {
+    private:
+        struct ThreadState final
+        {
+            explicit ThreadState(std::shared_ptr<DedicatedServer> server)
+                : Server(std::move(server))
+            {
+            }
+
+            std::shared_ptr<DedicatedServer> Server;
+            std::mutex Mutex{};
+            std::condition_variable Finished{};
+            std::exception_ptr Error{};
+            bool Done = false;
+        };
+
     public:
-        std::unique_ptr<DedicatedServer> Server;
+        std::shared_ptr<DedicatedServer> Server;
         std::vector<std::unique_ptr<Client>> Clients{};
 
         explicit Rig(ServerSessionPolicy policy = ServerSessionPolicy::Lobby, Runtime::Guid token = {})
         {
-            Server = std::make_unique<DedicatedServer>(0, 8,
+            Server = std::make_shared<DedicatedServer>(0, 8,
                 MapRotation::SingleMatch(Rooms()[0], GameMode::Battle, 0, 0));
             Server->SessionPolicy(policy);
             Server->OwnerToken(token);
             Server->RunsTheMatch(false);
-            _thread = std::thread([this]()
+            _threadState = std::make_shared<ThreadState>(Server);
+            const std::shared_ptr<ThreadState> state = _threadState;
+            _thread = std::thread([state]()
             {
                 try
                 {
-                    Server->Run();
+                    state->Server->Run();
                 }
                 catch (...)
                 {
-                    const std::scoped_lock lock(_errorLock);
-                    _error = std::current_exception();
+                    const std::scoped_lock lock(state->Mutex);
+                    state->Error = std::current_exception();
                 }
+                {
+                    const std::scoped_lock lock(state->Mutex);
+                    state->Done = true;
+                }
+                state->Finished.notify_all();
             });
-            Wait([this]() { return Server->Listening(); }, "server listening");
+            try
+            {
+                Wait([this]() { return Server->Listening(); }, "server listening");
+            }
+            catch (...)
+            {
+                Server->Stop();
+                try
+                {
+                    JoinWithin(5000);
+                }
+                catch (...)
+                {
+                    if (_thread.joinable())
+                    {
+                        _thread.detach();
+                    }
+                }
+                throw;
+            }
         }
 
         Rig(const Rig&) = delete;
@@ -309,6 +351,18 @@ namespace MphRead::Mods::Network
             }
             catch (...)
             {
+                Server->Stop();
+                try
+                {
+                    JoinWithin(5000);
+                }
+                catch (...)
+                {
+                    if (_thread.joinable())
+                    {
+                        _thread.detach();
+                    }
+                }
             }
         }
 
@@ -385,12 +439,14 @@ namespace MphRead::Mods::Network
                 {
                     client->Drain();
                 }
+                std::exception_ptr error;
                 {
-                    const std::scoped_lock lock(_errorLock);
-                    if (_error != nullptr)
-                    {
-                        std::rethrow_exception(_error);
-                    }
+                    const std::scoped_lock lock(_threadState->Mutex);
+                    error = _threadState->Error;
+                }
+                if (error != nullptr)
+                {
+                    std::rethrow_exception(error);
                 }
                 if (condition())
                 {
@@ -440,17 +496,34 @@ namespace MphRead::Mods::Network
                 client->Dispose();
             }
             Server->Stop();
-            // _thread.Join(5000): Stop ends Run.
-            if (_thread.joinable())
-            {
-                _thread.join();
-            }
+            JoinWithin(5000);
         }
 
     private:
+        void JoinWithin(std::int32_t milliseconds)
+        {
+            if (!_thread.joinable())
+            {
+                return;
+            }
+            std::unique_lock lock(_threadState->Mutex);
+            const bool finished = _threadState->Finished.wait_for(lock,
+                std::chrono::milliseconds(milliseconds), [this]() { return _threadState->Done; });
+            lock.unlock();
+            if (finished)
+            {
+                _thread.join();
+            }
+            else
+            {
+                // Thread.IsBackground: a timed-out test thread must not hold
+                // process exit, and its shared state keeps the server alive.
+                _thread.detach();
+            }
+        }
+
         std::thread _thread{};
-        std::mutex _errorLock{};
-        std::exception_ptr _error{};
+        std::shared_ptr<ThreadState> _threadState{};
         bool _disposed = false;
     };
 

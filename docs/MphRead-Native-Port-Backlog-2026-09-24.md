@@ -49,7 +49,7 @@
     NetMaster（HostCandidate・FindHosts・所有者トークン・CanHost フラグ）、
     NetHostSession、ModEntry の -server 部（-hostports・-affinityweapons）、
     HealthSimulationTest、NetHealthSyncTest、MapAuditTeams、SpireAltPoseCheck。
-  - 残り: NetLobbyTest。
+  - 済: NetLobbyTest（C#原典とnative実装・直接呼出し有無を監査済み）。
 - 6 入力 前半: ゲームパッド層を実行時設定オブジェクト化（PadBindingState/GamepadOptionState/
   GamepadRuntimeConfig/GamepadManager/Profiles/Haptics/UiRouter ほか 29 ファイル）。NativeRuntime に
   Numerics(Vector2/3)・Event・ProcessExit・JsonWriteIndented・FileMove・EnvironmentTickCount64。
@@ -645,7 +645,7 @@
 | A | +609/-0 | `Mods/Network/HitRig.cs` | — 新規 | 完了（C#全文・native `.cpp/.hpp`・ModEntry/NetTestScript/NetCheckClient/PlayerEntityの直接接続を監査。役割/照準/距離/発射cadence/controls edge/reportが一致。nativeの符号付きカウンター加算をC# unchecked wrapにし、snapshot frameのuint→intをbit reinterpretへ修正。Windows Release build green、runtime未実施） |
 | A | +558/-0 | `Mods/Network/NetSmoothing.cs` | — 新規 | 完了（C#全文・native `.cpp/.hpp`・NetSession/NetHooks/NetPlayerBridge/NetPlayerLifecycle/NetUnlagged/NetHitClaims/NetLog/NetCheckClient/ModEntry の直接接続を監査。snapshot記録、playout tick、補間/hold条件、life/generation guard、subframe ack、reset/rebase、診断値と呼び出し順が一致。nativeの符号付きカウンターをC# unchecked wrapへ修正。Windows Release build green、runtime未実施） |
 | A | +536/-0 | `Mods/Network/LocalServer.cs` | — 新規 | 完了（C#全文・native `.cpp/.hpp`・ModEntryの`-installserver`/`-hostlocal`、CreateServerScreenのinstall/start/join接続を監査。実行ファイル選択、package取得/展開/実行bit、paths.txt/rotation、owner token、port選定、process継続/cleanup、cancelと起動待ちが一致。GUI installerからUpdateCheck/UpdateDownloadへstop tokenを渡し、progress callbackの例外cancelを除去。CanBindはC#同様SocketExceptionのみ処理。Windows Release build green、download/server runtime未実施） |
-| A | +536/-0 | `Mods/Network/NetLobbyTest.cs` | — 新規 | 完了 |
+| A | +536/-0 | `Mods/Network/NetLobbyTest.cs` | — 新規 | 完了（C#全文・native `.hpp/.cpp`を照合し、packet/protocol境界、team layout、client state、全lobby/continuous/client-sessionシナリオとassert順を確認。`ModEntry`を含む直接呼出し元は両側にないことを確認。C# `IsBackground`/`Join(5000)`に対しnative Rigの無期限joinと起動失敗時のjoinable threadが不一致だったため、共有thread state・例外伝播・5秒join/detachを実装。Windows Release build green、シナリオ実行は未実施） |
 | M | +489/-116 | `Mods/Network/NetSession.cs` | .cpp,.hpp | 完了 |
 | M | +481/-22 | `Mods/Network/NetUnlagged.cs` | .cpp,.hpp | 完了 |
 | M | +384/-12 | `Mods/Network/NetMaster.cs` | .cpp,.hpp | 完了 |
@@ -981,6 +981,7 @@
 - `Mods/Network/NetHitClaims.cs` をC#全文とnative `.hpp/.cpp`、Renderer tick順・NetSession packet send/receive・NetDamage/NetHitPrediction・slot/room lifecycle接続で照合。claim stream/life検証、outbox retry/verdict、damage/geometry判定、ledger duplicate、fire-frame arbitration、rescued-hit抑止、reset/cleanupが一致。`NearestLedgerOffset`のuint→int bit reinterpretとunchecked int差分をnativeで明示し、C# `Math.Abs(Int32.MinValue)`相当の`OverflowException`境界も保った。Windows Release `ninja -C tools/build/out/msys2-mingw64-Release -j 4`成功。
 - `Mods/Network/DedicatedServer.cs` をC#全文とnative `.cpp/.hpp`で照合し、ModEntryの専用server起動、NetHostSession/HostPool/NetMasterの生成・設定・停止、PeerCount/Listening/EverOccupiedの直接参照も確認。loop順序、Helloの再接続/slot割当/Welcome、status/refusal、authority通知と昇格、snapshot/intent検証とfan-out、match clock/rotation/vote、ping/roster、timeout/cleanupの条件とpacket内容は一致。修正なし、静的監査のみ（build/runtime未実施）。
 - `Mods/Network/HitRig.cs` をC#全文とnative `.cpp/.hpp`で照合し、ModEntryのconfigure、NetTestScriptのdriver dispatch、NetCheckClientのreport、PlayerEntityのscript aim/input hookを確認。role割当、runner/sniper/duel/volleyの条件、照準・距離制御、発射周期、controls edgeと測定値は一致。nativeのsigned frame/stat counters `++`はC#のunchecked wrapと違い未定義動作なので`IncrementInPlace`へ変更し、snapshot `uint`からclockへの明示castをC# unchecked castと同じbit reinterpretへ変更。Windows Release `ninja -C tools/build/out/msys2-mingw64-Release -k 0 -j 4`成功。runtime未実施。
+- `Mods/Network/NetLobbyTest.cs` をC#全文とnative `.hpp/.cpp`で照合。packet/protocol境界、team layout、client state、全lobby/continuous/client-sessionシナリオとassert順を確認し、`ModEntry`を含む直接呼出し元は両側にないことを確認。C# `IsBackground`/`Join(5000)`に対しnative Rigの無期限joinと起動失敗時のjoinable threadが不一致だったため、共有thread state・例外伝播・5秒join/detachを実装。Windows Release build green、シナリオ実行は未実施。
 
 ### 2026-09-27 native launcher regression audit
 
