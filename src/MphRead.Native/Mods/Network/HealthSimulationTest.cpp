@@ -13,7 +13,9 @@
 #include "../../Entities/ItemSpawnEntity.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../NativeRuntime/System/Console.hpp"
+#include "../../NativeRuntime/System/ExceptionText.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/System/Number.hpp"
 #include "../../Program.hpp"
 #include "../../Read.hpp"
 #include "../../Scene.hpp"
@@ -56,7 +58,7 @@ namespace MphRead::Mods::Network
                 (*roster.Slots)[i] = i;
                 (*roster.Generations)[i] = 1;
                 (*roster.Teams)[i] = -1;
-                (*roster.Names)[i] = "Health" + std::to_string(i);
+                (*roster.Names)[i] = "Health" + Runtime::ToString(i);
                 roster.Count++;
             }
             std::vector<std::uint8_t> latest;
@@ -168,13 +170,14 @@ namespace MphRead::Mods::Network
             {
                 throw ProgramException("Replica did not remove consumed health.");
             }
-            Runtime::ConsoleWriteLine("[healthsimtest] PASS " + room + ": " + std::to_string(count)
+            Runtime::ConsoleWriteLine("[healthsimtest] PASS " + room + ": " + Runtime::ToString(count)
                 + " health spawners; authority pickup/respawn and replica convergence.");
             result = 0;
         }
-        catch (const std::exception& ex)
+        catch (...)
         {
-            Runtime::ConsoleWriteLine("[healthsimtest] FAIL " + room + ": " + ex.what());
+            Runtime::ConsoleWriteLine("[healthsimtest] FAIL " + room + ": "
+                + Runtime::ExceptionToString(std::current_exception()));
             result = 1;
         }
         sim.Stop();
