@@ -73,26 +73,6 @@ namespace
         return std::to_string(value);
     }
 
-    [[nodiscard]] std::int32_t RoundToEvenInt32(double value) noexcept
-    {
-        if (!std::isfinite(value)
-            || value < static_cast<double>(std::numeric_limits<std::int32_t>::min())
-            || value > static_cast<double>(std::numeric_limits<std::int32_t>::max()))
-        {
-            return std::numeric_limits<std::int32_t>::min();
-        }
-        const double floorValue = std::floor(value);
-        const double fraction = value - floorValue;
-        double rounded = floorValue;
-        if (fraction > 0.5
-            || (fraction == 0.5
-                && std::fmod(std::fabs(floorValue), 2.0) == 1.0))
-        {
-            rounded = floorValue + 1.0;
-        }
-        return static_cast<std::int32_t>(rounded);
-    }
-
 #if defined(__linux__)
     [[nodiscard]] std::int64_t ProcStatusBytes(const char* label)
     {
@@ -167,7 +147,7 @@ namespace MphRead::Mods::Network
 
         const std::int64_t afterLoad = WorkingSetBytes();
         ApplyRoster(players);
-        const std::int32_t steps = RoundToEvenInt32(seconds * 60.0);
+        const std::int32_t steps = ::MphRead::NativeRuntime::MathRoundToInt32(seconds * 60.0);
         IntentDriver driver(players);
         const auto wallStart = std::chrono::steady_clock::now();
         for (std::int32_t i = 0; i < steps; ++i)
