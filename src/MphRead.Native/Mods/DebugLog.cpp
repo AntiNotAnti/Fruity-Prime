@@ -1712,6 +1712,13 @@ namespace MphRead::Mods
         FlushWriterNoThrow();
     }
 
+    std::optional<std::string> DebugLog::ExceptionStackTrace(
+        const std::exception& exception)
+    {
+        (void)exception;
+        return NativeStackTrace();
+    }
+
     void DebugLog::Exception(std::string_view category,
         const std::exception& exception)
     {
@@ -1730,7 +1737,7 @@ namespace MphRead::Mods
                 // mechanism is the native stack available at the catch/log
                 // boundary. It is written raw, with the same one trailing
                 // newline as TextWriter.WriteLine(ex.StackTrace).
-                if (std::optional<std::string> stack = NativeStackTrace())
+                if (std::optional<std::string> stack = ExceptionStackTrace(exception))
                 {
                     writer->WriteLine(*stack);
                 }

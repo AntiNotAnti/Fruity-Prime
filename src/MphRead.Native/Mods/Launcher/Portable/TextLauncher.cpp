@@ -25,6 +25,7 @@
 #include "../../../Formats/Types.hpp"
 #include "../../../GameState.hpp"
 #include "../../../Menu.hpp"
+#include "../../DebugLog.hpp"
 #include "../../Branding.hpp"
 #include "../../Credits.hpp"
 #include "../../GameSettings.hpp"
@@ -115,13 +116,6 @@ namespace MphRead::Mods::Launcher
 
 namespace
 {
-    // Exception.StackTrace, which a C++ exception does not carry.
-    [[nodiscard]] std::optional<std::string> ExceptionStackTrace(const std::exception& exception)
-    {
-        (void)exception;
-        return std::nullopt;
-    }
-
     // Console.IsOutputRedirected.
     [[nodiscard]] bool ConsoleIsOutputRedirected() noexcept
     {
@@ -225,6 +219,9 @@ namespace
             }
         }
 
+        const std::uint64_t limit = negative
+            ? static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max()) + 1U
+            : static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max());
         std::uint64_t magnitude = 0;
         for (; position < text.size(); ++position)
         {
@@ -233,14 +230,12 @@ namespace
             {
                 return false;
             }
-            magnitude = magnitude * 10U + static_cast<unsigned int>(ch - '0');
-            const std::uint64_t limit = negative
-                ? static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max()) + 1U
-                : static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max());
-            if (magnitude > limit)
+            const std::uint64_t digit = static_cast<unsigned int>(ch - '0');
+            if (magnitude > (limit - digit) / 10U)
             {
                 return false;
             }
+            magnitude = magnitude * 10U + digit;
         }
 
         if (negative)
@@ -288,9 +283,8 @@ namespace
 
     void WriteExceptionStackTrace(const std::exception& exception)
     {
-        const std::optional<std::string> stack
-            = ExceptionStackTrace(exception);
-        std::cout << (stack.has_value() ? *stack : std::string()) << '\n';
+        ::MphRead::NativeRuntime::ConsoleWriteLineNullable(
+            ::MphRead::Mods::DebugLog::ExceptionStackTrace(exception));
     }
 
     [[nodiscard]] UpdateInfo NullableValue(std::optional<UpdateInfo> value)

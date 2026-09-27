@@ -52,6 +52,8 @@ namespace MphRead::Mods
         [[nodiscard]] static std::vector<void*> CaptureStack();
         static void StackFrom(std::string_view category, std::string_view message,
             const std::vector<void*>& frames);
+        [[nodiscard]] static std::optional<std::string> ExceptionStackTrace(
+            const std::exception& exception);
         static void Exception(std::string_view category, std::exception_ptr exception);
         static void Exception(std::string_view category, const std::exception& exception);
 
