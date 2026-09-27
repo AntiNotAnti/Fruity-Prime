@@ -1224,7 +1224,12 @@ namespace MphRead
                     // NDS MTX_RESTORE uses only parameter bits 0-4. Passing the
                     // complete 32-bit word through to the shader can turn ignored
                     // hardware bits into an out-of-range mtx_stack[] index.
-                    matrixId = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0)) & 0x1FU;
+                    const std::uint32_t requested
+                        = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0)) & 0x1FU;
+                    const std::size_t matrixCount = RequireReference(model->NodeMatrixIds).size();
+                    matrixId = matrixCount == 0
+                        ? 0U
+                        : static_cast<std::uint32_t>(std::min<std::size_t>(requested, matrixCount - 1U));
                 }
                 GL::TexCoord3(texX, texY, matrixId);
                 break;
@@ -3734,9 +3739,14 @@ namespace MphRead
     {
         UseLight1(item->LightInfo.Light1Vector, item->LightInfo.Light1Color);
         UseLight2(item->LightInfo.Light2Vector, item->LightInfo.Light2Color);
-        if (item->MatrixStackCount > 0)
+        const ManagedArray<float>& matrixStack = RequireReference(item->MatrixStack);
+        const std::int32_t matrixStackCapacity
+            = static_cast<std::int32_t>(matrixStack.Length() / 16U);
+        const std::int32_t matrixStackCount
+            = std::clamp(item->MatrixStackCount, 0, matrixStackCapacity);
+        if (matrixStackCount > 0)
         {
-            GL::UniformMatrix4(_shaderLocations->MatrixStack, item->MatrixStackCount, false, RequireReference(item->MatrixStack).Data());
+            GL::UniformMatrix4(_shaderLocations->MatrixStack, matrixStackCount, false, matrixStack.Data());
         }
         else
         {
@@ -4467,12 +4477,14 @@ namespace MphRead
         }
         model->UpdateMatrixStack();
         const auto& values = *model->MatrixStackValues;
-        for (std::size_t i = 0; i < values.Length(); ++i)
+        const std::size_t copyCount = std::min(values.Length(), _hudMatrixStack.size());
+        for (std::size_t i = 0; i < copyCount; ++i)
         {
             _hudMatrixStack[i] = values[i];
         }
-        GL::UniformMatrix4(_shaderLocations->MatrixStack,
-            static_cast<std::int32_t>(model->NodeMatrixIds->size()), false, _hudMatrixStack.data());
+        const std::int32_t matrixCount = static_cast<std::int32_t>(
+            std::min(model->NodeMatrixIds->size(), _hudMatrixStack.size() / 16U));
+        GL::UniformMatrix4(_shaderLocations->MatrixStack, matrixCount, false, _hudMatrixStack.data());
         for (std::int32_t i = 1; i < 9; ++i)
         {
             const Node& node = *model->Nodes->at(static_cast<std::size_t>(i));

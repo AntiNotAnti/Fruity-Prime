@@ -1245,7 +1245,9 @@ namespace MphRead
                         // NDS MTX_RESTORE uses only parameter bits 0-4. The
                         // remaining bits are ignored by the hardware and must
                         // not become an out-of-range shader array index.
-                        matrixId = instruction.Arguments[0] & 0x1F;
+                        int requested = (int)(instruction.Arguments[0] & 0x1F);
+                        int matrixCount = model.NodeMatrixIds.Count;
+                        matrixId = matrixCount == 0 ? 0 : Math.Min(requested, matrixCount - 1);
                     }
                     GL.TexCoord3(texX, texY, matrixId);
                     break;
@@ -4470,9 +4472,10 @@ namespace MphRead
             UseLight1(item.LightInfo.Light1Vector, item.LightInfo.Light1Color);
             UseLight2(item.LightInfo.Light2Vector, item.LightInfo.Light2Color);
 
-            if (item.MatrixStackCount > 0)
+            int matrixStackCount = Math.Clamp(item.MatrixStackCount, 0, item.MatrixStack.Length / 16);
+            if (matrixStackCount > 0)
             {
-                GL.UniformMatrix4(_shaderLocations.MatrixStack, item.MatrixStackCount, transpose: false, item.MatrixStack);
+                GL.UniformMatrix4(_shaderLocations.MatrixStack, matrixStackCount, transpose: false, item.MatrixStack);
             }
             else
             {
@@ -5468,8 +5471,10 @@ namespace MphRead
                 }
             }
             model.UpdateMatrixStack();
-            Array.Copy(model.MatrixStackValues.ToArray(), _hudMatrixStack, model.MatrixStackValues.Count);
-            GL.UniformMatrix4(_shaderLocations.MatrixStack, model.NodeMatrixIds.Count, transpose: false, _hudMatrixStack);
+            int copyCount = Math.Min(model.MatrixStackValues.Count, _hudMatrixStack.Length);
+            Array.Copy(model.MatrixStackValues.ToArray(), _hudMatrixStack, copyCount);
+            int matrixCount = Math.Min(model.NodeMatrixIds.Count, _hudMatrixStack.Length / 16);
+            GL.UniformMatrix4(_shaderLocations.MatrixStack, matrixCount, transpose: false, _hudMatrixStack);
             for (int i = 1; i < 9; i++)
             {
                 Node node = inst.Model.Nodes[i];
