@@ -617,9 +617,9 @@
 | M | +31/-0 | `Mods/Render/GlEs.cs` | .cpp,.hpp | 完了（C#全文監査済、Android ES state/primitive/list/texture/shader/framebuffer/uniform動作を照合。null/empty source/name、例外型、current-cultureログ書式を修正。Android nativeのGL dispatch接続は別途要確認。Android buildは全Android監査後） |
 | A | +28/-0 | `Mods/Render/LockjawTrailNoise.cs` | — 新規 | 完了（C#全文とnative `.hpp/.cpp`・FrameTimingCheck呼出を監査済。tick/slot/bomb/segment/axisのbit混合、unchecked wrap、float変換・演算順が一致。修正なし） |
 | M | +26/-0 | `Mods/Render/HunterPreview.cs` | .cpp,.hpp | 完了（C#全文・PreviewPass直接呼出・EntityBase.GetModels collectionを監査。shown/missing/recolor/idle-step/light/draw順が一致。catch範囲とモデル一覧の同一性を修正、Windows Release build green） |
-| M | +17/-1 | `Mods/Render/PlayerEntityEndScreen.cs` | .cpp,.hpp | 完了 |
-| M | +12/-9 | `Mods/Render/PlayerEntityProHud.cs` | .cpp,.hpp | 完了 |
-| M | +5/-0 | `Mods/Render/PlayerEntityVoteHud.cs` | .cpp,.hpp | 完了 |
+| M | +17/-1 | `Mods/Render/PlayerEntityEndScreen.cs` | .cpp,.hpp | 完了（C#全文・EndScreen.NoteLayout/MapPick/PreviewPass接続を監査。配置・preview穴・HUD文字・ヒット領域・hunter/suit/ready表示が一致。修正なし） |
+| M | +12/-9 | `Mods/Render/PlayerEntityProHud.cs` | .cpp,.hpp | 完了（C#全文・PlayerHudのDrawHudObjects/DrawModeScore呼出を監査。energy/ammo計算・閾値・配置・icon tint・score message IDが一致。修正なし、Windows Release build green） |
+| M | +5/-0 | `Mods/Render/PlayerEntityVoteHud.cs` | .cpp,.hpp | 完了（C#全文・MapVote/EndScreen直接接続を監査。Android/desktop配置・touch/gamepad表示・panel/button hitboxとNoteLayout順が一致。修正なし、Windows Release build green） |
 
 ## 8. Multiplayer and teams — 7 ファイル (新規 7), C# +503 行
 
@@ -974,6 +974,9 @@
 - `Mods/Render/GlEs.cs` をC#全文とnative `.cpp/.hpp`、Android shared rendererのGL利用箇所と照合。primitive分解、display list/dynamic buffer、current color/alpha-test、texture-name map、shader translation、GL state、framebuffer、uniform配列の値・順序が一致。null shader sourceの例外、空shader/uniform名のpointer、ref相当引数のnull参照、compile/link diagnosticsと未知primitive enumのcurrent-culture数値表示を修正。Android buildは全Androidファイル監査後のため未実施。別途、C# Android headはglobal `GL` aliasで本クラスを使う一方、native shared `Renderer` は `OpenTK::Graphics::OpenGL::GL` を使い、Android CMakeはdesktop `GL.cpp` を除外する。native Android側の直接呼出しは `GlEs::Reset` と `PreviewRun` の `Viewport` のみ確認できたため、実Android renderer dispatch/link接続はプラットフォームcloseoutで別途解決・確認する。
 - `Mods/Render/LockjawTrailNoise.cs` をC#全文とnative `.hpp/.cpp`、`FrameTimingCheck`の直接呼出しで照合。64-bit tickのlow/high word、各signed IDのunchecked uint変換、FNV系mixとavalanche定数、下位16-bitからのfloat変換・式順が一致。出力は全経路で決定的、native差分修正なし。
 - `Mods/Render/HunterPreview.cs` をC#全文とnative `.hpp/.cpp`、`PreviewPass`のSetUp/Ready/Step/GetDrawInfo呼出および`EntityBase.GetModels` collection契約で照合。hunter fallback/missing guard、LOD0取得、Idle設定、recolor、animation step、固定light/facingとrender-item生成順が一致。C# `catch (Exception)` に対してnativeは`std::exception`しかcatchしなかったためcatch-allと`ExceptionMessage`を使用。またC# `_models.Clear()`が公開中の一覧を同じlist objectで更新するのに対しnativeは`ModelList`自体を置換して保持中のvector参照を失効させるため、`ModelList::Clear`を追加してlist identityを保った。Windows Release buildは`ninja -C tools/build/out/msys2-mingw64-Release -j 4`で成功。
+- `Mods/Render/PlayerEntityEndScreen.cs` をC#全文とnative `.hpp/.cpp`、`EndScreen.NoteLayout`/hit testing、MapPick描画、PreviewPassの直接接続で照合。panel/preview geometry、portrait fallback、hunter名、4 suit swatches、Ready/Gamepad glyph、次roomの不変大文字化、クリック領域の更新順が一致し修正なし。
+- `Mods/Render/PlayerEntityProHud.cs` をC#全文とnative `.hpp/.cpp`、`PlayerHud.DrawHudObjects`および`DrawModeScore`の呼出条件で照合。health/ammoのclamp・色閾値・ammo cost換算・HUD icon tint/配置、mode別score message ID、ProHud時のstock表示抑止が一致し修正なし。Windows Release全体build green。
+- `Mods/Render/PlayerEntityVoteHud.cs` をC#全文とnative `.hpp/.cpp`、`MapVote.NoteLayout`/`EndScreen` pointer hit testingとの接続で照合。touch/gamepad表示条件、Android/desktop geometry、文字列置換、button hover描画とhitbox publish順が一致し修正なし。Windows Release全体build green。
 
 ### 2026-09-27 native launcher regression audit
 
