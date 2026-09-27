@@ -12,15 +12,15 @@
 #include "../../Read.hpp"
 #include "../../Formats/Types.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
+#include "../../NativeRuntime/System/ExceptionText.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
-#include <bit>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
-#include <iostream>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -28,7 +28,6 @@
 #include <string_view>
 #include <vector>
 
-using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 
@@ -40,81 +39,16 @@ namespace
         std::int32_t Count;
     };
 
-    [[nodiscard]] std::size_t ManagedStringLength(std::string_view text) noexcept
-    {
-        std::size_t length = 0;
-        for (std::size_t index = 0; index < text.size();)
-        {
-            const auto first = static_cast<unsigned char>(text[index]);
-            std::size_t bytes = 1;
-            std::uint32_t scalar = first;
-            if (first >= 0xC2U && first <= 0xDFU && index + 1 < text.size()
-                && (static_cast<unsigned char>(text[index + 1]) & 0xC0U) == 0x80U)
-            {
-                bytes = 2;
-                scalar = ((first & 0x1FU) << 6)
-                    | (static_cast<unsigned char>(text[index + 1]) & 0x3FU);
-            }
-            else if (first >= 0xE0U && first <= 0xEFU && index + 2 < text.size())
-            {
-                const auto second = static_cast<unsigned char>(text[index + 1]);
-                const auto third = static_cast<unsigned char>(text[index + 2]);
-                const bool secondValid = (second & 0xC0U) == 0x80U
-                    && (first != 0xE0U || second >= 0xA0U)
-                    && (first != 0xEDU || second <= 0x9FU);
-                if (secondValid && (third & 0xC0U) == 0x80U)
-                {
-                    bytes = 3;
-                    scalar = ((first & 0x0FU) << 12)
-                        | ((second & 0x3FU) << 6)
-                        | (third & 0x3FU);
-                }
-            }
-            else if (first >= 0xF0U && first <= 0xF4U && index + 3 < text.size())
-            {
-                const auto second = static_cast<unsigned char>(text[index + 1]);
-                const auto third = static_cast<unsigned char>(text[index + 2]);
-                const auto fourth = static_cast<unsigned char>(text[index + 3]);
-                const bool secondValid = (second & 0xC0U) == 0x80U
-                    && (first != 0xF0U || second >= 0x90U)
-                    && (first != 0xF4U || second <= 0x8FU);
-                if (secondValid
-                    && (third & 0xC0U) == 0x80U
-                    && (fourth & 0xC0U) == 0x80U)
-                {
-                    bytes = 4;
-                    scalar = ((first & 0x07U) << 18)
-                        | ((second & 0x3FU) << 12)
-                        | ((third & 0x3FU) << 6)
-                        | (fourth & 0x3FU);
-                }
-            }
-            length += scalar > 0xFFFFU ? 2U : 1U;
-            index += bytes;
-        }
-        return length;
-    }
-
     void AppendRightAligned(
         std::string& output, std::string_view value, std::size_t width)
     {
-        const std::size_t length = ManagedStringLength(value);
-        if (length < width)
-        {
-            output.append(width - length, ' ');
-        }
-        output.append(value);
+        output += ::MphRead::NativeRuntime::StringPadLeft(std::string(value), width);
     }
 
     void AppendLeftAligned(
         std::string& output, std::string_view value, std::size_t width)
     {
-        output.append(value);
-        const std::size_t length = ManagedStringLength(value);
-        if (length < width)
-        {
-            output.append(width - length, ' ');
-        }
+        output += ::MphRead::NativeRuntime::StringPadRight(std::string(value), width);
     }
 
     [[nodiscard]] std::string FormatTextureFormat(MphRead::TextureFormat value)
@@ -129,7 +63,21 @@ namespace
 
     void WriteLine(std::string_view value)
     {
-        std::cout << value << '\n';
+        ::MphRead::NativeRuntime::ConsoleWriteLine(value);
+    }
+
+    void TrimManagedWhitespaceEnd(std::string& value)
+    {
+        while (!value.empty())
+        {
+            const ::MphRead::NativeRuntime::Utf8Scalar last
+                = ::MphRead::NativeRuntime::DecodeLastUtf8Scalar(value, value.size());
+            if (!::MphRead::NativeRuntime::CharIsWhiteSpace(last.Value))
+            {
+                break;
+            }
+            value.resize(value.size() - last.Length);
+        }
     }
 }
 
@@ -144,9 +92,9 @@ namespace MphRead::Mods::MapGen
         {
             bsp = Q3Bsp::Load(source, mapName);
         }
-        catch (const std::exception& ex)
+        catch (const std::exception&)
         {
-            WriteLine(ex.what());
+            WriteLine(::MphRead::NativeRuntime::ExceptionMessage(std::current_exception()));
             return 1;
         }
 
@@ -165,7 +113,7 @@ namespace MphRead::Mods::MapGen
             }
 
             const std::shared_ptr<Q3Texture>& textureRef
-                = ManagedAt(bsp->Textures(), face.Texture());
+                = ::MphRead::NativeRuntime::ManagedListAt(bsp->Textures(), face.Texture());
             const Q3Texture& texture = RequireReference(textureRef);
             if ((texture.Flags() & (Q3Bsp::SurfaceNoDraw | Q3Bsp::SurfaceSky
                 | Q3Bsp::SurfaceHint | Q3Bsp::SurfaceSkip)) != 0)
@@ -239,12 +187,12 @@ namespace MphRead::Mods::MapGen
             }
             model = instance->Model();
         }
-        catch (const std::exception& ex)
+        catch (const std::exception&)
         {
             std::string message = "Could not load ";
             message += room;
             message += ": ";
-            message += ex.what();
+            message += ::MphRead::NativeRuntime::ExceptionMessage(std::current_exception());
             WriteLine(message);
             return 1;
         }
@@ -259,7 +207,7 @@ namespace MphRead::Mods::MapGen
         }
 
         const std::shared_ptr<Recolor>& recolor
-            = ManagedAt(*model->Recolors, 0);
+            = ::MphRead::NativeRuntime::ManagedListAt(*model->Recolors, 0);
 
         if (!model->Materials)
         {
@@ -291,7 +239,7 @@ namespace MphRead::Mods::MapGen
             i < static_cast<std::int32_t>(model->Materials->size()); ++i)
         {
             const std::shared_ptr<Material>& materialRef
-                = ManagedAt(*model->Materials, i);
+                = ::MphRead::NativeRuntime::ManagedListAt(*model->Materials, i);
             const Material& material = RequireReference(materialRef);
 
             std::string size = "no texture";
@@ -301,7 +249,7 @@ namespace MphRead::Mods::MapGen
                     < static_cast<std::int32_t>(recolor->Textures->size()))
             {
                 const Texture& texture
-                    = ManagedAt(*recolor->Textures, material.TextureId);
+                    = ::MphRead::NativeRuntime::ManagedListAt(*recolor->Textures, material.TextureId);
                 size = ::MphRead::NativeRuntime::ToString(static_cast<std::int32_t>(texture.Width));
                 size += 'x';
                 size += ::MphRead::NativeRuntime::ToString(static_cast<std::int32_t>(texture.Height));
@@ -340,10 +288,11 @@ namespace MphRead::Mods::MapGen
         MapDefinition* def = nullptr;
         for (const std::shared_ptr<MapDefinition>& candidate : CustomRooms::Definitions())
         {
-            if (candidate != nullptr && Runtime::StringEqualsOrdinalIgnoreCase(candidate->Name(), target)
-                && candidate->Import() != nullptr)
+            MapDefinition& definition = Runtime::RequireReference(candidate);
+            if (Runtime::StringEqualsOrdinalIgnoreCase(definition.Name(), target)
+                && definition.Import() != nullptr)
             {
-                def = candidate.get();
+                def = std::addressof(definition);
                 break;
             }
         }
@@ -368,39 +317,46 @@ namespace MphRead::Mods::MapGen
         {
             bsp = Q3Bsp::Load(source, mapName);
         }
-        catch (const std::exception& ex)
+        catch (const std::exception&)
         {
-            std::cout << ex.what() << '\n';
+            WriteLine(Runtime::ExceptionMessage(std::current_exception()));
             return 1;
+        }
+        if (!bsp)
+        {
+            throw System::NullReferenceException();
         }
         if (unit <= 0)
         {
             unit = forcedScale.has_value() ? *forcedScale : Q3Convert::AutoScale(Q3Convert::WidestExtent(bsp.get()));
         }
         const std::vector<Q3Import::Q3Pickup> pickups = Q3Import::Pickups(bsp.get(), unit);
+        const std::int32_t pickupCount = static_cast<std::int32_t>(pickups.size());
         const std::string label = def != nullptr ? def->Name() : mapName.has_value() ? *mapName : source;
-        std::cout << label << ": " << pickups.size() << " pickups in "
-            << (mapName.has_value() ? *mapName : Runtime::PathGetFileName(source)) << " at "
-            << Runtime::ToString(unit, "0.#") << " Quake units per unit\n";
+        WriteLine(label + ": " + Runtime::ToString(pickupCount) + " pickups in "
+            + (mapName.has_value() ? *mapName : Runtime::PathGetFileName(source)) + " at "
+            + Runtime::ToString(unit, "0.#") + " Quake units per unit");
         if (def != nullptr)
         {
-            const std::size_t own = def->Items() != nullptr ? def->Items()->size() : 0;
+            const MapDefinition::ItemList& items = Runtime::RequireReference(def->Items());
+            const std::int32_t own = static_cast<std::int32_t>(items.size());
             if (def->Import()->KeepItems())
             {
-                std::cout << "  keepItems is on: these are added to the recipe's own " << own
-                    << ", for " << own + pickups.size() << " in the room.\n";
+                WriteLine("  keepItems is on: these are added to the recipe's own " + Runtime::ToString(own)
+                    + ", for " + Runtime::ToString(Runtime::UncheckedAdd(own, pickupCount)) + " in the room.");
             }
             else
             {
-                std::cout << "  keepItems is off: none of these reach the room. It has the recipe's own " << own << ".\n";
+                WriteLine("  keepItems is off: none of these reach the room. It has the recipe's own "
+                    + Runtime::ToString(own) + ".");
             }
         }
         if (pickups.empty())
         {
-            std::cout << "  Nothing here is a pickup this game has an answer for.\n";
+            WriteLine("  Nothing here is a pickup this game has an answer for.");
             return 0;
         }
-        std::cout << '\n';
+        WriteLine({});
         // GroupBy in first-seen order, then a stable OrderByDescending(count).
         std::vector<std::vector<const Q3Import::Q3Pickup*>> groups;
         for (const Q3Import::Q3Pickup& pickup : pickups)
@@ -420,50 +376,56 @@ namespace MphRead::Mods::MapGen
             [](const auto& a, const auto& b) { return a.size() > b.size(); });
         const auto pad = [](std::string text, std::size_t width, bool right)
         {
-            if (text.size() < width)
-            {
-                text = right ? std::string(width - text.size(), ' ') + text : text + std::string(width - text.size(), ' ');
-            }
-            return text;
+            return right
+                ? Runtime::StringPadLeft(std::move(text), width)
+                : Runtime::StringPadRight(std::move(text), width);
         };
         for (const auto& group : groups)
         {
             const auto scripted = std::count_if(group.begin(), group.end(),
                 [](const Q3Import::Q3Pickup* p) { return p->TargetName.has_value(); });
+            const std::int32_t scriptedCount = static_cast<std::int32_t>(scripted);
             const std::string note = scripted == 0 ? std::string()
                 : static_cast<std::size_t>(scripted) == group.size()
                     ? std::string("  handed out by the level's own scripts, not walked over")
-                    : "  " + std::to_string(scripted) + " handed out by the level's own scripts, not walked over";
-            std::string line = "  " + pad(std::to_string(group.size()), 4, true) + "  " + pad(group.front()->Classname, 24, false)
+                    : "  " + Runtime::ToString(scriptedCount) + " handed out by the level's own scripts, not walked over";
+            std::string line = "  " + pad(Runtime::ToString(static_cast<std::int32_t>(group.size())), 4, true)
+                + "  " + pad(group.front()->Classname, 24, false)
                 + " " + pad(::MphRead::ToString(group.front()->Type), 14, false) + note;
-            while (!line.empty() && line.back() == ' ')
-            {
-                line.pop_back();
-            }
-            std::cout << line << '\n';
+            TrimManagedWhitespaceEnd(line);
+            WriteLine(line);
         }
-        std::cout << '\n';
-        std::cout << "  \"items\": [\n";
-        for (std::size_t i = 0; i < pickups.size(); i++)
+        WriteLine({});
+        WriteLine("  \"items\": [");
+        for (std::int32_t i = 0; i < pickupCount; i++)
         {
-            const Q3Import::Q3Pickup& pickup = pickups[i];
-            const std::string comma = i < pickups.size() - 1 ? "," : "";
-            std::cout << "    { \"position\": [ " << Round(pickup.Position.X) << ", " << Round(pickup.Position.Y) << ", "
-                << Round(pickup.Position.Z) << " ], \"type\": \"" << ::MphRead::ToString(pickup.Type) << "\" }" << comma
-                << (pickup.TargetName.has_value() ? "   // " + pickup.Classname + ", given by " + *pickup.TargetName : std::string())
-                << '\n';
+            const Q3Import::Q3Pickup& pickup = Runtime::ManagedListAt(pickups, i);
+            const std::string comma = i < pickupCount - 1 ? "," : "";
+            std::string line = "    { \"position\": [ " + Round(pickup.Position.X) + ", "
+                + Round(pickup.Position.Y) + ", " + Round(pickup.Position.Z) + " ], \"type\": \""
+                + ::MphRead::ToString(pickup.Type) + "\" }" + comma;
+            if (pickup.TargetName.has_value())
+            {
+                line += "   // " + pickup.Classname + ", given by " + *pickup.TargetName;
+            }
+            WriteLine(line);
         }
-        std::cout << "  ]\n\n";
-        std::cout << "  Paste that into the recipe and set \"keepItems\": false under \"import\",\n";
-        std::cout << "  or the room gets one of each from the recipe and one from the level.\n";
-        std::cout << "  A recipe may carry // comments, so those lines can go in as they are.\n";
+        WriteLine("  ]");
+        WriteLine({});
+        WriteLine("  Paste that into the recipe and set \"keepItems\": false under \"import\",");
+        WriteLine("  or the room gets one of each from the recipe and one from the level.");
+        WriteLine("  A recipe may carry // comments, so those lines can go in as they are.");
         return 0;
     }
 
     // Two decimals, invariant, and never "-0".
     std::string MapReport::Round(float value)
     {
-        const float rounded = static_cast<float>(std::nearbyint(static_cast<double>(value) * 100.0) / 100.0);
+        float rounded = value;
+        if (value > -1.0e8F && value < 1.0e8F)
+        {
+            rounded = ::MphRead::NativeRuntime::RoundToEven(value * 100.0F) / 100.0F;
+        }
         return ::MphRead::NativeRuntime::ToStringInvariant(rounded == 0 ? 0.0F : rounded, "0.##");
     }
 }
