@@ -23,6 +23,8 @@
 #include <chrono>
 #include <future>
 #include <limits>
+#include <thread>
+#include <utility>
 
 namespace MphRead::Mods::Input
 {
@@ -85,7 +87,9 @@ namespace MphRead::Mods::Input
         bool reentered = false;
         const std::int64_t token = GamepadManager::ActiveChanged.Add([&reentered]()
         {
-            auto task = std::async(std::launch::async, []() { return GamepadManager::Devices().size(); });
+            std::packaged_task<std::size_t()> count([]() { return GamepadManager::Devices().size(); });
+            std::future<std::size_t> task = count.get_future();
+            std::thread(std::move(count)).detach();
             reentered = task.wait_for(std::chrono::milliseconds(1000)) == std::future_status::ready;
         });
         GamepadManager::SelectDevice("runtime-b");

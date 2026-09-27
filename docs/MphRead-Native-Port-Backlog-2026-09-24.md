@@ -555,7 +555,7 @@
 | A | +116/-0 | `Mods/Input/GamepadUiRouter.cs` | — 新規 | 完了（C#全文監査済、repeat timerのunchecked long演算を修正、Windows Release build済） |
 | A | +115/-0 | `Mods/Input/AimAssist/AimAssistWorld.cs` | — 新規 | 完了（C#全文・PlayerEntityNetAim呼出元監査済、default target/tick取得順を修正、Windows Release build済） |
 | A | +111/-0 | `Mods/Input/PointerDevice.cs` | — 新規 | 完了（C#全文・Renderer/PlayerInput呼出元監査済、device/contact/primary/delta parity確認） |
-| A | +101/-0 | `Mods/Input/ControllerRuntimeChecks.cs` | — 新規 | 完了 |
+| A | +101/-0 | `Mods/Input/ControllerRuntimeChecks.cs` | — 新規 | 完了（C#全文監査済、event timeoutの非block性を修正、Windows Release build済） |
 | M | +99/-11 | `Mods/Input/GamepadMappings.cs` | .cpp,.hpp | 完了 |
 | A | +87/-0 | `Mods/Input/AimAssist/AimAssistTelemetry.cs` | — 新規 | 完了 |
 | A | +85/-0 | `Mods/Input/GamepadMappingWizard.cs` | — 新規 | 完了 |
@@ -932,3 +932,5 @@
   C#の`default(AimAssistTarget)`は全field zeroであるため、nativeのmember defaultsによる`Eligible=true`/`UpperChest`を明示的なzero stateへ修正。PointerとStickに渡すtick countもC#同様に個別取得。Windows Release build済。
 - `Mods/Input/PointerDevice.cs` をC#全文とnative `.cpp/.hpp`、Renderer/PlayerInputの直接呼出元で照合。active/accepting遷移、device identity/contact切替、aspect/座標正規化、StylusZone通知、primary/capture判定、pointer delta蓄積/消費とmouse fallback、Mouse Left binding edgesが一致。
   `PointerSample` defaultsとCurrent/PrimaryDownの利用方法も確認。native差分修正なし。Windows Release build済。
+- `Mods/Input/ControllerRuntimeChecks.cs` をC#全文とnative `.cpp/.hpp`で照合。device-specific calibration/runtime切替、frame snapshot隔離、manager event再入、profile validation/library保護、haptic arbitration、mapping置換、UI trigger hysteresis、layout identity/promptのassertion順と条件が一致。
+  event再入確認をC#のtimeout後も戻る`Task.Wait(1000)`に合わせ、timeout時にfuture破棄でblockする`std::async`をdetached packaged taskへ変更。Windows Release build済、check harness自体は未実行。
