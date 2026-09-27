@@ -2,6 +2,7 @@
 
 #include "../DebugLog.hpp"
 #include "../InputSettings.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/System/Number.hpp"
 
 #include <cmath>
@@ -96,7 +97,7 @@ namespace MphRead::Mods::Input
             dirY = sumY / magnitude;
         }
         _cooldownUntil = frame + Cooldown;
-        _fired++;
+        ::MphRead::NativeRuntime::IncrementInPlace(_fired);
         if (DebugLog::Active())
         {
             namespace Runtime = ::MphRead::NativeRuntime;

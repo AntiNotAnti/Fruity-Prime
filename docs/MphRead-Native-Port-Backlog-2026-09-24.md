@@ -546,7 +546,7 @@
 | A | +301/-0 | `Mods/Input/GamepadChecks.cs` | .cpp,.hpp | 完了（shell build で GamepadUiChecks を C# と同じ位置で実行） |
 | A | +264/-0 | `Mods/Input/WindowsPenInput.cs` | — 新規 | 完了（C#全文監査済、Win32 fallback/exception parity修正） |
 | M | +261/-34 | `Mods/Input/StylusZone.cs` | .cpp,.hpp | 完了（C#全文監査済、NaN時のMathMin/Maxを修正） |
-| A | +258/-0 | `Mods/Input/MouseFlick.cs` | — 新規 | 完了 |
+| A | +258/-0 | `Mods/Input/MouseFlick.cs` | — 新規 | 完了（C#全文監査済、Firedのunchecked加算を修正） |
 | A | +210/-0 | `Mods/Input/GamepadManager.cs` | — 新規 | 完了 |
 | A | +199/-0 | `Mods/Input/GamepadProfiles.cs` | — 新規 | 完了 |
 | A | +158/-0 | `Mods/Input/GamepadEnhancementChecks.cs` | — 新規 | 完了 |
@@ -909,3 +909,6 @@
   状態遷移、ボタン定義と順序、配置ドラッグ、nudge/resize、capture/aim条件、遷移ログが一致。
   `SetRect`/`PlacementDrag`/`Nudge`の上限計算とドラッグ始点計算をC# `Math.Max/Min`同様のNaN伝播をする既存helperへ変更。
   差分修正以外はなし。実機タブレット入力runtimeは未実施。
+- `Mods/Input/MouseFlick.cs` と対応する`PlayerEntityMouseFlick.cs`呼び出しをC#全文/native `.cpp/.hpp`で照合。
+  sample ring、frame gap reset、rest arm、backward coherent burst、sensitivity閾値、重み付き方向、cooldownとlog値、およびmain-player/bot/input gatesと出力代入が一致。
+  `Fired++`をC#既定unchecked時のwrapと同じnative `IncrementInPlace`に変更。差分修正以外はなし。
