@@ -515,7 +515,7 @@ out vec4 frag_color;
 
 void main()
 {
-    int band = int((1.0 - texcoord.y) * 192.0);
+    int band = int(clamp((1.0 - texcoord.y) * 192.0, 0.0, 191.0));
     float bandf = float(band);
     int index = int(mod(bandf + float(shift_idx) + mod(bandf, 2.0) * 32.0, 64.0));
     float value1 = shift_table[index];

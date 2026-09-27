@@ -467,7 +467,7 @@ varying vec4 color;
 
 void main()
 {
-    int band = int((1.0 - texcoord.y) * 192.0);
+    int band = int(clamp((1.0 - texcoord.y) * 192.0, 0.0, 191.0));
     int index = int(mod((band + shift_idx + mod(band, 2) * 32), 64));
     float value1 = shift_table[index];
     float value2 = shift_table[int(mod(index + 1, 64))];
