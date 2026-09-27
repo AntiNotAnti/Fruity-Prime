@@ -313,7 +313,7 @@ namespace MphRead::Mods::MapGen
             std::int32_t degenerate = 0;
             struct Partial
             {
-                const Face* Face;
+                const Face* SourceFace;
                 float Usable;
                 float Area;
             };
@@ -347,7 +347,7 @@ namespace MphRead::Mods::MapGen
                 {
                     const Partial& p = partial[i];
                     WriteLine("      ", Pad(N(p.Area, "0.00"), 8), " u2  ", Pad(N(p.Usable * 100, "0.0"), 5),
-                        "% usable  at ", Where(Centre(*p.Face)), "  ", p.Face->Points.size(), " points");
+                        "% usable  at ", Where(Centre(*p.SourceFace)), "  ", p.SourceFace->Points.size(), " points");
                 }
             }
             return Runtime::UncheckedAdd(partial.empty() ? 0 : 1, degenerate > 0 ? 1 : 0);
