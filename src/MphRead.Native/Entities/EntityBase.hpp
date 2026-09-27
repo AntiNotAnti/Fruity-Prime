@@ -186,6 +186,7 @@ namespace MphRead::Entities
             [[nodiscard]] std::size_t Size() const noexcept;
             [[nodiscard]] ModelInstance& operator[](std::int32_t index);
             [[nodiscard]] const ModelInstance& operator[](std::int32_t index) const;
+            void Clear() noexcept;
             void Add(std::shared_ptr<ModelInstance> value);
             [[nodiscard]] const std::vector<std::shared_ptr<ModelInstance>>& Items() const noexcept;
 

@@ -615,8 +615,8 @@
 | M | +51/-0 | `Mods/Render/PlayerEntityStylusHud.cs` | .cpp,.hpp | 完了（C#全文・PlayerHudのWeaponSelect/UpdateWeaponArc・StylusZone/DrawHudFlatBox接続監査済、座標・scale・ellipse描画と.NET cast/Math MinMax一致。差分なし、Windows Release build green） |
 | A | +43/-0 | `Mods/Render/DesktopGlContext.cs` | .cpp,.hpp | 完了（C#原本監査済、Renderer経由で接続） |
 | M | +31/-0 | `Mods/Render/GlEs.cs` | .cpp,.hpp | 完了（C#全文監査済、Android ES state/primitive/list/texture/shader/framebuffer/uniform動作を照合。null/empty source/name、例外型、current-cultureログ書式を修正。Android nativeのGL dispatch接続は別途要確認。Android buildは全Android監査後） |
-| A | +28/-0 | `Mods/Render/LockjawTrailNoise.cs` | — 新規 | 完了 |
-| M | +26/-0 | `Mods/Render/HunterPreview.cs` | .cpp,.hpp | 完了 |
+| A | +28/-0 | `Mods/Render/LockjawTrailNoise.cs` | — 新規 | 完了（C#全文とnative `.hpp/.cpp`・FrameTimingCheck呼出を監査済。tick/slot/bomb/segment/axisのbit混合、unchecked wrap、float変換・演算順が一致。修正なし） |
+| M | +26/-0 | `Mods/Render/HunterPreview.cs` | .cpp,.hpp | 完了（C#全文・PreviewPass直接呼出・EntityBase.GetModels collectionを監査。shown/missing/recolor/idle-step/light/draw順が一致。catch範囲とモデル一覧の同一性を修正、Windows Release build green） |
 | M | +17/-1 | `Mods/Render/PlayerEntityEndScreen.cs` | .cpp,.hpp | 完了 |
 | M | +12/-9 | `Mods/Render/PlayerEntityProHud.cs` | .cpp,.hpp | 完了 |
 | M | +5/-0 | `Mods/Render/PlayerEntityVoteHud.cs` | .cpp,.hpp | 完了 |
@@ -972,6 +972,8 @@
 - `Mods/Render/LockjawTrailProbe.cs` をC#全文とnative `.cpp/.hpp`、MapAuditの呼出タイミング、RenderItem保持キュー、BombEntity列挙を照合。対象条件・順序・FNV-1a入力とfloat bit pattern、pool返却前の採取タイミングが一致。C#でnull参照例外となるRenderItem/BombEntity/Pointsをnativeでも`RequireReference`経由にし、`trailCount++`をC# unchecked wrap helperに変更。
 - `Mods/Render/PlayerEntityStylusHud.cs` をC#全文とnative `.cpp/.hpp`、PlayerHudの武器ホイール初期座標・描画・UpdateWeaponArc、StylusZoneの寸法/5ボタン配列、Scene.DrawHudFlatBoxを照合。ゾーン矩形、6位置の変換、scale、輪郭/楕円spanの順序とalpha、.NET cast・Math Min/Maxの特殊値処理が一致。差分修正なし。
 - `Mods/Render/GlEs.cs` をC#全文とnative `.cpp/.hpp`、Android shared rendererのGL利用箇所と照合。primitive分解、display list/dynamic buffer、current color/alpha-test、texture-name map、shader translation、GL state、framebuffer、uniform配列の値・順序が一致。null shader sourceの例外、空shader/uniform名のpointer、ref相当引数のnull参照、compile/link diagnosticsと未知primitive enumのcurrent-culture数値表示を修正。Android buildは全Androidファイル監査後のため未実施。別途、C# Android headはglobal `GL` aliasで本クラスを使う一方、native shared `Renderer` は `OpenTK::Graphics::OpenGL::GL` を使い、Android CMakeはdesktop `GL.cpp` を除外する。native Android側の直接呼出しは `GlEs::Reset` と `PreviewRun` の `Viewport` のみ確認できたため、実Android renderer dispatch/link接続はプラットフォームcloseoutで別途解決・確認する。
+- `Mods/Render/LockjawTrailNoise.cs` をC#全文とnative `.hpp/.cpp`、`FrameTimingCheck`の直接呼出しで照合。64-bit tickのlow/high word、各signed IDのunchecked uint変換、FNV系mixとavalanche定数、下位16-bitからのfloat変換・式順が一致。出力は全経路で決定的、native差分修正なし。
+- `Mods/Render/HunterPreview.cs` をC#全文とnative `.hpp/.cpp`、`PreviewPass`のSetUp/Ready/Step/GetDrawInfo呼出および`EntityBase.GetModels` collection契約で照合。hunter fallback/missing guard、LOD0取得、Idle設定、recolor、animation step、固定light/facingとrender-item生成順が一致。C# `catch (Exception)` に対してnativeは`std::exception`しかcatchしなかったためcatch-allと`ExceptionMessage`を使用。またC# `_models.Clear()`が公開中の一覧を同じlist objectで更新するのに対しnativeは`ModelList`自体を置換して保持中のvector参照を失効させるため、`ModelList::Clear`を追加してlist identityを保った。Windows Release buildは`ninja -C tools/build/out/msys2-mingw64-Release -j 4`で成功。
 
 ### 2026-09-27 native launcher regression audit
 

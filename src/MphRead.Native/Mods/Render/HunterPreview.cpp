@@ -2,6 +2,7 @@
 
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Metadata/Metadata.hpp"
+#include "../../NativeRuntime/System/ExceptionText.hpp"
 #include "../../Read.hpp"
 
 #include <cmath>
@@ -73,17 +74,17 @@ void HunterPreviewEntity::SetUp(Hunter hunter, std::int32_t recolor)
                 return;
             }
             std::shared_ptr<ModelInstance> inst = Read::GetModelInstance(models->second[0]);
-            _models = ModelList{};
+            _models.Clear();
             _models.Add(inst);
             _model = inst;
             _hunter = hunter;
             inst->SetAnimation(static_cast<std::int32_t>(MphRead::Entities::PlayerAnimation::Idle));
         }
-        catch (const std::exception& ex)
+        catch (...)
         {
             // Once per hunter, not once per frame. See the guard above.
             std::cout << "[endscreen] no model for " << HunterString(hunter)
-                << ": " << ex.what() << '\n';
+                << ": " << ::MphRead::NativeRuntime::ExceptionMessage(std::current_exception()) << '\n';
             _missing = hunter;
             _model.reset();
             return;

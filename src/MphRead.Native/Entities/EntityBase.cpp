@@ -280,6 +280,11 @@ namespace MphRead::Entities
         return RequireReference(value);
     }
 
+    void EntityBase::ModelList::Clear() noexcept
+    {
+        _items.clear();
+    }
+
     void EntityBase::ModelList::Add(std::shared_ptr<ModelInstance> value)
     {
         _items.push_back(std::move(value));
