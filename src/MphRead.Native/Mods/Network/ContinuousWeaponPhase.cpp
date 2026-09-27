@@ -1,12 +1,18 @@
 #include "ContinuousWeaponPhase.hpp"
 
+#include "../../NativeRuntime/System/Exceptions.hpp"
+
 #include <algorithm>
 
 namespace MphRead::Mods::Network
 {
     ContinuousWeaponPhase::ContinuousWeaponPhase(std::int32_t slots)
-        : _clocks(static_cast<std::size_t>(slots))
     {
+        if (slots < 0)
+        {
+            throw System::OverflowException();
+        }
+        _clocks.resize(static_cast<std::size_t>(slots));
     }
 
     std::int32_t ContinuousWeaponPhase::Amount(
