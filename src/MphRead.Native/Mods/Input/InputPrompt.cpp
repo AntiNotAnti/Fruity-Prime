@@ -33,12 +33,12 @@ namespace MphRead::Mods::Input
 
     std::string InputPrompt::Glyph() const
     {
-        return (Modifier == GamepadButtons::None ? std::string() : GamepadGlyphs::Resolve(Modifier) + " + ")
-            + GamepadGlyphs::Resolve(Button);
+        return (_modifier == GamepadButtons::None ? std::string() : GamepadGlyphs::Resolve(_modifier) + " + ")
+            + GamepadGlyphs::Resolve(_button);
     }
 
     std::string InputPrompt::ToString() const
     {
-        return Glyph() + ": " + Label;
+        return Glyph() + ": " + (_label.has_value() ? *_label : std::string());
     }
 }

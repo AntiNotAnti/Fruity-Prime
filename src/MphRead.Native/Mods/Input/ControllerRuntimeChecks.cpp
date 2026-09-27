@@ -203,7 +203,8 @@ namespace MphRead::Mods::Input
         GamepadOptions::LeftInner(.1F);
         check(layout->Name() == "Bumper Jumper", "sensitivity and calibration preserve control layout identity");
         PadBindings::SetSlot(PadAction::Jump, 0, GamepadButtons::Y, GamepadButtons::LeftBumper);
-        check(InputPrompt::For(PadAction::Jump).Button == GamepadButtons::Y && InputPrompt::For(PadAction::Jump).Modifier == GamepadButtons::LeftBumper,
+        check(InputPrompt::For(PadAction::Jump).Button() == GamepadButtons::Y
+            && InputPrompt::For(PadAction::Jump).Modifier() == GamepadButtons::LeftBumper,
             "semantic prompts follow rebound combinations");
         GamepadOptions::Reset();
         PadBindings::Reset();

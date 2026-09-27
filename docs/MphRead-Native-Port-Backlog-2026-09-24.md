@@ -585,7 +585,7 @@
 | A | +24/-0 | `Mods/Input/SpectatorInput.cs` | — 新規 | 完了（C#全文・Renderer呼出元監査済、focus/context gate・press消費順・deadzone/buttons/trigger/camera値一致、readonly record semanticsとfloat NaN等値比較をnativeへ反映。Windows native library compile/link済、実行中FruityPrime.exeのロックでexe再リンク未確認） |
 | A | +23/-0 | `Mods/Input/GamepadDeviceSnapshot.cs` | — 新規 | 完了（C#全文・GamepadManager/GamepadProbe/Profiles/Launcher UI/直接呼出元監査済、init-only相当のreadonly APIとrecord/GamepadState/VectorのNaN等値比較を反映。Windows Release native library build済） |
 | A | +20/-0 | `Mods/Input/HapticScheduler.cs` | — 新規 | 完了（C#全文・GamepadHaptics直接呼出監査済、undefined feedbackの範囲外アクセスをIndexOutOfRangeExceptionへ修正、Windows Release build済） |
-| A | +19/-0 | `Mods/Input/InputPrompt.cs` | — 新規 | 完了 |
+| A | +19/-0 | `Mods/Input/InputPrompt.cs` | — 新規 | 完了（C#原本と呼び出し元を監査済、UiAction fallback/secondary slot/glyph/ToString一致、readonly/default Label nullをnativeに反映） |
 | A | +19/-0 | `Mods/Input/InputSourceTracker.cs` | — 新規 | 完了 |
 | A | +17/-0 | `Mods/Input/AimAssist/AimAssistMath.cs` | — 新規 | 完了 |
 | A | +15/-0 | `Mods/Input/ControllerLayoutState.cs` | — 新規 | 完了 |
@@ -953,6 +953,7 @@
 - `Mods/Input/GamepadAnalog.cs` をC#全文とnative `.cpp/.hpp`、`GamepadInput`/Manager/Layout/Calibration/Haptics/Checks呼出元で照合。finite clamp、radial deadzone、4 response curve、trigger hysteresis、8方向quantize、curve enum parse/format、key＋motion button合成が一致。quantizeのnearbyintはC#のties-to-evenと同じ既定rounding modeで、repoにmode変更がないことも確認。修正なし。Windows Release build済、gamepadcheck未実行。
 - `Mods/Input/GamepadCalibration.cs` をC#全文とnative `.cpp/.hpp`、`GamepadSetupPanel`のRawState採取・`GamepadManager`のtrigger変換・`GamepadEnhancementChecks`の接続で照合。2048件上限、dirty cache、rest/range各10件条件、NaN先頭のfloat percentile、左右stick range/center判定、deadzone、trigger min/maxの0.4幅条件、Apply順、Summaryのcurrent-culture書式が一致。修正なし。Windows Release build済、check harness未実行。
 - `Mods/Input/GamepadGlyphs.cs` をC#全文とnative `.cpp/.hpp`、`GamepadDesktop`/`GamepadManager`/`PadBindingState`/`InputPrompt`/launcher glyph viewの呼出元で照合。vendor ID優先順、GUID offset、name token順、設定family→device family→genericの選択、PlayStation/Nintendo remap、fallback labelsとflags `ToString`が一致。修正なし。Windows Release build済。
+- `Mods/Input/InputPrompt.cs` をC#全文とnative `.cpp/.hpp`、`GamepadUiRouter::ToString`/`PadBindings`およびStartScreen/ControllerRuntimeChecksの呼出元で照合。UiActionのbutton mappingと未知値の数値Label、PadActionのprimary未割当時のsecondary選択、modifier/glyph/ToStringが一致。C# `readonly record struct` に対してnativeが公開可変fieldだった点と、default structの`Label == null`をprivate getter/optionalへ修正し、文字列連結時はC#同様空文字として扱う。
 
 ### 2026-09-27 native launcher regression audit
 
