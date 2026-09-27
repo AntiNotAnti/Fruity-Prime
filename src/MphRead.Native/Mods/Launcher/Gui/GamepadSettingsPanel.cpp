@@ -176,7 +176,7 @@ namespace MphRead::Mods::Launcher::Gui
         for (std::int32_t position = 0; position < 6; position++)
         {
             Choice("controller.wheel." + std::to_string(position), "Wheel position " + std::to_string(position + 1), weapons,
-                PadInput::GamepadOptions::WheelOrder()[static_cast<std::size_t>(position)], [this, position](std::int32_t slot)
+                (*PadInput::GamepadOptions::WheelOrder())[static_cast<std::size_t>(position)], [this, position](std::int32_t slot)
                 {
                     PadInput::GamepadOptions::SetWheelSlot(position, slot);
                     // Reload keeps every wheel selector and its ordering in sync.

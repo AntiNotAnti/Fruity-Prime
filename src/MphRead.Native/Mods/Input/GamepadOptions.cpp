@@ -67,10 +67,13 @@ namespace MphRead::Mods::Input
     StickCalibration GamepadOptions::RightCalibration() { return State()->RightCalibration; }
     void GamepadOptions::RightCalibration(StickCalibration value) { State()->RightCalibration = value; }
 
-    std::array<std::int32_t, 6>& GamepadOptions::WheelOrder()
+    std::shared_ptr<std::array<std::int32_t, 6>> GamepadOptions::WheelOrder()
     {
-        // The array lives in the state object the config keeps alive.
-        return State()->WheelOrder();
+        // Keep the selected option state alive for as long as a caller holds
+        // the array reference, just as C#'s returned int[] stays alive after
+        // GamepadRuntimeConfig.Current changes.
+        const std::shared_ptr<GamepadOptionState> state = State();
+        return std::shared_ptr<std::array<std::int32_t, 6>>(state, &state->WheelOrder());
     }
 
     void GamepadOptions::SetWheelSlot(std::int32_t position, std::int32_t slot) { State()->SetWheelSlot(position, slot); }

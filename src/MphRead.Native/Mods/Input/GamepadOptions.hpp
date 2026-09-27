@@ -73,7 +73,7 @@ namespace MphRead::Mods::Input
         static void LeftCalibration(StickCalibration value);
         [[nodiscard]] static StickCalibration RightCalibration();
         static void RightCalibration(StickCalibration value);
-        [[nodiscard]] static std::array<std::int32_t, 6>& WheelOrder();
+        [[nodiscard]] static std::shared_ptr<std::array<std::int32_t, 6>> WheelOrder();
         static void SetWheelSlot(std::int32_t position, std::int32_t slot);
         static void Load(const std::vector<std::string>& lines);
         static void Write(std::vector<std::string>& lines);

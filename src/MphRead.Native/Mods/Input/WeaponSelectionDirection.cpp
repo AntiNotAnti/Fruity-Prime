@@ -35,7 +35,8 @@ namespace MphRead::Mods::Input
         {
             angle += 2 * Pi;
         }
-        return GamepadOptions::WheelOrder()[static_cast<std::size_t>(std::clamp(static_cast<std::int32_t>(angle / (Pi / 3)), 0, 5))];
+        const std::shared_ptr<std::array<std::int32_t, 6>> order = GamepadOptions::WheelOrder();
+        return (*order)[static_cast<std::size_t>(std::clamp(static_cast<std::int32_t>(angle / (Pi / 3)), 0, 5))];
     }
 
     std::pair<float, float> WeaponSelectionDirection::FromStick(float x, float y) noexcept

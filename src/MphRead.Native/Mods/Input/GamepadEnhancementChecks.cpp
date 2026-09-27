@@ -110,14 +110,14 @@ namespace MphRead::Mods::Input
         actions.Reset();
         Check(!actions.WheelOpen(), "context reset closes toggle wheel");
         GamepadOptions::SetWheelSlot(0, 4);
-        const std::array<std::int32_t, 6>& order = GamepadOptions::WheelOrder();
-        Check(std::set<std::int32_t>(order.begin(), order.end()).size() == 6 && order[4] == 0,
+        const std::shared_ptr<std::array<std::int32_t, 6>> order = GamepadOptions::WheelOrder();
+        Check(std::set<std::int32_t>(order->begin(), order->end()).size() == 6 && (*order)[4] == 0,
             "wheel rearrangement swaps without duplicate weapons");
         Check(WeaponSelectionDirection::ControllerSlot(.5F, .8F) == 4, "wheel direction follows configured order");
         GamepadOptions::WheelThreshold(.7F);
         Check(WeaponSelectionDirection::ControllerSlot(.5F, 0) == -1, "wheel threshold rejects small stick movement");
         GamepadOptions::Load({"gamepad_wheel_order=0,0,2,3,4,5", "gamepad_scoped_x=NaN", "gamepad_lt_min=.8", "gamepad_lt_max=.1"});
-        Check(GamepadOptions::WheelOrder() == std::array<std::int32_t, 6>{0, 1, 2, 3, 4, 5} && GamepadOptions::ScopedX() == 1,
+        Check(*GamepadOptions::WheelOrder() == std::array<std::int32_t, 6>{0, 1, 2, 3, 4, 5} && GamepadOptions::ScopedX() == 1,
             "invalid wheel order and non-finite scoped sensitivity use safe defaults");
         Check(GamepadOptions::LeftTriggerMax() >= GamepadOptions::LeftTriggerMin() + .099F, "trigger calibration always keeps a nonzero range");
         GamepadOptions::Reset();
@@ -262,7 +262,7 @@ namespace MphRead::Mods::Input
             GamepadOptions::Reset();
             PadBindings::Reset();
             GamepadProfiles::Load("Precision");
-            Check(GamepadOptions::ScopedX() == .65F && GamepadOptions::WheelToggle() && GamepadOptions::WheelOrder()[0] == 3
+            Check(GamepadOptions::ScopedX() == .65F && GamepadOptions::WheelToggle() && (*GamepadOptions::WheelOrder())[0] == 3
                 && PadBindings::Modifier(PadAction::Imperialist, 1) == GamepadButtons::LeftBumper,
                 "profile round-trip retains aim, wheel and combinations");
             const std::string stable = GamepadProfiles::DeviceKey("glfw:guid:0:1");
