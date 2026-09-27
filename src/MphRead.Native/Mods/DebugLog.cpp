@@ -1307,73 +1307,26 @@ namespace
         }
     }
 
-    // Where the window thread is, while it is not coming back. The addresses
-    // are collected with the thread suspended and described only after it
-    // has been resumed: describing reads files and allocates, and the thread
-    // being looked at may be holding the heap's lock.
-    [[nodiscard]] std::vector<void*> SampleThreadStack(DWORD threadId)
-    {
-        std::vector<void*> frames;
-        HANDLE thread = ::OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION,
-            FALSE, threadId);
-        if (thread == nullptr)
-        {
-            return frames;
-        }
-        frames.reserve(64);
-        if (::SuspendThread(thread) != static_cast<DWORD>(-1))
-        {
-            CONTEXT context{};
-            context.ContextFlags = CONTEXT_FULL;
-            if (::GetThreadContext(thread, &context))
-            {
-#if defined(_M_X64) || defined(__x86_64__)
-                for (int depth = 0; depth < 64 && context.Rip != 0; ++depth)
-                {
-                    frames.push_back(reinterpret_cast<void*>(context.Rip));
-                    DWORD64 imageBase = 0;
-                    PRUNTIME_FUNCTION function = ::RtlLookupFunctionEntry(context.Rip, &imageBase, nullptr);
-                    if (function == nullptr)
-                    {
-                        // A leaf function: the return address is on top of the stack.
-                        context.Rip = *reinterpret_cast<const DWORD64*>(context.Rsp);
-                        context.Rsp += 8;
-                        continue;
-                    }
-                    PVOID handlerData = nullptr;
-                    DWORD64 establisherFrame = 0;
-                    ::RtlVirtualUnwind(UNW_FLAG_NHANDLER, imageBase, context.Rip, function,
-                        &context, &handlerData, &establisherFrame, nullptr);
-                }
-#elif defined(_M_IX86) || defined(__i386__)
-                frames.push_back(reinterpret_cast<void*>(context.Eip));
-#endif
-            }
-            ::ResumeThread(thread);
-        }
-        ::CloseHandle(thread);
-        return frames;
-    }
-
-    // A window thread that has not turned over for this long is reported as
-    // frozen: well past any frame, loading screen or hitch the game has.
+    // A watchdog must never suspend the render thread to inspect it.
+    //
+    // The window thread can be inside GLFW, OpenGL, the vendor ICD, the CRT,
+    // or another subsystem while it owns locks. SuspendThread stops it at an
+    // arbitrary instruction. If that happens while one of those locks is
+    // owned, the diagnostic can turn a recoverable stall into a deadlock.
+    // Keep this watchdog passive: the heartbeat still tells us that the loop
+    // stopped turning over, while the GPU trace/log lines written before the
+    // stall identify the last completed work without touching the stuck
+    // thread.
     constexpr std::int64_t FreezeReportMilliseconds = 5000;
-    // Sampled again this much later, which tells a loop (a different place
-    // each time) from a wait (the same place both times).
     constexpr std::int64_t FreezeResampleMilliseconds = 10000;
 
-    void WriteFreezeSample(DWORD threadId, std::int64_t stalledFor)
+    void WriteFreezeNotice(DWORD threadId, std::int64_t stalledFor)
     {
-        const std::vector<void*> frames = SampleThreadStack(threadId);
         std::ostringstream head;
         head.imbue(std::locale::classic());
         head << "the window thread " << threadId << " has not come back for "
-            << stalledFor << " ms; it is at";
+            << stalledFor << " ms; passive watchdog left the thread running";
         MphRead::Mods::DebugLog::Line("freeze", head.str());
-        for (void* frame : frames)
-        {
-            MphRead::Mods::DebugLog::Line("freeze", "   at " + DescribeAddress(frame));
-        }
         FlushWriterNoThrow();
     }
 
@@ -1421,12 +1374,12 @@ namespace
                 {
                     reportedBeat = beat;
                     lastSampleAt = now;
-                    WriteFreezeSample(threadId, stalled);
+                    WriteFreezeNotice(threadId, stalled);
                 }
                 else if (now - lastSampleAt >= FreezeResampleMilliseconds)
                 {
                     lastSampleAt = now;
-                    WriteFreezeSample(threadId, stalled);
+                    WriteFreezeNotice(threadId, stalled);
                 }
             }
             catch (...)
