@@ -3,6 +3,7 @@
 #include "../../NativeRuntime/System/Enum.hpp"
 
 #include <array>
+#include <bit>
 
 namespace MphRead::Mods::Network
 {
@@ -28,7 +29,7 @@ namespace MphRead::Mods::Network
 
     bool NetLifecycleTracker::Newer(std::uint16_t value, std::uint16_t previous) noexcept
     {
-        return static_cast<std::int16_t>(static_cast<std::uint16_t>(value - previous)) > 0;
+        return std::bit_cast<std::int16_t>(static_cast<std::uint16_t>(value - previous)) > 0;
     }
 
     bool NetLifecycleTracker::Newer(std::uint64_t value, std::uint64_t previous) noexcept
@@ -38,7 +39,7 @@ namespace MphRead::Mods::Network
 
     bool NetLifecycleTracker::Newer(std::uint32_t value, std::uint32_t previous) noexcept
     {
-        return static_cast<std::int32_t>(value - previous) > 0;
+        return std::bit_cast<std::int32_t>(value - previous) > 0;
     }
 
     void NetLifecycleTracker::SetOccupant(std::uint16_t generation)
