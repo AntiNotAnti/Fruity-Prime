@@ -37,6 +37,7 @@
 - `NativeRuntime/OpenTK/RendererPlatform.cpp` をOpenTK 4.9.4の `NativeWindow` / `MouseState` と照合。C#はcallback差分用 `_lastReportedMousePos` と `MouseState.NewFrame` のポーリング位置を分けるが、nativeは `_mouse.X/Y` を両方に使い、`glfwGetCursorPos` を呼んでいなかった。nativeに別々の差分基準と、window作成時・event pump前の位置取得を追加。C#と同じくcallback差分と現在位置を別管理する。Windows Release `ninja -k 0` 成功（既存 `offsetof` 警告のみ）。
 - `Renderer.cpp` は `-debuglog` が有効な場合にgrab要求・focus・各解除条件を状態遷移時に記録するようにした。設定読込、Rendererのgrab条件、`GLFW_CURSOR_DISABLED` への対応は現行C#と一致し、同じ状態ならカーソルは隠れて端に制限されない。位置ポーリング差は修正済みだが、これだけで可視カーソル症状が解消したとは未確認。次のruntime再現ではdebug logを使い、grab要求が外れているかを確認する。
 - Windows上で試合中のマウス操作を自動再現できるUI操作手段がないため、カーソル症状のruntime確認は保留。既存のゲームデータは利用可能。ゲーム内で再現する際は `-debuglog` の `cursor grab=... focus=...` 行を採取し、grab解除条件を確認する。
+- `RendererPlatform.cpp` を OpenTK 4.9.4 の `MouseState.NewFrame` / `NativeWindow.CursorPosCallback` の順序と再照合し、callback内で `_mouse.X/Y` を更新していた差を削除。C#同様、callbackは差分イベント用の位置だけを更新し、現在位置はevent pump前のpoll値を保つ。Windows Release `ninja -k 0` は成功（既存 `offsetof` 警告のみ）。`-shellshot` はmatch/pause画面まで到達したが入力ステップが成立せず、OSカーソル表示と画面端エイムのruntime確認は未完了。
 - Online監査開始: `PlayScreen.cs/.cpp` のサーバー一覧更新・個別status問い合わせと `NetMaster.cs/.cpp` の `Query`、`NetStatus.cs/.cpp` を一ファイルずつ比較。依頼処理・UDP query/response判定・タイムアウト時の「did not answer」表示に現時点で差異なし。Windows Release C# buildは成功（既存のobsolete警告4件）。Android buildは未実施。
 - 同一Windows環境で既存C++ Release版とC# Release版の `-servers -debuglog` を続けて実行。両方とも `net.livetek.fr:27889` から「4 listed」を受け取り、4件すべての直接status queryが「did not answer」。この再現ではC#とC++に差は出ず、現環境で報告されたC++固有差を確認できなかった。サーバーまたは経路の一時的状態と区別するため、transport実装の残りと、既知のC#正常環境での結果を引き続き確認する。
 - 9/28に最新Windows Release C++/C#実行ファイルで同じ `-servers -debuglog` を再実行。directoryは今回も「will start games」「4 listed」と返し、West US 2/West Europe/Pi/Japanの全status queryが両版とも `did not answer`。今回の実行では個別UDP replyのbyte長は採取していない。前回の131-byte旧サーバー観測と混同せず、ユーザー環境でのC#正常報告との差は引き続き未解決として扱う。
@@ -112,7 +113,7 @@
   LaunchPlan（LobbyContext）、GameFiles（Root=AppPaths、RomWhitelist 照合）、TextLauncher（InputEnded・insane・StartupForced）、
   NativeFilePicker（NativeRuntime に ProcessRunCaptureOutput）は移植時の確認を完了。MatchStart は RenderWindow の1ウィンドウ API を使う形へ移植し、
   C#原本との静的監査とWindows Release buildを完了。
-- 12 移植差分は完了。不具合監査は進行中（カーソル → Online → メニュー性能/メモリ）。カーソルruntime再現は保留、OnlineのC#との差は未解決、メニュー描画の性能差は残存、長時間メモリは未確認。詳細は上記進捗ログを参照。C# は Avalonia headless + Skia CPU ラスタ → GL 転送（UiTopLevel/UiSurface/UiOverlay）。
+- 12 移植差分・C#対比監査は完了（移植作業の判定）。別件の不具合監査は現在「監査中」で、順序はカーソル → Online → メニュー性能/メモリ。カーソルruntime再現は保留、OnlineのC#との差は未解決、メニュー描画の性能差は残存、長時間メモリは未確認。詳細は上記進捗ログを参照。C# は Avalonia headless + Skia CPU ラスタ → GL 転送（UiTopLevel/UiSurface/UiOverlay）。
   旧 NativeRuntime/Gui（Element ツリー + GL 直描画、グラデーション・楕円・パス・影なし）では足りないので、
   C# と同じ形で NativeRuntime に再現する:
   (A) NativeRuntime/Skia: CPU RGBA premul キャンバス（AA パス塗り、ストローク、線形/放射グラデーション、
@@ -131,9 +132,10 @@
       LayoutTransformControl/Image）、Text（TextBlock/TextBox）、Scroll（ScrollViewer、Fluent のオーバーレイ
       スクロールバー込み）、Threading（Dispatcher/DispatcherTimer）、TopLevel（EmbeddableControlRoot・
       RenderTargetBitmap・ヒットテスト・ポインタオーバー）。単体描画テストで確認済み。
-- Section 12 完了: NetLaunch::TickTerminalLobby を Renderer の全ビルド共通フレーム入口から呼び、
+- Section 12 の NetLaunch 統合確認: `NetLaunch::TickTerminalLobby` を Renderer の全ビルド共通フレーム入口から呼び、
   HasScene/EndScene、persistent lobby の state reset、MatchStart::Begin、通信失敗時の終了を
   C# 原本の順序で接続。C# 原本・直接呼出し元との静的監査とWindows Release buildを完了。
+  これは移植・統合の完了記録であり、現在進行中のカーソル/Online/メニュー性能・メモリ不具合監査の完了を示さない。
 
 ### 2026-09-26 進捗監査
 

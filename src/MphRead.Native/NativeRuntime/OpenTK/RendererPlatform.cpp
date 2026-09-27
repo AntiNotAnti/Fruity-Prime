@@ -673,8 +673,10 @@ namespace
             args.DeltaY = newY - self->_lastReportedMouseY;
             self->_lastReportedMouseX = newX;
             self->_lastReportedMouseY = newY;
-            self->_mouse.X = newX;
-            self->_mouse.Y = newY;
+            // NativeWindow.CursorPosCallback reports the event and updates its
+            // separate last-reported position. MouseState.Position is sampled
+            // by NewInputFrame before GLFW processes events, so leave _mouse at
+            // that frame's polled position until the next loop iteration.
             if (self->_events != nullptr)
             {
                 self->_events->OnMouseMove(args);
