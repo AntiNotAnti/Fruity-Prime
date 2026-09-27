@@ -2,6 +2,7 @@
 
 #include "AimInputSourceTracker.hpp"
 #include "GamepadHaptics.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <cmath>
 
@@ -153,7 +154,7 @@ namespace MphRead::Mods::Input
         {
             _direction = direction;
             _started = milliseconds;
-            _next = milliseconds + 300;
+            _next = ::MphRead::NativeRuntime::UncheckedAdd(milliseconds, std::int32_t{300});
             if (direction.has_value())
             {
                 Action.Invoke(*direction);
@@ -161,7 +162,9 @@ namespace MphRead::Mods::Input
         }
         else if (direction.has_value() && milliseconds >= _next)
         {
-            _next = milliseconds + (milliseconds - _started >= 1500 ? 55 : 90);
+            const std::int64_t held = ::MphRead::NativeRuntime::UncheckedSubtract(milliseconds, _started);
+            const std::int32_t delay = held >= 1500 ? 55 : 90;
+            _next = ::MphRead::NativeRuntime::UncheckedAdd(milliseconds, delay);
             Action.Invoke(*direction);
         }
         if (Any(pressed & GamepadButtons::A))
