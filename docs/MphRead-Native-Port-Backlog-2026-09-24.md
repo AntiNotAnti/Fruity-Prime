@@ -578,7 +578,7 @@
 | A | +32/-0 | `Mods/Input/WeaponSelectionDirection.cs` | — 新規 | 完了（C#全文・GamepadInput/GamepadEnhancementChecks/GamepadChecks呼出元監査済、float→intを.NET 9+互換変換にしてNaN時のC++未定義動作を除去、Windows Release build済） |
 | A | +30/-0 | `Mods/Input/PlayerEntityHaptics.cs` | — 新規 | 完了（C#全文・PlayerInput/PlayerSound/PlayerHud/PlayerEntity呼出元監査済、feedback gates・weapon-selection slot/null/available-array処理一致、Windows Release build済） |
 | A | +27/-0 | `Mods/Input/AimInputSourceTracker.cs` | — 新規 | 完了（C#全文・AimAssistWorld/GamepadInput/GamepadUiRouter/AimAssistChecks/AimAssistTelemetry/AimAssistDebug呼出元監査済、pointer判定・stick deadzone・120ms takeover・reset/revision semantics一致、Windows Release build済） |
-| A | +25/-0 | `Mods/Input/AimAssist/AimAssistTuning.cs` | — 新規 | 完了 |
+| A | +25/-0 | `Mods/Input/AimAssist/AimAssistTuning.cs` | — 新規 | 完了（C#全文・AimAssist/AimAssistWorld呼出元監査済、定数/enum/profile factoryの値と順序一致、readonly record semanticsとfloat NaN等値比較をnativeへ反映、Windows Release build済） |
 | M | +25/-18 | `Mods/Input/GamepadProbe.cs` | .cpp,.hpp | 完了 |
 | M | +25/-213 | `Mods/Input/PadBindings.cs` | .cpp,.hpp | 完了 |
 | A | +24/-0 | `Mods/Input/GamepadRuntimeConfig.cs` | — 新規 | 完了 |

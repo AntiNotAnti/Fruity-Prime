@@ -119,7 +119,7 @@ namespace MphRead::Entities
                 const float distance = ::OpenTK::Mathematics::Length(chest - CameraInfo()->Position);
                 const NVector2 bodyError = AssistAngles(chest);
                 if (!Mods::Input::AimAssist::AimAssistMath::Finite(bodyError) || !std::isfinite(distance) || distance > 60
-                    || bodyError.Length() > profile.ReleaseCone)
+                    || bodyError.Length() > profile.ReleaseCone())
                 {
                     continue;
                 }
@@ -129,7 +129,7 @@ namespace MphRead::Entities
                     continue;
                 }
                 const NVector2 headError = AssistAngles(head);
-                const bool headVisible = !target->IsAltForm() && profile.Head && headError.Length() < 1.5F && AssistVisible(head);
+                const bool headVisible = !target->IsAltForm() && profile.Head() && headError.Length() < 1.5F && AssistVisible(head);
                 const std::int64_t targetLife = 0;
                 candidates[count++] = AimAssistTarget{target->SlotIndex(), targetLife, bodyError, headError, distance, visible,
                     headVisible, true, target->IsAltForm() ? AimAssistPointType::CenterMass : AimAssistPointType::UpperChest};
@@ -175,7 +175,7 @@ namespace MphRead::Entities
         AimAssistResult observation = result;
         if (!eligible && observe)
         {
-            float nearest = profile.Cone;
+            float nearest = profile.Cone();
             for (const AimAssistTarget& candidate : found)
             {
                 if (candidate.BodyError.Length() < nearest)

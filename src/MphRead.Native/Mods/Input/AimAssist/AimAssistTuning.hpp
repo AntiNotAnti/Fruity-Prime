@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 
 namespace MphRead::Mods::Input::AimAssist
@@ -24,12 +25,27 @@ namespace MphRead::Mods::Input::AimAssist
 
     struct AimAssistWeaponProfile
     {
-        float Cone = 0;
-        float ReleaseCone = 0;
-        float Inner = 0;
-        float Rotation = 0;
-        float MaxSpeed = 0;
-        bool Head = false;
+    private:
+        float _cone = 0;
+        float _releaseCone = 0;
+        float _inner = 0;
+        float _rotation = 0;
+        float _maxSpeed = 0;
+        bool _head = false;
+
+    public:
+        AimAssistWeaponProfile() = default;
+        AimAssistWeaponProfile(float cone, float releaseCone, float inner, float rotation, float maxSpeed, bool head) noexcept
+            : _cone(cone), _releaseCone(releaseCone), _inner(inner), _rotation(rotation), _maxSpeed(maxSpeed), _head(head)
+        {
+        }
+
+        [[nodiscard]] float Cone() const noexcept { return _cone; }
+        [[nodiscard]] float ReleaseCone() const noexcept { return _releaseCone; }
+        [[nodiscard]] float Inner() const noexcept { return _inner; }
+        [[nodiscard]] float Rotation() const noexcept { return _rotation; }
+        [[nodiscard]] float MaxSpeed() const noexcept { return _maxSpeed; }
+        [[nodiscard]] bool Head() const noexcept { return _head; }
 
         [[nodiscard]] static AimAssistWeaponProfile For(AimAssistWeaponClass weapon, bool scoped) noexcept
         {
@@ -48,6 +64,15 @@ namespace MphRead::Mods::Input::AimAssist
             }
         }
 
-        friend bool operator==(const AimAssistWeaponProfile&, const AimAssistWeaponProfile&) = default;
+        friend bool operator==(const AimAssistWeaponProfile& left, const AimAssistWeaponProfile& right) noexcept
+        {
+            const auto equals = [](float a, float b) noexcept
+            {
+                return a == b || (std::isnan(a) && std::isnan(b));
+            };
+            return equals(left._cone, right._cone) && equals(left._releaseCone, right._releaseCone)
+                && equals(left._inner, right._inner) && equals(left._rotation, right._rotation)
+                && equals(left._maxSpeed, right._maxSpeed) && left._head == right._head;
+        }
     };
 }
