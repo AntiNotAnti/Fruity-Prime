@@ -1047,17 +1047,17 @@ namespace MphRead::Entities
         const Mods::Render::Radar::Palette& pal = Mods::Render::Radar::PaletteOf;
         if (Mods::Render::Radar::ShowBackground)
         {
-            scene.DrawFlatDisc(posX, posY, Vector2::Zero, radius, pal.Background);
+            scene.DrawFlatDisc(posX, posY, Vector2::Zero, radius, pal.Background());
         }
         if (Mods::Render::Radar::ShowOutlines)
         {
-            scene.DrawFlatRing(posX, posY, Vector2::Zero, radius, 0.35F * dialGrow * u, pal.Ring);
-            scene.DrawFlatRing(posX, posY, Vector2::Zero, radius * 0.55F, 0.25F * dialGrow * u, pal.Ring);
+            scene.DrawFlatRing(posX, posY, Vector2::Zero, radius, 0.35F * dialGrow * u, pal.Ring());
+            scene.DrawFlatRing(posX, posY, Vector2::Zero, radius * 0.55F, 0.25F * dialGrow * u, pal.Ring());
             const float coneAngle = OpenTK::Mathematics::MathHelper::DegreesToRadians(55.0F);
             const Vector2 left(-radius * std::sin(coneAngle), radius * std::cos(coneAngle));
             const Vector2 right(radius * std::sin(coneAngle), radius * std::cos(coneAngle));
-            scene.DrawFlatLine(posX, posY, Vector2::Zero, left, 0.25F * dialGrow * u, pal.Cone);
-            scene.DrawFlatLine(posX, posY, Vector2::Zero, right, 0.25F * dialGrow * u, pal.Cone);
+            scene.DrawFlatLine(posX, posY, Vector2::Zero, left, 0.25F * dialGrow * u, pal.Cone());
+            scene.DrawFlatLine(posX, posY, Vector2::Zero, right, 0.25F * dialGrow * u, pal.Cone());
         }
         const float worldToPixel = radius / Mods::Render::Radar::Range;
         const OpenTK::Mathematics::Vector3 self = Position;
@@ -1083,7 +1083,7 @@ namespace MphRead::Entities
             const Vector2 local(px, py);
             if (isHunter)
             {
-                Vector4 color = pal.Hunter;
+                Vector4 color = pal.Hunter();
                 if (GameState::Teams())
                 {
                     const Vector4 team = Mods::Multiplayer::TeamVisuals::Get(teamIndex).RadarColor().AsVector4();
@@ -1095,11 +1095,11 @@ namespace MphRead::Entities
             {
                 const float d = 0.49F * blipGrow * u;
                 const std::array<Vector2, 4> diamond{Vector2(0, d), Vector2(d, 0), Vector2(0, -d), Vector2(-d, 0)};
-                scene.DrawFlatPolygon(posX, posY, local, diamond, pal.Weapon);
+                scene.DrawFlatPolygon(posX, posY, local, diamond, pal.Weapon());
             }
             else
             {
-                scene.DrawFlatDisc(posX, posY, local, 0.39F * blipGrow * u, pal.Powerup);
+                scene.DrawFlatDisc(posX, posY, local, 0.39F * blipGrow * u, pal.Powerup());
             }
         };
         for (const std::shared_ptr<PlayerEntity>& entry : Players())
@@ -1128,7 +1128,7 @@ namespace MphRead::Entities
         const float triSize = 1.25F * u;
         const std::array<Vector2, 3> tri{Vector2(0, triSize), Vector2(-triSize * 0.75F, -triSize * 0.7F),
             Vector2(triSize * 0.75F, -triSize * 0.7F)};
-        scene.DrawFlatPolygon(posX, posY, Vector2::Zero, tri, pal.Player);
+        scene.DrawFlatPolygon(posX, posY, Vector2::Zero, tri, pal.Player());
     }
 
     void PlayerEntity::UpdateDamageIndicators()
