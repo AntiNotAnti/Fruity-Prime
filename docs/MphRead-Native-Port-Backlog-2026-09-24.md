@@ -721,7 +721,7 @@
 | M | +113/-2 | `Mods/MapGen/MapReport.cs` | .cpp,.hpp | 完了 |
 | M | +91/-8 | `Mods/MapGen/Q3Convert.cs` | .cpp,.hpp | 完了 |
 | M | +48/-1 | `Mods/MapGen/MapPacker.cs` | .cpp,.hpp | 完了（C#対比監査済、MapPacker/CustomRooms/ModEntry対象object compile green、runtime未実施） |
-| M | +19/-0 | `Mods/MapGen/BuiltMap.cs` | .cpp,.hpp | 監査中（移植済み、C#対比の最終差分と再ビルドを確認中） |
+| M | +19/-0 | `Mods/MapGen/BuiltMap.cs` | .cpp,.hpp | 完了（C#対比監査済、Windows Release native library compile/link green、runtime未実施） |
 | M | +19/-0 | `Mods/MapGen/MapBundle.cs` | .cpp,.hpp | 完了（C#対比監査済、Windows Release native library compile/link green、runtime未実施） |
 | M | +3/-2 | `Mods/MapGen/CustomRooms.cs` | .cpp,.hpp | 監査中（移植済み、C#対比中） |
 
