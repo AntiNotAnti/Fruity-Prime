@@ -9,6 +9,8 @@
 #include "ConsoleWindow.hpp"
 #include "Credits.hpp"
 #include "DebugLog.hpp"
+#include "Diagnostics/CompatibilityCheck.hpp"
+#include "Diagnostics/PlatformDiagnostics.hpp"
 #include "Input/GamepadProbe.hpp"
 #include "InputSettings.hpp"
 #if defined(MPHREAD_AVALONIA)
@@ -18,6 +20,9 @@
 #include "Launcher/Gui/UiDesigns.hpp"
 #endif
 #if defined(MPHREAD_SHELL)
+#include "Diagnostics/GlfwPathCheck.hpp"
+#include "Diagnostics/LauncherWindowCheck.hpp"
+#include "Diagnostics/ThumbnailWindowCheck.hpp"
 #include "Launcher/Gui/DeckTile.hpp"
 #include "Launcher/Gui/Shell.hpp"
 #include "Launcher/Gui/UiBench.hpp"
@@ -831,6 +836,28 @@ namespace MphRead::Mods
 {
     bool ModEntry::TryHandleHeadless(const std::vector<std::string>& args)
     {
+#if defined(MPHREAD_SHELL)
+        if (::HasFlag(args, "glfwpathcheck"))
+        {
+            SetExitCode(Diagnostics::GlfwPathCheck::Run());
+            return true;
+        }
+        if (::HasFlag(args, "thumbnailwindowcheck"))
+        {
+            SetExitCode(Diagnostics::ThumbnailWindowCheck::Run(::HasFlag(args, "legacyglcheck")));
+            return true;
+        }
+        if (::HasFlag(args, "windowcheck"))
+        {
+            SetExitCode(Diagnostics::LauncherWindowCheck::Run());
+            return true;
+        }
+#endif
+        if (::HasFlag(args, "smoketest"))
+        {
+            SetExitCode(Diagnostics::CompatibilityCheck::Run());
+            return true;
+        }
         InputSettings::Load();
         Launcher::LauncherPrefs::Load();
         if (::HasFlag(args, "debuglog"))
@@ -838,6 +865,10 @@ namespace MphRead::Mods
             DebugLog::Force();
         }
         DebugLog::Attach();
+        if (NativeRuntime::IsMacOS())
+        {
+            Diagnostics::PlatformDiagnostics::Start();
+        }
 
         Update::Updater::Disabled(::HasFlag(args, "noupdate"));
         ApplyRenderOverrides(args);

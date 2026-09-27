@@ -157,13 +157,19 @@ if(NOT ANDROID)
     find_package(JPEG REQUIRED)
     target_link_libraries(fruity_mphread_native PUBLIC JPEG::JPEG)
 
-    find_library(FRUITY_OPENAL_LIBRARY NAMES openal OpenAL OpenAL32)
-    if(FRUITY_OPENAL_LIBRARY)
-        target_link_libraries(fruity_mphread_native PUBLIC "${FRUITY_OPENAL_LIBRARY}")
+    if(APPLE)
+        # The C# build resolves OpenAL from the executable directory on macOS.
+        # AL.cpp uses the same bundled libopenal.1.dylib rather than binding
+        # the system OpenAL framework at link time.
     else()
-        message(FATAL_ERROR
-            "OpenAL was not found. The sound mixer calls it directly, as OpenTK does "
-            "in the C# build.")
+        find_library(FRUITY_OPENAL_LIBRARY NAMES openal OpenAL OpenAL32)
+        if(FRUITY_OPENAL_LIBRARY)
+            target_link_libraries(fruity_mphread_native PUBLIC "${FRUITY_OPENAL_LIBRARY}")
+        else()
+            message(FATAL_ERROR
+                "OpenAL was not found. The sound mixer calls it directly, as OpenTK does "
+                "in the C# build.")
+        endif()
     endif()
 endif()
 
@@ -181,13 +187,13 @@ if(NOT ANDROID)
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${FRUITY_MPHREAD_ROOT}/Assets/fruity-prime-logo.png"
             "${FRUITY_MPHREAD_ROOT}/Assets/fruity-prime-mark.png"
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/MphRead/Assets/Backgrounds/launcher-bg.jpg"
             "$<TARGET_FILE_DIR:fruity_prime>"
         VERBATIM)
 
     if(WIN32)
         # The executable's own icon, the csproj's ApplicationIcon.
         enable_language(RC)
-            "${CMAKE_CURRENT_SOURCE_DIR}/src/MphRead/Assets/Backgrounds/launcher-bg.jpg"
         set(FRUITY_APP_ICON "${FRUITY_MPHREAD_ROOT}/Assets/fruity-prime.ico")
         file(TO_CMAKE_PATH "${FRUITY_APP_ICON}" FRUITY_APP_ICON)
         file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/FruityPrime.rc"

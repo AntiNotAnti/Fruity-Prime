@@ -374,28 +374,34 @@
 
 - `LauncherWindowCheck.cs` と `.cpp/.hpp` を原典と照合し、geometry設定のtry/finally復元、20/40 frame判定、
   4組のshader compile/link、back bufferのpixel thresholdとGL error、1100x740 resize後の再描画、
-  callback内例外のcloseを確認した。`Shell::AfterDraw` のshot処理より前に接続した。Section 2 build待ち。
+  callback内例外のcloseを確認した。`Shell::AfterDraw` のshot処理より前に接続した。Windows Release build済。
 - `ThumbnailWindowCheck.cs` と `.cpp/.hpp` を照合し、workerと同じwindow settings、legacy GL 2.1条件、
   context診断、FBO/textureの生成・解放、quads描画、中央pixel判定を確認した。
   `ThumbnailCapture.WindowSettings` のnative可視性をC# `internal` に合わせ、OpenTK薄い層に
   `Rgba8`・`DrawBuffer`・`Vertex2` を同じGL定数/entry pointで追加した。
-  追加したLauncherWindowCheck/ThumbnailWindowCheckを含むWindows Release buildが成功した。
-  両checkの`ModEntry`引数配線はSection 13で行う。
+  `GlfwWindow`生成時にC#の`MakeCurrent`と同じcontext-current処理があることも確認した。
+  外側のcatchをC# `catch (Exception)`相当へ修正し、Windows Release build済。`ModEntry`引数配線済。
 - `GlfwPathCheck.cs` と `.cpp/.hpp` を一ファイル単位で移植した。temp fixture、working directory、
   `GameFiles.Root`、paths.txt、GLFW context policy、GLFW後のcwd/paths再確認、finally復元・recursive deleteを
   C#の順で実装し静的監査した。新たに必要だった `Directory.CreateTempSubdirectory`、
   `Directory.SetCurrentDirectory`、`Directory.Delete(path, true)` はNativeRuntime/System/IOへ追加した。
-  build待ち、`ModEntry`引数配線はSection 13。
+  外側のcatchをC# `catch (Exception)`相当へ修正し、Windows Release build・`ModEntry`配線済。
 - `PlatformDiagnostics.cs` と `.cpp/.hpp` を比較し、起動環境の行・macOSのdylib一覧と永続化、
   platform別library名、native exception記録、`file -b` の2秒制限、IO/権限エラー時のログ通知を実装した。
   `GuiLauncher.cs` の二つの失敗経路も比較し、GLFW/Skiaの `PlatformDiagnostics.Report` 呼出しを接続した。
   `ModEntry` 起動時の `Start` と診断flagsもC#の分岐順で接続した。標準C++例外がC# stack traceを保持しない差は
-  NativeRuntimeの例外仕様に従う。C# macOS の `OpenALLibraryNameContainer.OverridePath` に当たるnative側の
-  bundled dylib 選択は、直接リンク時のロードパスと配布物でまだ確認できず、Section 2 の残件。
+  NativeRuntimeの例外仕様に従う。Appleのbundled OpenAL解決はC# `OpenALLibraryNameContainer.OverridePath` と同様に
+  executable directoryの`libopenal.1.dylib`をnative bindingが遅延ロードするようにし、system OpenALへのlinkを外した。
 - Section 2の診断pairと依存APIを含む Windows Release Ninja build が成功した
   （`ninja -k 0`、ログ: `%TEMP%\fruity-prime-native-section2-diagnostics-20260927-retry1.log`）。
   `CompatibilityCheck`、`GlfwPathCheck`、`PlatformDiagnostics`、GLFW/OpenAL binding、
   NativeLibrary、再帰ファイル判定の追加分をコンパイル・リンクした。smoketestや画面実行はしていない。
+- 5つのDiagnostics原典を再監査し、C#が捕捉する通常例外とC++の`catch (...)`の範囲差を修正した。
+  `CompatibilityCheck`、`LauncherWindowCheck` callback、`PlatformDiagnostics`の記録callback、
+  `ThumbnailWindowCheck`、`GlfwPathCheck`の各catchを`std::exception`へ対応させた。
+  例外後のGL資源解放・finally相当処理のcatch-allは維持した。Windows Release `ninja -k 0`は8 stepでexit 0
+  （ログ: `%TEMP%\fruity-prime-section2-diagnostics-reaudit-20260927.log`）。既存の`offsetof`警告のみで、
+  smoke test・画面実行・macOS buildは未実施。
 - `Sfx.cs` と `Music.cs` の PR #1 差分を一ファイルずつ原本と照合し、診断呼出し、catch/filter、fallback 文言と
   状態更新順を確認した。`Sfx::Load` と MusicPlayer 初期化失敗の両native経路へ `PlatformDiagnostics::Report` を
   接続した。Windows Release の `ninja -k 0` が成功（ログ: `%TEMP%\fruity-prime-native-diagnostics-audio-20260927.log`）。
