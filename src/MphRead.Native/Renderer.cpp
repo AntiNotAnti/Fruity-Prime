@@ -1374,6 +1374,7 @@ namespace MphRead
         std::int32_t textureId, std::int32_t paletteId, std::int32_t recolorId)
     {
         const std::int32_t bindingId = Mods::Render::GlNames::NextTexture();
+        _ownedTextures.insert(bindingId);
         bool onlyOpaque = true;
         std::vector<std::uint32_t> pixels;
         FlatColor average;
@@ -1403,6 +1404,7 @@ namespace MphRead
     std::int32_t Scene::BindGetTexture(const std::vector<ColorRgba>& data, std::int32_t width, std::int32_t height)
     {
         const std::int32_t bindingId = Mods::Render::GlNames::NextTexture();
+        _ownedTextures.insert(bindingId);
         GL::BindTexture(GL::TextureTarget::Texture2D, bindingId);
         GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgba,
             width, height, 0, GL::PixelFormat::Rgba, GL::PixelType::UnsignedByte, data.data());
@@ -2151,6 +2153,7 @@ namespace MphRead
                 {
                     (void)key;
                     GL::DeleteTexture(value.BindingId);
+                    _ownedTextures.erase(value.BindingId);
                     _flatColors.erase(value.BindingId);
                 }
                 _texPalMap.erase(mapIt);
@@ -3617,9 +3620,18 @@ namespace MphRead
             {
                 (void)key;
                 GL::DeleteTexture(value.BindingId);
+                _ownedTextures.erase(value.BindingId);
             }
         }
         _texPalMap.clear();
+        for (const std::int32_t textureId : _ownedTextures)
+        {
+            if (textureId != 0)
+            {
+                GL::DeleteTexture(textureId);
+            }
+        }
+        _ownedTextures.clear();
         _flatColors.clear();
         for (const std::int32_t listId : _displayLists)
         {

@@ -164,6 +164,7 @@ namespace MphRead
 
         // map each model's texture ID/palette ID combinations to the bound OpenGL texture ID and "onlyOpaque" boolean
         private readonly Dictionary<int, TextureMap> _texPalMap = new Dictionary<int, TextureMap>();
+        private readonly HashSet<int> _ownedTextures = new HashSet<int>();
         // Display lists are GL resources owned by this Scene, not by the global
         // Read cache. A side scene can be kept alive after a later Scene
         // constructor clears that cache, so cache traversal cannot reliably
@@ -1357,6 +1358,7 @@ namespace MphRead
         private (int BindingId, bool OnlyOpaque) BindTexture(Model model, int textureId, int paletteId, int recolorId)
         {
             int bindingId = Mods.Render.GlNames.NextTexture();
+            _ownedTextures.Add(bindingId);
             bool onlyOpaque = true;
             var pixels = new List<uint>();
             var average = new FlatColor();
@@ -1440,6 +1442,7 @@ namespace MphRead
         public int BindGetTexture(IReadOnlyList<ColorRgba> data, int width, int height)
         {
             int bindingId = Mods.Render.GlNames.NextTexture();
+            _ownedTextures.Add(bindingId);
             GL.BindTexture(TextureTarget.Texture2D, bindingId);
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba, width, height, 0,
                 PixelFormat.Rgba, PixelType.UnsignedByte, data.ToArray());
@@ -2759,6 +2762,7 @@ namespace MphRead
                     foreach (KeyValuePair<int, (int BindingId, bool OnlyOpaque)> kvp in map)
                     {
                         GL.DeleteTexture(kvp.Value.BindingId);
+                        _ownedTextures.Remove(kvp.Value.BindingId);
                         _flatColors.Remove(kvp.Value.BindingId);
                     }
                     _texPalMap.Remove(model.Id);
@@ -4345,9 +4349,18 @@ namespace MphRead
                 foreach (KeyValuePair<int, (int BindingId, bool OnlyOpaque)> kvp in map)
                 {
                     GL.DeleteTexture(kvp.Value.BindingId);
+                    _ownedTextures.Remove(kvp.Value.BindingId);
                 }
             }
             _texPalMap.Clear();
+            foreach (int textureId in _ownedTextures)
+            {
+                if (textureId != 0)
+                {
+                    GL.DeleteTexture(textureId);
+                }
+            }
+            _ownedTextures.Clear();
             _flatColors.Clear();
             foreach (int listId in _displayLists)
             {
