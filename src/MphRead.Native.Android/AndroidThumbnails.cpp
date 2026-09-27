@@ -1,18 +1,17 @@
 #include "AndroidThumbnails.hpp"
 
 #include "AndroidMaps.hpp"
+#include "MainActivity.hpp"
 #include "PreviewService.hpp"
 
 #include "../MphRead.Native/Mods/ThumbnailGenerator.hpp"
 
 #include <algorithm>
-#include <bit>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
-#include <limits>
 #include <new>
 #include <stdexcept>
 #include <string>
@@ -507,138 +506,6 @@ namespace
         return result;
     }
 
-    class ScopedJniEnv final
-    {
-    public:
-        explicit ScopedJniEnv(JavaVM* javaVm)
-            : _javaVm(javaVm)
-        {
-            if (_javaVm == nullptr)
-            {
-                throw std::runtime_error(
-                    "Android Java VM is not available"
-                );
-            }
-
-            const jint result = _javaVm->GetEnv(
-                reinterpret_cast<void**>(&_env),
-                JNI_VERSION_1_6
-            );
-            if (result == JNI_EDETACHED)
-            {
-                if (_javaVm->AttachCurrentThread(
-                        reinterpret_cast<void**>(&_env),
-                        nullptr
-                    ) != JNI_OK)
-                {
-                    throw std::runtime_error(
-                        "could not attach the current thread to the Android Java VM"
-                    );
-                }
-                _attached = true;
-            }
-            else if (result != JNI_OK || _env == nullptr)
-            {
-                throw std::runtime_error(
-                    "could not obtain the Android JNI environment"
-                );
-            }
-        }
-
-        ~ScopedJniEnv()
-        {
-            if (_attached)
-            {
-                _javaVm->DetachCurrentThread();
-            }
-        }
-
-        ScopedJniEnv(const ScopedJniEnv&) = delete;
-        ScopedJniEnv& operator=(const ScopedJniEnv&) = delete;
-
-        [[nodiscard]] JNIEnv* Get() const noexcept
-        {
-            return _env;
-        }
-
-    private:
-        JavaVM* _javaVm = nullptr;
-        JNIEnv* _env = nullptr;
-        bool _attached = false;
-    };
-
-    jobject NewGlobalRefChecked(JNIEnv* env, jobject value)
-    {
-        jobject result = env->NewGlobalRef(value);
-        CheckJavaException(env);
-        if (value != nullptr && result == nullptr)
-        {
-            throw std::bad_alloc();
-        }
-        return result;
-    }
-
-    void DeleteGlobalRefNoThrow(
-        JavaVM* javaVm,
-        jobject value
-    ) noexcept
-    {
-        if (javaVm == nullptr || value == nullptr)
-        {
-            return;
-        }
-
-        JNIEnv* env = nullptr;
-        bool attached = false;
-        const jint result = javaVm->GetEnv(
-            reinterpret_cast<void**>(&env),
-            JNI_VERSION_1_6
-        );
-        if (result == JNI_EDETACHED)
-        {
-            if (javaVm->AttachCurrentThread(
-                    reinterpret_cast<void**>(&env),
-                    nullptr
-                ) != JNI_OK)
-            {
-                return;
-            }
-            attached = true;
-        }
-        else if (result != JNI_OK || env == nullptr)
-        {
-            return;
-        }
-
-        env->DeleteGlobalRef(value);
-        if (attached)
-        {
-            javaVm->DetachCurrentThread();
-        }
-    }
-
-    std::int32_t UncheckedAdd(
-        std::int32_t left,
-        std::int32_t right
-    ) noexcept
-    {
-        const std::uint32_t result =
-            static_cast<std::uint32_t>(left)
-            + static_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(result);
-    }
-
-    std::int32_t UncheckedMultiply(
-        std::int32_t left,
-        std::int32_t right
-    ) noexcept
-    {
-        const std::uint32_t result =
-            static_cast<std::uint32_t>(left)
-            * static_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(result);
-    }
-
     LocalRef<jobject> BuildWorkerIntent(
         JNIEnv* env,
         jobject context,
@@ -835,60 +702,19 @@ namespace
 
 namespace MphRead::Droid
 {
-    AndroidThumbnailHost::AndroidThumbnailHost(
-        JNIEnv* env,
-        jobject activity
+    std::shared_future<int> AndroidThumbnailHost::RenderAsync(
+        std::vector<std::string> rooms,
+        std::function<void(const std::string&)> report
     )
-    {
-        if (env == nullptr)
-        {
-            throw std::invalid_argument(
-                "Android JNI environment must not be null"
-            );
-        }
-        if (env->GetJavaVM(&_javaVm) != JNI_OK
-            || _javaVm == nullptr)
-        {
-            throw std::runtime_error(
-                "Android Java VM is not available"
-            );
-        }
-        _activity = NewGlobalRefChecked(
-            env,
-            activity
-        );
-    }
-
-    AndroidThumbnailHost::~AndroidThumbnailHost()
-    {
-        DeleteGlobalRefNoThrow(
-            _javaVm,
-            _activity
-        );
-    }
-
-    MphRead::Mods::ThumbnailTaskIntRef
-        AndroidThumbnailHost::RenderAsync(
-            MphRead::Mods::ThumbnailRoomsRef rooms,
-            MphRead::Mods::ThumbnailReportRef report
-        )
     {
         AndroidMaps::EnsureBuilt();
 
-        if (_activity == nullptr)
+        MainActivity* activity = MainActivity::Instance();
+        if (activity == nullptr)
         {
-            throw std::runtime_error(
-                "Object reference not set to an instance of an object."
-            );
+            GetMainActivityOwner().ThrowNullReference();
         }
-
-        ScopedJniEnv scopedEnv(_javaVm);
-        return GetAndroidThumbnailHostOwner().RenderPreviews(
-            scopedEnv.Get(),
-            _activity,
-            rooms,
-            report
-        );
+        return activity->RenderPreviews(std::move(rooms), std::move(report));
     }
 
     std::int32_t PreviewWorkers::Count(
@@ -990,12 +816,10 @@ namespace MphRead::Droid
             }
         }
 
-        const std::int32_t doubledCores =
-            UncheckedMultiply(cores, 2);
         const std::int32_t byHeap =
             heapMb / 24;
         const std::int32_t requested =
-            std::min(doubledCores, byHeap);
+            std::min(cores, byHeap);
         return std::clamp<std::int32_t>(
             requested,
             1,
@@ -1111,38 +935,15 @@ namespace MphRead::Droid
         const std::function<void(const std::string&)>& report
     )
     {
-        const auto clock =
-            std::chrono::steady_clock::now();
-        const std::int32_t limitSeconds =
-            UncheckedAdd(
-                90,
-                UncheckedMultiply(
-                    30,
-                    static_cast<std::int32_t>(rooms.size())
-                )
-            );
-        const std::chrono::seconds limit(
-            limitSeconds
-        );
-
+        auto lastProgress = std::chrono::steady_clock::now();
         std::int32_t last = -1;
-        while (std::chrono::steady_clock::now() - clock < limit)
+        while (true)
         {
-            bool allDone = true;
-            for (const std::string& marker : markers)
-            {
-                if (!FileExists(marker))
-                {
-                    allDone = false;
-                    break;
-                }
-            }
-
-            const std::int32_t written =
-                CountWritten(rooms);
+            const std::int32_t written = CountWritten(rooms);
             if (written != last)
             {
                 last = written;
+                lastProgress = std::chrono::steady_clock::now();
                 InvokeReport(
                     report,
                     "[thumbnails] "
@@ -1152,8 +953,34 @@ namespace MphRead::Droid
                 );
             }
 
+            if (written >= static_cast<std::int32_t>(rooms.size()))
+            {
+                return;
+            }
+
+            bool allDone = true;
+            for (const std::string& marker : markers)
+            {
+                if (!FileExists(marker))
+                {
+                    allDone = false;
+                    break;
+                }
+            }
             if (allDone)
             {
+                return;
+            }
+
+            if (std::chrono::duration<double>(
+                    std::chrono::steady_clock::now() - lastProgress).count()
+                >= 60.0)
+            {
+                InvokeReport(
+                    report,
+                    "[thumbnails] the background workers stopped answering; "
+                    "rendering the rest here"
+                );
                 return;
             }
 
@@ -1161,12 +988,6 @@ namespace MphRead::Droid
                 std::chrono::milliseconds(500)
             );
         }
-
-        InvokeReport(
-            report,
-            "[thumbnails] the background workers ran out of time; "
-            "the rest will be rendered on the next visit"
-        );
     }
 
     std::int32_t PreviewWorkers::CountWritten(

@@ -1,6 +1,7 @@
 #include "AndroidUpdateInstaller.hpp"
 
 #include "ApkInstaller.hpp"
+#include "MainActivity.hpp"
 #include "../MphRead.Native/Mods/Update/UpdateDownload.hpp"
 
 #include <new>
@@ -66,84 +67,35 @@ namespace
         bool _attached = false;
     };
 
-    void DeleteGlobalRefNoThrow(JavaVM* javaVm, jobject value) noexcept
+    MphRead::Droid::MainActivity& CurrentActivity()
     {
-        if (javaVm == nullptr || value == nullptr)
+        if (MphRead::Droid::MainActivity* activity =
+                MphRead::Droid::MainActivity::Instance();
+            activity != nullptr)
         {
-            return;
+            return *activity;
         }
-
-        JNIEnv* env = nullptr;
-        bool attached = false;
-        const jint result = javaVm->GetEnv(
-            reinterpret_cast<void**>(&env),
-            JNI_VERSION_1_6
-        );
-        if (result == JNI_EDETACHED)
-        {
-            if (javaVm->AttachCurrentThread(&env, nullptr) != JNI_OK)
-            {
-                return;
-            }
-            attached = true;
-        }
-        else if (result != JNI_OK || env == nullptr)
-        {
-            return;
-        }
-
-        env->DeleteGlobalRef(value);
-        if (attached)
-        {
-            javaVm->DetachCurrentThread();
-        }
+        MphRead::Droid::GetMainActivityOwner().ThrowNullReference();
     }
 }
 
 namespace MphRead::Droid
 {
-    AndroidUpdateInstaller::AndroidUpdateInstaller(JNIEnv* env, jobject activity)
-    {
-        if (env == nullptr)
-        {
-            throw std::invalid_argument(
-                "Android JNI environment must not be null"
-            );
-        }
-        if (env->GetJavaVM(&_javaVm) != JNI_OK || _javaVm == nullptr)
-        {
-            throw std::runtime_error("Android Java VM is not available");
-        }
-
-        _activity = env->NewGlobalRef(activity);
-        if (env->ExceptionCheck())
-        {
-            env->ExceptionClear();
-            throw std::runtime_error(
-                "Android Java exception while retaining the Activity"
-            );
-        }
-        if (activity != nullptr && _activity == nullptr)
-        {
-            throw std::bad_alloc();
-        }
-    }
-
-    AndroidUpdateInstaller::~AndroidUpdateInstaller()
-    {
-        DeleteGlobalRefNoThrow(_javaVm, _activity);
-    }
-
     bool AndroidUpdateInstaller::Allowed()
     {
-        ScopedJniEnv scopedEnv(_javaVm);
-        return ApkInstaller::Allowed(scopedEnv.Get(), _activity);
+        MainActivity& activity = CurrentActivity();
+        ScopedJniEnv scopedEnv(activity._javaVm);
+        return ApkInstaller::Allowed(scopedEnv.Get(), activity._activity);
     }
 
     bool AndroidUpdateInstaller::RequestPermission()
     {
-        ScopedJniEnv scopedEnv(_javaVm);
-        return ApkInstaller::RequestPermission(scopedEnv.Get(), _activity);
+        MainActivity& activity = CurrentActivity();
+        ScopedJniEnv scopedEnv(activity._javaVm);
+        return ApkInstaller::RequestPermission(
+            scopedEnv.Get(),
+            activity._activity
+        );
     }
 
     bool AndroidUpdateInstaller::ExitAfterInstall()
@@ -170,8 +122,12 @@ namespace MphRead::Droid
     )
     {
         {
-            ScopedJniEnv scopedEnv(_javaVm);
-            _staged = ApkInstaller::StagingPath(scopedEnv.Get(), _activity);
+            MainActivity& activity = CurrentActivity();
+            ScopedJniEnv scopedEnv(activity._javaVm);
+            _staged = ApkInstaller::StagingPath(
+                scopedEnv.Get(),
+                activity._activity
+            );
         }
 
         const std::optional<std::string>& assetUrl = update.AssetUrl.Get();
@@ -196,10 +152,11 @@ namespace MphRead::Droid
 
         std::optional<std::string> mismatch;
         {
-            ScopedJniEnv scopedEnv(_javaVm);
+            MainActivity& activity = CurrentActivity();
+            ScopedJniEnv scopedEnv(activity._javaVm);
             if (!ApkInstaller::SameSigner(
                     scopedEnv.Get(),
-                    _activity,
+                    activity._activity,
                     _staged,
                     mismatch
                 ))
@@ -217,10 +174,11 @@ namespace MphRead::Droid
 
     bool AndroidUpdateInstaller::Install(std::string& error)
     {
-        ScopedJniEnv scopedEnv(_javaVm);
+        MainActivity& activity = CurrentActivity();
+        ScopedJniEnv scopedEnv(activity._javaVm);
         return ApkInstaller::Commit(
             scopedEnv.Get(),
-            _activity,
+            activity._activity,
             _staged,
             error
         );

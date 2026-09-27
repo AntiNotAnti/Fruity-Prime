@@ -317,7 +317,7 @@ namespace
         if (result == JNI_EDETACHED)
         {
             if (vm->AttachCurrentThread(
-                    reinterpret_cast<void**>(&env),
+                    &env,
                     nullptr
                 ) != JNI_OK)
             {
@@ -355,7 +355,7 @@ namespace
             if (result == JNI_EDETACHED)
             {
                 if (_vm->AttachCurrentThread(
-                        reinterpret_cast<void**>(&_env),
+                        &_env,
                         nullptr
                     ) != JNI_OK)
                 {

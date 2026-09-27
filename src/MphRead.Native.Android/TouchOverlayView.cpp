@@ -1,5 +1,6 @@
 #include "TouchOverlayView.hpp"
 
+#include "AndroidUiSurface.hpp"
 #include "../MphRead.Native/Formats/Types.hpp"
 
 #include <android/input.h>
@@ -1009,6 +1010,13 @@ namespace MphRead::Droid
         );
         CheckJavaException(env);
 
+        const std::shared_ptr<AndroidUiSurface> surface =
+            AndroidUiSurface::Current();
+        if (surface != nullptr && surface->Visible())
+        {
+            return;
+        }
+
         if (_controls->PadDriving())
         {
             return;
@@ -1131,6 +1139,44 @@ namespace MphRead::Droid
         if (event == nullptr)
         {
             return false;
+        }
+
+        const std::shared_ptr<AndroidUiSurface> surface =
+            AndroidUiSurface::Current();
+        if (surface != nullptr && surface->Visible())
+        {
+            const jint actionMasked = MotionInt(
+                env,
+                event,
+                "getActionMasked"
+            );
+            if (actionMasked == AMOTION_EVENT_ACTION_POINTER_DOWN
+                || actionMasked == AMOTION_EVENT_ACTION_POINTER_UP)
+            {
+                return true;
+            }
+
+            const jfloat x = MotionFloatAt(env, event, "getX", 0);
+            const jfloat y = MotionFloatAt(env, event, "getY", 0);
+            switch (actionMasked)
+            {
+            case AMOTION_EVENT_ACTION_DOWN:
+                surface->TouchDown(x, y);
+                break;
+
+            case AMOTION_EVENT_ACTION_MOVE:
+                surface->TouchMove(x, y);
+                break;
+
+            case AMOTION_EVENT_ACTION_UP:
+            case AMOTION_EVENT_ACTION_CANCEL:
+                surface->TouchUp(x, y);
+                break;
+
+            default:
+                return false;
+            }
+            return true;
         }
 
         const jint actionMasked = MotionInt(env, event, "getActionMasked");

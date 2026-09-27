@@ -1,5 +1,7 @@
 #include "TouchControls.hpp"
 
+#include "../MphRead.Native/Mods/Input/AimInputSourceTracker.hpp"
+
 #include <algorithm>
 #include <bit>
 #include <chrono>
@@ -592,6 +594,12 @@ namespace MphRead::Droid
         const float y = _aimDeltaY;
         _aimDeltaX = 0.0F;
         _aimDeltaY = 0.0F;
+        MphRead::Mods::Input::AimInputSourceTracker::Pointer(
+            x,
+            y,
+            true,
+            TickCount64()
+        );
         return { x / _density, y / _density };
     }
 

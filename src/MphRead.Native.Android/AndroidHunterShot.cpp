@@ -1,0 +1,469 @@
+#include "AndroidHunterShot.hpp"
+
+#if !defined(__ANDROID__)
+#error "AndroidHunterShot is only valid for the Android native target."
+#endif
+
+#include "AndroidInput.hpp"
+#include "MainActivity.hpp"
+#include "OffscreenGl.hpp"
+
+#include "../MphRead.Native/Mods/DebugLog.hpp"
+#include "../MphRead.Native/Mods/Render/EsBindings.hpp"
+#include "../MphRead.Native/Mods/Render/GlEs.hpp"
+#include "../MphRead.Native/NativeRuntime/OpenTK/GL.hpp"
+#include "../MphRead.Native/NativeRuntime/System/Console.hpp"
+#include "../MphRead.Native/NativeRuntime/System/ExceptionText.hpp"
+#include "../MphRead.Native/Renderer.hpp"
+#include "../MphRead.Native/Scene.hpp"
+
+#include <algorithm>
+#include <chrono>
+#include <condition_variable>
+#include <cstddef>
+#include <cstdint>
+#include <exception>
+#include <future>
+#include <limits>
+#include <memory>
+#include <mutex>
+#include <pthread.h>
+#include <stdexcept>
+#include <string>
+#include <thread>
+#include <utility>
+#include <vector>
+
+namespace
+{
+    namespace GL = ::OpenTK::Graphics::OpenGL::GL;
+
+    std::mutex g_currentGate;
+    std::shared_ptr<MphRead::Droid::AndroidHunterShot> g_current;
+
+    [[nodiscard]] std::shared_future<
+        std::optional<std::vector<std::uint8_t>>> NullImageTask()
+    {
+        std::promise<std::optional<std::vector<std::uint8_t>>> promise;
+        promise.set_value(std::nullopt);
+        return promise.get_future().share();
+    }
+
+}
+
+namespace MphRead::Droid
+{
+    struct AndroidHunterShot::Job final
+    {
+        Hunter HunterValue = Hunter::Samus;
+        std::int32_t Suit = 0;
+        std::int32_t Width = 0;
+        std::int32_t Height = 0;
+        std::promise<std::optional<std::vector<std::uint8_t>>> Done;
+    };
+
+    struct AndroidHunterShot::Worker final
+    {
+        std::mutex Gate;
+        std::condition_variable Finished;
+        bool IsFinished = false;
+    };
+
+    struct AndroidHunterShot::State final
+    {
+        std::mutex Gate;
+        std::condition_variable Work;
+        std::shared_ptr<Job> Next;
+        std::shared_ptr<Worker> CurrentWorker;
+        std::size_t WorkPermits = 0;
+        bool Retire = false;
+        bool Failed = false;
+    };
+
+    AndroidHunterShot::AndroidHunterShot()
+        : _state(std::make_shared<State>())
+    {
+    }
+
+    AndroidHunterShot::~AndroidHunterShot()
+    {
+        // Detached workers own State rather than this object. Retire asks them
+        // to release their GL resources and bounds the wait just like the C#
+        // Thread.Join(TimeSpan.FromSeconds(4)).
+        Retire();
+    }
+
+    std::shared_ptr<AndroidHunterShot> AndroidHunterShot::Install()
+    {
+        auto instance = std::shared_ptr<AndroidHunterShot>(
+            new AndroidHunterShot());
+        {
+            std::lock_guard lock(g_currentGate);
+            g_current = instance;
+        }
+        Mods::Render::HunterShot::Current = instance;
+        return instance;
+    }
+
+    std::shared_ptr<AndroidHunterShot> AndroidHunterShot::Current()
+    {
+        std::lock_guard lock(g_currentGate);
+        return g_current;
+    }
+
+    void AndroidHunterShot::RetireCurrent()
+    {
+        std::shared_ptr<AndroidHunterShot> current = Current();
+        if (current != nullptr)
+        {
+            current->Retire();
+        }
+    }
+
+    std::shared_future<std::optional<std::vector<std::uint8_t>>>
+        AndroidHunterShot::RenderAsync(
+            Hunter hunter,
+            std::int32_t suit,
+            std::int32_t width,
+            std::int32_t height)
+    {
+        {
+            std::lock_guard lock(_state->Gate);
+            if (_state->Failed)
+            {
+                return NullImageTask();
+            }
+        }
+        if (width <= 0 || height <= 0 || InMatch())
+        {
+            return NullImageTask();
+        }
+
+        auto job = std::make_shared<Job>();
+        job->HunterValue = hunter;
+        job->Suit = std::clamp(suit, 0, 3);
+        job->Width = width;
+        job->Height = height;
+        std::shared_future<std::optional<std::vector<std::uint8_t>>> result =
+            job->Done.get_future().share();
+
+        std::shared_ptr<Job> dropped;
+        {
+            std::lock_guard lock(_state->Gate);
+            // Only the newest is worth rendering: the picker is turned faster
+            // than a render takes, and intermediate hunters are already stale.
+            dropped = std::move(_state->Next);
+            _state->Next = job;
+            _state->Retire = false;
+            if (_state->CurrentWorker == nullptr)
+            {
+                auto worker = std::make_shared<Worker>();
+                _state->CurrentWorker = worker;
+                try
+                {
+                    std::thread([state = _state, worker]
+                    {
+                        Loop(state, worker);
+                    }).detach();
+                }
+                catch (...)
+                {
+                    _state->CurrentWorker.reset();
+                    _state->Next.reset();
+                    throw;
+                }
+            }
+        }
+        if (dropped != nullptr)
+        {
+            dropped->Done.set_value(std::nullopt);
+        }
+        {
+            std::lock_guard lock(_state->Gate);
+            ++_state->WorkPermits;
+        }
+        _state->Work.notify_one();
+        return result;
+    }
+
+    void AndroidHunterShot::Retire()
+    {
+        std::shared_ptr<Worker> worker;
+        {
+            std::lock_guard lock(_state->Gate);
+            worker = _state->CurrentWorker;
+            if (worker == nullptr)
+            {
+                return;
+            }
+            if (_state->Next != nullptr)
+            {
+                _state->Next->Done.set_value(std::nullopt);
+                _state->Next.reset();
+            }
+            _state->Retire = true;
+        }
+        {
+            std::lock_guard lock(_state->Gate);
+            ++_state->WorkPermits;
+        }
+        _state->Work.notify_one();
+
+        std::unique_lock lock(worker->Gate);
+        (void)worker->Finished.wait_for(
+            lock,
+            std::chrono::seconds(4),
+            [&worker] { return worker->IsFinished; });
+    }
+
+    void AndroidHunterShot::Loop(
+        const std::shared_ptr<State>& state,
+        const std::shared_ptr<Worker>& worker)
+    {
+        (void)pthread_setname_np(pthread_self(), "hunter preview");
+        std::shared_ptr<OffscreenGl> gl;
+        std::shared_ptr<Scene> scene;
+        std::unique_ptr<AndroidInput> input;
+        std::int32_t width = 0;
+        std::int32_t height = 0;
+
+        const auto finishWorker = [&worker]
+        {
+            {
+                std::lock_guard lock(worker->Gate);
+                worker->IsFinished = true;
+            }
+            worker->Finished.notify_all();
+        };
+
+        const auto cleanupAfterRetire = [&scene, &gl]
+        {
+            try
+            {
+                if (scene != nullptr)
+                {
+                    scene->DoCleanup();
+                }
+            }
+            catch (...)
+            {
+                const std::exception_ptr error = std::current_exception();
+                ::MphRead::NativeRuntime::ConsoleWriteLine(
+                    "[hunter] cleanup failed: "
+                        + ::MphRead::NativeRuntime::ExceptionMessage(error));
+            }
+            if (gl != nullptr)
+            {
+                gl->Dispose();
+            }
+        };
+        const auto cleanupAfterFailure = [&scene, &gl]
+        {
+            try
+            {
+                if (scene != nullptr)
+                {
+                    scene->DoCleanup();
+                }
+            }
+            catch (...)
+            {
+                // The C# failure path suppresses a second cleanup exception.
+            }
+            if (gl != nullptr)
+            {
+                gl->Dispose();
+            }
+        };
+
+        try
+        {
+            while (true)
+            {
+                std::shared_ptr<Job> job;
+                {
+                    std::unique_lock lock(state->Gate);
+                    state->Work.wait(lock, [&state]
+                    {
+                        return state->Retire || state->WorkPermits != 0;
+                    });
+                    if (state->Retire)
+                    {
+                        break;
+                    }
+                    --state->WorkPermits;
+                    job = std::move(state->Next);
+                }
+
+                if (job == nullptr)
+                {
+                    continue;
+                }
+                if (InMatch())
+                {
+                    job->Done.set_value(std::nullopt);
+                    continue;
+                }
+                if (gl == nullptr)
+                {
+                    gl = OffscreenGl::Create(job->Width, job->Height);
+                    Mods::Render::EsBindings::Load();
+                    Mods::Render::GlEs::Reset();
+                }
+                if (scene == nullptr || width != job->Width || height != job->Height)
+                {
+                    if (scene != nullptr)
+                    {
+                        scene->DoCleanup();
+                    }
+                    scene.reset();
+                    input.reset();
+                    if (width != 0)
+                    {
+                        gl->Dispose();
+                        gl = OffscreenGl::Create(job->Width, job->Height);
+                        Mods::Render::EsBindings::Load();
+                        Mods::Render::GlEs::Reset();
+                    }
+                    width = job->Width;
+                    height = job->Height;
+                    input = std::make_unique<AndroidInput>();
+                    scene = std::make_shared<Scene>(
+                        ::OpenTK::Mathematics::Vector2i(width, height),
+                        input->Keyboard(),
+                        input->Mouse(),
+                        [](std::string) {},
+                        [] {});
+                    scene->SideScene(true);
+                    scene->OnLoad();
+                    GL::Viewport(0, 0, width, height);
+                    scene->OnResize();
+                }
+                job->Done.set_value(Draw(*scene, *job, width, height));
+            }
+
+            {
+                std::lock_guard lock(state->Gate);
+                state->CurrentWorker.reset();
+                if (state->Next != nullptr)
+                {
+                    state->Next->Done.set_value(std::nullopt);
+                    state->Next.reset();
+                }
+            }
+            // The model's textures and display lists are cut in this context
+            // and cached on the shared model. They must be released before a
+            // match's different GL context starts using those model objects.
+            cleanupAfterRetire();
+            finishWorker();
+        }
+        catch (...)
+        {
+            const std::exception_ptr error = std::current_exception();
+            {
+                std::lock_guard lock(state->Gate);
+                state->Failed = true;
+            }
+            ::MphRead::NativeRuntime::ConsoleWriteLine(
+                "[hunter] the preview thread stopped: "
+                    + ::MphRead::NativeRuntime::ExceptionToString(error));
+            Mods::DebugLog::Line(
+                "ui",
+                "the hunter preview is off: "
+                    + ::MphRead::NativeRuntime::ExceptionMessage(error));
+            {
+                std::lock_guard lock(state->Gate);
+                state->CurrentWorker.reset();
+                if (state->Next != nullptr)
+                {
+                    state->Next->Done.set_value(std::nullopt);
+                    state->Next.reset();
+                }
+            }
+            cleanupAfterFailure();
+            finishWorker();
+        }
+    }
+
+    std::optional<std::vector<std::uint8_t>> AndroidHunterShot::Draw(
+        Scene& scene,
+        const Job& job,
+        std::int32_t width,
+        std::int32_t height)
+    {
+        Scene::LauncherPreview = true;
+        Scene::LauncherHunter = job.HunterValue;
+        Scene::LauncherSuit = job.Suit;
+        Scene::PreviewWanted(true);
+        Scene::PreviewLeft(0.0F);
+        Scene::PreviewTop(0.0F);
+        Scene::PreviewRight(1.0F);
+        Scene::PreviewBottom(1.0F);
+
+        bool drawn = false;
+        for (std::int32_t i = 0; i < 3 && !drawn; ++i)
+        {
+            Scene::LauncherPreview = true;
+            drawn = scene.ModDrawPreviewAlone(
+                ::OpenTK::Mathematics::Vector2i(width, height));
+        }
+        Scene::LauncherPreview = false;
+        Scene::PreviewWanted(false);
+        if (!drawn)
+        {
+            return std::nullopt;
+        }
+
+        const std::size_t pixelWidth = static_cast<std::size_t>(width);
+        const std::size_t pixelHeight = static_cast<std::size_t>(height);
+        if (pixelWidth > std::numeric_limits<std::size_t>::max() / pixelHeight)
+        {
+            throw std::length_error("hunter preview dimensions are too large");
+        }
+        const std::size_t pixelCount = pixelWidth * pixelHeight;
+        if (pixelCount > static_cast<std::size_t>(
+                std::numeric_limits<std::int32_t>::max()) / 4U
+            || pixelCount > static_cast<std::size_t>(
+                std::numeric_limits<std::int32_t>::max()) / 3U)
+        {
+            throw std::length_error("hunter preview dimensions are too large");
+        }
+        std::vector<std::uint8_t> rgb(pixelCount * 3U);
+        GL::BindFramebuffer(GL::FramebufferTarget::ReadFramebuffer, 0);
+        GL::PixelStore(GL::PixelStoreParameter::PackAlignment, 1);
+        GL::ReadPixels(
+            0,
+            0,
+            width,
+            height,
+            GL::PixelFormat::Rgb,
+            GL::PixelType::UnsignedByte,
+            rgb.data());
+
+        std::vector<std::uint8_t> bgra(pixelCount * 4U);
+        for (std::int32_t y = 0; y < height; ++y)
+        {
+            // GL counts rows from the bottom, while a bitmap counts from top.
+            std::size_t from = static_cast<std::size_t>(height - 1 - y)
+                * static_cast<std::size_t>(width) * 3U;
+            std::size_t to = static_cast<std::size_t>(y)
+                * static_cast<std::size_t>(width) * 4U;
+            for (std::int32_t x = 0; x < width; ++x)
+            {
+                bgra[to] = rgb[from + 2U];
+                bgra[to + 1U] = rgb[from + 1U];
+                bgra[to + 2U] = rgb[from];
+                bgra[to + 3U] = 255;
+                from += 3U;
+                to += 4U;
+            }
+        }
+        return bgra;
+    }
+
+    bool AndroidHunterShot::InMatch() noexcept
+    {
+        MainActivity* activity = MainActivity::Instance();
+        return activity != nullptr && activity->InMatch();
+    }
+}

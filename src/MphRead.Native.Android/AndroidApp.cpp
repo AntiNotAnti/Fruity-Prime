@@ -1,14 +1,18 @@
 #include "AndroidApp.hpp"
 
 #include "../MphRead.Native/GameState.hpp"
+#include "../MphRead.Native/Mods/CrashReport.hpp"
 #include "../MphRead.Native/Mods/DebugLog.hpp"
 #include "../MphRead.Native/Mods/GameSettings.hpp"
 #include "../MphRead.Native/Mods/InputSettings.hpp"
 #include "../MphRead.Native/Mods/ThumbnailGenerator.hpp"
+#include "../MphRead.Native/Mods/Launcher/Gui/StartScreen.hpp"
+#include "../MphRead.Native/Mods/Launcher/Gui/UiScaleHost.hpp"
 #include "../MphRead.Native/Mods/Launcher/Portable/GameFiles.hpp"
+#include "../MphRead.Native/Mods/Launcher/Portable/LaunchPlan.hpp"
 #include "../MphRead.Native/Mods/Launcher/Portable/LauncherPrefs.hpp"
 
-#include <cstddef>
+#include <exception>
 #include <memory>
 #include <string>
 #include <utility>
@@ -16,78 +20,10 @@
 
 namespace
 {
-    using MphRead::Mods::Launcher::Gui::HomeViewAdapter;
-    using MphRead::Mods::Launcher::Gui::HomeViewRoomEnumerator;
-    using MphRead::Mods::Launcher::Gui::HomeViewRoomList;
-
-    class AndroidAppRoomEnumerator final : public HomeViewRoomEnumerator
-    {
-    public:
-        explicit AndroidAppRoomEnumerator(
-            const std::vector<std::string>& rooms) noexcept
-            : _rooms(rooms)
-        {
-        }
-
-        [[nodiscard]] bool MoveNext() override
-        {
-            if (_next >= _rooms.size())
-            {
-                _current = nullptr;
-                return false;
-            }
-            _current = &_rooms[_next];
-            ++_next;
-            return true;
-        }
-
-        [[nodiscard]] std::string Current() const override
-        {
-            return *_current;
-        }
-
-        void Dispose() override
-        {
-        }
-
-    private:
-        const std::vector<std::string>& _rooms;
-        std::size_t _next = 0;
-        const std::string* _current = nullptr;
-    };
-
-    class AndroidAppRoomList final : public HomeViewRoomList
-    {
-    public:
-        explicit AndroidAppRoomList(std::vector<std::string> rooms)
-            : _rooms(std::move(rooms))
-        {
-        }
-
-        [[nodiscard]] std::shared_ptr<HomeViewRoomEnumerator>
-            GetEnumerator() const override
-        {
-            return std::make_shared<AndroidAppRoomEnumerator>(_rooms);
-        }
-
-    private:
-        std::vector<std::string> _rooms;
-    };
-
-    struct AndroidAppDoneTarget final
-    {
-        // HomeView stores a reference to its adapter. The managed HomeView owns
-        // its Avalonia control state intrinsically; retaining the adapter here
-        // gives the native peer the same lifetime without adding policy.
-        std::shared_ptr<HomeViewAdapter> Adapter{};
-    };
-
     void OnHomeDone(
-        void* target,
-        void* sender,
+        MphRead::Mods::Launcher::Gui::StartScreen& sender,
         MphRead::Mods::Launcher::LaunchPlan plan)
     {
-        (void)target;
         (void)sender;
         MphRead::Droid::AndroidAppOwner& owner =
             MphRead::Droid::GetAndroidAppOwner();
@@ -98,14 +34,23 @@ namespace
         }
         owner.StartMatchIfMainActivityPresent(plan);
     }
+
+    void OnHomeMatchRequested(
+        MphRead::Mods::Launcher::Gui::StartScreen& sender,
+        MphRead::Mods::Launcher::LaunchPlan plan)
+    {
+        (void)sender;
+        MphRead::Droid::GetAndroidAppOwner()
+            .StartMatchIfMainActivityPresent(plan);
+    }
 }
 
 namespace MphRead::Droid
 {
-    std::shared_ptr<MphRead::Mods::Launcher::Gui::HomeView>
+    std::shared_ptr<MphRead::Mods::Launcher::Gui::StartScreen>
         AndroidApp::_home{};
 
-    std::shared_ptr<MphRead::Mods::Launcher::Gui::HomeView>
+    std::shared_ptr<MphRead::Mods::Launcher::Gui::StartScreen>
         AndroidApp::Home() noexcept
     {
         return _home;
@@ -113,7 +58,15 @@ namespace MphRead::Droid
 
     void AndroidApp::Initialize()
     {
+        MphRead::Mods::CrashReport::Install();
+
         AndroidAppOwner& owner = GetAndroidAppOwner();
+        owner.AddUnhandledExceptionRaiser(
+            *this,
+            [](std::exception_ptr exception)
+            {
+                MphRead::Mods::CrashReport::Report(exception, "android");
+            });
         owner.AddFluentTheme(*this);
         owner.SetRequestedThemeVariantDark(*this);
         owner.BaseInitialize(*this);
@@ -122,30 +75,42 @@ namespace MphRead::Droid
     void AndroidApp::OnFrameworkInitializationCompleted()
     {
         AndroidAppOwner& owner = GetAndroidAppOwner();
-        AndroidSingleViewLifetime single =
-            owner.SingleViewApplicationLifetime(*this);
-        if (single)
+        AndroidActivityLifetime activity =
+            owner.ActivityApplicationLifetime(*this);
+        if (activity)
         {
-            std::shared_ptr<MphRead::Mods::Launcher::Gui::HomeViewAdapter>
-                adapter;
-            std::shared_ptr<MphRead::Mods::Launcher::Gui::HomeView> home =
-                BuildHome(owner, adapter);
-
-            // C#: single.MainView = Home = BuildHome();
-            // Home is assigned before the framework MainView setter runs,
-            // including when that setter subsequently throws.
-            _home = home;
-            owner.SetSingleViewMainView(single, *home, *adapter);
+            owner.SetActivityMainViewFactory(
+                activity,
+                []() -> Av::Controls::ControlPtr
+                {
+                    // Avalonia invokes this from MainActivity.OnCreate, after
+                    // the Activity-only services used by BuildHome exist.
+                    _home = BuildHome();
+                    return std::make_shared<
+                        MphRead::Mods::Launcher::Gui::UiScaleHost>(_home);
+                });
+        }
+        else
+        {
+            AndroidSingleViewLifetime single =
+                owner.SingleViewApplicationLifetime(*this);
+            if (single)
+            {
+                _home = BuildHome();
+                owner.SetSingleViewMainView(
+                    single,
+                    std::make_shared<
+                        MphRead::Mods::Launcher::Gui::UiScaleHost>(_home));
+            }
         }
         owner.BaseOnFrameworkInitializationCompleted(*this);
     }
 
-    std::shared_ptr<MphRead::Mods::Launcher::Gui::HomeView>
-        AndroidApp::BuildHome(
-            AndroidAppOwner& owner,
-            std::shared_ptr<
-                MphRead::Mods::Launcher::Gui::HomeViewAdapter>& adapter)
+    std::shared_ptr<MphRead::Mods::Launcher::Gui::StartScreen>
+        AndroidApp::BuildHome()
     {
+        using MphRead::Mods::Launcher::Gui::StartScreen;
+
         MphRead::Mods::Launcher::LauncherPrefs::Load();
         MphRead::Mods::InputSettings::Load();
         MphRead::Mods::DebugLog::Attach();
@@ -161,20 +126,9 @@ namespace MphRead::Droid
             rooms = MphRead::Mods::ThumbnailGenerator::MultiplayerRooms();
         }
 
-        std::shared_ptr<const
-            MphRead::Mods::Launcher::Gui::HomeViewRoomList> roomList =
-            std::make_shared<AndroidAppRoomList>(std::move(rooms));
-
-        adapter = owner.CreateHomeViewAdapter();
-        auto home = std::make_shared<
-            MphRead::Mods::Launcher::Gui::HomeView>(
-                *adapter, settings, roomList);
-
-        auto target = std::make_shared<AndroidAppDoneTarget>();
-        target->Adapter = adapter;
-        home->AddDone(
-            MphRead::Mods::Launcher::Gui::HomeViewEventHandler(
-                target, &OnHomeDone));
+        std::shared_ptr<StartScreen> home = StartScreen::Create(settings, rooms);
+        home->Done += &OnHomeDone;
+        home->MatchRequested += &OnHomeMatchRequested;
         return home;
     }
 }

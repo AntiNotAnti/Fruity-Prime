@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- The server list is UDP to the directory and to each server, so the app
-     needs the network. Nothing else is asked for: this build has no files to
-     read off the device and nothing to write outside its own data directory. -->
+     needs the network. Gamepad haptics use the controller's own vibrator; the
+     app reads no files off-device and writes nothing outside its data folder. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+  <!-- Native gamepad haptics call the vibrator attached to the controller. -->
+  <uses-permission android:name="android.permission.VIBRATE" />
   <!-- The front screen fetches the release APK from GitHub and hands it to
        Android's own installer, so a player never has to find a browser, a
        download and a file manager to take an update (ApkInstaller.cs). This

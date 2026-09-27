@@ -2,11 +2,15 @@
 
 #include "AndroidMatch.hpp"
 #include "GamepadBridge.hpp"
+#include "AndroidUiOverlay.hpp"
+#include "AndroidUiSurface.hpp"
+#include "MainActivity.hpp"
 #include "TouchControls.hpp"
 
 #include "../MphRead.Native/Entities/Players/PlayerEntity.hpp"
 #include "../MphRead.Native/GameState.hpp"
 #include "../MphRead.Native/Mods/Chat/ChatBox.hpp"
+#include "../MphRead.Native/Mods/DebugLog.hpp"
 #include "../MphRead.Native/Mods/EndScreen.hpp"
 #include "../MphRead.Native/Mods/Input/GamepadInput.hpp"
 #include "../MphRead.Native/Mods/InputSettings.hpp"
@@ -15,6 +19,7 @@
 #include "../MphRead.Native/Mods/Render/EsBindings.hpp"
 #include "../MphRead.Native/Mods/Render/FrameTiming.hpp"
 #include "../MphRead.Native/Mods/Render/GlEs.hpp"
+#include "../MphRead.Native/Mods/Render/HunterShot.hpp"
 #include "../MphRead.Native/Mods/SpectatorMode.hpp"
 #include "../MphRead.Native/Renderer.hpp"
 #include "../MphRead.Native/Scene.hpp"
@@ -28,6 +33,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <bit>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -436,6 +442,13 @@ namespace
     std::string ExceptionMessage(const std::exception& ex)
     {
         return ex.what() == nullptr ? std::string{} : std::string(ex.what());
+    }
+
+    void IncrementUnchecked(std::int32_t& value) noexcept
+    {
+        value = std::bit_cast<std::int32_t>(
+            std::bit_cast<std::uint32_t>(value) + 1u
+        );
     }
 
     bool EventBool(JNIEnv* env, jobject event, const char* methodName)
@@ -979,23 +992,14 @@ namespace MphRead::Droid
                 {
                     std::cout
                         << "[android] the render thread stopped: "
-                        << ex.what()
+                        << GetMainActivityOwner().ExceptionToString(
+                            std::current_exception()
+                        )
                         << std::endl;
                     if (!_ended)
                     {
                         _ended = true;
                         _onError(ExceptionMessage(ex));
-                    }
-                }
-                catch (...)
-                {
-                    std::cout
-                        << "[android] the render thread stopped: unknown exception"
-                        << std::endl;
-                    if (!_ended)
-                    {
-                        _ended = true;
-                        _onError("Unknown exception");
                     }
                 }
             }
@@ -1345,16 +1349,6 @@ namespace MphRead::Droid
                     << ex.what()
                     << std::endl;
             }
-            catch (...)
-            {
-                if (nativeWindow != nullptr)
-                {
-                    ANativeWindow_release(nativeWindow);
-                }
-                std::cout
-                    << "[android] releasing the surface failed: Unknown exception"
-                    << std::endl;
-            }
         }
 
         void DestroyContext() noexcept
@@ -1383,12 +1377,6 @@ namespace MphRead::Droid
                 std::cout
                     << "[android] tearing the context down failed: "
                     << ex.what()
-                    << std::endl;
-            }
-            catch (...)
-            {
-                std::cout
-                    << "[android] tearing the context down failed: Unknown exception"
                     << std::endl;
             }
 
@@ -1440,30 +1428,23 @@ namespace MphRead::Droid
                     std::memory_order_release
                 );
                 _scene->OnLoad();
+                MphRead::Mods::Network::NetSession::MarkMatchLoaded();
             }
             catch (const std::exception& ex)
             {
                 std::cout
                     << "[android] the match could not start: "
-                    << ex.what()
+                    << GetMainActivityOwner().ExceptionToString(
+                        std::current_exception()
+                    )
                     << std::endl;
+                MphRead::Mods::Network::NetSession::ReportMatchLoadFailed(
+                    ExceptionMessage(ex)
+                );
                 _publishedScene.store(nullptr, std::memory_order_release);
                 _scene.reset();
                 _ended = true;
                 _onError(ExceptionMessage(ex));
-                std::lock_guard<std::mutex> guard(_lock);
-                _stopping = true;
-                return;
-            }
-            catch (...)
-            {
-                std::cout
-                    << "[android] the match could not start: unknown exception"
-                    << std::endl;
-                _publishedScene.store(nullptr, std::memory_order_release);
-                _scene.reset();
-                _ended = true;
-                _onError("Unknown exception");
                 std::lock_guard<std::mutex> guard(_lock);
                 _stopping = true;
                 return;
@@ -1489,6 +1470,18 @@ namespace MphRead::Droid
             {
                 ApplyInput();
                 scene.OnSimulationFrame();
+                if (MphRead::Mods::Network::NetSession::Refused()
+                    || MphRead::Mods::Network::NetSession::SessionTimedOut())
+                {
+                    End(scene);
+                    return false;
+                }
+                if (MphRead::Mods::Network::NetSession::PersistentLobby()
+                    && MphRead::Mods::Network::NetSession::IsInLobby())
+                {
+                    End(scene, true);
+                    return false;
+                }
             }
 
             RequestFrameRate();
@@ -1499,6 +1492,7 @@ namespace MphRead::Droid
                 return false;
             }
             scene.AfterRenderFrame();
+            DrawUi(scene);
 
             if (_displayAssigned
                 && _display != EGL_NO_DISPLAY
@@ -1516,6 +1510,96 @@ namespace MphRead::Droid
             }
 
             return true;
+        }
+
+        void SayUi()
+        {
+            if (!MphRead::Mods::EndScreen::PanelUp())
+            {
+                return;
+            }
+
+            const std::int64_t now = std::chrono::duration_cast<
+                std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch()
+                ).count();
+            if (_uiSaid == 0)
+            {
+                _uiSaid = now;
+                return;
+            }
+            if (now - _uiSaid < 1000)
+            {
+                return;
+            }
+
+            _uiSaid = now;
+            std::ostringstream message;
+            message
+                << "end panel drawn " << _uiDrawn
+                << ", skipped " << _uiSkipped
+                << ", hole " << _uiHole;
+            MphRead::Mods::DebugLog::Line("ui", message.str());
+            _uiDrawn = 0;
+            _uiSkipped = 0;
+            _uiHole = 0;
+        }
+
+        void DrawUi(MphRead::Scene& scene)
+        {
+            std::shared_ptr<AndroidUiSurface> surface =
+                AndroidUiSurface::Current();
+            SayUi();
+            if (!surface || !surface->Visible())
+            {
+                IncrementUnchecked(_uiSkipped);
+                AndroidUiOverlay::Visible(false);
+                MphRead::Scene::LauncherPreview = false;
+                return;
+            }
+
+            IncrementUnchecked(_uiDrawn);
+            if (MphRead::Mods::Render::HunterShot::HoleWanted)
+            {
+                IncrementUnchecked(_uiHole);
+            }
+
+            std::int32_t width = 0;
+            std::int32_t height = 0;
+            if (surface->TakeFrame(_uiPixels, _uiVersion, width, height))
+            {
+                AndroidUiOverlay::Upload(_uiPixels, width, height);
+            }
+            AndroidUiOverlay::Visible(true);
+            AndroidUiOverlay::Draw(_size.X, _size.Y);
+
+            if (MphRead::Mods::Render::HunterShot::HoleWanted)
+            {
+                MphRead::Scene::LauncherPreview = true;
+                MphRead::Scene::LauncherHunter =
+                    MphRead::Mods::Render::HunterShot::HoleHunter;
+                MphRead::Scene::LauncherSuit =
+                    MphRead::Mods::Render::HunterShot::HoleSuit;
+                MphRead::Scene::PreviewWanted(true);
+                MphRead::Scene::PreviewLeft(
+                    MphRead::Mods::Render::HunterShot::HoleLeft
+                );
+                MphRead::Scene::PreviewTop(
+                    MphRead::Mods::Render::HunterShot::HoleTop
+                );
+                MphRead::Scene::PreviewRight(
+                    MphRead::Mods::Render::HunterShot::HoleRight
+                );
+                MphRead::Scene::PreviewBottom(
+                    MphRead::Mods::Render::HunterShot::HoleBottom
+                );
+                (void)scene.ModDrawPreviewAlone(_size);
+            }
+            else
+            {
+                MphRead::Scene::LauncherPreview = false;
+                MphRead::Scene::PreviewWanted(false);
+            }
         }
 
         void RequestFrameRate()
@@ -1572,17 +1656,9 @@ namespace MphRead::Droid
                     << ex.what()
                     << std::endl;
             }
-            catch (...)
-            {
-                std::cout
-                    << "[android] the display would not be asked for "
-                    << cap
-                    << " fps: Unknown exception"
-                    << std::endl;
-            }
         }
 
-        void End(MphRead::Scene& scene)
+        void End(MphRead::Scene& scene, bool keepSession = false)
         {
             _ended = true;
             scene.DoCleanup();
@@ -1597,17 +1673,32 @@ namespace MphRead::Droid
             {
                 std::cout
                     << "[android] the save could not be written: "
-                    << ex.what()
-                    << std::endl;
-            }
-            catch (...)
-            {
-                std::cout
-                    << "[android] the save could not be written: Unknown exception"
+                    << GetMainActivityOwner().ExceptionToString(
+                        std::current_exception()
+                    )
                     << std::endl;
             }
 
-            _onEnd();
+            if (keepSession)
+            {
+                MainActivity* activity = MainActivity::Instance();
+                if (activity != nullptr)
+                {
+                    GetMainActivityOwner().RunOnUiThread(
+                        []()
+                        {
+                            if (MainActivity* current = MainActivity::Instance())
+                            {
+                                current->EndMatchToLobby();
+                            }
+                        }
+                    );
+                }
+            }
+            else
+            {
+                _onEnd();
+            }
         }
 
         [[nodiscard]] double ClockSeconds() const noexcept
@@ -1782,6 +1873,15 @@ namespace MphRead::Droid
                 MphRead::Mods::Chat::ChatBox::Available()
                 && MphRead::Mods::Network::NetSession::Active()
             );
+
+            if (MphRead::Mods::Chat::ChatBox::Composing()
+                && MphRead::Mods::Input::GamepadInput::TakePress(
+                    MphRead::Mods::Input::GamepadButtons::B
+                    | MphRead::Mods::Input::GamepadButtons::Start
+                ))
+            {
+                MphRead::Mods::Chat::ChatBox::Cancel();
+            }
 
             if (MphRead::Mods::Input::GamepadInput::TakeMenuPress())
             {
@@ -2035,6 +2135,13 @@ namespace MphRead::Droid
         double _lastFrameStart = 0.0;
         std::int32_t _requestedFrameRate = -1;
 
+        std::vector<std::uint8_t> _uiPixels;
+        std::int32_t _uiVersion = 0;
+        std::int32_t _uiDrawn = 0;
+        std::int32_t _uiSkipped = 0;
+        std::int32_t _uiHole = 0;
+        std::int64_t _uiSaid = 0;
+
         std::unique_ptr<MphRead::Scene> _scene;
         std::atomic<MphRead::Scene*> _publishedScene{nullptr};
     };
@@ -2042,7 +2149,7 @@ namespace MphRead::Droid
     GameView::GameView(
         JNIEnv* env,
         jobject view,
-        TouchControls* controls,
+        TouchControls& controls,
         std::shared_ptr<AndroidInput> input,
         Build build,
         Action onEnd,

@@ -16,8 +16,8 @@ namespace MphRead::Droid
     class AndroidUpdateInstaller final : public MphRead::Mods::Update::IUpdateInstaller
     {
     public:
-        AndroidUpdateInstaller(JNIEnv* env, jobject activity);
-        ~AndroidUpdateInstaller() override;
+        AndroidUpdateInstaller() = default;
+        ~AndroidUpdateInstaller() override = default;
 
         AndroidUpdateInstaller(const AndroidUpdateInstaller&) = delete;
         AndroidUpdateInstaller& operator=(const AndroidUpdateInstaller&) = delete;
@@ -37,8 +37,6 @@ namespace MphRead::Droid
         void Finished(std::function<void(bool, std::string)> value) override;
 
     private:
-        JavaVM* _javaVm = nullptr;
-        jobject _activity = nullptr;
         std::string _staged{};
     };
 }

@@ -4,13 +4,37 @@
 #error "AndroidApp is only valid for the Android native target."
 #endif
 
-#include "../MphRead.Native/Mods/Launcher/Gui/HomeView.hpp"
+#include "../MphRead.Native/NativeRuntime/Avalonia/Avalonia.hpp"
 
+#include <exception>
+#include <functional>
 #include <memory>
+
+namespace MphRead::Mods::Launcher
+{
+    class LaunchPlan;
+}
+
+namespace MphRead::Mods::Launcher::Gui
+{
+    class StartScreen;
+}
 
 namespace MphRead::Droid
 {
+    namespace Av = ::MphRead::NativeRuntime::Avalonia;
+
     class AndroidApp;
+
+    struct AndroidActivityLifetime final
+    {
+        std::shared_ptr<void> Native{};
+
+        [[nodiscard]] explicit operator bool() const noexcept
+        {
+            return Native != nullptr;
+        }
+    };
 
     struct AndroidSingleViewLifetime final
     {
@@ -22,48 +46,46 @@ namespace MphRead::Droid
         }
     };
 
-    // AndroidApp.cs is an Avalonia Application subclass owned by
-    // AvaloniaMainActivity<AndroidApp>. The native pair owns the exact
-    // application policy; the actual Avalonia/Application/MainActivity owner
-    // remains an external platform seam rather than a substitute lifecycle.
+    using AndroidMainViewFactory =
+        std::function<Av::Controls::ControlPtr()>;
+    using AndroidUnhandledExceptionHandler =
+        std::function<void(std::exception_ptr)>;
+
+    // The owner supplies Android/Avalonia lifecycle calls. AndroidApp keeps
+    // the branch order, deferred Home creation and view wrapping from the C#
+    // application itself.
     class AndroidAppOwner
     {
     public:
         virtual ~AndroidAppOwner() = default;
 
-        // AndroidApp.Initialize(), in source order.
+        virtual void AddUnhandledExceptionRaiser(
+            AndroidApp& application,
+            AndroidUnhandledExceptionHandler handler) = 0;
         virtual void AddFluentTheme(AndroidApp& application) = 0;
         virtual void SetRequestedThemeVariantDark(AndroidApp& application) = 0;
         virtual void BaseInitialize(AndroidApp& application) = 0;
 
-        // AndroidApp.OnFrameworkInitializationCompleted(). The returned token
-        // is the exact pattern-matched ISingleViewApplicationLifetime instance
-        // (or empty when ApplicationLifetime is another type/null).
+        [[nodiscard]] virtual AndroidActivityLifetime
+            ActivityApplicationLifetime(AndroidApp& application) = 0;
+        virtual void SetActivityMainViewFactory(
+            const AndroidActivityLifetime& lifetime,
+            AndroidMainViewFactory factory) = 0;
+
         [[nodiscard]] virtual AndroidSingleViewLifetime
             SingleViewApplicationLifetime(AndroidApp& application) = 0;
-
-        // HomeView's unavoidable Avalonia control binding. The adapter must be
-        // non-null and represents the native host for the same HomeView object.
-        [[nodiscard]] virtual std::shared_ptr<
-            MphRead::Mods::Launcher::Gui::HomeViewAdapter>
-            CreateHomeViewAdapter() = 0;
-
         virtual void SetSingleViewMainView(
             const AndroidSingleViewLifetime& lifetime,
-            MphRead::Mods::Launcher::Gui::HomeView& home,
-            MphRead::Mods::Launcher::Gui::HomeViewAdapter& adapter) = 0;
+            Av::Controls::ControlPtr mainView) = 0;
 
         virtual void BaseOnFrameworkInitializationCompleted(
             AndroidApp& application) = 0;
 
-        // Exact MainActivity.Instance?. calls used by the Done handler.
         virtual void FinishMainActivityIfPresent() = 0;
         virtual void StartMatchIfMainActivityPresent(
             const MphRead::Mods::Launcher::LaunchPlan& plan) = 0;
     };
 
-    // Supplied by the real Avalonia/Android application owner. This pair does
-    // not invent an Android Activity/Application lifecycle.
     [[nodiscard]] AndroidAppOwner& GetAndroidAppOwner() noexcept;
 
     class AndroidApp final
@@ -78,19 +100,16 @@ namespace MphRead::Droid
         AndroidApp& operator=(AndroidApp&&) = delete;
 
         [[nodiscard]] static std::shared_ptr<
-            MphRead::Mods::Launcher::Gui::HomeView> Home() noexcept;
+            MphRead::Mods::Launcher::Gui::StartScreen> Home() noexcept;
 
         void Initialize();
         void OnFrameworkInitializationCompleted();
 
     private:
         [[nodiscard]] static std::shared_ptr<
-            MphRead::Mods::Launcher::Gui::HomeView> BuildHome(
-                AndroidAppOwner& owner,
-                std::shared_ptr<
-                    MphRead::Mods::Launcher::Gui::HomeViewAdapter>& adapter);
+            MphRead::Mods::Launcher::Gui::StartScreen> BuildHome();
 
         static std::shared_ptr<
-            MphRead::Mods::Launcher::Gui::HomeView> _home;
+            MphRead::Mods::Launcher::Gui::StartScreen> _home;
     };
 }

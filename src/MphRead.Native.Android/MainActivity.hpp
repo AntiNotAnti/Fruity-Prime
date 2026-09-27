@@ -11,10 +11,12 @@
 
 #include "../MphRead.Native/Mods/Launcher/Portable/LaunchPlan.hpp"
 #include "../MphRead.Native/Mods/ThumbnailHost.hpp"
+#include "../MphRead.Native/NativeRuntime/System/AtomicSharedPtr.hpp"
 
 #include <atomic>
 #include <cstdint>
 #include <exception>
+#include <future>
 #include <functional>
 #include <jni.h>
 #include <memory>
@@ -23,9 +25,16 @@
 #include <string_view>
 #include <vector>
 
+namespace MphRead::Mods::Launcher::Gui
+{
+    class EndPanelView;
+}
+
 namespace MphRead::Droid
 {
     class MainActivity;
+    class AndroidWebLink;
+    class AndroidUpdateInstaller;
 
     struct MainActivityAppBuilderRef final
     {
@@ -79,18 +88,22 @@ namespace MphRead::Droid
         // AndroidApp's unavoidable Avalonia owner. MainActivity.cpp supplies
         // AndroidAppOwner itself so Finish/StartMatch still use the exact
         // MainActivity.Instance lookup from AndroidApp.cs.
+        virtual void AddUnhandledExceptionRaiser(
+            AndroidApp& application,
+            AndroidUnhandledExceptionHandler handler) = 0;
         virtual void AddFluentTheme(AndroidApp& application) = 0;
         virtual void SetRequestedThemeVariantDark(AndroidApp& application) = 0;
         virtual void BaseInitialize(AndroidApp& application) = 0;
+        [[nodiscard]] virtual AndroidActivityLifetime
+            ActivityApplicationLifetime(AndroidApp& application) = 0;
+        virtual void SetActivityMainViewFactory(
+            const AndroidActivityLifetime& lifetime,
+            AndroidMainViewFactory factory) = 0;
         [[nodiscard]] virtual AndroidSingleViewLifetime
             SingleViewApplicationLifetime(AndroidApp& application) = 0;
-        [[nodiscard]] virtual std::shared_ptr<
-            MphRead::Mods::Launcher::Gui::HomeViewAdapter>
-            CreateHomeViewAdapter() = 0;
         virtual void SetSingleViewMainView(
             const AndroidSingleViewLifetime& lifetime,
-            MphRead::Mods::Launcher::Gui::HomeView& home,
-            MphRead::Mods::Launcher::Gui::HomeViewAdapter& adapter) = 0;
+            Av::Controls::ControlPtr mainView) = 0;
         virtual void BaseOnFrameworkInitializationCompleted(
             AndroidApp& application) = 0;
 
@@ -130,24 +143,18 @@ namespace MphRead::Droid
             std::int32_t value) = 0;
         [[nodiscard]] virtual std::string FormatInt64Current(
             std::int64_t value) = 0;
+        [[nodiscard]] virtual std::string FormatDoubleFixed1Current(
+            double value) = 0;
         [[noreturn]] virtual void ThrowNullReference() = 0;
 
         // Task/dispatcher mechanics. RunBackgroundInt must preserve Task.Run
-        // result/exception completion and keep captured opaque references alive.
+        // result/exception completion and keep captured values alive.
         virtual void RunBackground(Action action) = 0;
         virtual void RunOnUiThread(Action action) = 0;
-        [[nodiscard]] virtual MphRead::Mods::ThumbnailTaskIntRef
-            CompletedIntTask(std::int32_t result) = 0;
-        [[nodiscard]] virtual MphRead::Mods::ThumbnailTaskIntRef
-            RunBackgroundInt(std::function<std::int32_t()> action) = 0;
-        [[nodiscard]] virtual std::size_t ThumbnailRoomsCount(
-            MphRead::Mods::ThumbnailRoomsRef rooms) = 0;
-        [[nodiscard]] virtual std::string ThumbnailRoomAt(
-            MphRead::Mods::ThumbnailRoomsRef rooms,
-            std::size_t index) = 0;
-        virtual void ThumbnailReport(
-            MphRead::Mods::ThumbnailReportRef report,
-            std::string line) = 0;
+        [[nodiscard]] virtual std::shared_future<int>
+            CompletedIntTask(int result) = 0;
+        [[nodiscard]] virtual std::shared_future<int>
+            RunBackgroundInt(std::function<int()> action) = 0;
 
         // PreviewRun is a separate migration owner. This is a call-through
         // only; it must invoke PreviewRun.Render and must not implement preview
@@ -156,7 +163,8 @@ namespace MphRead::Droid
             const std::vector<std::string>& rooms,
             std::int32_t width,
             std::int32_t height,
-            const std::function<void(const std::string&)>& report) = 0;
+            const std::function<void(const std::string&)>& report,
+            const std::function<bool()>& cancelled) = 0;
 
         // Base Activity lifecycle/dispatch callbacks.
         virtual void BaseOnCreate(MainActivity& activity, jobject savedState) = 0;
@@ -169,6 +177,8 @@ namespace MphRead::Droid
         virtual void BaseOnDestroy(MainActivity& activity) = 0;
         virtual void BaseOnBackPressed(MainActivity& activity) = 0;
         [[nodiscard]] virtual bool BaseDispatchKeyEvent(
+            MainActivity& activity, jobject event) = 0;
+        [[nodiscard]] virtual bool BaseDispatchTouchEvent(
             MainActivity& activity, jobject event) = 0;
         [[nodiscard]] virtual bool BaseDispatchGenericMotionEvent(
             MainActivity& activity, jobject event) = 0;
@@ -270,6 +280,8 @@ namespace MphRead::Droid
             MainActivity& activity) = 0;
         [[nodiscard]] virtual std::int32_t DefaultDisplayRotation(
             MainActivity& activity) = 0;
+        [[nodiscard]] virtual double DisplayDensity(
+            MainActivity& activity) = 0;
         [[nodiscard]] virtual MainActivityObjectRef DisplayManager(
             MainActivity& activity) = 0;
         virtual void RegisterDisplayListener(
@@ -278,10 +290,22 @@ namespace MphRead::Droid
         virtual void UnregisterDisplayListener(
             const MainActivityObjectRef& manager,
             MainActivity& activity) = 0;
+        // Register InputManager.IInputDeviceListener on Handler(Looper.MainLooper)
+        // and route add/change/remove callbacks to the matching MainActivity methods.
+        [[nodiscard]] virtual MainActivityObjectRef InputManager(
+            MainActivity& activity) = 0;
+        virtual void RegisterInputDeviceListener(
+            const MainActivityObjectRef& manager,
+            MainActivity& activity) = 0;
+        virtual void UnregisterInputDeviceListener(
+            const MainActivityObjectRef& manager,
+            MainActivity& activity) = 0;
 
         [[nodiscard]] virtual std::int32_t KeyEventAction(
             jobject event) = 0;
         [[nodiscard]] virtual std::int32_t KeyEventKeyCode(
+            jobject event) = 0;
+        [[nodiscard]] virtual std::int32_t MotionEventActionMasked(
             jobject event) = 0;
 
         [[nodiscard]] virtual MainActivityObjectRef WindowInsetsController(
@@ -295,11 +319,6 @@ namespace MphRead::Droid
         virtual void SetLegacySystemUiVisibility(
             const MainActivityObjectRef& window, bool immersive) = 0;
 
-        // Captured AndroidThumbnailHost instances must resolve the Activity
-        // object they actually captured, not whichever static Instance happens
-        // to be current after a recreation.
-        [[nodiscard]] virtual MainActivity* ResolveMainActivityPeer(
-            JNIEnv* env, jobject activity) = 0;
     };
 
     // Supplied by the real Avalonia/Android host. No Java/Kotlin Activity,
@@ -319,6 +338,7 @@ namespace MphRead::Droid
 
         [[nodiscard]] static MainActivity* Instance() noexcept;
         [[nodiscard]] bool InMatch() const noexcept;
+        [[nodiscard]] double DisplayDensity() const;
 
         [[nodiscard]] MainActivityAppBuilderRef CustomizeAppBuilder(
             MainActivityAppBuilderRef builder);
@@ -332,22 +352,30 @@ namespace MphRead::Droid
         void OnBackPressed();
 
         [[nodiscard]] bool DispatchKeyEvent(jobject event);
+        [[nodiscard]] bool DispatchTouchEvent(jobject event);
         [[nodiscard]] bool DispatchGenericMotionEvent(jobject event);
 
         void OnDisplayAdded(std::int32_t displayId);
         void OnDisplayRemoved(std::int32_t displayId);
         void OnDisplayChanged(std::int32_t displayId);
+        void OnInputDeviceAdded(std::int32_t deviceId);
+        void OnInputDeviceChanged(std::int32_t deviceId);
+        void OnInputDeviceRemoved(std::int32_t deviceId);
 
-        [[nodiscard]] MphRead::Mods::ThumbnailTaskIntRef RenderPreviews(
-            MphRead::Mods::ThumbnailRoomsRef rooms,
-            MphRead::Mods::ThumbnailReportRef report);
+        [[nodiscard]] std::shared_future<int> RenderPreviews(
+            std::vector<std::string> rooms,
+            std::function<void(const std::string&)> report);
 
         void StartMatch(const MphRead::Mods::Launcher::LaunchPlan& plan);
         void TogglePauseMenu();
         void EndMatch();
+        void EndMatchToLobby();
         void Finish();
 
     private:
+        friend class AndroidWebLink;
+        friend class AndroidUpdateInstaller;
+
         struct PendingMatch final
         {
             MphRead::Mods::Launcher::LaunchPlan Plan;
@@ -388,7 +416,10 @@ namespace MphRead::Droid
         void MatchLoaded();
         void HideNotice();
         void FailMatch(std::string message);
+        void TickEndPanel();
+        void HideEndPanel();
         void ClosePauseMenu();
+        void EndMatchCore(bool keepSession);
         void GoImmersive(bool immersive);
 
         [[nodiscard]] const std::string& RequireRoomKey(
@@ -403,17 +434,20 @@ namespace MphRead::Droid
 
         MainActivityObjectRef _content{};
         MainActivityObjectRef _launcherView{};
-        std::atomic<std::shared_ptr<void>> _gameView{};
+        NativeRuntime::AtomicSharedPtr<void> _gameView{};
         MainActivityObjectRef _overlay{};
         MainActivityObjectRef _notice{};
+        std::shared_ptr<MphRead::Mods::Launcher::Gui::EndPanelView> _endPanel{};
         MainActivityObjectRef _displays{};
+        MainActivityObjectRef _inputDevices{};
 
         std::atomic<bool> _renderingPreviews{false};
         std::atomic<bool> _renderingHere{false};
+        std::atomic<bool> _stopPreviews{false};
 
         TouchControls _controls{};
         MainActivityOrientation _orientationBefore =
-            MainActivityOrientation::Unspecified;
+            MainActivityOrientation::SensorLandscape;
 
         std::int32_t _lastRotation = -1;
 
@@ -423,5 +457,7 @@ namespace MphRead::Droid
         std::int64_t _sizeSettledAt = 0;
 
         bool _pauseMenuOpen = false;
+        bool _endPanelTickScheduled = false;
+        bool _endPanelWanted = false;
     };
 }

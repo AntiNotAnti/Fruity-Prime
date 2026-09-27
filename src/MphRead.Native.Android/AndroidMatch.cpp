@@ -49,6 +49,7 @@ namespace MphRead::Droid
     {
         using MphRead::Mods::Launcher::GameFiles;
         using MphRead::Mods::Launcher::LaunchKind;
+        using MphRead::Mods::Network::NetLaunch;
         using MphRead::Mods::Network::NetSession;
 
         GameFiles::ApplyPaths();
@@ -75,6 +76,7 @@ namespace MphRead::Droid
 
         if (NetSession::Active())
         {
+            NetLaunch::DisableCheatsForMatch();
             BuildNetworkedMatch(*scene, plan);
         }
         else
@@ -144,7 +146,7 @@ namespace MphRead::Droid
         scene->AddRoom(
             room->RoomKey,
             room->Mode,
-            NetLaunch::RoomPlayerCount);
+            NetLaunch::RoomPlayerCount());
 
         std::cout
             << "[match] demo, "
@@ -242,7 +244,7 @@ namespace MphRead::Droid
         scene.AddRoom(
             roomKey.value(),
             mode,
-            NetLaunch::RoomPlayerCount);
+            NetLaunch::RoomPlayerCount());
     }
 
     void AndroidMatch::AddLocalPlayers(
@@ -278,7 +280,7 @@ namespace MphRead::Droid
         const std::int32_t level = std::clamp(
             plan.BotLevel(),
             0,
-            2);
+            3);
 
         const auto& players = PlayerEntity::Players();
         for (std::size_t i = 0; i < players.size(); ++i)

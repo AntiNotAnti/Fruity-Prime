@@ -15,45 +15,22 @@
 
 namespace MphRead::Droid
 {
-    // The C# owner is MainActivity.RenderPreviews. MainActivity has not yet
-    // been ported into the native Android tree, so this is the narrow owner
-    // seam needed to preserve the managed-style rooms/report/task identities
-    // already used by IThumbnailHost without inventing a second policy path.
-    class AndroidThumbnailHostOwner
-    {
-    public:
-        virtual ~AndroidThumbnailHostOwner() = default;
-
-        [[nodiscard]] virtual MphRead::Mods::ThumbnailTaskIntRef RenderPreviews(
-            JNIEnv* env,
-            jobject activity,
-            MphRead::Mods::ThumbnailRoomsRef rooms,
-            MphRead::Mods::ThumbnailReportRef report
-        ) = 0;
-    };
-
-    [[nodiscard]] AndroidThumbnailHostOwner&
-        GetAndroidThumbnailHostOwner() noexcept;
-
     class AndroidThumbnailHost final : public MphRead::Mods::IThumbnailHost
     {
     public:
-        AndroidThumbnailHost(JNIEnv* env, jobject activity);
-        ~AndroidThumbnailHost() override;
+        AndroidThumbnailHost() = default;
+        ~AndroidThumbnailHost() override = default;
 
         AndroidThumbnailHost(const AndroidThumbnailHost&) = delete;
         AndroidThumbnailHost& operator=(const AndroidThumbnailHost&) = delete;
         AndroidThumbnailHost(AndroidThumbnailHost&&) = delete;
         AndroidThumbnailHost& operator=(AndroidThumbnailHost&&) = delete;
 
-        [[nodiscard]] MphRead::Mods::ThumbnailTaskIntRef RenderAsync(
-            MphRead::Mods::ThumbnailRoomsRef rooms,
-            MphRead::Mods::ThumbnailReportRef report
+        [[nodiscard]] std::shared_future<int> RenderAsync(
+            std::vector<std::string> rooms,
+            std::function<void(const std::string&)> report
         ) override;
 
-    private:
-        JavaVM* _javaVm = nullptr;
-        jobject _activity = nullptr;
     };
 
     class PreviewWorkers final
