@@ -3571,6 +3571,10 @@ namespace MphRead
         {
             return;
         }
+        if (!SideScene())
+        {
+            Mods::Render::LauncherHunter::NoteGlUnloaded();
+        }
         for (const auto& [modelId, map] : _texPalMap)
         {
             (void)modelId;

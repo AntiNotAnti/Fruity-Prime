@@ -4308,6 +4308,10 @@ namespace MphRead
             {
                 return;
             }
+            if (!SideScene)
+            {
+                Mods.Render.LauncherHunter.NoteGlUnloaded();
+            }
             foreach (TextureMap map in _texPalMap.Values)
             {
                 foreach (KeyValuePair<int, (int BindingId, bool OnlyOpaque)> kvp in map)

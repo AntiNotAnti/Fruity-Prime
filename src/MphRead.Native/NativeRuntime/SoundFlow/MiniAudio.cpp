@@ -2,84 +2,35 @@
 // playback device with a master mixer, and a player that pulls float samples
 // from a RawDataProvider.
 //
-// The device here is OpenAL, which the program already links for its sound
-// effects. What SoundFlow is asked for in this program is exactly one thing --
-// keep pulling from the provider and play what comes back -- and that is what
-// this does; nothing of SoundFlow's wider API is reproduced.
+// The device is miniaudio's, as it is in the managed build (SoundFlow ships
+// miniaudio and plays through WASAPI on Windows). This used to be OpenAL,
+// because the program already links it for its sound effects -- which put the
+// music on a second OpenAL device of its own, the one audio path that differed
+// from the managed build. What SoundFlow is asked for in this program is
+// exactly one thing -- keep pulling from the provider and play what comes
+// back -- and that is what this does; nothing of SoundFlow's wider API is
+// reproduced.
 
 #include "../../Sound/Music.hpp"
 
+#define MA_NO_DECODING
+#define MA_NO_ENCODING
+#define MA_NO_GENERATION
+#define MA_NO_RESOURCE_MANAGER
+#define MA_NO_NODE_GRAPH
+#define MA_NO_ENGINE
+#define MINIAUDIO_IMPLEMENTATION
+#include "../../ThirdParty/miniaudio/miniaudio.h"
+
 #include <algorithm>
 #include <atomic>
-#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <memory>
 #include <mutex>
-#include <thread>
+#include <stdexcept>
+#include <string>
 #include <vector>
-
-#if defined(__APPLE__)
-#include <OpenAL/al.h>
-#include <OpenAL/alc.h>
-#else
-#include <AL/al.h>
-#include <AL/alc.h>
-#endif
-
-namespace
-{
-    // How much sound is kept queued ahead of the device.
-    constexpr std::int32_t BufferCount = 4;
-    constexpr std::int32_t FramesPerBuffer = 2048;
-
-    // One OpenAL context for the process, opened when the first device is.
-    class AlContext final
-    {
-    public:
-        static AlContext& Instance()
-        {
-            static AlContext instance;
-            return instance;
-        }
-
-        [[nodiscard]] bool Ready() const noexcept { return _context != nullptr; }
-
-    private:
-        AlContext()
-        {
-            _device = ::alcOpenDevice(nullptr);
-            if (_device == nullptr)
-            {
-                return;
-            }
-            _context = ::alcCreateContext(_device, nullptr);
-            if (_context != nullptr)
-            {
-                ::alcMakeContextCurrent(_context);
-            }
-        }
-
-        ~AlContext()
-        {
-            if (_context != nullptr)
-            {
-                ::alcMakeContextCurrent(nullptr);
-                ::alcDestroyContext(_context);
-            }
-            if (_device != nullptr)
-            {
-                ::alcCloseDevice(_device);
-            }
-        }
-
-        AlContext(const AlContext&) = delete;
-        AlContext& operator=(const AlContext&) = delete;
-
-        ALCdevice* _device = nullptr;
-        ALCcontext* _context = nullptr;
-    };
-}
 
 namespace SoundFlow::Components
 {
@@ -89,86 +40,8 @@ namespace SoundFlow::Components
         std::shared_ptr<Providers::RawDataProvider> Provider;
         std::atomic<Enums::PlaybackState> State{Enums::PlaybackState::Stopped};
         std::atomic<bool> Disposed{false};
-        std::thread Worker;
-        ALuint Source = 0;
-        ALuint Buffers[BufferCount]{};
-
-        void Run()
-        {
-            const std::int32_t channels = Format.Channels > 0 ? Format.Channels : 2;
-            const std::int32_t rate = Format.SampleRate > 0 ? Format.SampleRate : 48000;
-            std::vector<std::uint8_t> raw(
-                static_cast<std::size_t>(FramesPerBuffer) * channels * sizeof(float));
-            std::vector<std::int16_t> samples(
-                static_cast<std::size_t>(FramesPerBuffer) * channels);
-            // Buffers free to fill. A buffer is taken from here and given back
-            // only when OpenAL hands it back unqueued: picking one by counting
-            // (queued % BufferCount) chose a buffer that was still queued as
-            // soon as the oldest one finished, so alBufferData was refused and
-            // the same buffer went into the queue twice -- repeated and
-            // skipped stretches of music.
-            std::vector<ALuint> free(Buffers, Buffers + BufferCount);
-
-            while (!Disposed.load(std::memory_order_relaxed))
-            {
-                if (State.load(std::memory_order_relaxed) != Enums::PlaybackState::Playing)
-                {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-                    continue;
-                }
-
-                ALint processed = 0;
-                ::alGetSourcei(Source, AL_BUFFERS_PROCESSED, &processed);
-                while (processed-- > 0)
-                {
-                    ALuint done = 0;
-                    ::alSourceUnqueueBuffers(Source, 1, &done);
-                    if (done != 0)
-                    {
-                        free.push_back(done);
-                    }
-                }
-
-                if (free.empty())
-                {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(2));
-                    continue;
-                }
-
-                const std::int32_t read = Provider->Read(
-                    std::span<std::uint8_t>(raw.data(), raw.size()), 0,
-                    static_cast<std::int32_t>(raw.size()));
-                if (read <= 0)
-                {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(2));
-                    continue;
-                }
-
-                // The provider hands back 32-bit floats; OpenAL takes 16-bit
-                // samples.
-                const std::size_t count
-                    = static_cast<std::size_t>(read) / sizeof(float);
-                const auto* const floats = reinterpret_cast<const float*>(raw.data());
-                for (std::size_t i = 0; i < count; ++i)
-                {
-                    const float clamped = std::clamp(floats[i], -1.0F, 1.0F);
-                    samples[i] = static_cast<std::int16_t>(clamped * 32767.0F);
-                }
-
-                const ALuint buffer = free.back();
-                free.pop_back();
-                ::alBufferData(buffer, channels >= 2 ? AL_FORMAT_STEREO16 : AL_FORMAT_MONO16,
-                    samples.data(), static_cast<ALsizei>(count * sizeof(std::int16_t)), rate);
-                ::alSourceQueueBuffers(Source, 1, &buffer);
-
-                ALint state = 0;
-                ::alGetSourcei(Source, AL_SOURCE_STATE, &state);
-                if (state != AL_PLAYING)
-                {
-                    ::alSourcePlay(Source);
-                }
-            }
-        }
+        // Only touched from the device's callback, which is one thread.
+        std::vector<std::uint8_t> Scratch;
     };
 
     SoundPlayer::SoundPlayer(
@@ -180,12 +53,6 @@ namespace SoundFlow::Components
         (void)engine;
         _impl->Format = format;
         _impl->Provider = provider;
-        if (AlContext::Instance().Ready())
-        {
-            ::alGenSources(1, &_impl->Source);
-            ::alGenBuffers(BufferCount, _impl->Buffers);
-        }
-        _impl->Worker = std::thread([impl = _impl]() { impl->Run(); });
     }
 
     SoundPlayer::~SoundPlayer()
@@ -195,49 +62,73 @@ namespace SoundFlow::Components
 
     void SoundPlayer::Play()
     {
-        _impl->State.store(Enums::PlaybackState::Playing, std::memory_order_relaxed);
+        _impl->State.store(Enums::PlaybackState::Playing, std::memory_order_release);
     }
 
     void SoundPlayer::Pause()
     {
-        _impl->State.store(Enums::PlaybackState::Paused, std::memory_order_relaxed);
-        if (_impl->Source != 0)
-        {
-            ::alSourcePause(_impl->Source);
-        }
+        _impl->State.store(Enums::PlaybackState::Paused, std::memory_order_release);
     }
 
     void SoundPlayer::Stop()
     {
-        _impl->State.store(Enums::PlaybackState::Stopped, std::memory_order_relaxed);
-        if (_impl->Source != 0)
-        {
-            ::alSourceStop(_impl->Source);
-        }
+        _impl->State.store(Enums::PlaybackState::Stopped, std::memory_order_release);
     }
 
     void SoundPlayer::Dispose() noexcept
     {
-        if (_impl == nullptr || _impl->Disposed.exchange(true))
+        if (_impl != nullptr)
         {
-            return;
-        }
-        if (_impl->Worker.joinable())
-        {
-            _impl->Worker.join();
-        }
-        if (_impl->Source != 0)
-        {
-            ::alSourceStop(_impl->Source);
-            ::alDeleteSources(1, &_impl->Source);
-            ::alDeleteBuffers(BufferCount, _impl->Buffers);
-            _impl->Source = 0;
+            _impl->State.store(Enums::PlaybackState::Stopped, std::memory_order_release);
+            _impl->Disposed.store(true, std::memory_order_release);
         }
     }
 
     Enums::PlaybackState SoundPlayer::State() const noexcept
     {
-        return _impl->State.load(std::memory_order_relaxed);
+        return _impl->State.load(std::memory_order_acquire);
+    }
+
+    void SoundPlayer::MixInto(float* output, std::uint32_t frames, std::int32_t channels)
+    {
+        Impl& impl = *_impl;
+        if (impl.Disposed.load(std::memory_order_acquire)
+            || impl.State.load(std::memory_order_acquire) != Enums::PlaybackState::Playing
+            || impl.Provider == nullptr)
+        {
+            return;
+        }
+        const std::size_t samples = static_cast<std::size_t>(frames) * static_cast<std::size_t>(channels);
+        const std::size_t bytes = samples * sizeof(float);
+        if (impl.Scratch.size() < bytes)
+        {
+            impl.Scratch.resize(bytes);
+        }
+        const std::int32_t read = impl.Provider->Read(
+            std::span<std::uint8_t>(impl.Scratch.data(), bytes), 0, static_cast<std::int32_t>(bytes));
+        if (read <= 0)
+        {
+            return;
+        }
+        const std::size_t got = std::min(samples, static_cast<std::size_t>(read) / sizeof(float));
+        float value = 0;
+        for (std::size_t i = 0; i < got; ++i)
+        {
+            std::memcpy(&value, impl.Scratch.data() + i * sizeof(float), sizeof(float));
+            output[i] += value;
+        }
+    }
+
+    void Mixer::Mix(float* output, std::uint32_t frames, std::int32_t channels)
+    {
+        std::lock_guard<std::mutex> guard(_mutex);
+        for (const std::shared_ptr<SoundPlayer>& player : _components)
+        {
+            if (player != nullptr)
+            {
+                player->MixInto(output, frames, channels);
+            }
+        }
     }
 }
 
@@ -245,24 +136,87 @@ namespace SoundFlow::Abstracts::Devices
 {
     struct AudioPlaybackDevice::Impl final
     {
+        ma_device Device{};
+        bool Initialized = false;
         std::atomic<bool> Started{false};
+        std::mutex StartLock;
     };
+
+    namespace
+    {
+        void DataCallback(ma_device* device, void* output, const void* input, ma_uint32 frames)
+        {
+            (void)input;
+            auto* const self = static_cast<AudioPlaybackDevice*>(device->pUserData);
+            float* const samples = static_cast<float*>(output);
+            const std::int32_t channels = static_cast<std::int32_t>(device->playback.channels);
+            const std::size_t count = static_cast<std::size_t>(frames) * static_cast<std::size_t>(channels);
+            std::memset(samples, 0, count * sizeof(float));
+            try
+            {
+                self->MasterMixer.Mix(samples, frames, channels);
+            }
+            catch (...)
+            {
+                // A provider that throws is silence for this period, not a
+                // dead audio thread.
+            }
+            for (std::size_t i = 0; i < count; ++i)
+            {
+                samples[i] = std::clamp(samples[i], -1.0F, 1.0F);
+            }
+        }
+    }
 
     AudioPlaybackDevice::AudioPlaybackDevice()
         : _impl(std::make_shared<Impl>())
     {
     }
 
-    AudioPlaybackDevice::~AudioPlaybackDevice() = default;
+    AudioPlaybackDevice::~AudioPlaybackDevice()
+    {
+        if (_impl != nullptr && _impl->Initialized)
+        {
+            ma_device_uninit(&_impl->Device);
+            _impl->Initialized = false;
+        }
+    }
+
+    void AudioPlaybackDevice::Open(const Structs::AudioFormat& format)
+    {
+        ma_device_config config = ma_device_config_init(ma_device_type_playback);
+        config.playback.format = ma_format_f32;
+        config.playback.channels = static_cast<ma_uint32>(format.Channels > 0 ? format.Channels : 2);
+        config.sampleRate = static_cast<ma_uint32>(format.SampleRate > 0 ? format.SampleRate : 48000);
+        config.dataCallback = &DataCallback;
+        config.pUserData = this;
+        const ma_result result = ma_device_init(nullptr, &config, &_impl->Device);
+        if (result != MA_SUCCESS)
+        {
+            throw std::runtime_error(std::string("miniaudio could not open a playback device: ")
+                + ma_result_description(result));
+        }
+        _impl->Initialized = true;
+    }
 
     void AudioPlaybackDevice::Start()
     {
-        _impl->Started.store(true, std::memory_order_relaxed);
+        std::lock_guard<std::mutex> guard(_impl->StartLock);
+        if (_impl->Initialized && !_impl->Started.load(std::memory_order_acquire)
+            && ma_device_start(&_impl->Device) == MA_SUCCESS)
+        {
+            _impl->Started.store(true, std::memory_order_release);
+        }
     }
 
     void AudioPlaybackDevice::Stop()
     {
-        _impl->Started.store(false, std::memory_order_relaxed);
+        std::lock_guard<std::mutex> guard(_impl->StartLock);
+        if (_impl->Initialized && _impl->Started.load(std::memory_order_acquire))
+        {
+            ma_device_stop(&_impl->Device);
+            _impl->Started.store(false, std::memory_order_release);
+        }
     }
 }
 
@@ -276,9 +230,6 @@ namespace SoundFlow::Backends::MiniAudio
     MiniAudioEngine::MiniAudioEngine()
         : _impl(std::make_shared<Impl>())
     {
-        // Opening the device here is what makes InitializePlaybackDevice able
-        // to hand one back.
-        (void)AlContext::Instance().Ready();
     }
 
     MiniAudioEngine::~MiniAudioEngine() = default;
@@ -288,10 +239,11 @@ namespace SoundFlow::Backends::MiniAudio
             const void* deviceInfo, const Structs::AudioFormat& format)
     {
         (void)deviceInfo;
-        (void)format;
         if (_impl->Device == nullptr)
         {
-            _impl->Device = std::make_shared<Abstracts::Devices::AudioPlaybackDevice>();
+            auto device = std::make_shared<Abstracts::Devices::AudioPlaybackDevice>();
+            device->Open(format);
+            _impl->Device = std::move(device);
         }
         return _impl->Device;
     }

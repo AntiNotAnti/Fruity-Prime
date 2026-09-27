@@ -85,6 +85,9 @@ namespace SoundFlow::Components
     public:
         void AddComponent(const std::shared_ptr<SoundPlayer>& player);
         void RemoveComponent(const std::shared_ptr<SoundPlayer>& player);
+        // Called from the device's own thread: adds every playing component
+        // into output, which holds frames * channels floats.
+        void Mix(float* output, std::uint32_t frames, std::int32_t channels);
 
     private:
         mutable std::mutex _mutex;
@@ -103,6 +106,8 @@ namespace SoundFlow::Components
         void Stop();
         void Dispose() noexcept;
         [[nodiscard]] Enums::PlaybackState State() const noexcept;
+        // Called by the mixer from the device's thread.
+        void MixInto(float* output, std::uint32_t frames, std::int32_t channels);
 
     private:
         struct Impl;
@@ -117,6 +122,8 @@ namespace SoundFlow::Abstracts::Devices
     public:
         AudioPlaybackDevice();
         ~AudioPlaybackDevice();
+        // Opens the platform device; throws when there is none.
+        void Open(const Structs::AudioFormat& format);
         void Start();
         void Stop();
         Components::Mixer MasterMixer;

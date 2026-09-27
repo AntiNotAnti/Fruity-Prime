@@ -22,6 +22,7 @@ namespace MphRead::Mods::Render
     bool LauncherHunter::_drawn = false;
     bool LauncherHunter::_failed = false;
     bool LauncherHunter::_said = false;
+    bool LauncherHunter::_glStale = false;
     std::shared_ptr<::MphRead::Scene> LauncherHunter::_scene;
 
     bool LauncherHunter::Wanted() noexcept
@@ -99,6 +100,15 @@ namespace MphRead::Mods::Render
         return _drawn;
     }
 
+    // Every scene numbers its own textures from one (no glGenTextures), so a
+    // match loaded after the side scene wrote over its texture names -- the
+    // toon table and the hunter's skin included -- and its UnloadGl deleted
+    // them: a black silhouette. The side scene is rebuilt after a match.
+    void LauncherHunter::NoteGlUnloaded() noexcept
+    {
+        _glStale = true;
+    }
+
     void LauncherHunter::Reset()
     {
         _wanted = false;
@@ -122,6 +132,11 @@ namespace MphRead::Mods::Render
 
         try
         {
+            if (_glStale && !window.HasScene())
+            {
+                _glStale = false;
+                _scene.reset();
+            }
             ::MphRead::Scene* scene = window.HasScene() ? &window.Scene() : _scene.get();
             if (scene == nullptr)
             {
