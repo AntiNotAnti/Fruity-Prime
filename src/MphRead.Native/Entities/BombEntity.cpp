@@ -960,7 +960,7 @@ namespace MphRead::Entities
         if (ModAuditLockjawDrawRng && _bombType == MphRead::BombType::Lockjaw
             && Rng::Rng1() != rngBefore)
         {
-            ++ModLockjawDrawRngChanges;
+            ::MphRead::NativeRuntime::IncrementInPlace(ModLockjawDrawRngChanges);
         }
     }
 
