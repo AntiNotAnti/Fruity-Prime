@@ -8,6 +8,7 @@
 #include "../Entities/RoomEntity.hpp"
 #include "../Entities/Players/PlayerEntity.hpp"
 #include "../Metadata/FrontendMeta.hpp"
+#include "../Mods/Render/GlNames.hpp"
 #include "../NativeRuntime/OpenTK/AL.hpp"
 #include "../NativeRuntime/OpenTK/GL.hpp"
 #include "../NativeRuntime/System/Tasks.hpp"
@@ -3769,8 +3770,8 @@ namespace MphRead
         }
         if (_topMovieBinding == -1)
         {
-            _topMovieBinding = ++_textureCount;
-            _botMovieBinding = ++_textureCount;
+            _topMovieBinding = Mods::Render::GlNames::NextTexture();
+            _botMovieBinding = Mods::Render::GlNames::NextTexture();
         }
         GL::BindTexture(GL::TextureTarget::Texture2D, _topMovieBinding);
         GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgb, _frameWidth, _frameHeight, 0,
