@@ -8,6 +8,7 @@
 #include "GamepadRuntimeConfig.hpp"
 #include "InputSourceTracker.hpp"
 #include "../../NativeRuntime/System/Enum.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -66,8 +67,8 @@ namespace MphRead::Mods::Input
     std::int64_t GamepadManager::_revision = 0;
     GamepadSnapshot GamepadManager::_snapshot{};
     std::optional<std::string> GamepadManager::_lastInputDevice{};
-    ::MphRead::NativeRuntime::Event<const GamepadDeviceSnapshot&> GamepadManager::DeviceAdded{};
-    ::MphRead::NativeRuntime::Event<const GamepadDeviceSnapshot&> GamepadManager::DeviceRemoved{};
+    ::MphRead::NativeRuntime::Event<GamepadDeviceSnapshot> GamepadManager::DeviceAdded{};
+    ::MphRead::NativeRuntime::Event<GamepadDeviceSnapshot> GamepadManager::DeviceRemoved{};
     ::MphRead::NativeRuntime::Event<> GamepadManager::ActiveChanged{};
 
     GamepadSnapshot GamepadManager::Snapshot()
@@ -123,7 +124,7 @@ namespace MphRead::Mods::Input
             return;
         }
         _active = device;
-        _revision++;
+        ::MphRead::NativeRuntime::IncrementInPlace(_revision);
         Publish();
     }
 
@@ -211,7 +212,7 @@ namespace MphRead::Mods::Input
                 }
             }
             Publish();
-            device->Revision++;
+            ::MphRead::NativeRuntime::IncrementInPlace(device->Revision);
             if (added)
             {
                 notification = device->Snapshot();
@@ -239,7 +240,7 @@ namespace MphRead::Mods::Input
         {
             GamepadRuntimeConfig::Fallback() = std::move(runtime);
         }
-        _revision++;
+        ::MphRead::NativeRuntime::IncrementInPlace(_revision);
         Publish();
     }
 
@@ -250,7 +251,7 @@ namespace MphRead::Mods::Input
         {
             device->Runtime = GamepadProfiles::Resolve(device->ProfileKey);
         }
-        _revision++;
+        ::MphRead::NativeRuntime::IncrementInPlace(_revision);
         Publish();
     }
 
@@ -309,7 +310,7 @@ namespace MphRead::Mods::Input
         device->LeftTriggerHeld = device->RightTriggerHeld = false;
         if (_active == device)
         {
-            _revision++;
+            ::MphRead::NativeRuntime::IncrementInPlace(_revision);
             Publish();
         }
     }

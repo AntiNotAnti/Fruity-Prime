@@ -10,10 +10,12 @@
 #include "PadBindings.hpp"
 #include "../Launcher/Portable/LauncherPrefs.hpp"
 #include "../../NativeRuntime/System/Exceptions.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/Guid.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Json.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/System/Number.hpp"
 #include "../../NativeRuntime/System/Runtime.hpp"
 
@@ -41,10 +43,21 @@ namespace MphRead::Mods::Input
 
         [[nodiscard]] bool HasControl(std::string_view text)
         {
-            return std::any_of(text.begin(), text.end(), [](char c)
+            const std::u16string value = Runtime::Utf8ToUtf16(text);
+            return std::any_of(value.begin(), value.end(), [](char16_t c)
             {
-                return static_cast<unsigned char>(c) < 0x20 || c == 0x7f;
+                return Runtime::CharIsControl(c);
             });
+        }
+
+        [[nodiscard]] std::string PrefixUtf16(std::string_view text, std::size_t length)
+        {
+            const std::u16string value = Runtime::Utf8ToUtf16(text);
+            if (value.size() <= length)
+            {
+                return std::string(text);
+            }
+            return Runtime::Utf16ToUtf8(std::u16string_view(value).substr(0, length));
         }
 
         [[nodiscard]] bool IsNullOrWhiteSpace(std::string_view text)
@@ -80,13 +93,13 @@ namespace MphRead::Mods::Input
             GamepadProfile profile{};
             if (const JsonPtr version = value->Get("Version"))
             {
-                double number = 0;
+                std::int32_t number = 0;
                 if (version->Type() != JsonValue::Kind::Number
-                    || !Runtime::DoubleTryParseInvariant(version->Text(), number) || number != std::floor(number))
+                    || !Runtime::Int32TryParseInvariant(version->Text(), number))
                 {
                     throw JsonException("The JSON value could not be converted to System.Int32.");
                 }
-                profile.Version = static_cast<std::int32_t>(number);
+                profile.Version = number;
             }
             profile.Name = ReadString(value->Get("Name"));
             if (const JsonPtr settings = value->Get("Settings"); settings != nullptr && settings->Type() != JsonValue::Kind::Null)
@@ -230,7 +243,7 @@ namespace MphRead::Mods::Input
             }
             for (const auto& [key, value] : library.Assignments)
             {
-                if (IsNullOrWhiteSpace(key) || key.size() > 512 || !names.contains(value))
+                if (IsNullOrWhiteSpace(key) || Runtime::Utf16Length(key) > 512 || !names.contains(value))
                 {
                     throw InvalidDataException("Invalid controller profile assignment.");
                 }
@@ -260,7 +273,7 @@ namespace MphRead::Mods::Input
         std::shared_ptr<GamepadRuntimeConfig> runtime = BuildRuntime(profile);
         GamepadManager::ReplaceRuntime(runtime);
         _activeName = profile.Name;
-        _revision++;
+        Runtime::IncrementInPlace(_revision);
     }
 
     std::shared_ptr<GamepadRuntimeConfig> GamepadProfiles::BuildRuntime(const GamepadProfile& profile)
@@ -319,14 +332,14 @@ namespace MphRead::Mods::Input
     void GamepadProfiles::Validate(const GamepadProfile& profile)
     {
         if (profile.Version != 1 || IsNullOrWhiteSpace(profile.Name)
-            || profile.Name.size() > 48 || HasControl(profile.Name)
+            || Runtime::Utf16Length(profile.Name) > 48 || HasControl(profile.Name)
             || profile.Settings == nullptr || profile.Settings->empty() || profile.Settings->size() > 256)
         {
             throw InvalidDataException("Invalid controller profile or unsupported version.");
         }
         for (const std::string& line : *profile.Settings)
         {
-            if (line.size() > 256 || HasControl(line) || line.find('=') == std::string::npos
+            if (Runtime::Utf16Length(line) > 256 || HasControl(line) || line.find('=') == std::string::npos
                 || !(line.starts_with("pad_") || line.starts_with("gamepad_")))
             {
                 throw InvalidDataException("A profile may contain only controller settings.");
@@ -439,7 +452,7 @@ namespace MphRead::Mods::Input
         Store(Capture(Runtime::StringTrim(name)));
         _activeName = Runtime::StringTrim(name);
         GamepadRuntimeConfig::Current()->ProfileName(_activeName);
-        _revision++;
+        Runtime::IncrementInPlace(_revision);
     }
 
     void GamepadProfiles::Store(const GamepadProfile& profile)
@@ -494,11 +507,11 @@ namespace MphRead::Mods::Input
         };
         while (taken(name))
         {
-            name = profile.Name.substr(0, std::min<std::size_t>(40, profile.Name.size())) + " " + std::to_string(suffix++);
+            name = PrefixUtf16(profile.Name, 40) + " " + std::to_string(suffix++);
         }
         profile.Name = name;
         Store(profile);
-        _revision++;
+        Runtime::IncrementInPlace(_revision);
         return name;
     }
 

@@ -87,8 +87,8 @@ namespace MphRead::Mods::Input
         [[nodiscard]] static const std::optional<std::string>& LastInputDevice() noexcept { return _lastInputDevice; }
         [[nodiscard]] static std::vector<GamepadDeviceSnapshot> Devices();
 
-        static ::MphRead::NativeRuntime::Event<const GamepadDeviceSnapshot&> DeviceAdded;
-        static ::MphRead::NativeRuntime::Event<const GamepadDeviceSnapshot&> DeviceRemoved;
+        static ::MphRead::NativeRuntime::Event<GamepadDeviceSnapshot> DeviceAdded;
+        static ::MphRead::NativeRuntime::Event<GamepadDeviceSnapshot> DeviceRemoved;
         static ::MphRead::NativeRuntime::Event<> ActiveChanged;
 
         static void UpdateDevice(const std::string& id, GamepadState state, bool mapped,
