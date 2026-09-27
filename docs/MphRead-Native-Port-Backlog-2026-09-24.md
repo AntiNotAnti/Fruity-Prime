@@ -641,7 +641,7 @@
 | A | +1952/-0 | `Mods/Network/NetHitClaims.cs` | — 新規 | 完了（C#全文・native `.hpp/.cpp`とRenderer/NetSession/NetDamage/NetHitPrediction/Lifecycle接続を監査。claim検証・grace/ledger/死因順序・rescue抑止・cleanup一致。NearestLedgerOffsetのunchecked差分/Math.Abs境界を修正、Windows Release build green） |
 | M | +934/-33 | `Mods/Network/NetProtocol.cs` | .cpp,.hpp | 完了（C#全文・native `.hpp/.cpp`・NetSession/DedicatedServer/NetMaster/NetHitClaims の直接送受信箇所を監査。PacketType・サイズ/offset・byte order・文字列置換・旧長さ互換・既定値/境界を照合し一致。修正なし、静的監査のみ） |
 | M | +883/-78 | `Mods/Network/NetHitPrediction.cs` | .cpp,.hpp | 完了（C#全文・native `.hpp/.cpp`・PlayerEntity.TakeDamage/NetDamage/NetPlayerBridge/BeamProjectile/Renderer/PlayerHud/NetHitClaims/NetPlayerLifecycle/NetSession/ModEntry の直接接続を監査。hold/grace・リング寿命・claim settlement・体力補正・撃破/marker/reset条件一致。修正なし、静的監査のみ） |
-| M | +704/-105 | `Mods/Network/DedicatedServer.cs` | .cpp,.hpp | 完了 |
+| M | +704/-105 | `Mods/Network/DedicatedServer.cs` | .cpp,.hpp | 完了（C#全文・native `.cpp/.hpp`・ModEntry/NetHostSession/HostPool/NetMasterの直接接続を監査。loop順序、Hello/Welcome/refusal/status、authoritative/relay、snapshot/intent、投票/rotation、ping/roster、切断/cleanupが一致。修正なし、静的監査のみ） |
 | A | +609/-0 | `Mods/Network/HitRig.cs` | — 新規 | 完了 |
 | A | +558/-0 | `Mods/Network/NetSmoothing.cs` | — 新規 | 完了 |
 | A | +536/-0 | `Mods/Network/LocalServer.cs` | — 新規 | 完了 |
@@ -979,6 +979,7 @@
 - `Mods/Render/PlayerEntityProHud.cs` をC#全文とnative `.hpp/.cpp`、`PlayerHud.DrawHudObjects`および`DrawModeScore`の呼出条件で照合。health/ammoのclamp・色閾値・ammo cost換算・HUD icon tint/配置、mode別score message ID、ProHud時のstock表示抑止が一致し修正なし。Windows Release全体build green。
 - `Mods/Render/PlayerEntityVoteHud.cs` をC#全文とnative `.hpp/.cpp`、`MapVote.NoteLayout`/`EndScreen` pointer hit testingとの接続で照合。touch/gamepad表示条件、Android/desktop geometry、文字列置換、button hover描画とhitbox publish順が一致し修正なし。Windows Release全体build green。
 - `Mods/Network/NetHitClaims.cs` をC#全文とnative `.hpp/.cpp`、Renderer tick順・NetSession packet send/receive・NetDamage/NetHitPrediction・slot/room lifecycle接続で照合。claim stream/life検証、outbox retry/verdict、damage/geometry判定、ledger duplicate、fire-frame arbitration、rescued-hit抑止、reset/cleanupが一致。`NearestLedgerOffset`のuint→int bit reinterpretとunchecked int差分をnativeで明示し、C# `Math.Abs(Int32.MinValue)`相当の`OverflowException`境界も保った。Windows Release `ninja -C tools/build/out/msys2-mingw64-Release -j 4`成功。
+- `Mods/Network/DedicatedServer.cs` をC#全文とnative `.cpp/.hpp`で照合し、ModEntryの専用server起動、NetHostSession/HostPool/NetMasterの生成・設定・停止、PeerCount/Listening/EverOccupiedの直接参照も確認。loop順序、Helloの再接続/slot割当/Welcome、status/refusal、authority通知と昇格、snapshot/intent検証とfan-out、match clock/rotation/vote、ping/roster、timeout/cleanupの条件とpacket内容は一致。修正なし、静的監査のみ（build/runtime未実施）。
 
 ### 2026-09-27 native launcher regression audit
 
