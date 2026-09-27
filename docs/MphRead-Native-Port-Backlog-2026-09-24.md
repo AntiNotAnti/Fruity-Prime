@@ -571,7 +571,7 @@
 | A | +56/-0 | `Mods/Input/GamepadGlyphs.cs` | — 新規 | 完了（C#全文・Desktop/Manager/PadBinding/InputPrompt/UI呼出元監査済、family判定とglyph優先順一致、Windows Release build済） |
 | A | +55/-0 | `Mods/Input/AimAssist/AimAssistDebug.cs` | — 新規 | 完了（C#全文・Renderer/AimAssistWorld/Telemetry/ModEntry呼出元監査済、診断行のTargetSlotをcurrent-culture書式に修正、Windows Release build済） |
 | A | +54/-0 | `Mods/Input/PadAction.cs` | — 新規 | 完了（C#全文・GamepadProfiles/PadBindingState/GamepadActions呼出元監査済、23値とenum名/Parse/ToString一致、Windows Release build済） |
-| A | +54/-0 | `Mods/Input/PlayerEntityMouseFlick.cs` | — 新規 | 完了 |
+| A | +54/-0 | `Mods/Input/PlayerEntityMouseFlick.cs` | — 新規 | 完了（C#全文・PlayerInput.ProcessAlt呼出順とnative実装を照合済、main/bot/aim/boost/sequence gatesとReset/Check/出力一致、Windows Release build済） |
 | A | +51/-0 | `Mods/Input/GamepadHaptics.cs` | — 新規 | 完了 |
 | A | +40/-0 | `Mods/Input/GamepadOptions.cs` | — 新規 | 完了 |
 | A | +39/-0 | `Mods/Input/GamepadActions.cs` | — 新規 | 完了 |
