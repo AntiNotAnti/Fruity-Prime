@@ -34,11 +34,22 @@
 #include "Formats/Movie.hpp"
 #include "HUD/HudInfo.hpp"
 #include "Mods/Branding.hpp"
+#include "Mods/EndScreen.hpp"
 #include "Mods/GameSettings.hpp"
 #include "Mods/Headless.hpp"
 #include "Mods/InputSettings.hpp"
+#include "Mods/Input/AimAssist/AimAssistDebug.hpp"
+#include "Mods/Input/GamepadHaptics.hpp"
+#include "Mods/Input/GamepadManager.hpp"
+#include "Mods/Input/GamepadUiRouter.hpp"
+#include "Mods/Input/PointerDevice.hpp"
+#include "Mods/Input/SpectatorInput.hpp"
+#include "Mods/Input/WindowsPenInput.hpp"
+#include "Mods/MapPick.hpp"
 #include "Mods/RenderOptions.hpp"
 #include "Mods/SpectatorMode.hpp"
+#include "Mods/ThumbnailMode.hpp"
+#include "Mods/WindowGeometry.hpp"
 #include "Mods/Chat/ChatBox.hpp"
 #include "Mods/Input/GamepadInput.hpp"
 #include "Mods/Input/InputSourceTracker.hpp"
@@ -47,11 +58,16 @@
 #include "Mods/Network/DemoClip.hpp"
 #include "Mods/Network/DemoPlayback.hpp"
 #include "Mods/Network/DemoRecorder.hpp"
+#include "Mods/Network/NetHitClaims.hpp"
 #include "Mods/Network/NetHitPrediction.hpp"
 #include "Mods/Network/NetHooks.hpp"
 #include "Mods/Network/NetSession.hpp"
+#include "Mods/Network/NetLaunch.hpp"
 #include "Mods/Render/Crosshair.hpp"
+#include "Mods/Render/DesktopGlContext.hpp"
 #include "Mods/Render/FrameTiming.hpp"
+#include "Mods/Render/MapThumbnail.hpp"
+#include "Mods/Render/AppIcon.hpp"
 #include "Export/Images.hpp"
 #include "Features.hpp"
 #include "Formats/Collision.hpp"
@@ -66,6 +82,14 @@
 #include "Formats/Types.hpp"
 #include "NativeRuntime/System/Managed.hpp"
 #include "NativeRuntime/OpenTK/Mathematics.hpp"
+
+#if defined(MPHREAD_SHELL)
+#include "Mods/Launcher/Gui/KeyRow.hpp"
+#include "Mods/Launcher/Gui/Shell.hpp"
+#include "Mods/Render/LauncherHunter.hpp"
+#include "Mods/Render/UiOverlay.hpp"
+#include "NativeRuntime/Avalonia/Media.hpp"
+#endif
 
 #include <algorithm>
 #include <unordered_set>
@@ -357,6 +381,8 @@ namespace MphRead
     void Scene::Size(Vector2i value) noexcept { _rendererSize = value; }
     Matrix4 Scene::PerspectiveMatrix() const noexcept { return _perspectiveMatrix; }
     CameraMode Scene::CameraMode() const noexcept { return _cameraMode; }
+    bool Scene::SideScene() const noexcept { return _sideScene; }
+    void Scene::SideScene(bool value) noexcept { _sideScene = value; }
     bool Scene::ShowCursor() const
     {
         const auto main = Entities::PlayerEntity::Main();
@@ -633,6 +659,9 @@ namespace MphRead
             GL::Enable(GL::EnableCap::DepthTest);
             GL::Enable(GL::EnableCap::Texture2D);
             GL::DepthFunc(GL::DepthFunction::Lequal);
+            std::cout << "[render] field of view " << Mods::RenderOptions::FieldOfView() << " degrees"
+                << (Mods::RenderOptions::FieldOfView() == Mods::RenderOptions::DefaultFov
+                    ? " (the DS's own)" : "") << '\n';
             std::cout << "[render] cel shading " << (Mods::RenderOptions::CelShading() ? "on" : "off")
                 << ", " << Mods::RenderOptions::CelBands() << " bands, outline "
                 << NativeRuntime::ToStringInvariant(Mods::RenderOptions::CelEdge(), "0.00")
@@ -655,16 +684,21 @@ namespace MphRead
                 entity->Initialized = true;
             }
         }
-        for (const auto& player : Entities::PlayerEntity::Players())
+        if (!_sideScene)
         {
-            if (((player->LoadFlags() & LoadFlags::SlotActive) == LoadFlags::SlotActive))
+            for (const auto& player : Entities::PlayerEntity::Players())
             {
-                player->Initialize();
-                InitEntity(player);
-                InitEntity(player->Halfturret());
+                if (((player->LoadFlags() & LoadFlags::SlotActive) == LoadFlags::SlotActive))
+                {
+                    player->Initialize();
+                    InitEntity(player);
+                    InitEntity(player->Halfturret());
+                }
             }
         }
-        if (!Mods::Headless::Active())
+        if (!Mods::Headless::Active() && !_sideScene && !Mods::ThumbnailMode::Active()
+            && !NativeRuntime::ConsoleIsOutputRedirected()
+            && !NativeRuntime::ConsoleIsInputRedirected())
         {
             OutputStart();
         }
@@ -1398,6 +1432,15 @@ namespace MphRead
     void Scene::OnSimulationFrame()
     {
         const std::lock_guard<std::recursive_mutex> gate(NativeRuntime::SceneGate());
+        if (Mods::Network::NetSession::FreezeGameplay())
+        {
+            if (Mods::Network::NetSession::IsStarting())
+            {
+                Mods::Network::NetSession::MarkMatchLoaded();
+            }
+            Mods::Network::NetSession::Pump();
+            return;
+        }
         ++_effectFrame;
         _frameTime = 1.0F / 60.0F;
         if (_breakNextFrame)
@@ -1423,6 +1466,10 @@ namespace MphRead
             }
             Mods::Network::DemoPlayback::PumpFrame();
             Mods::Network::NetSession::Update(_globalElapsedTime);
+            if (Mods::Network::NetSession::FreezeGameplay())
+            {
+                return;
+            }
             if (Mods::Network::DemoPlayback::IsActive() && !Mods::SpectatorMode::IsSpectating())
             {
                 Mods::SpectatorMode::Start(true);
@@ -1432,7 +1479,25 @@ namespace MphRead
                 SetFreeCamera(freeCamera.value());
             }
             Mods::Input::GamepadDesktop::Poll();
+            Mods::Input::GamepadContexts::Current(Mods::Input::GamepadContexts::Resolve(
+                Mods::Chat::ChatBox::Composing(), Mods::EndScreen::Available()));
             Mods::Input::GamepadInput::BeginFrame();
+            if (Mods::SpectatorMode::IsSpectating() && !Mods::PauseMenu::Open())
+            {
+                const Mods::Input::SpectatorInput spectator = Mods::Input::SpectatorInput::ReadController();
+                spectator.ApplyView();
+                Mods::SpectatorMode::NoteScoreboard(
+                    _keyboardState->IsKeyDown(RendererPlatform::Key::Tab) || spectator.Scoreboard);
+                if (_freeCam)
+                {
+                    _cameraPosition = _cameraPosition
+                        + Multiply(_cameraFacing, spectator.MoveY * 0.15F)
+                        + Multiply(_cameraRight, spectator.MoveX * 0.15F);
+                    _cameraPosition.Y += (spectator.Ascend - spectator.Descend) * 0.15F;
+                    UpdateCameraRotation(DegreesToRadians(spectator.LookX),
+                        DegreesToRadians(spectator.LookY));
+                }
+            }
             Mods::EndScreen::PollGamepad();
             const bool noPlayerInput = _inputMode == InputMode::CameraOnly
                 || Mods::PauseMenu::Open() || Mods::Chat::ChatBox::Composing();
@@ -1453,6 +1518,7 @@ namespace MphRead
             {
                 UpdateScene();
             }
+            Mods::Network::NetHitClaims::Tick();
             Mods::Network::NetHooks::AfterSimulation();
             Mods::Network::NetHitPrediction::Tick();
             if (!Mods::Headless::Active())
@@ -1505,6 +1571,8 @@ namespace MphRead
     void Scene::OnDrawFrame()
     {
         const std::lock_guard<std::recursive_mutex> gate(NativeRuntime::SceneGate());
+        Mods::EndScreen::Tick(_room != nullptr ? _room->Meta().Name : std::string(), _globalElapsedTime);
+        Mods::Render::MapThumbnail::BeginFrame();
         GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, _frameBuffer);
         Vector2i target = RenderSize();
         if (target != _targetSize)
@@ -1963,6 +2031,7 @@ namespace MphRead
             if (GameState::MenuPause()) main->DrawPauseMenuForeground();
         }
         else if (ScoreboardOverFreeCamera()) main->DrawHudObjects();
+        Mods::Input::AimAssist::AimAssistDebug::Draw(*this);
         if (_movieFrameIndex != -1) DrawMovieFrame();
         if (((main->LoadFlags() & LoadFlags::Active) == LoadFlags::Active) && CameraMode() == MphRead::CameraMode::Player && _fadeType != MphRead::FadeType::None)
         {
@@ -2087,7 +2156,10 @@ namespace MphRead
             {
                 const auto main = Entities::PlayerEntity::Main();
                 _viewMatrix = RequireReference(main->CameraInfo()).ViewMatrix;
-                const float fov = RequireReference(main->CameraInfo()).Fov > 0.0F ? RequireReference(main->CameraInfo()).Fov : 78.0F;
+                float fov = RequireReference(main->CameraInfo()).Fov > 0.0F
+                    ? RequireReference(main->CameraInfo()).Fov
+                    : static_cast<float>(Mods::RenderOptions::DefaultFov);
+                fov = std::clamp(fov * Mods::RenderOptions::FovScale(), 1.0F, 175.0F);
                 _cameraFov = DegreesToRadians(fov);
             }
             else
@@ -3485,6 +3557,69 @@ namespace MphRead
         }
     }
 
+    void Scene::UnloadGl()
+    {
+        if (Mods::Headless::Active())
+        {
+            return;
+        }
+        for (const auto& [modelId, map] : _texPalMap)
+        {
+            (void)modelId;
+            for (const auto& [key, value] : map->_items)
+            {
+                (void)key;
+                GL::DeleteTexture(value.BindingId);
+            }
+        }
+        _texPalMap.clear();
+        for (const std::shared_ptr<Model>& model : Read::CachedModels())
+        {
+            for (const std::shared_ptr<Mesh>& mesh : *model->Meshes)
+            {
+                if (mesh->ListId != 0)
+                {
+                    GL::DeleteLists(mesh->ListId, 1);
+                    mesh->ListId = 0;
+                }
+            }
+        }
+        Read::ClearCache();
+        if (_frameBuffer != 0)
+        {
+            GL::DeleteFramebuffer(_frameBuffer);
+            _frameBuffer = 0;
+        }
+        if (_renderBuffer != 0)
+        {
+            GL::DeleteRenderbuffer(_renderBuffer);
+            _renderBuffer = 0;
+        }
+        const auto deleteTexture = [](std::int32_t& texture)
+        {
+            if (texture != 0)
+            {
+                GL::DeleteTexture(texture);
+                texture = 0;
+            }
+        };
+        const auto deleteProgram = [](std::int32_t& program)
+        {
+            if (program != 0)
+            {
+                GL::DeleteProgram(program);
+                program = 0;
+            }
+        };
+        deleteTexture(_screenTexture);
+        deleteTexture(_celTexture);
+        deleteTexture(_depthTexture);
+        deleteProgram(_shaderProgramId);
+        deleteProgram(_rttShaderProgramId);
+        deleteProgram(_shiftShaderProgramId);
+        deleteProgram(_celShaderProgramId);
+    }
+
     void Scene::EndFade()
     {
         if (_afterFade == AfterFade::Exit || _afterFade == AfterFade::EnterShip)
@@ -3575,8 +3710,10 @@ namespace MphRead
                 GL::CullFace(GL::TriangleFace::Front);
             }
         }
+        const bool wireframe = _wireframeLevel > 0 || item->Wireframe;
         GL::PolygonMode(GL::TriangleFace::FrontAndBack,
-            _wireframe || item->Wireframe ? GL::PolygonMode::Line : GL::PolygonMode::Fill);
+            wireframe ? GL::PolygonMode::Line : GL::PolygonMode::Fill);
+        GL::LineWidth(static_cast<float>(wireframe ? std::max(1, _wireframeLevel) : 1));
         if (item->Type == RenderItemType::Mesh)
         {
             GL::CallList(item->ListId);
@@ -4791,7 +4928,7 @@ namespace MphRead
                     if (_volumeEdges > 2) _volumeEdges = 0;
                 }
             }
-            else if (e.Control) _wireframe = !_wireframe;
+            else if (e.Control) _wireframeLevel = (_wireframeLevel + 1) % (MaxWireframeLevel + 1);
         }
         else if (e.Key == Key::B)
         {
@@ -5126,7 +5263,7 @@ namespace MphRead
             << " - Hold Shift to move the camera faster\n"
             << " - T toggles texturing (" << OnOff(_showTextures) << ")\n"
             << " - Ctrl+C toggles vertex colors (" << OnOff(_showColors) << ")\n"
-            << " - Ctrl+Q toggles wireframe (" << OnOff(_wireframe) << ")\n"
+            << " - Ctrl+Q cycles wireframe (level " << _wireframeLevel << "/" << MaxWireframeLevel << ")\n"
             << " - B toggles face culling (" << OnOff(_faceCulling) << ")\n"
             << " - F toggles texture filtering (" << OnOff(FilteringOn()) << ")\n"
             << " - L toggles lighting (" << OnOff(LightingOn()) << ")\n"
@@ -5472,19 +5609,7 @@ namespace MphRead
 
     const RendererPlatform::WindowSettings& RenderWindow::Settings()
     {
-        static const RendererPlatform::WindowSettings settings = []()
-        {
-            RendererPlatform::WindowSettings value{};
-            value.ClientSize = Vector2i(1280, 768);
-            value.Title = Mods::Branding::Name;
-            value.UpdateFrequency = 0.0;
-            value.StartVisible = false;
-            value.Profile = RendererPlatform::WindowSettings::ContextProfile::Compatability;
-            value.Flags = RendererPlatform::WindowSettings::ContextFlags::Default;
-            value.ApiMajor = 3;
-            value.ApiMinor = 2;
-            return value;
-        }();
+        static const RendererPlatform::WindowSettings settings = Mods::Render::DesktopGlContext::Settings();
         return settings;
     }
 
@@ -5500,25 +5625,132 @@ namespace MphRead
             + WindowStartModeName(Mods::Launcher::LauncherPrefs::WindowMode()) + ")");
     }
 
-    RenderWindow::RenderWindow()
-        : _window(RendererPlatform::CreateWindow(Settings()))
+    RenderWindow::RenderWindow(bool shell)
+        : _window(RendererPlatform::CreateWindow(Settings())), _shell(shell)
     {
-        const Vector2i size = _window->Size();
-        Mods::DebugLog::Line("render", "game window created, " + std::to_string(size.X)
-            + "x" + std::to_string(size.Y));
         IgnoreUnavailableGlfwFeatures();
-        _scene = std::make_shared<MphRead::Scene>(size, _window->Keyboard(), _window->Mouse(),
-            [this](std::string title) { _window->Title(std::move(title)); },
-            [this]() { _window->Close(); });
+#if !defined(__ANDROID__)
+        if (const RendererPlatform::WindowIcon* icon = Mods::Render::AppIcon::Load())
+        {
+            _window->SetIcon(*icon);
+        }
+#endif
+        const Vector2i clientSize = _window->ClientSize();
+        const Vector2i size = _window->Size();
+        Mods::DebugLog::Line("render", "game window created, " + std::to_string(clientSize.X)
+            + "x" + std::to_string(clientSize.Y) + " client, " + std::to_string(size.X)
+            + "x" + std::to_string(size.Y) + " pixels");
+        if (_shell)
+        {
+            Mods::WindowGeometry::Owned(true);
+            Mods::WindowGeometry::Restore(*this, _minimumSize);
+        }
+        if (!_shell)
+        {
+            _scene = NewScene();
+        }
         _sceneReady = true;
         FitToScreen();
     }
 
     RenderWindow::~RenderWindow() = default;
 
+    bool RenderWindow::HasScene() const noexcept
+    {
+        return _scene != nullptr;
+    }
+
     MphRead::Scene& RenderWindow::Scene() const
     {
         return *_scene;
+    }
+
+    Vector2i RenderWindow::FramebufferSize() const
+    {
+        return _window->Size();
+    }
+
+    void* RenderWindow::WindowPtr() const
+    {
+        return _window->NativeHandle();
+    }
+
+    void RenderWindow::Title(std::string value)
+    {
+        _window->Title(std::move(value));
+    }
+
+    std::shared_ptr<MphRead::Scene> RenderWindow::NewScene()
+    {
+        return std::make_shared<MphRead::Scene>(FramebufferSize(), _window->Keyboard(), _window->Mouse(),
+            [this](std::string title) { _window->Title(std::move(title)); },
+            [this]() { EndOrClose(); });
+    }
+
+    void RenderWindow::EndOrClose()
+    {
+#if defined(MPHREAD_SHELL)
+        if (_shell)
+        {
+            Mods::Launcher::Gui::Shell::RequestEndMatch();
+            return;
+        }
+#endif
+        _window->Close();
+    }
+
+    std::shared_ptr<MphRead::Scene> RenderWindow::NewSideScene()
+    {
+        std::shared_ptr<MphRead::Scene> scene = NewScene();
+        scene->Size(FramebufferSize());
+        scene->SideScene(true);
+        return scene;
+    }
+
+    MphRead::Scene& RenderWindow::BeginScene()
+    {
+        _scene = NewScene();
+        _scene->Size(FramebufferSize());
+        _sceneLoaded = false;
+        return *_scene;
+    }
+
+    void RenderWindow::LoadScene()
+    {
+        if (_scene == nullptr || _sceneLoaded)
+        {
+            return;
+        }
+        _scene->OnLoad();
+        _sceneLoaded = true;
+        _scene->OnResize();
+    }
+
+    void RenderWindow::EndScene()
+    {
+        if (_scene == nullptr)
+        {
+            return;
+        }
+        _scene->DoCleanup();
+        _scene->UnloadGl();
+        _scene.reset();
+        _sceneLoaded = false;
+        NativeRuntime::ForceFullGc();
+    }
+
+    void RenderWindow::FeedKey(const RendererPlatform::KeyboardKeyEventArgs& e)
+    {
+        OnKeyDown(e);
+    }
+
+    std::pair<double, double> RenderWindow::PointerPixels(double x, double y) const
+    {
+        const Vector2i client = ClientSize();
+        const Vector2i framebuffer = FramebufferSize();
+        const double scaleX = client.X > 0 ? framebuffer.X / static_cast<double>(client.X) : 1;
+        const double scaleY = client.Y > 0 ? framebuffer.Y / static_cast<double>(client.Y) : 1;
+        return {x * scaleX, y * scaleY};
     }
 
     bool RenderWindow::OnWayland()
@@ -5587,7 +5819,15 @@ namespace MphRead
 
     void RenderWindow::OnClosing()
     {
-        _scene->DoCleanup();
+        if (_shell)
+        {
+            Mods::WindowGeometry::Remember(*this);
+            Mods::Launcher::LauncherPrefs::Save();
+        }
+        if (_scene != nullptr)
+        {
+            _scene->DoCleanup();
+        }
         _window->BaseOnClosing();
     }
 
@@ -5630,7 +5870,13 @@ namespace MphRead
 
     void RenderWindow::OnLoad()
     {
-        _scene->OnLoad();
+        Mods::Input::WindowsPenInput::Attach(
+            static_cast<GLFWwindow*>(_window->NativeHandle()));
+        if (_scene != nullptr && !_sceneLoaded)
+        {
+            _scene->OnLoad();
+            _sceneLoaded = true;
+        }
         _window->BaseOnLoad();
     }
 
@@ -5654,27 +5900,72 @@ namespace MphRead
         }
     }
 
+    void RenderWindow::Reveal()
+    {
+        if (_shell)
+        {
+            Mods::WindowGeometry::Flush();
+        }
+        if (_startedHidden)
+        {
+            _window->Visible(true);
+            _startedHidden = false;
+            _applyStartupIn = 3;
+        }
+        else if (_applyStartupIn > 0 && --_applyStartupIn == 0)
+        {
+            Mods::WindowMode::ApplyStartup(*this);
+        }
+    }
+
     void RenderWindow::OnRenderFrame(const RendererPlatform::FrameEventArgs& args)
     {
+        ApplyFrameRateSettings();
+        if (Mods::Network::NetLaunch::TickTerminalLobby(*this))
+        {
+            GL::Clear(GL::ClearBufferMask::ColorBufferBit);
+            _window->SwapBuffers();
+            _window->BaseOnRenderFrame(args);
+            return;
+        }
+#if defined(MPHREAD_SHELL)
+        Mods::Launcher::Gui::Shell::BeforeFrame(*this);
+        Mods::Launcher::Gui::Shell::TickEndPanel();
+        Mods::Launcher::Gui::Shell::TickUi(*this);
+        if (_scene == nullptr)
+        {
+            _window->Cursor(RendererPlatform::CursorState::Normal);
+            Mods::Input::PointerDevice::Reset();
+            const Vector2i framebuffer = FramebufferSize();
+            Mods::Render::UiOverlay::DrawAlone(*this, framebuffer.X, framebuffer.Y);
+            Mods::Launcher::Gui::Shell::AfterDraw(*this);
+            _window->SwapBuffers();
+            Reveal();
+            Mods::PauseMenu::Poll(*this);
+            _window->BaseOnRenderFrame(args);
+            return;
+        }
+#endif
         const bool grab = (_scene->CameraMode() == MphRead::CameraMode::Player || _scene->IsFreeCam())
             && !_scene->FrameAdvance() && !Mods::PauseMenu::Open() && !Mods::EndScreen::Available()
-            && !Mods::Input::StylusZone::Enabled() && !Mods::Input::StylusZone::Placing()
+            && !Mods::Input::PointerInput::StylusMode() && !Mods::Input::StylusZone::Placing()
             && !_scene->ShowCursor() && !GameState::DialogPause() && !GameState::MenuPause();
         _window->Cursor(grab ? RendererPlatform::CursorState::Grabbed : RendererPlatform::CursorState::Normal);
-        const Vector2i size = _window->Size();
-        const float pointerX = _window->Mouse().X / static_cast<float>(std::max(size.X, 1));
-        const float pointerY = _window->Mouse().Y / static_cast<float>(std::max(size.Y, 1));
+        const Vector2i clientSize = _window->ClientSize();
+        const float pointerX = _window->Mouse().X / static_cast<float>(std::max(clientSize.X, 1));
+        const float pointerY = _window->Mouse().Y / static_cast<float>(std::max(clientSize.Y, 1));
         Mods::EndScreen::NotePointer(pointerX, pointerY);
-        Mods::Input::StylusZone::AspectCorrection(size.Y > 0
-            ? size.X / static_cast<float>(size.Y) : 16.0F / 9.0F);
-        Mods::Input::StylusZone::Update(pointerX, pointerY,
-            _window->Mouse().IsButtonDown(RendererPlatform::MouseButton::Left));
+        bool independentPrimary = false;
+        const Mods::Input::PointerSample pointer = Mods::Input::WindowsPenInput::Read(
+            _window->Mouse(), clientSize.X, clientSize.Y, independentPrimary);
+        Mods::Input::PointerDevice::Update(pointer, clientSize.X, clientSize.Y, independentPrimary,
+            IsFocused() && !Mods::PauseMenu::Open() && !Mods::Chat::ChatBox::Composing()
+                && !GameState::MenuPause() && !GameState::DialogPause() && !Mods::EndScreen::Available());
         if (Mods::Input::StylusZone::Placing())
         {
             Mods::Input::StylusZone::PlacementDrag(pointerX, pointerY);
         }
         GameState::ApplyPause();
-        ApplyFrameRateSettings();
         std::int32_t steps;
         if (_scene->FrameAdvance())
         {
@@ -5688,6 +5979,12 @@ namespace MphRead
         for (std::int32_t i = 0; i < steps; ++i)
         {
             _scene->OnSimulationFrame();
+        }
+        if (Mods::Chat::ChatBox::Composing()
+            && Mods::Input::GamepadInput::TakePress(
+                Mods::Input::GamepadButtons::B | Mods::Input::GamepadButtons::Start))
+        {
+            Mods::Chat::ChatBox::Cancel();
         }
         if (Mods::Input::GamepadInput::TakeMenuPress()
             && (_scene->CameraMode() == MphRead::CameraMode::Player || _scene->IsFreeCam()))
@@ -5704,17 +6001,14 @@ namespace MphRead
         {
             return;
         }
+#if defined(MPHREAD_SHELL)
+        const Vector2i framebuffer = FramebufferSize();
+        Mods::Render::UiOverlay::Draw(framebuffer.X, framebuffer.Y);
+        Mods::Render::LauncherHunter::Draw(*this, framebuffer.X, framebuffer.Y);
+        Mods::Launcher::Gui::Shell::AfterDraw(*this);
+#endif
         _window->SwapBuffers();
-        if (_startedHidden)
-        {
-            _window->Visible(true);
-            _startedHidden = false;
-            _applyStartupIn = 3;
-        }
-        else if (_applyStartupIn > 0 && --_applyStartupIn == 0)
-        {
-            Mods::WindowMode::ApplyStartup(*this);
-        }
+        Reveal();
         Mods::PauseMenu::Poll(*this);
         _scene->AfterRenderFrame();
         _window->BaseOnRenderFrame(args);
@@ -5722,21 +6016,73 @@ namespace MphRead
 
     void RenderWindow::OnResize(const RendererPlatform::ResizeEventArgs& e)
     {
+        if (_shell)
+        {
+            Mods::WindowGeometry::Note(*this);
+        }
         if (!_sceneReady)
         {
             return;
         }
+        if (e.Size.X <= 0 || e.Size.Y <= 0)
+        {
+            _window->BaseOnResize(e);
+            return;
+        }
         GL::Viewport(0, 0, e.Size.X, e.Size.Y);
-        _scene->Size(e.Size);
-        _scene->OnResize();
+        if (_scene != nullptr && _scene->Size() != e.Size)
+        {
+            _scene->Size(e.Size);
+            _scene->OnResize();
+        }
         _window->BaseOnResize(e);
+    }
+
+    void RenderWindow::OnMove(const RendererPlatform::WindowPositionEventArgs& e)
+    {
+        if (_shell)
+        {
+            Mods::WindowGeometry::Note(*this);
+        }
+        _window->BaseOnMove(e);
+    }
+
+    void RenderWindow::OnMaximizedChanged(bool maximized)
+    {
+        (void)maximized;
+        if (_shell)
+        {
+            Mods::WindowGeometry::Note(*this);
+        }
+        _window->BaseOnMaximizedChanged(maximized);
+    }
+
+    void RenderWindow::OnFocusedChanged(bool focused)
+    {
+        Mods::Input::GamepadContexts::Focused(focused);
+        if (!focused)
+        {
+            Mods::Input::GamepadManager::ClearAll();
+            Mods::Input::GamepadHaptics::Stop();
+        }
+        _window->BaseOnFocusedChanged(focused);
     }
 
     void RenderWindow::OnMouseDown(const RendererPlatform::MouseButtonEventArgs& e)
     {
+        Mods::Input::InputSourceTracker::Note(Mods::Input::InputSource::KeyboardMouse);
+#if defined(MPHREAD_SHELL)
+        if (Mods::Launcher::Gui::Shell::UiVisible())
+        {
+            const auto [x, y] = PointerPixels(_window->Mouse().X, _window->Mouse().Y);
+            Mods::Launcher::Gui::Shell::PointerButton(e.Button, x, y, true);
+            _window->BaseOnMouseDown(e);
+            return;
+        }
+#endif
         if (e.Button == RendererPlatform::MouseButton::Button1)
         {
-            const Vector2i size = _window->Size();
+            const Vector2i size = _window->ClientSize();
             if (Mods::Input::StylusZone::Placing())
             {
                 Mods::Input::StylusZone::PlacementDown(
@@ -5769,6 +6115,15 @@ namespace MphRead
 
     void RenderWindow::OnMouseUp(const RendererPlatform::MouseButtonEventArgs& e)
     {
+#if defined(MPHREAD_SHELL)
+        if (Mods::Launcher::Gui::Shell::UiVisible())
+        {
+            const auto [x, y] = PointerPixels(_window->Mouse().X, _window->Mouse().Y);
+            Mods::Launcher::Gui::Shell::PointerButton(e.Button, x, y, false);
+            _window->BaseOnMouseUp(e);
+            return;
+        }
+#endif
         if (e.Button == RendererPlatform::MouseButton::Button1)
         {
             if (Mods::Input::StylusZone::Placing())
@@ -5789,6 +6144,15 @@ namespace MphRead
         {
             Mods::Input::InputSourceTracker::Note(Mods::Input::InputSource::KeyboardMouse);
         }
+#if defined(MPHREAD_SHELL)
+        if (Mods::Launcher::Gui::Shell::UiVisible())
+        {
+            const auto [x, y] = PointerPixels(_window->Mouse().X, _window->Mouse().Y);
+            Mods::Launcher::Gui::Shell::PointerMoved(x, y);
+            _window->BaseOnMouseMove(e);
+            return;
+        }
+#endif
         // Filtered for the same reason the player's aim is: the free
         // camera is reached from a match, with the same pointer.
         const auto [deltaX, deltaY] = _scene->IsFreeCam()
@@ -5799,18 +6163,69 @@ namespace MphRead
 
     void RenderWindow::OnMouseWheel(const RendererPlatform::MouseWheelEventArgs& e)
     {
+        if (Mods::MapPick::Available() && e.OffsetY != 0)
+        {
+            Mods::MapPick::Wheel(e.OffsetY > 0 ? -1 : 1);
+            _window->BaseOnMouseWheel(e);
+            return;
+        }
+#if defined(MPHREAD_SHELL)
+        if (Mods::Launcher::Gui::Shell::UiVisible())
+        {
+            Mods::Launcher::Gui::Shell::PointerWheel(e.OffsetX, e.OffsetY);
+            _window->BaseOnMouseWheel(e);
+            return;
+        }
+#endif
         _scene->OnMouseWheel(e.OffsetY);
         _window->BaseOnMouseWheel(e);
     }
 
     void RenderWindow::OnTextInput(const RendererPlatform::TextInputEventArgs& e)
     {
+#if defined(MPHREAD_SHELL)
+        if (Mods::Launcher::Gui::Shell::UiVisible())
+        {
+            const std::u32string codePoint(1, static_cast<char32_t>(e.Unicode));
+            Mods::Launcher::Gui::Shell::TextInput(
+                NativeRuntime::Avalonia::Media::ToUtf8(codePoint));
+            _window->BaseOnTextInput(e);
+            return;
+        }
+#endif
         Mods::Chat::ChatBox::HandleText(e.Unicode);
         _window->BaseOnTextInput(e);
     }
 
+    void RenderWindow::OnKeyUp(const RendererPlatform::KeyboardKeyEventArgs& e)
+    {
+#if defined(MPHREAD_SHELL)
+        if (Mods::Launcher::Gui::Shell::UiVisible())
+        {
+            Mods::Launcher::Gui::Shell::KeyUp(e);
+        }
+#endif
+        _window->BaseOnKeyUp(e);
+    }
+
     void RenderWindow::OnKeyDown(const RendererPlatform::KeyboardKeyEventArgs& e)
     {
+        Mods::Input::InputSourceTracker::Note(Mods::Input::InputSource::KeyboardMouse);
+#if defined(MPHREAD_SHELL)
+        if (Mods::Launcher::Gui::Shell::UiVisible()
+            && !Mods::Launcher::Gui::KeyRow::AnyListening()
+            && Mods::WindowMode::HandleKey(*this, e))
+        {
+            _window->BaseOnKeyDown(e);
+            return;
+        }
+        if (Mods::Launcher::Gui::Shell::UiVisible())
+        {
+            Mods::Launcher::Gui::Shell::KeyDown(e);
+            _window->BaseOnKeyDown(e);
+            return;
+        }
+#endif
         using RendererPlatform::Key;
         if (Mods::Chat::ChatBox::HandleKeyDown(e,
             !Mods::Network::DemoPlayback::IsActive()
@@ -5888,7 +6303,7 @@ namespace MphRead
             {
                 Menu::NeededSave = Menu::SaveFromExit;
             }
-            _window->Close();
+            EndOrClose();
         }
         else
         {

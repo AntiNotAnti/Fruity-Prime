@@ -21,13 +21,7 @@
 #include <memory>
 #include <optional>
 #include <string>
-
-namespace MphRead::Mods::Launcher::Detail
-{
-    // Direct-owner seams required by the current native dependency surface.
-    // They carry no MatchStart policy: each operation is the C# call at that
-    // exact evaluation point, and its owner supplies the behavior.
-}
+#include <utility>
 
 namespace MphRead::Mods::Launcher
 {
@@ -35,10 +29,25 @@ namespace MphRead::Mods::Launcher
         std::shared_ptr<MphRead::MenuSettings> settings,
         LaunchPlan plan)
     {
+        MphRead::RenderWindow::LogCreatingWindow();
+        MphRead::RenderWindow renderer;
+        if (!Begin(renderer, std::move(settings), std::move(plan)))
+        {
+            return;
+        }
+        renderer.Run();
+        AfterMatch();
+    }
+
+    bool MatchStart::Begin(
+        MphRead::RenderWindow& window,
+        std::shared_ptr<MphRead::MenuSettings> settings,
+        LaunchPlan plan)
+    {
         if (!GameFiles::Ready())
         {
             std::cout << "[launcher] no game files; nothing to load" << std::endl;
-            return;
+            return false;
         }
 
         GameFiles::ApplyPaths();
@@ -46,13 +55,11 @@ namespace MphRead::Mods::Launcher
 
         if (plan.Kind() == LaunchKind::Adventure)
         {
-            LaunchAdventure(plan);
-            return;
+            return BeginAdventure(window, std::move(plan));
         }
         if (plan.Kind() == LaunchKind::Demo)
         {
-            LaunchDemo(plan);
-            return;
+            return BeginDemo(window, std::move(plan));
         }
 
         MphRead::Menu::SaveSlot = 0;
@@ -95,7 +102,7 @@ namespace MphRead::Mods::Launcher
 
         if (roomKey.empty() || roomKey == "none")
         {
-            return;
+            return false;
         }
 
         std::optional<std::string> unplayable
@@ -103,11 +110,10 @@ namespace MphRead::Mods::Launcher
         if (unplayable.has_value())
         {
             std::cout << "[launcher] " << unplayable.value() << std::endl;
-            return;
+            return false;
         }
 
-        MphRead::RenderWindow::LogCreatingWindow();
-        MphRead::RenderWindow renderer;
+        EnsureScene(window);
         MphRead::GameMode mode = plan.Mode();
         if (MphRead::Mods::Network::NetSession::Active())
         {
@@ -135,43 +141,60 @@ namespace MphRead::Mods::Launcher
 
         if (MphRead::Mods::Network::NetSession::Active())
         {
+            MphRead::Mods::Network::NetLaunch::DisableCheatsForMatch();
             MphRead::Mods::Network::NetLaunch::BuildPlayers(
-                renderer.Scene(), plan.Hunter(), LauncherPrefs::LastColor(), teamPlay);
+                window.Scene(), plan.Hunter(), LauncherPrefs::LastColor(), teamPlay);
         }
         else
         {
-            AddLocalPlayers(renderer, plan, teamPlay);
+            AddLocalPlayers(window, std::move(plan), teamPlay);
         }
 
-        renderer.AddRoom(roomKey, mode,
+        window.AddRoom(roomKey, mode,
             MphRead::Mods::Network::NetSession::Active()
                 ? MphRead::Mods::Network::NetLaunch::RoomPlayerCount()
                 : 0);
-        renderer.Run();
+        window.LoadScene();
+        MphRead::Mods::Network::NetSession::MarkMatchLoaded();
+        return true;
     }
 
-    void MatchStart::LaunchAdventure(LaunchPlan plan)
+    void MatchStart::EnsureScene(MphRead::RenderWindow& window)
+    {
+        if (!window.HasScene())
+        {
+            (void)window.BeginScene();
+        }
+    }
+
+    void MatchStart::AfterMatch()
+    {
+        if (MphRead::Mods::Network::DemoPlayback::IsActive())
+        {
+            MphRead::Mods::Network::DemoPlayback::Stop();
+        }
+        CommitAdventureSave();
+    }
+
+    bool MatchStart::BeginAdventure(MphRead::RenderWindow& window, LaunchPlan plan)
     {
         std::string roomKey = AdventureSave::Begin(plan.SaveSlot(), plan.NewGame());
         if (roomKey.empty())
         {
             std::cout << "[launcher] no adventure room to load" << std::endl;
-            return;
+            return false;
         }
 
         MphRead::GameState::Mode(MphRead::GameMode::SinglePlayer);
-        MphRead::RenderWindow::LogCreatingWindow();
-        {
-            MphRead::RenderWindow renderer;
-            MphRead::Entities::PlayerEntity::SetMaxPlayers(4);
-            renderer.AddPlayer(plan.Hunter(), LauncherPrefs::LastColor(), -1);
-            renderer.AddRoom(roomKey, MphRead::GameMode::SinglePlayer);
-            renderer.Run();
-        }
-        CommitAdventureSave();
+        EnsureScene(window);
+        MphRead::Entities::PlayerEntity::SetMaxPlayers(4);
+        window.AddPlayer(plan.Hunter(), LauncherPrefs::LastColor(), -1);
+        window.AddRoom(roomKey, MphRead::GameMode::SinglePlayer);
+        window.LoadScene();
+        return true;
     }
 
-    void MatchStart::LaunchDemo(LaunchPlan plan)
+    bool MatchStart::BeginDemo(MphRead::RenderWindow& window, LaunchPlan plan)
     {
         MphRead::Entities::PlayerEntity::SetMaxPlayers(
             MphRead::Entities::PlayerEntity::SlotCapacity);
@@ -182,7 +205,7 @@ namespace MphRead::Mods::Launcher
         if (!MphRead::Mods::Network::DemoPlayback::Join(plan.DemoPath().value()))
         {
             std::cout << "[demo] could not open or read the demo file" << std::endl;
-            return;
+            return false;
         }
 
         std::optional<MphRead::Mods::Network::NetLaunchServerRoom> room
@@ -191,19 +214,18 @@ namespace MphRead::Mods::Launcher
         {
             std::cout << "[demo] the demo has no match info" << std::endl;
             MphRead::Mods::Network::DemoPlayback::Stop();
-            return;
+            return false;
         }
 
         MphRead::Menu::SaveSlot = 0;
-        MphRead::RenderWindow::LogCreatingWindow();
-        MphRead::RenderWindow renderer;
+        EnsureScene(window);
         MphRead::Mods::Network::NetLaunch::BuildPlayers(
-            renderer.Scene(), MphRead::Hunter::Samus, 0,
+            window.Scene(), MphRead::Hunter::Samus, 0,
             MphRead::GameState::IsTeamMode(room->Mode), -1);
-        renderer.AddRoom(room->RoomKey, room->Mode,
+        window.AddRoom(room->RoomKey, room->Mode,
             MphRead::Mods::Network::NetLaunch::RoomPlayerCount());
-        renderer.Run();
-        MphRead::Mods::Network::DemoPlayback::Stop();
+        window.LoadScene();
+        return true;
     }
 
     void MatchStart::CommitAdventureSave()
@@ -232,7 +254,7 @@ namespace MphRead::Mods::Launcher
             renderer.AddPlayer(hunter, 0, teamPlay ? i % 2 : -1);
         }
 
-        const std::int32_t level = std::clamp(plan.BotLevel(), 0, 2);
+        const std::int32_t level = std::clamp(plan.BotLevel(), 0, 3);
         const auto& players = MphRead::Entities::PlayerEntity::Players();
         for (std::size_t i = 0; i < players.size(); ++i)
         {

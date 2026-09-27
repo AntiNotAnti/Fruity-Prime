@@ -188,6 +188,43 @@ namespace MphRead::NativeRuntime::Avalonia
         friend constexpr bool operator==(const CornerRadius&, const CornerRadius&) noexcept = default;
     };
 
+    // Avalonia.RoundedRect: a rect and the radii of its corners.
+    struct RoundedRect final
+    {
+        Avalonia::Rect Rect{};
+        Vector RadiiTopLeft{};
+        Vector RadiiTopRight{};
+        Vector RadiiBottomRight{};
+        Vector RadiiBottomLeft{};
+
+        constexpr RoundedRect() noexcept = default;
+        constexpr explicit RoundedRect(const Avalonia::Rect& rect) noexcept
+            : Rect(rect)
+        {
+        }
+        constexpr RoundedRect(const Avalonia::Rect& rect, double radius) noexcept
+            : RoundedRect(rect, radius, radius)
+        {
+        }
+        constexpr RoundedRect(const Avalonia::Rect& rect, double radiusX, double radiusY) noexcept
+            : Rect(rect), RadiiTopLeft{radiusX, radiusY}, RadiiTopRight{radiusX, radiusY},
+              RadiiBottomRight{radiusX, radiusY}, RadiiBottomLeft{radiusX, radiusY}
+        {
+        }
+        constexpr RoundedRect(const Avalonia::Rect& rect, const CornerRadius& radius) noexcept
+            : Rect(rect), RadiiTopLeft{radius.TopLeft, radius.TopLeft}, RadiiTopRight{radius.TopRight, radius.TopRight},
+              RadiiBottomRight{radius.BottomRight, radius.BottomRight}, RadiiBottomLeft{radius.BottomLeft, radius.BottomLeft}
+        {
+        }
+        constexpr RoundedRect(const Avalonia::Rect& rect, Vector topLeft, Vector topRight, Vector bottomRight,
+            Vector bottomLeft) noexcept
+            : Rect(rect), RadiiTopLeft(topLeft), RadiiTopRight(topRight), RadiiBottomRight(bottomRight),
+              RadiiBottomLeft(bottomLeft)
+        {
+        }
+        friend constexpr bool operator==(const RoundedRect&, const RoundedRect&) noexcept = default;
+    };
+
     // Avalonia.Matrix: M11 M12 / M21 M22 / M31 M32, row vectors.
     struct Matrix final
     {

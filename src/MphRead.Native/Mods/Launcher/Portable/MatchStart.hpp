@@ -20,11 +20,19 @@ namespace MphRead::Mods::Launcher
         static void Launch(
             std::shared_ptr<MphRead::MenuSettings> settings,
             LaunchPlan plan);
+        [[nodiscard]] static bool Begin(
+            MphRead::RenderWindow& window,
+            std::shared_ptr<MphRead::MenuSettings> settings,
+            LaunchPlan plan);
+        static void AfterMatch();
         static void CommitAdventureSave();
 
     private:
-        static void LaunchAdventure(LaunchPlan plan);
-        static void LaunchDemo(LaunchPlan plan);
+        static void EnsureScene(MphRead::RenderWindow& window);
+        [[nodiscard]] static bool BeginAdventure(
+            MphRead::RenderWindow& window, LaunchPlan plan);
+        [[nodiscard]] static bool BeginDemo(
+            MphRead::RenderWindow& window, LaunchPlan plan);
         static void AddLocalPlayers(
             MphRead::RenderWindow& renderer,
             LaunchPlan plan,

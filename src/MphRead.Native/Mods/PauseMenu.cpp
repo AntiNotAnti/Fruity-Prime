@@ -5,11 +5,11 @@
 #include "WindowMode.hpp"
 #if defined(MPHREAD_AVALONIA)
 #include "Launcher/Gui/GuiLauncher.hpp"
-#include "Launcher/Gui/PauseMenuWindow.hpp"
+#include "Launcher/Gui/Shell.hpp"
 #endif
 
 #include <atomic>
-#include <cstdint>
+#include <exception>
 
 namespace MphRead::Mods
 {
@@ -20,11 +20,6 @@ namespace MphRead::Mods
     std::atomic_bool PauseMenu::_refocus{false};
     bool PauseMenu::_leftMatch = false;
     bool PauseMenu::_quitProgram = false;
-    std::int32_t PauseMenu::_windowX = 0;
-    std::int32_t PauseMenu::_windowY = 0;
-    std::int32_t PauseMenu::_windowWidth = 0;
-    std::int32_t PauseMenu::_windowHeight = 0;
-    bool PauseMenu::_windowMoved = false;
 
     bool PauseMenu::Open() noexcept
     {
@@ -41,59 +36,10 @@ namespace MphRead::Mods
         return _quitProgram;
     }
 
-    std::int32_t PauseMenu::WindowX() noexcept
-    {
-        return _windowX;
-    }
-
-    std::int32_t PauseMenu::WindowY() noexcept
-    {
-        return _windowY;
-    }
-
-    std::int32_t PauseMenu::WindowWidth() noexcept
-    {
-        return _windowWidth;
-    }
-
-    std::int32_t PauseMenu::WindowHeight() noexcept
-    {
-        return _windowHeight;
-    }
-
-    bool PauseMenu::WindowMoved() noexcept
-    {
-        return _windowMoved;
-    }
-
-    void PauseMenu::WindowMoved(bool value) noexcept
-    {
-        _windowMoved = value;
-    }
-
-    void PauseMenu::TakeWindowRect(MphRead::RenderWindow& window)
-    {
-        const std::int32_t x = window.ClientLocation().X;
-        const std::int32_t y = window.ClientLocation().Y;
-        const std::int32_t width = window.ClientSize().X;
-        const std::int32_t height = window.ClientSize().Y;
-        if (x == _windowX && y == _windowY
-            && width == _windowWidth && height == _windowHeight)
-        {
-            return;
-        }
-        _windowX = x;
-        _windowY = y;
-        _windowWidth = width;
-        _windowHeight = height;
-        _windowMoved = true;
-    }
-
     bool PauseMenu::HandleEscape(MphRead::RenderWindow& window)
     {
-        TakeWindowRect(window);
 #if defined(MPHREAD_AVALONIA)
-        if (!Detail::PauseMenuGuiEnsureSetup())
+        if (!Launcher::Gui::GuiLauncher::EnsureSetup())
         {
             return false;
         }
@@ -111,18 +57,6 @@ namespace MphRead::Mods
 
     void PauseMenu::Poll(MphRead::RenderWindow& window)
     {
-#if defined(MPHREAD_AVALONIA)
-        if (_open.load(std::memory_order_acquire))
-        {
-            TakeWindowRect(window);
-            if (_windowMoved)
-            {
-                _windowMoved = false;
-                Detail::PauseMenuGuiFollowGameWindow();
-            }
-            Detail::PauseMenuGuiPump();
-        }
-#endif
         if (_refocus.load(std::memory_order_acquire))
         {
             _refocus.store(false, std::memory_order_release);
@@ -130,7 +64,7 @@ namespace MphRead::Mods
             {
                 window.Focus();
             }
-            catch (...)
+            catch (const std::exception&)
             {
             }
         }
@@ -145,14 +79,22 @@ namespace MphRead::Mods
             _quit.store(false, std::memory_order_release);
             _quitProgram = true;
             Close();
+#if defined(MPHREAD_AVALONIA)
+            Launcher::Gui::Shell::Quit(window);
+#else
             window.Close();
+#endif
         }
         else if (_leaveRequested.load(std::memory_order_acquire))
         {
             _leaveRequested.store(false, std::memory_order_release);
             _leftMatch = true;
             Close();
+#if defined(MPHREAD_AVALONIA)
+            Launcher::Gui::Shell::LeaveMatch(window);
+#else
             window.Close();
+#endif
         }
     }
 
@@ -188,7 +130,7 @@ namespace MphRead::Mods
     void PauseMenu::OpenMenu()
     {
 #if defined(MPHREAD_AVALONIA)
-        const bool opened = Detail::PauseMenuGuiOpenWindow();
+        const bool opened = Launcher::Gui::Shell::OpenPauseMenu();
         _open.store(opened, std::memory_order_release);
 #endif
     }
@@ -196,7 +138,7 @@ namespace MphRead::Mods
     void PauseMenu::Close()
     {
 #if defined(MPHREAD_AVALONIA)
-        Detail::PauseMenuGuiCloseWindowIfOpen();
+        Launcher::Gui::Shell::CloseMenu();
 #endif
         _open.store(false, std::memory_order_release);
     }

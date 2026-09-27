@@ -160,6 +160,18 @@ namespace MphRead::NativeRuntime::Avalonia
         return result;
     }
 
+    bool Visual::IsVisualAncestorOf(const Visual* target) const noexcept
+    {
+        for (const Visual* v = target != nullptr ? target->_visualParent : nullptr; v != nullptr; v = v->_visualParent)
+        {
+            if (v == this)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     void Visual::AddVisualChild(const std::shared_ptr<Visual>& child)
     {
         InsertVisualChild(_visualChildren.size(), child);
@@ -717,6 +729,8 @@ namespace MphRead::NativeRuntime::Avalonia
         RoutedEvent InputElement::TextInputEvent("TextInput", RoutingStrategies::Tunnel | RoutingStrategies::Bubble);
         RoutedEvent InputElement::GotFocusEvent("GotFocus", RoutingStrategies::Bubble);
         RoutedEvent InputElement::LostFocusEvent("LostFocus", RoutingStrategies::Bubble);
+        RoutedEvent InputElement::TappedEvent("Tapped", RoutingStrategies::Bubble);
+        RoutedEvent InputElement::DoubleTappedEvent("DoubleTapped", RoutingStrategies::Bubble);
 
         InputElement::InputElement()
         {
@@ -854,6 +868,14 @@ namespace MphRead::NativeRuntime::Avalonia
             else if (r == &LostFocusEvent)
             {
                 LostFocus(*this, static_cast<FocusChangedEventArgs&>(e));
+            }
+            else if (r == &TappedEvent)
+            {
+                Tapped(*this, e);
+            }
+            else if (r == &DoubleTappedEvent)
+            {
+                DoubleTapped(*this, e);
             }
         }
 

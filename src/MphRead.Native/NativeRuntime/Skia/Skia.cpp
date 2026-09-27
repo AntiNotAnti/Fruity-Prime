@@ -494,6 +494,18 @@ namespace MphRead::NativeRuntime::Skia
         return bitmap;
     }
 
+    std::shared_ptr<Bitmap> Bitmap::FromPremultipliedRgba(std::int32_t width, std::int32_t height, const std::uint8_t* rgba,
+        std::int32_t stride)
+    {
+        auto bitmap = std::make_shared<Bitmap>(width, height);
+        for (std::int32_t y = 0; y < height; y++)
+        {
+            std::memcpy(bitmap->Pixels() + static_cast<std::size_t>(y) * static_cast<std::size_t>(width) * 4,
+                rgba + static_cast<std::size_t>(y) * static_cast<std::size_t>(stride), static_cast<std::size_t>(width) * 4);
+        }
+        return bitmap;
+    }
+
 #if !defined(__ANDROID__)
     namespace
     {
@@ -1437,7 +1449,7 @@ namespace MphRead::NativeRuntime::Skia
         {
             return;
         }
-        const Mask mask = Rasterize(path.Flatten(Current().Transform), path.Rule, true);
+        const Mask mask = Rasterize(path.Flatten(Current().Transform), path.Rule, paint.Antialias);
         Blend(mask, paint);
     }
 
@@ -1450,12 +1462,12 @@ namespace MphRead::NativeRuntime::Skia
         const Matrix m = Current().Transform;
         const double scale = std::sqrt(std::abs(m.ScaleX * m.ScaleY - m.SkewX * m.SkewY));
         const std::vector<Path::Contour> outline = StrokeContours(path.Flatten(m), stroke, scale);
-        const Mask mask = Rasterize(outline, FillRule::NonZero, true);
+        const Mask mask = Rasterize(outline, FillRule::NonZero, paint.Antialias);
         Blend(mask, paint);
     }
 
     void Canvas::DrawBitmap(const Bitmap& bitmap, const Rect& source, const Rect& destination, FilterQuality quality,
-        double opacity)
+        double opacity, BlendMode blend)
     {
         if (bitmap.Width() <= 0 || bitmap.Height() <= 0 || destination.IsEmpty() || source.IsEmpty() || opacity <= 0)
         {
@@ -1576,6 +1588,21 @@ namespace MphRead::NativeRuntime::Skia
                     continue;
                 }
                 std::uint8_t* d = row + static_cast<std::size_t>(dx) * 4;
+                if (blend == BlendMode::Overlay)
+                {
+                    // Skia's kOverlay, premultiplied.
+                    const float da = d[3] / 255.0F;
+                    for (int k = 0; k < 3; k++)
+                    {
+                        const float s = c[k] * cov;
+                        const float dc = d[k] / 255.0F;
+                        const float term = 2 * dc <= da ? 2 * s * dc : sa * da - 2 * (da - dc) * (sa - s);
+                        const float v = term + s * (1 - da) + dc * (1 - sa);
+                        d[k] = static_cast<std::uint8_t>(std::clamp(v * 255.0F + 0.5F, 0.0F, 255.0F));
+                    }
+                    d[3] = static_cast<std::uint8_t>(std::clamp((sa + da - sa * da) * 255.0F + 0.5F, 0.0F, 255.0F));
+                    continue;
+                }
                 const float inv = 1.0F - sa;
                 for (int k = 0; k < 4; k++)
                 {
@@ -1790,8 +1817,8 @@ namespace MphRead::NativeRuntime::Skia
                     }
                     for (std::int32_t x = x0; x < x1; x++)
                     {
-                        row[static_cast<std::size_t>(x - x0)]
-                            = glyph->Coverage[static_cast<std::size_t>(y * glyph->Width + (x - gx))] / 255.0F;
+                        const float c = glyph->Coverage[static_cast<std::size_t>(y * glyph->Width + (x - gx))] / 255.0F;
+                        row[static_cast<std::size_t>(x - x0)] = paint.Antialias ? c : (c >= 0.5F ? 1.0F : 0.0F);
                     }
                     BlendSpan(dy, x0, x1, row.data(), paint, solid);
                 }

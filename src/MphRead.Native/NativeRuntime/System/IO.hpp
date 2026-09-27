@@ -39,6 +39,11 @@ namespace MphRead::NativeRuntime
     void DirectoryEnumerateFiles(
         const std::string& path,
         const std::function<void(const std::string&)>& visitor);
+    // Directory.EnumerateFiles(path, searchPattern, SearchOption.AllDirectories)
+    // followed by Enumerable.Any(predicate): stop on the first matching file.
+    [[nodiscard]] bool DirectoryAnyFileRecursive(
+        const std::string& path,
+        const std::function<bool(const std::string&)>& predicate);
     // Path.GetFileName(path).
     [[nodiscard]] std::string PathGetFileName(const std::string& path);
     // Path.GetPathRoot(path).Length.
@@ -79,8 +84,14 @@ namespace MphRead::NativeRuntime
     void FileWriteAllBytes(const std::string& path, std::span<const std::uint8_t> bytes);
     // Directory.CreateDirectory(path), parents included.
     void DirectoryCreateDirectory(const std::string& path);
+    // Directory.CreateTempSubdirectory(prefix), under Path.GetTempPath().
+    [[nodiscard]] std::string DirectoryCreateTempSubdirectory(std::string_view prefix);
+    // Directory.SetCurrentDirectory(path).
+    void DirectorySetCurrentDirectory(const std::string& path);
     // Directory.Delete(path): an empty directory; IOException when it is not.
     void DirectoryDelete(const std::string& path);
+    // Directory.Delete(path, recursive).
+    void DirectoryDelete(const std::string& path, bool recursive);
     // Directory.GetFiles(path): full paths of the files directly inside it.
     [[nodiscard]] std::vector<std::string> DirectoryGetFiles(const std::string& path);
     // new FileInfo(path): the members the demo library reads.

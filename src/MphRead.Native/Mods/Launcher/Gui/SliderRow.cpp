@@ -1,449 +1,191 @@
 #include "SliderRow.hpp"
 
-#include <algorithm>
-#include <array>
-#include <bit>
-#include <charconv>
-#include <cmath>
-#include <cstddef>
-#include <iterator>
-#include <limits>
-#include <system_error>
-#include <utility>
-#include "../../../NativeRuntime/System/IO.hpp"
-#include "../../../NativeRuntime/System/Managed.hpp"
-#include "../../../NativeRuntime/System/Encoding.hpp"
+#include "TrackedText.hpp"
 #include "../../../NativeRuntime/System/Globalization.hpp"
 
-using ::MphRead::NativeRuntime::MathClamp;
-using ::MphRead::NativeRuntime::MathMax;
-using ::MphRead::NativeRuntime::RoundToEven;
-using ::MphRead::NativeRuntime::UncheckedAdd;
-using ::MphRead::NativeRuntime::UncheckedSubtract;
-
-namespace
-{
-    using namespace MphRead::Mods::Launcher::Gui;
-
-    [[nodiscard]] std::int32_t ClampInt32(
-        std::int32_t value, std::int32_t min, std::int32_t max)
-    {
-        return ::MphRead::NativeRuntime::MathClamp(value, min, max);
-    }
-
-    [[nodiscard]] std::int32_t DoubleToInt32Unchecked(double value) noexcept
-    {
-        if (std::isnan(value))
-        {
-            return 0;
-        }
-        if (value < static_cast<double>(std::numeric_limits<std::int32_t>::min()))
-        {
-            return std::numeric_limits<std::int32_t>::min();
-        }
-        if (value > static_cast<double>(std::numeric_limits<std::int32_t>::max()))
-        {
-            return std::numeric_limits<std::int32_t>::max();
-        }
-        return static_cast<std::int32_t>(value);
-    }
-}
+#include <algorithm>
+#include <cmath>
 
 namespace MphRead::Mods::Launcher::Gui
 {
-    const SliderRowEventArgs SliderRowEventArgs::Empty{};
+    using namespace ::MphRead::NativeRuntime::Avalonia;
 
-    SliderRowEventHandler::SliderRowEventHandler(
-        std::shared_ptr<void> target, Callback function)
+    SliderRow::SliderRow(std::string label, std::int32_t value, std::function<std::string(std::int32_t)> format,
+        double labelWidth, std::int32_t min, std::int32_t max, std::int32_t keyStep)
+        : _label(std::move(label)), _labelWidth(labelWidth), _min(min), _max(std::max(min + 1, max)),
+          _keyStep(std::max(1, keyStep))
     {
-        if (function != nullptr)
-        {
-            auto list = std::make_shared<std::vector<Invocation>>();
-            list->push_back(Invocation{std::move(target), function});
-            _invocations = std::move(list);
-        }
-    }
-
-    SliderRowEventHandler::SliderRowEventHandler(
-        std::shared_ptr<const std::vector<Invocation>> invocations) noexcept
-        : _invocations(std::move(invocations))
-    {
-    }
-
-    SliderRowEventHandler SliderRowEventHandler::Combine(
-        const SliderRowEventHandler& left, const SliderRowEventHandler& right)
-    {
-        if (left.IsNull())
-        {
-            return right;
-        }
-        if (right.IsNull())
-        {
-            return left;
-        }
-
-        auto list = std::make_shared<std::vector<Invocation>>();
-        list->reserve(left._invocations->size() + right._invocations->size());
-        list->insert(list->end(), left._invocations->begin(), left._invocations->end());
-        list->insert(list->end(), right._invocations->begin(), right._invocations->end());
-        return SliderRowEventHandler(std::move(list));
-    }
-
-    bool SliderRowEventHandler::IsNull() const noexcept
-    {
-        return !_invocations || _invocations->empty();
-    }
-
-    bool operator==(
-        const SliderRowEventHandler& left, const SliderRowEventHandler& right) noexcept
-    {
-        if (left.IsNull() || right.IsNull())
-        {
-            return left.IsNull() == right.IsNull();
-        }
-        const auto& a = *left._invocations;
-        const auto& b = *right._invocations;
-        return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin());
-    }
-
-    void SliderRowEvent::Add(const SliderRowEventHandler& handler)
-    {
-        if (handler.IsNull())
-        {
-            return;
-        }
-
-        std::shared_ptr<const InvocationList> current = _handlers.load();
-        for (;;)
-        {
-            std::shared_ptr<const InvocationList> desired;
-            if (!current)
-            {
-                desired = handler._invocations;
-            }
-            else
-            {
-                auto next = std::make_shared<InvocationList>();
-                next->reserve(current->size() + handler._invocations->size());
-                next->insert(next->end(), current->begin(), current->end());
-                next->insert(next->end(),
-                    handler._invocations->begin(), handler._invocations->end());
-                desired = std::move(next);
-            }
-            if (_handlers.compare_exchange_weak(current, desired))
-            {
-                return;
-            }
-        }
-    }
-
-    void SliderRowEvent::Remove(const SliderRowEventHandler& handler)
-    {
-        if (handler.IsNull())
-        {
-            return;
-        }
-
-        std::shared_ptr<const InvocationList> current = _handlers.load();
-        for (;;)
-        {
-            if (!current || current->size() < handler._invocations->size())
-            {
-                return;
-            }
-
-            const std::size_t removeCount = handler._invocations->size();
-            std::optional<std::size_t> match;
-            for (std::size_t start = current->size() - removeCount + 1; start-- > 0;)
-            {
-                if (std::equal(handler._invocations->begin(), handler._invocations->end(),
-                    current->begin() + static_cast<std::ptrdiff_t>(start)))
-                {
-                    match = start;
-                    break;
-                }
-            }
-            if (!match.has_value())
-            {
-                return;
-            }
-
-            std::shared_ptr<const InvocationList> desired;
-            if (removeCount != current->size())
-            {
-                auto next = std::make_shared<InvocationList>();
-                next->reserve(current->size() - removeCount);
-                next->insert(next->end(), current->begin(),
-                    current->begin() + static_cast<std::ptrdiff_t>(*match));
-                next->insert(next->end(),
-                    current->begin() + static_cast<std::ptrdiff_t>(*match + removeCount),
-                    current->end());
-                desired = std::move(next);
-            }
-
-            if (_handlers.compare_exchange_weak(current, desired))
-            {
-                return;
-            }
-        }
-    }
-
-    void SliderRowEvent::Invoke(void* sender, const SliderRowEventArgs& args) const
-    {
-        const std::shared_ptr<const InvocationList> handlers = _handlers.load();
-        if (!handlers)
-        {
-            return;
-        }
-        for (const Invocation& handler : *handlers)
-        {
-            handler.Function(handler.Target.get(), sender, args);
-        }
-    }
-
-    SliderRowDrawingContext::SliderRowDrawingContext() noexcept
-        : TrackedTextAdapter(TrackedTextBrush{&GuiTheme::TextBrush})
-    {
-    }
-
-    SliderRow::SliderRow(SliderRowControlAdapter& control,
-        std::optional<std::u16string> label, std::int32_t value,
-        FormatHandler format, double labelWidth,
-        std::int32_t min, std::int32_t max, std::int32_t keyStep)
-        : _control(control)
-    {
-        _label = std::move(label);
-        _labelWidth = labelWidth;
-        _min = min;
-        _max = MathMax(UncheckedAdd(min, 1), max);
-        _keyStep = MathMax(1, keyStep);
-        _value = ClampInt32(value, _min, _max);
-        _format = format ? std::move(format) : FormatHandler(DefaultFormat);
-        Height(34.0);
-        _control.SetFocusable(true);
-        _control.SetHandCursor();
-    }
-
-    double SliderRow::Height() const
-    {
-        return _control.GetHeight();
-    }
-
-    void SliderRow::Height(double value)
-    {
-        _control.SetHeight(value);
-    }
-
-    bool SliderRow::IsEnabled() const
-    {
-        return _control.GetIsEnabled();
-    }
-
-    void SliderRow::IsEnabled(bool value)
-    {
-        _control.SetIsEnabled(value);
-    }
-
-    std::int32_t SliderRow::Value() const noexcept
-    {
-        return _value;
+        _value = std::clamp(value, _min, _max);
+        _format = format ? std::move(format) : [](std::int32_t v) { return std::to_string(v) + "%"; };
+        Height(34);
+        Focusable(true);
+        Cursor(std::make_shared<Input::Cursor>(Input::StandardCursorType::Hand));
     }
 
     void SliderRow::Value(std::int32_t value)
     {
-        const std::int32_t clamped = ClampInt32(value, _min, _max);
+        const std::int32_t clamped = std::clamp(value, _min, _max);
         if (clamped != _value)
         {
             _value = clamped;
-            _control.InvalidateVisual();
-            _valueChanged.Invoke(this, SliderRowEventArgs::Empty);
+            InvalidateVisual();
+            ValueChanged(*this);
         }
     }
 
-    void SliderRow::AddValueChanged(const SliderRowEventHandler& handler)
+    Rect SliderRow::Track() const
     {
-        _valueChanged.Add(handler);
-    }
-
-    void SliderRow::RemoveValueChanged(const SliderRowEventHandler& handler)
-    {
-        _valueChanged.Remove(handler);
-    }
-
-    void SliderRow::InvalidateVisual()
-    {
-        _control.InvalidateVisual();
-    }
-
-    const std::u16string& SliderRow::RequireLabel() const
-    {
-        if (!_label.has_value())
-        {
-            throw SliderRowNullReferenceException();
-        }
-        return *_label;
-    }
-
-    const std::u16string& SliderRow::RequireFormatted(
-        const std::optional<std::u16string>& value)
-    {
-        if (!value.has_value())
-        {
-            throw SliderRowNullReferenceException();
-        }
-        return *value;
-    }
-
-    std::optional<std::u16string> SliderRow::DefaultFormat(std::int32_t value)
-    {
-        return ::MphRead::NativeRuntime::Utf8ToUtf16(::MphRead::NativeRuntime::ToString(value) + "%");
-    }
-
-    GuiRect SliderRow::Track() const
-    {
-        return GuiRect{
-            _labelWidth,
-            _control.Bounds().Height / 2.0 - 2.0,
-            MathMax(40.0, _control.Bounds().Width - _labelWidth - ValueGutter),
-            4.0
-        };
+        return Rect(_labelWidth, Bounds().Height / 2 - 2, std::max(40.0, Bounds().Width - _labelWidth - ValueGutter), 4);
     }
 
     void SliderRow::SetFromPointer(double x)
     {
-        const GuiRect track = Track();
-        const double fraction = (x - track.X) / MathMax(1.0, track.Width);
-        const double scaled = MathClamp(fraction, 0.0, 1.0)
-            * static_cast<double>(UncheckedSubtract(_max, _min));
-        Value(UncheckedAdd(_min, DoubleToInt32Unchecked(RoundToEven(scaled))));
+        const Rect track = Track();
+        const double fraction = (x - track.X) / std::max(1.0, track.Width);
+        Value(_min + static_cast<std::int32_t>(std::round(std::clamp(fraction, 0.0, 1.0) * (_max - _min))));
     }
 
-    void SliderRow::OnPointerPressed(SliderRowPointerEventArgs& e)
+    void SliderRow::BeginDrag(Input::PointerEventArgs& e, Point p)
     {
-        _control.Focus();
-        const SliderRowPoint p = _control.GetPosition(e);
-        if (p.X >= _labelWidth && _control.GetIsEnabled())
+        _dragging = true;
+        // Captured so a drag that leaves the row keeps moving the value.
+        e.Pointer->Capture(this);
+        SetFromPointer(p.X);
+    }
+
+    void SliderRow::OnPointerPressed(Input::PointerPressedEventArgs& e)
+    {
+        Focus();
+        const Point p = e.GetPosition(this);
+        if (p.X < _labelWidth || !IsEnabled())
         {
-            _dragging = true;
-            _control.Capture(e.Pointer, this);
-            SetFromPointer(p.X);
+            Control::OnPointerPressed(e);
+            return;
         }
-        _control.BaseOnPointerPressed(e);
+        if (Tap::Drags(e))
+        {
+            // A finger is not told from a scroll yet: wait for the direction.
+            _tap.Press(e, *this);
+        }
+        else
+        {
+            BeginDrag(e, p);
+        }
+        Control::OnPointerPressed(e);
     }
 
-    void SliderRow::OnPointerMoved(SliderRowPointerEventArgs& e)
+    void SliderRow::OnPointerMoved(Input::PointerEventArgs& e)
     {
-        const SliderRowPoint p = _control.GetPosition(e);
+        const Point p = e.GetPosition(this);
         const bool hot = p.X >= _labelWidth;
         if (hot != _hot)
         {
             _hot = hot;
-            _control.InvalidateVisual();
+            InvalidateVisual();
         }
         if (_dragging)
         {
             SetFromPointer(p.X);
         }
-        _control.BaseOnPointerMoved(e);
+        else if (_tap.Down())
+        {
+            // Sideways is the slider and anything else is the page.
+            if (Tap::Sideways(_tap.Travel(p)))
+            {
+                _tap.Cancel();
+                BeginDrag(e, p);
+            }
+            else
+            {
+                _tap.Moved(e, *this);
+            }
+        }
+        Control::OnPointerMoved(e);
     }
 
-    void SliderRow::OnPointerReleased(SliderRowPointerEventArgs& e)
+    void SliderRow::OnPointerReleased(Input::PointerReleasedEventArgs& e)
     {
+        // A tap on the track still sets the value.
+        if (_tap.Release(e, *this) && IsEnabled())
+        {
+            const Point p = e.GetPosition(this);
+            if (p.X >= _labelWidth)
+            {
+                SetFromPointer(p.X);
+            }
+        }
         _dragging = false;
-        _control.Capture(e.Pointer, nullptr);
-        _control.BaseOnPointerReleased(e);
+        e.Pointer->Capture(nullptr);
+        Control::OnPointerReleased(e);
     }
 
-    void SliderRow::OnPointerExited(SliderRowPointerEventArgs& e)
+    void SliderRow::OnPointerExited(Input::PointerEventArgs& e)
     {
         _hot = false;
-        _control.InvalidateVisual();
-        _control.BaseOnPointerExited(e);
+        InvalidateVisual();
+        Control::OnPointerExited(e);
     }
 
-    void SliderRow::OnKeyDown(SliderRowKeyEventArgs& e)
+    void SliderRow::OnPointerCaptureLost(Input::PointerCaptureLostEventArgs& e)
     {
-        if (!_control.GetIsEnabled())
+        _tap.Cancel();
+        _dragging = false;
+        Control::OnPointerCaptureLost(e);
+    }
+
+    void SliderRow::OnKeyDown(Input::KeyEventArgs& e)
+    {
+        if (!IsEnabled())
         {
-            _control.BaseOnKeyDown(e);
+            Control::OnKeyDown(e);
             return;
         }
-        if (e.Key == SliderRowKey::Left)
+        if (e.Key == Input::Key::Left)
         {
-            Value(UncheckedSubtract(Value(), _keyStep));
+            Value(Value() - _keyStep);
             e.Handled = true;
             return;
         }
-        if (e.Key == SliderRowKey::Right)
+        if (e.Key == Input::Key::Right)
         {
-            Value(UncheckedAdd(Value(), _keyStep));
+            Value(Value() + _keyStep);
             e.Handled = true;
             return;
         }
-        _control.BaseOnKeyDown(e);
+        Control::OnKeyDown(e);
     }
 
-    void SliderRow::OnGotFocus(SliderRowGotFocusEventArgs& e)
+    void SliderRow::OnGotFocus(Input::GotFocusEventArgs& e)
     {
-        _control.InvalidateVisual();
-        _control.BaseOnGotFocus(e);
+        InvalidateVisual();
+        Control::OnGotFocus(e);
     }
 
-    void SliderRow::OnLostFocus(SliderRowRoutedEventArgs& e)
+    void SliderRow::OnLostFocus(Input::FocusChangedEventArgs& e)
     {
-        _control.InvalidateVisual();
-        _control.BaseOnLostFocus(e);
+        InvalidateVisual();
+        Control::OnLostFocus(e);
     }
 
-    void SliderRow::Render(SliderRowDrawingContext& context)
+    void SliderRow::Render(Media::DrawingContext& context)
     {
-        context.FillRectangle(SliderRowBrush::Transparent(),
-            GuiRect{0.0, 0.0, _control.Bounds().Width, _control.Bounds().Height});
+        context.FillRectangle(Media::Brushes::Transparent(), Rect(0, 0, Bounds().Width, Bounds().Height));
+        const Media::IBrushPtr dim = std::make_shared<Media::SolidColorBrush>(Media::Color::FromRgb(70, 76, 90));
+        TrackedText::Draw(context, ::MphRead::NativeRuntime::ToUpperInvariant(_label), 11,
+            IsEnabled() ? GuiTheme::TextDimBrush : dim, 4, (Bounds().Height - TrackedText::LineHeight(11)) / 2, 1);
 
-        GuiBrush dim{GuiColor::FromRgb(70, 76, 90)};
-        const std::u16string upper = _control.ToUpperInvariant(RequireLabel());
-        const bool labelEnabled = _control.GetIsEnabled();
-        const double labelBoundsHeight = _control.Bounds().Height;
-        const double labelLineHeight = TrackedText::LineHeight(context, 11.0);
-        TrackedText::Draw(context, upper, 11.0,
-            TrackedTextBrush{labelEnabled
-                ? static_cast<const void*>(&GuiTheme::TextDimBrush)
-                : static_cast<const void*>(&dim)},
-            4.0, (labelBoundsHeight - labelLineHeight) / 2.0, 1.0);
+        const Rect track = Track();
+        context.FillRectangle(GuiTheme::PanelLightBrush, track);
+        const double filled = track.Width * ((_value - _min) / static_cast<double>(_max - _min));
+        const Media::IBrushPtr accent = IsEnabled()
+            ? std::make_shared<Media::SolidColorBrush>(IsFocused() || _hot ? GuiTheme::Shade(GuiTheme::Accent, 0.15)
+                                                                           : GuiTheme::Accent)
+            : dim;
+        context.FillRectangle(accent, Rect(track.X, track.Y, filled, track.Height));
+        context.DrawEllipse(accent, nullptr, Point{track.X + filled, track.Y + track.Height / 2}, 5, 5);
 
-        const GuiRect track = Track();
-        context.FillRectangle(SliderRowBrush::From(GuiTheme::PanelLightBrush), track);
-        const double filled = track.Width
-            * (static_cast<double>(UncheckedSubtract(_value, _min))
-                / static_cast<double>(UncheckedSubtract(_max, _min)));
-
-        const GuiBrush* accent = &dim;
-        std::unique_ptr<GuiBrush> ownedAccent;
-        if (_control.GetIsEnabled())
-        {
-            const GuiColor color = (_control.IsFocused() || _hot)
-                ? GuiTheme::Shade(GuiTheme::Accent, 0.15)
-                : GuiTheme::Accent;
-            ownedAccent = std::make_unique<GuiBrush>(color);
-            accent = ownedAccent.get();
-        }
-
-        context.FillRectangle(SliderRowBrush::From(*accent),
-            GuiRect{track.X, track.Y, filled, track.Height});
-        context.DrawEllipse(SliderRowBrush::From(*accent), std::nullopt,
-            SliderRowPoint{track.X + filled, track.Y + track.Height / 2.0},
-            5.0, 5.0);
-
-        const std::optional<std::u16string> formatted = _format(_value);
-        const bool valueEnabled = _control.GetIsEnabled();
-        const TrackedTextFormattedText value = TrackedText::Make(
-            context, RequireFormatted(formatted), 12.0, true,
-            TrackedTextBrush{valueEnabled
-                ? static_cast<const void*>(&GuiTheme::TextBrush)
-                : static_cast<const void*>(&dim)});
-        context.DrawText(value, TrackedTextPoint{
-            _control.Bounds().Width - 4.0 - value.Width,
-            (_control.Bounds().Height - value.Height) / 2.0
-        });
+        const Media::FormattedText value = TrackedText::Make(_format(_value), 12, true,
+            IsEnabled() ? GuiTheme::TextBrush : dim);
+        context.DrawText(value, Point{Bounds().Width - 4 - value.Width(), (Bounds().Height - value.Height()) / 2});
     }
 }

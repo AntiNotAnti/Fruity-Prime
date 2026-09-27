@@ -9,7 +9,10 @@
 #include "../System/Heartbeat.hpp"
 #include "../System/IO.hpp"
 #include "../System/Console.hpp"
+#include "../System/Exceptions.hpp"
+#include "../System/Managed.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <iostream>
 #include <cstdint>
@@ -36,6 +39,7 @@ namespace
     using MphRead::RendererPlatform::TextInputEventArgs;
     using MphRead::RendererPlatform::VSyncMode;
     using MphRead::RendererPlatform::WindowEvents;
+    using MphRead::RendererPlatform::WindowPositionEventArgs;
     using MphRead::RendererPlatform::WindowSettings;
     using ::OpenTK::Windowing::Common::KeyboardKeyEventArgs;
 
@@ -74,33 +78,81 @@ namespace
         (void)ready;
     }
 
-    // CurrentMonitor: the one whose work area the window's origin is inside.
+    // Monitors.GetMonitorFromWindow: prefer an assigned fullscreen monitor;
+    // otherwise choose the monitor with the largest ClientArea intersection.
     [[nodiscard]] GLFWmonitor* MonitorForWindow(GLFWwindow* handle)
     {
-        GLFWmonitor* monitor = ::glfwGetPrimaryMonitor();
-        if (handle == nullptr)
+        GLFWmonitor* monitor = ::glfwGetWindowMonitor(handle);
+        if (monitor != nullptr)
         {
             return monitor;
         }
         int windowX = 0;
         int windowY = 0;
         ::glfwGetWindowPos(handle, &windowX, &windowY);
+        int windowWidth = 0;
+        int windowHeight = 0;
+        ::glfwGetWindowSize(handle, &windowWidth, &windowHeight);
+        const int windowRight = ::MphRead::NativeRuntime::UncheckedAdd(windowX, windowWidth);
+        const int windowBottom = ::MphRead::NativeRuntime::UncheckedAdd(windowY, windowHeight);
+        const int windowMinX = std::min(windowX, windowRight);
+        const int windowMinY = std::min(windowY, windowBottom);
+        const int windowMaxX = std::max(windowX, windowRight);
+        const int windowMaxY = std::max(windowY, windowBottom);
+
         int count = 0;
         GLFWmonitor** const monitors = ::glfwGetMonitors(&count);
+        if (monitors == nullptr || count <= 0)
+        {
+            // OpenTK's GetMonitorFromWindow indexes monitor 0 after building
+            // the list, so an empty list throws ArgumentOutOfRangeException.
+            throw System::ArgumentOutOfRangeException();
+        }
+
+        const auto intersectionArea = [=](GLFWmonitor* candidate)
+        {
+            int monitorX = 0;
+            int monitorY = 0;
+            ::glfwGetMonitorPos(candidate, &monitorX, &monitorY);
+            const GLFWvidmode* const mode = ::glfwGetVideoMode(candidate);
+            if (mode == nullptr)
+            {
+                return 0;
+            }
+            const int monitorRight = ::MphRead::NativeRuntime::UncheckedAdd(
+                monitorX, mode->width);
+            const int monitorBottom = ::MphRead::NativeRuntime::UncheckedAdd(
+                monitorY, mode->height);
+            const int monitorMinX = std::min(monitorX, monitorRight);
+            const int monitorMinY = std::min(monitorY, monitorBottom);
+            const int monitorMaxX = std::max(monitorX, monitorRight);
+            const int monitorMaxY = std::max(monitorY, monitorBottom);
+
+            const int minX = std::max(monitorMinX, windowMinX);
+            const int minY = std::max(monitorMinY, windowMinY);
+            const int maxX = std::min(monitorMaxX, windowMaxX);
+            const int maxY = std::min(monitorMaxY, windowMaxY);
+            if (maxX < minX || maxY < minY)
+            {
+                return 0;
+            }
+            const int width = ::MphRead::NativeRuntime::UncheckedSubtract(maxX, minX);
+            const int height = ::MphRead::NativeRuntime::UncheckedSubtract(maxY, minY);
+            return ::MphRead::NativeRuntime::UncheckedMultiply(width, height);
+        };
+
+        int selectedIndex = 0;
+        int selectedArea = intersectionArea(monitors[selectedIndex]);
         for (int i = 0; i < count; ++i)
         {
-            int areaX = 0;
-            int areaY = 0;
-            int areaWidth = 0;
-            int areaHeight = 0;
-            ::glfwGetMonitorWorkarea(monitors[i], &areaX, &areaY, &areaWidth, &areaHeight);
-            if (windowX >= areaX && windowX < areaX + areaWidth
-                && windowY >= areaY && windowY < areaY + areaHeight)
+            const int area = intersectionArea(monitors[i]);
+            if (area > selectedArea)
             {
-                return monitors[i];
+                selectedIndex = i;
+                selectedArea = area;
             }
         }
-        return monitor;
+        return monitors[selectedIndex];
     }
 
     class GlfwWindow final : public MphRead::RendererPlatform::Window
@@ -138,6 +190,9 @@ namespace
             ::glfwSwapInterval(1);
             ::glfwSetWindowUserPointer(_handle, this);
             ::glfwSetFramebufferSizeCallback(_handle, &OnFramebufferSize);
+            ::glfwSetWindowPosCallback(_handle, &OnWindowPos);
+            ::glfwSetWindowMaximizeCallback(_handle, &OnWindowMaximize);
+            ::glfwSetWindowFocusCallback(_handle, &OnWindowFocus);
             ::glfwSetKeyCallback(_handle, &OnKey);
             ::glfwSetCharCallback(_handle, &OnChar);
             ::glfwSetMouseButtonCallback(_handle, &OnMouseButton);
@@ -248,6 +303,23 @@ namespace
             }
         }
 
+        void SetIcon(const ::MphRead::RendererPlatform::WindowIcon& icon) override
+        {
+            std::vector<GLFWimage> images;
+            images.reserve(icon.Images.size());
+            for (const ::MphRead::RendererPlatform::WindowIconImage& image : icon.Images)
+            {
+                images.push_back(GLFWimage{image.Width, image.Height,
+                    const_cast<unsigned char*>(image.Pixels.data())});
+            }
+            ::glfwSetWindowIcon(_handle, static_cast<int>(images.size()), images.data());
+        }
+
+        void* NativeHandle() const override
+        {
+            return _handle;
+        }
+
         void Close() override
         {
             ::glfwSetWindowShouldClose(_handle, GLFW_TRUE);
@@ -263,12 +335,16 @@ namespace
         void BaseOnLoad() override {}
         void BaseOnRenderFrame(const FrameEventArgs& args) override { (void)args; }
         void BaseOnResize(const ResizeEventArgs& e) override { (void)e; }
+        void BaseOnMove(const WindowPositionEventArgs& e) override { (void)e; }
+        void BaseOnMaximizedChanged(bool maximized) override { (void)maximized; }
+        void BaseOnFocusedChanged(bool focused) override { (void)focused; }
         void BaseOnMouseDown(const MouseButtonEventArgs& e) override { (void)e; }
         void BaseOnMouseUp(const MouseButtonEventArgs& e) override { (void)e; }
         void BaseOnMouseMove(const MouseMoveEventArgs& e) override { (void)e; }
         void BaseOnMouseWheel(const MouseWheelEventArgs& e) override { (void)e; }
         void BaseOnTextInput(const TextInputEventArgs& e) override { (void)e; }
         void BaseOnKeyDown(const KeyboardKeyEventArgs& e) override { (void)e; }
+        void BaseOnKeyUp(const KeyboardKeyEventArgs& e) override { (void)e; }
 
         std::int32_t WindowBorder() const override
         {
@@ -300,15 +376,29 @@ namespace
 
         OpenTK::Mathematics::Vector2i Location() const override
         {
+            int left = 0;
+            int top = 0;
+            int right = 0;
+            int bottom = 0;
+            ::glfwGetWindowFrameSize(_handle, &left, &top, &right, &bottom);
             int x = 0;
             int y = 0;
             ::glfwGetWindowPos(_handle, &x, &y);
-            return OpenTK::Mathematics::Vector2i(x, y);
+            return OpenTK::Mathematics::Vector2i(
+                ::MphRead::NativeRuntime::UncheckedSubtract(x, left),
+                ::MphRead::NativeRuntime::UncheckedSubtract(y, top));
         }
 
         void Location(OpenTK::Mathematics::Vector2i value) override
         {
-            ::glfwSetWindowPos(_handle, value.X, value.Y);
+            int left = 0;
+            int top = 0;
+            int right = 0;
+            int bottom = 0;
+            ::glfwGetWindowFrameSize(_handle, &left, &top, &right, &bottom);
+            ::glfwSetWindowPos(_handle,
+                ::MphRead::NativeRuntime::UncheckedAdd(value.X, left),
+                ::MphRead::NativeRuntime::UncheckedAdd(value.Y, top));
         }
 
         OpenTK::Mathematics::Vector2i ClientSize() const override
@@ -325,6 +415,27 @@ namespace
         }
 
         MphRead::RendererPlatform::MonitorArea CurrentMonitorClientArea() const override
+        {
+            MphRead::RendererPlatform::MonitorArea area;
+            GLFWmonitor* monitor = MonitorForWindow(_handle);
+            if (monitor == nullptr)
+            {
+                return area;
+            }
+            int x = 0;
+            int y = 0;
+            ::glfwGetMonitorPos(monitor, &x, &y);
+            const GLFWvidmode* mode = ::glfwGetVideoMode(monitor);
+            if (mode == nullptr)
+            {
+                return area;
+            }
+            area.Min = OpenTK::Mathematics::Vector2i(x, y);
+            area.Size = OpenTK::Mathematics::Vector2i(mode->width, mode->height);
+            return area;
+        }
+
+        MphRead::RendererPlatform::MonitorArea CurrentMonitorWorkArea() const override
         {
             MphRead::RendererPlatform::MonitorArea area;
             GLFWmonitor* monitor = MonitorForWindow(_handle);
@@ -355,12 +466,15 @@ namespace
             {
                 int x = 0;
                 int y = 0;
-                int width = 0;
-                int height = 0;
-                ::glfwGetMonitorWorkarea(monitors[i], &x, &y, &width, &height);
+                ::glfwGetMonitorPos(monitors[i], &x, &y);
+                const GLFWvidmode* mode = ::glfwGetVideoMode(monitors[i]);
+                if (mode == nullptr)
+                {
+                    continue;
+                }
                 MphRead::RendererPlatform::MonitorArea area;
                 area.Min = OpenTK::Mathematics::Vector2i(x, y);
-                area.Size = OpenTK::Mathematics::Vector2i(width, height);
+                area.Size = OpenTK::Mathematics::Vector2i(mode->width, mode->height);
                 areas.push_back(area);
             }
             return areas;
@@ -432,6 +546,36 @@ namespace
             self->_events->OnResize(args);
         }
 
+        static void OnWindowPos(GLFWwindow* handle, int x, int y)
+        {
+            GlfwWindow* const self = From(handle);
+            if (self == nullptr || self->_events == nullptr)
+            {
+                return;
+            }
+            WindowPositionEventArgs args;
+            args.Position = OpenTK::Mathematics::Vector2i(x, y);
+            self->_events->OnMove(args);
+        }
+
+        static void OnWindowFocus(GLFWwindow* handle, int focused)
+        {
+            GlfwWindow* const self = From(handle);
+            if (self != nullptr && self->_events != nullptr)
+            {
+                self->_events->OnFocusedChanged(focused != GLFW_FALSE);
+            }
+        }
+
+        static void OnWindowMaximize(GLFWwindow* handle, int maximized)
+        {
+            GlfwWindow* const self = From(handle);
+            if (self != nullptr && self->_events != nullptr)
+            {
+                self->_events->OnMaximizedChanged(maximized != GLFW_FALSE);
+            }
+        }
+
         static void OnKey(GLFWwindow* handle, int key, int scancode, int action, int mods)
         {
             (void)scancode;
@@ -443,7 +587,7 @@ namespace
             const bool down = action != GLFW_RELEASE;
             self->_keyboard.SetKeyDown(
                 static_cast<MphRead::RendererPlatform::Key>(key), down);
-            if (action != GLFW_PRESS || self->_events == nullptr)
+            if (self->_events == nullptr)
             {
                 return;
             }
@@ -453,7 +597,14 @@ namespace
             args.Control = (mods & GLFW_MOD_CONTROL) != 0;
             args.Alt = (mods & GLFW_MOD_ALT) != 0;
             args.Command = (mods & GLFW_MOD_SUPER) != 0;
-            self->_events->OnKeyDown(args);
+            if (action == GLFW_RELEASE)
+            {
+                self->_events->OnKeyUp(args);
+            }
+            else
+            {
+                self->_events->OnKeyDown(args);
+            }
         }
 
         static void OnChar(GLFWwindow* handle, unsigned int codepoint)
@@ -530,6 +681,7 @@ namespace
                 return;
             }
             MouseWheelEventArgs args;
+            args.OffsetX = static_cast<float>(offsetX);
             args.OffsetY = static_cast<float>(offsetY);
             self->_events->OnMouseWheel(args);
         }
@@ -552,7 +704,7 @@ namespace MphRead::RendererPlatform
     OpenTK::Mathematics::Vector2i WorkAreaForWindow(Window& window)
     {
         EnsureGlfw();
-        const MonitorArea area = window.CurrentMonitorClientArea();
+        const MonitorArea area = window.CurrentMonitorWorkArea();
         return area.Size;
     }
 
@@ -565,7 +717,11 @@ namespace MphRead::RendererPlatform
     void InstallGlfwErrorCallback(std::function<void(std::int32_t, std::string)> callback)
     {
         ErrorCallback() = std::move(callback);
-        EnsureGlfw();
+        // NativeWindowSettings installs the callback before OpenTK initializes
+        // GLFW, so failures while GLFW starts or queries monitors are reported
+        // through the same handler. Do not initialize here: the context owner
+        // may still need GLFW.InitHint before the first window is made.
+        ::glfwSetErrorCallback(&ForwardGlfwError);
     }
 
     std::int32_t GlfwFeatureUnavailableCode()

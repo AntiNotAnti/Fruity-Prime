@@ -1,78 +1,27 @@
 #pragma once
 
-#include <cstdint>
+#include "GuiTheme.hpp"
+
 #include <string_view>
 
 namespace MphRead::Mods::Launcher::Gui
 {
-    enum class TrackedTextCulture : std::uint8_t
-    {
-        Invariant
-    };
-
-    enum class TrackedTextFlowDirection : std::uint8_t
-    {
-        LeftToRight
-    };
-
-    enum class TrackedTextFace : std::uint8_t
-    {
-        FaceFalse,
-        FaceTrue
-    };
-
-    struct TrackedTextBrush
-    {
-        const void* Native;
-    };
-
-    struct TrackedTextPoint
-    {
-        double X;
-        double Y;
-    };
-
-    struct TrackedTextFormattedText
-    {
-        const void* Native;
-        double Width;
-        double Height;
-    };
-
-    class TrackedTextAdapter
-    {
-    public:
-        explicit TrackedTextAdapter(TrackedTextBrush textBrush) noexcept
-            : TextBrush(textBrush)
-        {
-        }
-
-        virtual ~TrackedTextAdapter() = default;
-
-        const TrackedTextBrush TextBrush;
-
-        virtual TrackedTextFormattedText CreateFormattedText(std::u16string_view text,
-            TrackedTextCulture culture, TrackedTextFlowDirection flowDirection,
-            TrackedTextFace face, double fontSize, TrackedTextBrush brush) = 0;
-        virtual void DrawText(const TrackedTextFormattedText& text, TrackedTextPoint point) = 0;
-    };
-
+    // Text with extra space between the letters, drawn glyph by glyph. Fine
+    // for the handful of short labels involved; not for running text.
     class TrackedText final
     {
     public:
-        static TrackedTextFormattedText Make(TrackedTextAdapter& adapter,
-            std::u16string_view text, double size, bool bold, TrackedTextBrush brush);
-
-        static void Draw(TrackedTextAdapter& adapter, std::u16string_view text,
-            double size, TrackedTextBrush brush, double x, double y, double tracking);
-
-        static double Measure(TrackedTextAdapter& adapter, std::u16string_view text,
-            double size, double tracking);
-
-        static double LineHeight(TrackedTextAdapter& adapter, double size);
-        static double SpaceWidth(TrackedTextAdapter& adapter, double size);
-
-    private:
         TrackedText() = delete;
+
+        [[nodiscard]] static Av::Media::FormattedText Make(std::string_view text, double size, bool bold,
+            const Av::Media::IBrushPtr& brush);
+        static void Draw(Av::Media::DrawingContext& context, std::string_view text, double size,
+            const Av::Media::IBrushPtr& brush, double x, double y, double tracking);
+        [[nodiscard]] static double Measure(std::string_view text, double size, double tracking);
+        // Height of a line at this size, measured off a real glyph.
+        [[nodiscard]] static double LineHeight(double size);
+        // How wide a space is: the difference between "n n" and "nn", since a
+        // lone space measures as very nearly nothing.
+        [[nodiscard]] static double SpaceWidth(double size);
     };
 }

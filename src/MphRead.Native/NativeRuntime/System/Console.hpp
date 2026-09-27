@@ -57,6 +57,8 @@ namespace MphRead::NativeRuntime
     [[nodiscard]] bool ConsoleKeyAvailable();
     // Console.IsInputRedirected.
     [[nodiscard]] bool ConsoleIsInputRedirected();
+    // Console.IsOutputRedirected.
+    [[nodiscard]] bool ConsoleIsOutputRedirected() noexcept;
     // Console.ReadLine(): one line without its terminator, or null at the end
     // of the input. A console on Windows is read as UTF-16, so typed text
     // keeps every character; redirected input is UTF-8.

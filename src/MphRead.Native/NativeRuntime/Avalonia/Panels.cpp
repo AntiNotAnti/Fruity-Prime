@@ -1,9 +1,12 @@
 #include "Panels.hpp"
 
 #include "Text.hpp"
+#include "Threading.hpp"
+#include "TopLevel.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <numeric>
 
@@ -17,6 +20,114 @@ namespace MphRead::NativeRuntime::Avalonia::Controls
         {
             return dynamic_cast<Layout::Layoutable*>(v.get());
         }
+
+        class ToolTipState final : public std::enable_shared_from_this<ToolTipState>
+        {
+        public:
+            ToolTipState(const ControlPtr& target, std::string text)
+                : _target(target), _popup(std::make_shared<Popup>())
+            {
+                auto label = std::make_shared<TextBlock>();
+                label->Text(std::move(text));
+                label->FontSize(12);
+                label->Foreground(std::make_shared<Media::SolidColorBrush>(Media::Color::FromRgb(242, 244, 248)));
+                label->TextWrapping(Media::TextWrapping::Wrap);
+                label->MaxWidth(320);
+                label->IsHitTestVisible(false);
+
+                auto surface = std::make_shared<Border>();
+                surface->Background(std::make_shared<Media::SolidColorBrush>(Media::Color::FromRgb(30, 34, 42)));
+                surface->BorderBrush(std::make_shared<Media::SolidColorBrush>(Media::Color::FromRgb(87, 98, 116)));
+                surface->BorderThickness(Thickness(1));
+                surface->Padding(Thickness(8, 5, 8, 5));
+                surface->CornerRadius(Avalonia::CornerRadius(3));
+                surface->Child(label);
+                surface->IsHitTestVisible(false);
+
+                _popup->Placement(PlacementMode::Bottom);
+                _popup->IsLightDismissEnabled(false);
+                _popup->IsHitTestVisible(false);
+                _popup->Child(surface);
+            }
+
+            void PointerEntered()
+            {
+                _pointerOver = true;
+                Schedule();
+            }
+
+            void PointerExited()
+            {
+                _pointerOver = false;
+                HideIfInactive();
+            }
+
+            void FocusEntered()
+            {
+                _focused = true;
+                Schedule();
+            }
+
+            void FocusExited()
+            {
+                _focused = false;
+                HideIfInactive();
+            }
+
+            void Detached()
+            {
+                _pointerOver = false;
+                _focused = false;
+                ++_generation;
+                _popup->Close();
+            }
+
+        private:
+            void Schedule()
+            {
+                const std::uint64_t generation = ++_generation;
+                const std::weak_ptr<ToolTipState> weak = shared_from_this();
+                ::MphRead::NativeRuntime::Avalonia::Threading::DispatcherTimer::RunOnce([weak, generation]
+                {
+                    if (const std::shared_ptr<ToolTipState> self = weak.lock())
+                    {
+                        self->Show(generation);
+                    }
+                }, ::MphRead::NativeRuntime::Avalonia::Threading::TimeSpan(0.45),
+                    ::MphRead::NativeRuntime::Avalonia::Threading::DispatcherPriority::Background);
+            }
+
+            void Show(std::uint64_t generation)
+            {
+                if (generation != _generation || (!_pointerOver && !_focused))
+                {
+                    return;
+                }
+                const std::shared_ptr<Control> target = _target.lock();
+                if (target == nullptr || !target->IsAttachedToVisualTree())
+                {
+                    return;
+                }
+                _popup->PlacementTarget(target.get());
+                _popup->Open();
+            }
+
+            void HideIfInactive()
+            {
+                if (_pointerOver || _focused)
+                {
+                    return;
+                }
+                ++_generation;
+                _popup->Close();
+            }
+
+            std::weak_ptr<Control> _target;
+            std::shared_ptr<Popup> _popup;
+            std::uint64_t _generation = 0;
+            bool _pointerOver = false;
+            bool _focused = false;
+        };
     }
 
     // ----------------------------------------------------------- children
@@ -1060,6 +1171,203 @@ namespace MphRead::NativeRuntime::Avalonia::Controls
         RenderBorder(context, Rect(Bounds().GetSize()), Background(), BorderBrush(), BorderThickness(), CornerRadius(), {});
     }
 
+    // --------------------------------------------------------------- Popup
+
+    Popup::Popup()
+    {
+        IsVisible(false);
+        ZIndex(std::numeric_limits<std::int32_t>::max());
+    }
+
+    Popup::~Popup()
+    {
+        if (_topLevel != nullptr)
+        {
+            _topLevel->RemoveOverlay(this);
+            _topLevel = nullptr;
+        }
+    }
+
+    void Popup::Child(ControlPtr value)
+    {
+        if (_child == value)
+        {
+            return;
+        }
+        if (_child != nullptr && _isOpen)
+        {
+            RemoveVisualChild(_child);
+        }
+        _child = std::move(value);
+        if (_child != nullptr && _isOpen)
+        {
+            AddVisualChild(_child);
+        }
+        InvalidateMeasure();
+    }
+
+    void Popup::Open()
+    {
+        if (_isOpen)
+        {
+            return;
+        }
+        _isOpen = true;
+        IsVisible(true);
+
+        TopLevel* top = TopLevel::GetTopLevel(_placementTarget != nullptr ? _placementTarget : this);
+        if (top != nullptr && _shouldUseOverlayLayer)
+        {
+            ControlPtr self;
+            if (auto* panel = dynamic_cast<Panel*>(Parent()); panel != nullptr)
+            {
+                const std::ptrdiff_t index = panel->Children.IndexOf(this);
+                if (index >= 0)
+                {
+                    self = panel->Children[static_cast<std::size_t>(index)];
+                    panel->Children.Remove(self);
+                }
+            }
+            else
+            {
+                self = std::dynamic_pointer_cast<Control>(weak_from_this().lock());
+            }
+            if (self != nullptr)
+            {
+                top->AddOverlay(self);
+                _topLevel = top;
+            }
+        }
+        if (_child != nullptr)
+        {
+            AddVisualChild(_child);
+        }
+        InvalidateMeasure();
+        InvalidateVisual();
+        if (top != nullptr)
+        {
+            top->UpdateLayout();
+        }
+    }
+
+    void Popup::Close()
+    {
+        if (!_isOpen)
+        {
+            return;
+        }
+        _isOpen = false;
+        IsVisible(false);
+        if (_child != nullptr)
+        {
+            RemoveVisualChild(_child);
+        }
+        if (_topLevel != nullptr)
+        {
+            TopLevel* top = _topLevel;
+            _topLevel = nullptr;
+            top->RemoveOverlay(this);
+        }
+        InvalidateMeasure();
+        InvalidateVisual();
+        Closed(*this);
+    }
+
+    void Popup::TopLevelClosing(TopLevel* owner) noexcept
+    {
+        if (_topLevel == owner)
+        {
+            _topLevel = nullptr;
+            _isOpen = false;
+            IsVisible(false);
+        }
+    }
+
+    void ToolTip::SetTip(const ControlPtr& target, std::string text)
+    {
+        if (target == nullptr)
+        {
+            return;
+        }
+        const std::shared_ptr<ToolTipState> state = std::make_shared<ToolTipState>(target, std::move(text));
+        target->PointerEntered += [state](Input::InputElement&, Input::PointerEventArgs&)
+        {
+            state->PointerEntered();
+        };
+        target->PointerExited += [state](Input::InputElement&, Input::PointerEventArgs&)
+        {
+            state->PointerExited();
+        };
+        target->GotFocus += [state](Input::InputElement&, Input::GotFocusEventArgs&)
+        {
+            state->FocusEntered();
+        };
+        target->LostFocus += [state](Input::InputElement&, Input::FocusChangedEventArgs&)
+        {
+            state->FocusExited();
+        };
+        target->DetachedFromVisualTree += [state](Control&)
+        {
+            state->Detached();
+        };
+    }
+
+    Size Popup::MeasureOverride(Size availableSize)
+    {
+        if (!_isOpen)
+        {
+            return {};
+        }
+        if (_child != nullptr)
+        {
+            _child->Measure(availableSize);
+        }
+        return availableSize;
+    }
+
+    Size Popup::ArrangeOverride(Size finalSize)
+    {
+        if (_isOpen && _child != nullptr)
+        {
+            const Size desired = _child->DesiredSize();
+            const double width = std::min(desired.Width, finalSize.Width);
+            const double height = std::min(desired.Height, finalSize.Height);
+            double x = (finalSize.Width - width) / 2;
+            double y = (finalSize.Height - height) / 2;
+            if (_placementTarget != nullptr && _placement == PlacementMode::Center)
+            {
+                const std::optional<Point> targetCenter = _placementTarget->TranslatePoint(
+                    Point{_placementTarget->Bounds().Width / 2, _placementTarget->Bounds().Height / 2}, this);
+                if (targetCenter.has_value())
+                {
+                    x = targetCenter->X - width / 2;
+                    y = targetCenter->Y - height / 2;
+                }
+            }
+            else if (_placementTarget != nullptr && _placement == PlacementMode::Bottom)
+            {
+                const double gap = 6;
+                const std::optional<Point> below = _placementTarget->TranslatePoint(
+                    Point{_placementTarget->Bounds().Width / 2, _placementTarget->Bounds().Height + gap}, this);
+                const std::optional<Point> above = _placementTarget->TranslatePoint(
+                    Point{_placementTarget->Bounds().Width / 2, -gap}, this);
+                if (below.has_value())
+                {
+                    x = below->X - width / 2;
+                    y = below->Y;
+                    if (y + height > finalSize.Height && above.has_value())
+                    {
+                        y = above->Y - height;
+                    }
+                }
+            }
+            x = std::clamp(x, 0.0, std::max(0.0, finalSize.Width - width));
+            y = std::clamp(y, 0.0, std::max(0.0, finalSize.Height - height));
+            _child->Arrange(Rect{x, y, width, height});
+        }
+        return finalSize;
+    }
+
     // --------------------------------------------- LayoutTransformControl
 
     StyledProperty<Media::TransformPtr>& LayoutTransformControl::LayoutTransformProperty
@@ -1128,9 +1436,10 @@ namespace MphRead::NativeRuntime::Avalonia::Controls
     StyledProperty<Media::StretchDirection>& Image::StretchDirectionProperty
         = Register<Image, Media::StretchDirection>("StretchDirection", Media::StretchDirection::Both);
 
-    AttachedProperty<Media::BitmapInterpolationMode>& RenderOptions::BitmapInterpolationModeProperty
-        = RegisterAttached<RenderOptions, Media::BitmapInterpolationMode>("BitmapInterpolationMode",
-            Media::BitmapInterpolationMode::Unspecified);
+    std::shared_ptr<WindowIcon> WindowIcon::FromBytes(const std::vector<std::uint8_t>& bytes)
+    {
+        return std::make_shared<WindowIcon>(Media::Imaging::Bitmap::FromBytes(bytes));
+    }
 
     Image::Image()
     {
@@ -1183,9 +1492,6 @@ namespace MphRead::NativeRuntime::Avalonia::Controls
         const Rect visible = dest.Intersect(bounds);
         const Rect sourceRect{(visible.X - dest.X) / scale.X, (visible.Y - dest.Y) / scale.Y, visible.Width / scale.X,
             visible.Height / scale.Y};
-        Media::RenderOptions options;
-        options.BitmapInterpolationMode = RenderOptions::GetBitmapInterpolationMode(*this);
-        auto state = context.PushRenderOptions(options);
         context.DrawImage(*source, sourceRect, visible);
     }
 }

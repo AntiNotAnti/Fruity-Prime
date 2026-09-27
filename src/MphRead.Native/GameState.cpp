@@ -4,9 +4,13 @@
 #include "NativeRuntime/System/Json.hpp"
 #include "Mods/DebugLog.hpp"
 #include "Mods/Headless.hpp"
+#include "Mods/MapPick.hpp"
 #include "Mods/Multiplayer/TeamVisuals.hpp"
 #include "Mods/Network/NetMatchEnd.hpp"
 #include "Mods/Network/NetSession.hpp"
+#if defined(MPHREAD_SHELL)
+#include "Mods/Launcher/Gui/Shell.hpp"
+#endif
 #include "NativeRuntime/System/IO.hpp"
 
 #include "NativeRuntime/System/Enum.hpp"
@@ -1303,8 +1307,23 @@ namespace MphRead
                 _matchTime = -1.0F;
                 if (Mods::Network::NetMatchEnd::ShouldLeaveAfterMatch())
                 {
-                    scene->SetFade(FadeType::FadeOutBlack,
-                        20.0F / 30.0F, true, AfterFade::Exit);
+                    bool playPickedMap = false;
+#if defined(MPHREAD_SHELL)
+                    if (Mods::Launcher::Gui::Shell::CanPlayAnother())
+                    {
+                        const std::string room = Mods::MapPick::Chosen();
+                        if (!room.empty())
+                        {
+                            Mods::Launcher::Gui::Shell::PlayAnother(room);
+                            playPickedMap = true;
+                        }
+                    }
+#endif
+                    if (!playPickedMap)
+                    {
+                        scene->SetFade(FadeType::FadeOutBlack,
+                            20.0F / 30.0F, true, AfterFade::Exit);
+                    }
                 }
             }
         }

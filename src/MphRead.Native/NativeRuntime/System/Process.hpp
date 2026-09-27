@@ -5,7 +5,9 @@
 // how, and kill it with its children.
 
 #include <cstdint>
+#include <chrono>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -59,6 +61,14 @@ namespace MphRead::NativeRuntime
     // when the file cannot be started.
     [[nodiscard]] std::int32_t ProcessRunCaptureOutput(
         const std::string& fileName, const std::vector<std::string>& arguments, std::string& output);
+#if defined(__APPLE__)
+    // Process.Start followed by WaitForExit(timeout), then StandardOutput.ReadToEnd.
+    // A missing value means the child exceeded the wait and was killed.
+    [[nodiscard]] std::optional<std::string> ProcessRunCaptureOutputTimeout(
+        const std::string& fileName,
+        const std::vector<std::string>& arguments,
+        std::chrono::milliseconds timeout);
+#endif
 
     // IPGlobalProperties.GetIPGlobalProperties().GetActiveUdpListeners(),
     // ports only: IPv4 and IPv6. Throws where the platform will not say.

@@ -1,140 +1,39 @@
 #include "GuiLauncher.hpp"
 
-#include "PauseMenuWindow.hpp"
-#include "../Portable/GameFiles.hpp"
-#include "../Portable/LauncherPrefs.hpp"
-#include "../Portable/LaunchPlan.hpp"
-#include "../Portable/MatchStart.hpp"
-#include "../../DebugLog.hpp"
-#include "../../GameSettings.hpp"
-#include "../../PauseMenu.hpp"
-#include "../../ThumbnailGenerator.hpp"
-#include "../../WindowMode.hpp"
-#include "../../Network/NetHostSession.hpp"
-#include "../../Network/NetSession.hpp"
-#include "../../../GameState.hpp"
+#include "Shell.hpp"
+#include "UiTopLevel.hpp"
+#include "../../Diagnostics/PlatformDiagnostics.hpp"
 #include "../../../NativeRuntime/System/Console.hpp"
+#include "../../../NativeRuntime/System/ExceptionText.hpp"
 #include "../../../NativeRuntime/System/Runtime.hpp"
 
-#include <cstdlib>
 #include <exception>
-#include <iostream>
-#include <memory>
-#include <optional>
 #include <string>
-#include <utility>
-#include <vector>
-
-#if defined(__APPLE__) && defined(__MACH__)
-#include <TargetConditionals.h>
-#endif
-
-using ::MphRead::NativeRuntime::EnvironmentGetVariable;
-using ::MphRead::NativeRuntime::IsAndroid;
-using ::MphRead::NativeRuntime::IsWindows;
 
 namespace MphRead::Mods::Launcher::Gui
 {
+    namespace Runtime = ::MphRead::NativeRuntime;
+
     std::atomic_bool GuiLauncher::_setUp{false};
     std::atomic_bool GuiLauncher::_failed{false};
 
-    GuiLauncherDispatcherFrame::GuiLauncherDispatcherFrame(
-        bool exitWhenRequested) noexcept
-        : _exitWhenRequested(exitWhenRequested)
-    {
-    }
-
-    bool GuiLauncherDispatcherFrame::Continue() const noexcept
-    {
-        return _continue;
-    }
-
-    void GuiLauncherDispatcherFrame::Continue(bool value) noexcept
-    {
-        _continue = value;
-    }
-
-    bool GuiLauncherDispatcherFrame::ExitWhenRequested() const noexcept
-    {
-        return _exitWhenRequested;
-    }
-
-    GuiLauncherCallback::GuiLauncherCallback(
-        void* context, Function function, std::shared_ptr<void> keepAlive)
-        : _context(context), _function(function), _keepAlive(std::move(keepAlive))
-    {
-    }
-
-    void GuiLauncherCallback::Invoke() const
-    {
-        if (_function != nullptr)
-        {
-            _function(_context);
-        }
-    }
-
-    GuiLauncherCallback::operator bool() const noexcept
-    {
-        return _function != nullptr;
-    }
-
     namespace
     {
-        [[nodiscard]] constexpr bool IsMacOS() noexcept
-        {
-#if defined(__APPLE__) && defined(__MACH__)
-#if defined(TARGET_OS_OSX)
-            return TARGET_OS_OSX != 0;
-#else
-            return TARGET_OS_MAC != 0 && TARGET_OS_IPHONE == 0;
-#endif
-#else
-            return false;
-#endif
-        }
-
-        void StopFrame(void* context)
-        {
-            static_cast<GuiLauncherDispatcherFrame*>(context)->Continue(false);
-        }
-
-        [[nodiscard]] std::string ExceptionMessage(std::exception_ptr exception)
-        {
-            return Detail::GuiLauncherPlatformInstance().ExceptionMessage(
-                std::move(exception));
-        }
-
-        [[nodiscard]] std::optional<std::string> ExceptionStackTrace(
-            std::exception_ptr exception)
-        {
-            return Detail::GuiLauncherPlatformInstance().ExceptionStackTrace(
-                std::move(exception));
-        }
-
         void WriteLauncherOpenFailure(std::exception_ptr exception)
         {
-            std::cout << "[launcher] the window could not be opened: "
-                << ExceptionMessage(exception) << '\n';
-            std::cout << "[launcher] falling back to the text launcher\n";
-            MphRead::Mods::DebugLog::Exception("launcher", std::move(exception));
+            Runtime::ConsoleWriteLine("[launcher] the window could not be opened: "
+                + Runtime::ExceptionMessage(exception));
+            Runtime::ConsoleWriteLine("[launcher] falling back to the text launcher");
+            ::MphRead::Mods::Diagnostics::PlatformDiagnostics::Report(
+                "libglfw.3.dylib", exception);
         }
 
         void WriteToolkitFailure(std::exception_ptr exception)
         {
-            std::cout << "[launcher] the window toolkit could not start: "
-                << ExceptionMessage(exception) << '\n';
-            MphRead::Mods::DebugLog::Exception("launcher", std::move(exception));
-        }
-
-        void WriteMatchFailure(std::exception_ptr exception)
-        {
-            std::cout << '\n';
-            std::cout << "The game could not start: "
-                << ExceptionMessage(exception) << '\n';
-            const std::optional<std::string> stack = ExceptionStackTrace(exception);
-            std::cout << (stack ? *stack : std::string{}) << '\n';
-            MphRead::Mods::DebugLog::Line("crash", "the match could not start");
-            MphRead::Mods::DebugLog::Exception("crash", std::move(exception));
+            Runtime::ConsoleWriteLine("[launcher] the window toolkit could not start: "
+                + Runtime::ExceptionMessage(exception));
+            ::MphRead::Mods::Diagnostics::PlatformDiagnostics::Report(
+                "libSkiaSharp.dylib", exception);
         }
     }
 
@@ -146,23 +45,28 @@ namespace MphRead::Mods::Launcher::Gui
         }
         try
         {
-            Run();
-            return true;
+#if defined(ANDROID) || defined(__ANDROID__)
+            // Android enters through its activity and hosts the same screens
+            // over the GL surface; the desktop launcher has no role there.
+            return false;
+#else
+            return Shell::Run();
+#endif
         }
-        catch (const std::exception&)
+        catch (...)
         {
             WriteLauncherOpenFailure(std::current_exception());
             return false;
         }
     }
 
-    bool GuiLauncher::EnsureSetup()
+    bool GuiLauncher::EnsureSetup(bool requireDisplay)
     {
         if (_setUp.load(std::memory_order_relaxed))
         {
             return true;
         }
-        if (_failed.load(std::memory_order_relaxed) || !Probe())
+        if (_failed.load(std::memory_order_relaxed) || (requireDisplay && !Probe()))
         {
             return false;
         }
@@ -172,18 +76,15 @@ namespace MphRead::Mods::Launcher::Gui
             _setUp.store(false, std::memory_order_relaxed);
             return false;
 #else
-            std::shared_ptr<GuiLauncherAppBuilder> builder
-                = Detail::GuiLauncherPlatformInstance().ConfigureLauncherApp();
-            if (!builder)
-            {
-                throw GuiLauncherNullReferenceException();
-            }
-            builder->UsePlatformDetect().WithInterFont().SetupWithoutStarting();
+            // NativeRuntime uses the in-tree Avalonia/Skia implementation, so
+            // there is no second platform window or AppBuilder to initialise.
+            // Installing the frame pump is the one process-wide setup step.
+            UiRenderTimer::Install();
             _setUp.store(true, std::memory_order_relaxed);
             return true;
 #endif
         }
-        catch (const std::exception&)
+        catch (...)
         {
             _failed.store(true, std::memory_order_relaxed);
             WriteToolkitFailure(std::current_exception());
@@ -194,169 +95,34 @@ namespace MphRead::Mods::Launcher::Gui
 
     void GuiLauncher::SayWhyOnLinux()
     {
-        if (IsWindows() || IsMacOS() || IsAndroid())
+        if (Runtime::IsWindows() || Runtime::IsMacOS() || Runtime::IsAndroid())
         {
             return;
         }
-        std::cout << "[launcher] the game itself is unaffected -- the text launcher "
-            << "below starts the same matches.\n";
-        std::cout << "[launcher] the window needs libICE, libSM and fontconfig, which "
-            << "a minimal install often lacks:\n";
-        std::cout << "[launcher]   Debian/Ubuntu: sudo apt install libice6 libsm6 "
-            << "libfontconfig1\n";
-        std::cout << "[launcher]   Fedora: sudo dnf install libICE libSM fontconfig\n";
-        std::cout << "[launcher]   NixOS/Guix: run it inside an FHS environment, "
-            << "e.g. steam-run ./FruityPrime -launcher\n";
+        Runtime::ConsoleWriteLine("[launcher] the game itself is unaffected -- the text launcher "
+            "below starts the same matches.");
+        Runtime::ConsoleWriteLine("[launcher] the screens need fontconfig, which a minimal install "
+            "sometimes lacks:");
+        Runtime::ConsoleWriteLine("[launcher]   Debian/Ubuntu: sudo apt install libfontconfig1");
+        Runtime::ConsoleWriteLine("[launcher]   Fedora: sudo dnf install fontconfig");
+        Runtime::ConsoleWriteLine("[launcher]   NixOS/Guix: run it inside an FHS environment, "
+            "e.g. steam-run ./FruityPrime -launcher");
     }
 
     bool GuiLauncher::Probe()
     {
-        if (IsWindows() || IsMacOS())
+        if (Runtime::IsWindows() || Runtime::IsMacOS())
         {
             return true;
         }
-        if (EnvironmentGetVariable("DISPLAY").value_or("").empty()
-            && EnvironmentGetVariable("WAYLAND_DISPLAY").value_or("").empty())
+        const std::string display = Runtime::EnvironmentGetVariable("DISPLAY").value_or("");
+        const std::string wayland = Runtime::EnvironmentGetVariable("WAYLAND_DISPLAY").value_or("");
+        if (display.empty() && wayland.empty())
         {
-            std::cout << "[launcher] no DISPLAY or WAYLAND_DISPLAY; "
-                << "using the text launcher\n";
+            Runtime::ConsoleWriteLine("[launcher] no DISPLAY or WAYLAND_DISPLAY; "
+                "using the text launcher");
             return false;
         }
         return true;
-    }
-
-    void GuiLauncher::Run()
-    {
-        LauncherPrefs::Load();
-        if (GameFiles::Ready())
-        {
-            GameFiles::ApplyPaths();
-            MphRead::Mods::ThumbnailGenerator::EnsureCustomPreviews();
-        }
-        std::vector<std::string> rooms;
-
-        while (true)
-        {
-            MphRead::Mods::PauseMenu::Reset();
-            std::shared_ptr<MphRead::MenuSettings> settings
-                = MphRead::GameState::LoadSettings();
-            MphRead::Mods::GameSettings::Apply(settings);
-            LauncherPrefs::Load();
-            MphRead::Mods::WindowMode::Startup(LauncherPrefs::WindowMode());
-            if (rooms.empty() && GameFiles::Ready())
-            {
-                rooms = MphRead::Mods::ThumbnailGenerator::MultiplayerRooms();
-            }
-
-            Hunters::Reroll();
-            LaunchPlan plan = Ask(settings, rooms);
-            if (plan.Kind() == LaunchKind::None)
-            {
-                return;
-            }
-
-            bool launchFailed = false;
-            std::exception_ptr pending;
-            try
-            {
-                MatchStart::Launch(settings, plan);
-            }
-            catch (const std::exception&)
-            {
-                launchFailed = true;
-                try
-                {
-                    WriteMatchFailure(std::current_exception());
-                }
-                catch (...)
-                {
-                    pending = std::current_exception();
-                }
-            }
-            catch (...)
-            {
-                pending = std::current_exception();
-            }
-
-            try
-            {
-                MphRead::Mods::Network::NetSession::Stop();
-                MphRead::Mods::Network::NetHostSession::Stop();
-                PauseMenuWindow::CloseIfOpen();
-            }
-            catch (...)
-            {
-                pending = std::current_exception();
-            }
-
-            if (pending)
-            {
-                std::rethrow_exception(pending);
-            }
-            if (launchFailed)
-            {
-                return;
-            }
-            if (MphRead::Mods::PauseMenu::QuitProgram())
-            {
-                return;
-            }
-        }
-    }
-
-    LaunchPlan GuiLauncher::Ask(
-        const std::shared_ptr<MphRead::MenuSettings>& settings,
-        const std::vector<std::string>& rooms)
-    {
-        GuiLauncherPlatform& platform = Detail::GuiLauncherPlatformInstance();
-        std::shared_ptr<HomeWindowAdapter> adapter = platform.CreateHomeWindowAdapter();
-        if (!adapter)
-        {
-            throw GuiLauncherNullReferenceException();
-        }
-
-        HomeWindow window(*adapter,
-            HomeWindowMenuSettingsRef{settings.get()},
-            HomeWindowRoomsRef{const_cast<std::vector<std::string>*>(&rooms)});
-        auto frame = std::make_shared<GuiLauncherDispatcherFrame>();
-        platform.AddHomeWindowClosed(*adapter,
-            GuiLauncherCallback(frame.get(), &StopFrame, frame));
-        platform.ShowHomeWindow(*adapter);
-        platform.PushFrame(*frame);
-        Pump();
-        return window.Plan();
-    }
-
-    void GuiLauncher::Pump()
-    {
-        if (!_setUp.load(std::memory_order_relaxed))
-        {
-            return;
-        }
-        auto frame = std::make_shared<GuiLauncherDispatcherFrame>(false);
-        GuiLauncherPlatform& platform = Detail::GuiLauncherPlatformInstance();
-        platform.Post(GuiLauncherCallback(frame.get(), &StopFrame, frame),
-            GuiLauncherDispatcherPriority::Background);
-        platform.PushFrame(*frame);
-    }
-
-    void LauncherApp::Initialize(GuiLauncherPlatform& platform)
-    {
-        platform.AddFluentTheme(*this);
-        platform.SetRequestedThemeVariantDark(*this);
-        platform.BaseInitialize(*this);
-    }
-}
-
-namespace MphRead::Mods::Detail
-{
-    bool PauseMenuGuiEnsureSetup()
-    {
-        return MphRead::Mods::Launcher::Gui::GuiLauncher::EnsureSetup();
-    }
-
-    void PauseMenuGuiPump()
-    {
-        MphRead::Mods::Launcher::Gui::GuiLauncher::Pump();
     }
 }

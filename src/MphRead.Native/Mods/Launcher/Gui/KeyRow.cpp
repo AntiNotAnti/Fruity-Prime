@@ -1,545 +1,195 @@
 #include "KeyRow.hpp"
 
+#include "FocusNavigator.hpp"
+#include "GuiTheme.hpp"
+#include "PadRow.hpp"
+#include "SettingsView.hpp"
+#include "TrackedText.hpp"
+#include "../../../NativeRuntime/Avalonia/TopLevel.hpp"
+#include "../../../NativeRuntime/System/Exceptions.hpp"
+#include "../../Input/PadAction.hpp"
+#include "../../Input/GamepadManager.hpp"
 #include "../../InputSettings.hpp"
-#include "../../../NativeRuntime/System/Encoding.hpp"
-#include "../../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
-#include <cmath>
-#include <cstddef>
-#include <iterator>
-#include <utility>
-
-using ::MphRead::NativeRuntime::MathMax;
-using ::MphRead::NativeRuntime::Utf8ToUtf16;
-
-namespace
-{
-    using namespace MphRead::Mods;
-    using namespace MphRead::Mods::Launcher::Gui;
-
-    constexpr InputButtonType ButtonTypeKey = static_cast<InputButtonType>(0);
-    constexpr InputButtonType ButtonTypeMouse = static_cast<InputButtonType>(1);
-    constexpr InputButtonType ButtonTypeScrollUp = static_cast<InputButtonType>(2);
-    constexpr InputButtonType ButtonTypeScrollDown = static_cast<InputButtonType>(3);
-
-    constexpr KeyRowGlfwKey KeyUnknown = static_cast<KeyRowGlfwKey>(-1);
-    constexpr InputMouseButton MouseLeft = static_cast<InputMouseButton>(0);
-    constexpr InputMouseButton MouseRight = static_cast<InputMouseButton>(1);
-    constexpr InputMouseButton MouseMiddle = static_cast<InputMouseButton>(2);
-    constexpr InputMouseButton MouseButton4 = static_cast<InputMouseButton>(3);
-    constexpr InputMouseButton MouseButton5 = static_cast<InputMouseButton>(4);
-
-    [[nodiscard]] bool Contains(GuiRect rect, KeyRowPoint point) noexcept
-    {
-        return point.X >= rect.X
-            && point.X <= rect.X + rect.Width
-            && point.Y >= rect.Y
-            && point.Y <= rect.Y + rect.Height;
-    }
-
-    [[nodiscard]] constexpr KeyRowGlfwKey Glfw(std::int32_t value) noexcept
-    {
-        return static_cast<KeyRowGlfwKey>(value);
-    }
-}
+#include <memory>
 
 namespace MphRead::Mods::Launcher::Gui
 {
-    KeyRowBrush::KeyRowBrush(KeyRowBrushKind kind, GuiBrush* shared,
-        std::shared_ptr<GuiBrush> owned) noexcept
-        : _kind(kind), _shared(shared), _owned(std::move(owned))
+    using namespace ::MphRead::NativeRuntime::Avalonia;
+    namespace AvInput = ::MphRead::NativeRuntime::Avalonia::Input;
+    namespace ModInput = ::MphRead::Mods::Input;
+    using ::MphRead::NativeRuntime::MathMax;
+
+    bool KeyRow::_anyListening = false;
+
+    KeyRow::KeyRow(const ::MphRead::Mods::InputBindingProperty& property, double labelWidth)
+        : _property(&property), _labelWidth(labelWidth)
     {
+        Height(32);
+        Focusable(true);
+        Cursor(std::make_shared<AvInput::Cursor>(AvInput::StandardCursorType::Hand));
     }
 
-    KeyRowBrush KeyRowBrush::Transparent() noexcept
+    KeyRow::KeyRow(std::string label, Getter get, Setter set, double labelWidth)
+        : _label(std::move(label)), _get(std::move(get)), _set(std::move(set)), _labelWidth(labelWidth)
     {
-        return KeyRowBrush(KeyRowBrushKind::Transparent, nullptr, {});
+        Height(32);
+        Focusable(true);
+        Cursor(std::make_shared<AvInput::Cursor>(AvInput::StandardCursorType::Hand));
     }
 
-    KeyRowBrush KeyRowBrush::Reference(GuiBrush& brush) noexcept
+    std::string_view KeyRow::BindingName() const noexcept
     {
-        return KeyRowBrush(KeyRowBrushKind::Shared, &brush, {});
-    }
-
-    KeyRowBrush KeyRowBrush::Solid(GuiColor color)
-    {
-        auto brush = std::make_shared<GuiBrush>(color);
-        return KeyRowBrush(KeyRowBrushKind::SolidColor, nullptr, std::move(brush));
-    }
-
-    KeyRowBrushKind KeyRowBrush::Kind() const noexcept
-    {
-        return _kind;
-    }
-
-    const GuiBrush* KeyRowBrush::Brush() const noexcept
-    {
-        return _owned ? _owned.get() : _shared;
-    }
-
-    const void* KeyRowBrush::Identity() const noexcept
-    {
-        return static_cast<const void*>(Brush());
-    }
-
-    KeyRowPen::KeyRowPen(KeyRowBrush brush, double thickness) noexcept
-        : _brush(std::move(brush)), _thickness(thickness)
-    {
-    }
-
-    const KeyRowBrush& KeyRowPen::Brush() const noexcept
-    {
-        return _brush;
-    }
-
-    double KeyRowPen::Thickness() const noexcept
-    {
-        return _thickness;
-    }
-
-    const KeyRowEventArgs KeyRowEventArgs::Empty{};
-
-    KeyRowEventHandler::KeyRowEventHandler(
-        std::shared_ptr<void> target, Callback function)
-    {
-        if (function != nullptr)
+        if (_property != nullptr)
         {
-            auto list = std::make_shared<std::vector<Invocation>>();
-            list->push_back(Invocation{std::move(target), function});
-            _invocations = std::move(list);
+            return _property->Name;
         }
+        return _label.has_value() ? std::string_view(*_label) : std::string_view{};
     }
 
-    KeyRowEventHandler::KeyRowEventHandler(
-        std::shared_ptr<const std::vector<Invocation>> invocations) noexcept
-        : _invocations(std::move(invocations))
+    Av::Rect KeyRow::Box() const
     {
-    }
-
-    KeyRowEventHandler KeyRowEventHandler::Combine(
-        const KeyRowEventHandler& left, const KeyRowEventHandler& right)
-    {
-        if (left.IsNull())
-        {
-            return right;
-        }
-        if (right.IsNull())
-        {
-            return left;
-        }
-
-        auto list = std::make_shared<std::vector<Invocation>>();
-        list->reserve(left._invocations->size() + right._invocations->size());
-        list->insert(list->end(), left._invocations->begin(), left._invocations->end());
-        list->insert(list->end(), right._invocations->begin(), right._invocations->end());
-        return KeyRowEventHandler(std::move(list));
-    }
-
-    bool KeyRowEventHandler::IsNull() const noexcept
-    {
-        return !_invocations || _invocations->empty();
-    }
-
-    bool operator==(
-        const KeyRowEventHandler& left, const KeyRowEventHandler& right) noexcept
-    {
-        if (left.IsNull() || right.IsNull())
-        {
-            return left.IsNull() == right.IsNull();
-        }
-        const auto& a = *left._invocations;
-        const auto& b = *right._invocations;
-        return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin());
-    }
-
-    void KeyRowEvent::Add(const KeyRowEventHandler& handler)
-    {
-        if (handler.IsNull())
-        {
-            return;
-        }
-
-        std::shared_ptr<const InvocationList> current = _handlers.load();
-        for (;;)
-        {
-            std::shared_ptr<const InvocationList> desired;
-            if (!current)
-            {
-                desired = handler._invocations;
-            }
-            else
-            {
-                auto next = std::make_shared<InvocationList>();
-                next->reserve(current->size() + handler._invocations->size());
-                next->insert(next->end(), current->begin(), current->end());
-                next->insert(next->end(), handler._invocations->begin(),
-                    handler._invocations->end());
-                desired = std::move(next);
-            }
-            if (_handlers.compare_exchange_weak(current, desired))
-            {
-                return;
-            }
-        }
-    }
-
-    void KeyRowEvent::Remove(const KeyRowEventHandler& handler)
-    {
-        if (handler.IsNull())
-        {
-            return;
-        }
-
-        std::shared_ptr<const InvocationList> current = _handlers.load();
-        for (;;)
-        {
-            if (!current || current->size() < handler._invocations->size())
-            {
-                return;
-            }
-
-            const std::size_t removeCount = handler._invocations->size();
-            std::optional<std::size_t> match;
-            for (std::size_t start = current->size() - removeCount + 1; start-- > 0;)
-            {
-                if (std::equal(handler._invocations->begin(), handler._invocations->end(),
-                    current->begin() + static_cast<std::ptrdiff_t>(start)))
-                {
-                    match = start;
-                    break;
-                }
-            }
-            if (!match.has_value())
-            {
-                return;
-            }
-
-            std::shared_ptr<const InvocationList> desired;
-            if (removeCount != current->size())
-            {
-                auto next = std::make_shared<InvocationList>();
-                next->reserve(current->size() - removeCount);
-                next->insert(next->end(), current->begin(),
-                    current->begin() + static_cast<std::ptrdiff_t>(*match));
-                next->insert(next->end(),
-                    current->begin() + static_cast<std::ptrdiff_t>(*match + removeCount),
-                    current->end());
-                desired = std::move(next);
-            }
-
-            if (_handlers.compare_exchange_weak(current, desired))
-            {
-                return;
-            }
-        }
-    }
-
-    void KeyRowEvent::Invoke(void* sender, const KeyRowEventArgs& args) const
-    {
-        const std::shared_ptr<const InvocationList> handlers = _handlers.load();
-        if (!handlers)
-        {
-            return;
-        }
-        for (const Invocation& handler : *handlers)
-        {
-            handler.Function(handler.Target.get(), sender, args);
-        }
-    }
-
-    KeyRowGetHandler::KeyRowGetHandler(
-        std::shared_ptr<void> target, Callback function)
-    {
-        if (function != nullptr)
-        {
-            auto list = std::make_shared<std::vector<Invocation>>();
-            list->push_back(Invocation{std::move(target), function});
-            _invocations = std::move(list);
-        }
-    }
-
-    KeyRowGetHandler::KeyRowGetHandler(
-        std::shared_ptr<const std::vector<Invocation>> invocations) noexcept
-        : _invocations(std::move(invocations))
-    {
-    }
-
-    KeyRowGetHandler KeyRowGetHandler::Combine(
-        const KeyRowGetHandler& left, const KeyRowGetHandler& right)
-    {
-        if (left.IsNull())
-        {
-            return right;
-        }
-        if (right.IsNull())
-        {
-            return left;
-        }
-
-        auto list = std::make_shared<std::vector<Invocation>>();
-        list->reserve(left._invocations->size() + right._invocations->size());
-        list->insert(list->end(), left._invocations->begin(), left._invocations->end());
-        list->insert(list->end(), right._invocations->begin(), right._invocations->end());
-        return KeyRowGetHandler(std::move(list));
-    }
-
-    bool KeyRowGetHandler::IsNull() const noexcept
-    {
-        return !_invocations || _invocations->empty();
-    }
-
-    KeyRowGlfwKey KeyRowGetHandler::Invoke() const
-    {
-        if (IsNull())
-        {
-            throw KeyRowNullReferenceException();
-        }
-
-        KeyRowGlfwKey result = KeyUnknown;
-        for (const Invocation& invocation : *_invocations)
-        {
-            result = invocation.Function(invocation.Target.get());
-        }
-        return result;
-    }
-
-    KeyRowSetHandler::KeyRowSetHandler(
-        std::shared_ptr<void> target, Callback function)
-    {
-        if (function != nullptr)
-        {
-            auto list = std::make_shared<std::vector<Invocation>>();
-            list->push_back(Invocation{std::move(target), function});
-            _invocations = std::move(list);
-        }
-    }
-
-    KeyRowSetHandler::KeyRowSetHandler(
-        std::shared_ptr<const std::vector<Invocation>> invocations) noexcept
-        : _invocations(std::move(invocations))
-    {
-    }
-
-    KeyRowSetHandler KeyRowSetHandler::Combine(
-        const KeyRowSetHandler& left, const KeyRowSetHandler& right)
-    {
-        if (left.IsNull())
-        {
-            return right;
-        }
-        if (right.IsNull())
-        {
-            return left;
-        }
-
-        auto list = std::make_shared<std::vector<Invocation>>();
-        list->reserve(left._invocations->size() + right._invocations->size());
-        list->insert(list->end(), left._invocations->begin(), left._invocations->end());
-        list->insert(list->end(), right._invocations->begin(), right._invocations->end());
-        return KeyRowSetHandler(std::move(list));
-    }
-
-    bool KeyRowSetHandler::IsNull() const noexcept
-    {
-        return !_invocations || _invocations->empty();
-    }
-
-    void KeyRowSetHandler::Invoke(KeyRowGlfwKey key) const
-    {
-        if (IsNull())
-        {
-            throw KeyRowNullReferenceException();
-        }
-
-        for (const Invocation& invocation : *_invocations)
-        {
-            invocation.Function(invocation.Target.get(), key);
-        }
-    }
-
-    KeyRowDrawingContext::KeyRowDrawingContext() noexcept
-        : TrackedTextAdapter(TrackedTextBrush{&GuiTheme::TextBrush})
-    {
-    }
-
-    KeyRow::KeyRow(KeyRowControlAdapter& control,
-        const ::MphRead::Mods::InputBindingProperty* property,
-        double labelWidth)
-        : _control(control)
-    {
-        if (property != nullptr)
-        {
-            _property = std::make_shared<::MphRead::Mods::InputBindingProperty>(*property);
-        }
-        _labelWidth = labelWidth;
-        Height(32.0);
-        _control.SetFocusable(true);
-        _control.SetHandCursor();
-    }
-
-    KeyRow::KeyRow(KeyRowControlAdapter& control,
-        std::optional<std::u16string> label,
-        KeyRowGetHandler get, KeyRowSetHandler set,
-        double labelWidth)
-        : _control(control)
-    {
-        _label = std::move(label);
-        _get = std::move(get);
-        _set = std::move(set);
-        _labelWidth = labelWidth;
-        Height(32.0);
-        _control.SetFocusable(true);
-        _control.SetHandCursor();
-    }
-
-    double KeyRow::Height() const
-    {
-        return _control.GetHeight();
-    }
-
-    void KeyRow::Height(double value)
-    {
-        _control.SetHeight(value);
-    }
-
-    void KeyRow::InvalidateVisual()
-    {
-        _control.InvalidateVisual();
-    }
-
-    void KeyRow::AddRebound(const KeyRowEventHandler& handler)
-    {
-        _rebound.Add(handler);
-    }
-
-    void KeyRow::RemoveRebound(const KeyRowEventHandler& handler)
-    {
-        _rebound.Remove(handler);
-    }
-
-    GuiRect KeyRow::Box() const
-    {
-        const double width = MathMax(60.0,
-            _control.Bounds().Width - _labelWidth - 4.0);
-        const double height = _control.Bounds().Height - 4.0;
-        return GuiRect{_labelWidth, 2.0, width, height};
+        const Av::Rect bounds = Bounds();
+        return {_labelWidth, 2, MathMax(60.0, bounds.Width - _labelWidth - 4), bounds.Height - 4};
     }
 
     const ::MphRead::Mods::InputBindingProperty& KeyRow::RequireProperty() const
     {
-        if (!_property)
+        if (_property == nullptr)
         {
-            throw KeyRowNullReferenceException();
+            throw ::System::NullReferenceException();
         }
         return *_property;
     }
 
-    void KeyRow::OnPointerPressed(KeyRowPointerPressedEventArgs& e)
+    void KeyRow::OnPointerPressed(AvInput::PointerPressedEventArgs& e)
     {
-        _control.Focus();
-        const KeyRowPointerUpdateKind updateKind = _control.GetPointerUpdateKind(e);
+        Focus();
+        const AvInput::PointerPointProperties properties = e.GetCurrentPoint(this).Properties;
         if (!_listening)
         {
-            const GuiRect box = Box();
-            const KeyRowPoint position = _control.GetPosition(e);
-            if (Contains(box, position))
+            // Listening begins on the release: a press that starts a scroll
+            // down the Controls page must not activate every row it crosses.
+            if (Box().Contains(e.GetPosition(this)))
             {
-                _listening = true;
-                _control.InvalidateVisual();
+                _tap.Press(e, *this);
             }
             e.Handled = true;
-            _control.BaseOnPointerPressed(e);
+            Control::OnPointerPressed(e);
             return;
         }
 
-        std::optional<InputMouseButton> button;
-        switch (updateKind)
+        std::optional<KeyRowMouseButton> button;
+        switch (properties.PointerUpdateKind)
         {
-        case KeyRowPointerUpdateKind::LeftButtonPressed:
-            button = MouseLeft;
+        case AvInput::PointerUpdateKind::LeftButtonPressed:
+            button = KeyRowMouseButton::Left;
             break;
-        case KeyRowPointerUpdateKind::RightButtonPressed:
-            button = MouseRight;
+        case AvInput::PointerUpdateKind::RightButtonPressed:
+            button = KeyRowMouseButton::Right;
             break;
-        case KeyRowPointerUpdateKind::MiddleButtonPressed:
-            button = MouseMiddle;
+        case AvInput::PointerUpdateKind::MiddleButtonPressed:
+            button = KeyRowMouseButton::Middle;
             break;
-        case KeyRowPointerUpdateKind::XButton1Pressed:
-            button = MouseButton4;
+        case AvInput::PointerUpdateKind::XButton1Pressed:
+            button = KeyRowMouseButton::Button4;
             break;
-        case KeyRowPointerUpdateKind::XButton2Pressed:
-            button = MouseButton5;
+        case AvInput::PointerUpdateKind::XButton2Pressed:
+            button = KeyRowMouseButton::Button5;
             break;
         default:
             break;
         }
-
-        if (button.has_value() && _property)
+        if (button.has_value() && _property != nullptr)
         {
-            InputSettings::Rebind(*_property, ButtonTypeMouse,
-                static_cast<InputKey>(KeyUnknown), *button);
+            ::MphRead::Mods::InputSettings::Rebind(*_property,
+                ::MphRead::Entities::ButtonType::Mouse,
+                KeyRowGlfwKey::Unknown, *button);
             Done();
         }
         e.Handled = true;
-        _control.BaseOnPointerPressed(e);
+        Control::OnPointerPressed(e);
     }
 
-    void KeyRow::OnPointerWheelChanged(KeyRowPointerWheelEventArgs& e)
+    void KeyRow::OnPointerMoved(AvInput::PointerEventArgs& e)
     {
-        if (_listening && e.DeltaY != 0.0 && _property)
+        _tap.Moved(e, *this);
+        Control::OnPointerMoved(e);
+    }
+
+    void KeyRow::OnPointerReleased(AvInput::PointerReleasedEventArgs& e)
+    {
+        if (!_listening && _tap.Release(e, *this) && Box().Contains(e.GetPosition(this)))
         {
-            InputSettings::Rebind(*_property,
-                e.DeltaY > 0.0 ? ButtonTypeScrollUp : ButtonTypeScrollDown,
-                static_cast<InputKey>(KeyUnknown), MouseLeft);
+            SetListening(true);
+            InvalidateVisual();
+        }
+        Control::OnPointerReleased(e);
+    }
+
+    void KeyRow::OnPointerCaptureLost(AvInput::PointerCaptureLostEventArgs& e)
+    {
+        _tap.Cancel();
+        Control::OnPointerCaptureLost(e);
+    }
+
+    void KeyRow::OnPointerWheelChanged(AvInput::PointerWheelEventArgs& e)
+    {
+        if (_listening && e.Delta.Y != 0 && _property != nullptr)
+        {
+            ::MphRead::Mods::InputSettings::Rebind(*_property,
+                e.Delta.Y > 0 ? ::MphRead::Entities::ButtonType::ScrollUp : ::MphRead::Entities::ButtonType::ScrollDown,
+                KeyRowGlfwKey::Unknown, KeyRowMouseButton::Left);
             Done();
             e.Handled = true;
         }
-        _control.BaseOnPointerWheelChanged(e);
+        Control::OnPointerWheelChanged(e);
     }
 
-    void KeyRow::OnPointerEntered(KeyRowPointerEventArgs& e)
+    void KeyRow::OnPointerEntered(AvInput::PointerEventArgs& e)
     {
         _hot = true;
-        _control.InvalidateVisual();
-        _control.BaseOnPointerEntered(e);
+        InvalidateVisual();
+        Control::OnPointerEntered(e);
     }
 
-    void KeyRow::OnPointerExited(KeyRowPointerEventArgs& e)
+    void KeyRow::OnPointerExited(AvInput::PointerEventArgs& e)
     {
         _hot = false;
-        _control.InvalidateVisual();
-        _control.BaseOnPointerExited(e);
+        InvalidateVisual();
+        Control::OnPointerExited(e);
     }
 
-    void KeyRow::OnKeyDown(KeyRowKeyEventArgs& e)
+    void KeyRow::OnKeyDown(AvInput::KeyEventArgs& e)
     {
         if (!_listening)
         {
-            if (e.Key == KeyRowKey::Enter || e.Key == KeyRowKey::Space)
+            if (e.Key == AvInput::Key::Enter || e.Key == AvInput::Key::Space)
             {
-                _listening = true;
-                _control.InvalidateVisual();
+                SetListening(true);
+                InvalidateVisual();
                 e.Handled = true;
             }
-            _control.BaseOnKeyDown(e);
+            Control::OnKeyDown(e);
             return;
         }
 
+        // While listening every key belongs to this row, even keys normally
+        // used to move focus or close the window.
         e.Handled = true;
-        if (e.Key == KeyRowKey::Escape)
+        if (e.Key == AvInput::Key::Escape)
         {
             Done();
             return;
         }
-        if (e.Key == KeyRowKey::Back || e.Key == KeyRowKey::Delete)
+        if (e.Key == AvInput::Key::Back || e.Key == AvInput::Key::Delete)
         {
-            Assign(KeyUnknown);
+            Assign(KeyRowGlfwKey::Unknown);
             Done();
             return;
         }
-        const std::optional<KeyRowGlfwKey> key = Translate(e.Key);
-        if (key.has_value())
+        if (const auto key = Translate(e.Key); key.has_value())
         {
             Assign(*key);
             Done();
@@ -548,174 +198,235 @@ namespace MphRead::Mods::Launcher::Gui
 
     void KeyRow::Assign(KeyRowGlfwKey key)
     {
-        if (!_set.IsNull())
+        if (_set)
         {
-            _set.Invoke(key);
+            _set(key);
             return;
         }
-        InputSettings::Rebind(RequireProperty(), ButtonTypeKey,
-            static_cast<InputKey>(key), MouseLeft);
+        ::MphRead::Mods::InputSettings::Rebind(RequireProperty(),
+            ::MphRead::Entities::ButtonType::Key,
+            static_cast<::MphRead::Mods::InputKey>(key), KeyRowMouseButton::Left);
+    }
+
+    void KeyRow::SetListening(bool value)
+    {
+        if (_listening == value)
+        {
+            return;
+        }
+        _listening = value;
+        _anyListening = value;
+        if (value)
+        {
+            _controllerHint.reset();
+            (void)_padEdges.Update(ModInput::GamepadManager::Snapshot());
+        }
+    }
+
+    KeyRowGamepadButtons KeyRow::ControllerPress(const KeyRowGamepadSnapshot& snapshot)
+    {
+        return _padEdges.Update(snapshot);
+    }
+
+    void KeyRow::OpenControllerBinding(KeyRowGamepadButtons pressed)
+    {
+        std::optional<ModInput::PadAction> action;
+        const std::string_view binding = BindingName();
+        if (binding == "Shoot" || binding == "AltAttack") action = ModInput::PadAction::Shoot;
+        else if (binding == "Jump" || binding == "Boost") action = ModInput::PadAction::Jump;
+        else if (binding == "Zoom") action = ModInput::PadAction::Zoom;
+        else if (binding == "Morph") action = ModInput::PadAction::Morph;
+        else if (binding == "Scan") action = ModInput::PadAction::Scan;
+        else if (binding == "ScanVisor") action = ModInput::PadAction::ScanVisor;
+        else if (binding == "WeaponMenu") action = ModInput::PadAction::WeaponWheel;
+        else if (binding == "Pause") action = ModInput::PadAction::Scoreboard;
+        else if (binding == "NextWeapon") action = ModInput::PadAction::NextWeapon;
+        else if (binding == "PrevWeapon") action = ModInput::PadAction::PrevWeapon;
+        else if (binding == "Missile") action = ModInput::PadAction::Missile;
+        else if (binding == "PowerBeam") action = ModInput::PadAction::PowerBeam;
+        else if (binding == "Chat") action = ModInput::PadAction::Chat;
+        else if (binding == "VoltDriver") action = ModInput::PadAction::VoltDriver;
+        else if (binding == "Battlehammer") action = ModInput::PadAction::Battlehammer;
+        else if (binding == "Imperialist") action = ModInput::PadAction::Imperialist;
+        else if (binding == "Judicator") action = ModInput::PadAction::Judicator;
+        else if (binding == "Magmaul") action = ModInput::PadAction::Magmaul;
+        else if (binding == "ShockCoil") action = ModInput::PadAction::ShockCoil;
+        else if (binding == "OmegaCannon") action = ModInput::PadAction::OmegaCannon;
+        else if (binding == "AffinitySlot") action = ModInput::PadAction::AffinitySlot;
+
+        SettingsView* settings = nullptr;
+        for (Av::Visual* ancestor : GetVisualAncestors())
+        {
+            if (auto* candidate = dynamic_cast<SettingsView*>(ancestor); candidate != nullptr)
+            {
+                settings = candidate;
+                break;
+            }
+        }
+        SetListening(false);
+        if (action.has_value() && settings != nullptr)
+        {
+            settings->ShowSection("Controls", 1);
+            if (Av::TopLevel* top = Av::TopLevel::GetTopLevel(settings))
+            {
+                top->UpdateLayout();
+            }
+            PadRow* row = nullptr;
+            for (Av::Visual* descendant : settings->GetVisualDescendants())
+            {
+                if (auto* candidate = dynamic_cast<PadRow*>(descendant);
+                    candidate != nullptr && candidate->Action() == *action)
+                {
+                    row = candidate;
+                    break;
+                }
+            }
+            if (row == nullptr)
+            {
+                throw ::System::InvalidOperationException();
+            }
+            FocusNavigator::Focus(row);
+            row->Capture(pressed);
+            return;
+        }
+        _controllerHint = "Keyboard only; configure sticks under Gamepad";
+        InvalidateVisual();
     }
 
     void KeyRow::Done()
     {
-        _listening = false;
-        _control.InvalidateVisual();
-        _rebound.Invoke(this, KeyRowEventArgs::Empty);
+        SetListening(false);
+        InvalidateVisual();
+        Rebound(*this);
     }
 
-    void KeyRow::OnLostFocus(KeyRowRoutedEventArgs& e)
+    void KeyRow::OnLostFocus(AvInput::FocusChangedEventArgs& e)
     {
-        _listening = false;
-        _control.InvalidateVisual();
-        _control.BaseOnLostFocus(e);
+        SetListening(false);
+        _controllerHint.reset();
+        InvalidateVisual();
+        Control::OnLostFocus(e);
     }
 
-    void KeyRow::OnGotFocus(KeyRowGotFocusEventArgs& e)
+    void KeyRow::OnGotFocus(AvInput::GotFocusEventArgs& e)
     {
-        _control.InvalidateVisual();
-        _control.BaseOnGotFocus(e);
+        InvalidateVisual();
+        Control::OnGotFocus(e);
     }
 
-    std::optional<KeyRowGlfwKey> KeyRow::Translate(KeyRowKey key) noexcept
+    std::optional<KeyRowGlfwKey> KeyRow::Translate(AvInput::Key key) noexcept
     {
-        if (key >= KeyRowKey::A && key <= KeyRowKey::Z)
+        const std::int32_t value = static_cast<std::int32_t>(key);
+        if (key >= AvInput::Key::A && key <= AvInput::Key::Z)
         {
-            return Glfw(65 + static_cast<std::int32_t>(key)
-                - static_cast<std::int32_t>(KeyRowKey::A));
+            return static_cast<KeyRowGlfwKey>(65 + value - static_cast<std::int32_t>(AvInput::Key::A));
         }
-        if (key >= KeyRowKey::D0 && key <= KeyRowKey::D9)
+        if (key >= AvInput::Key::D0 && key <= AvInput::Key::D9)
         {
-            return Glfw(48 + static_cast<std::int32_t>(key)
-                - static_cast<std::int32_t>(KeyRowKey::D0));
+            return static_cast<KeyRowGlfwKey>(48 + value - static_cast<std::int32_t>(AvInput::Key::D0));
         }
-        if (key >= KeyRowKey::NumPad0 && key <= KeyRowKey::NumPad9)
+        if (key >= AvInput::Key::NumPad0 && key <= AvInput::Key::NumPad9)
         {
-            return Glfw(320 + static_cast<std::int32_t>(key)
-                - static_cast<std::int32_t>(KeyRowKey::NumPad0));
+            return static_cast<KeyRowGlfwKey>(320 + value - static_cast<std::int32_t>(AvInput::Key::NumPad0));
         }
-        if (key >= KeyRowKey::F1 && key <= KeyRowKey::F12)
+        if (key >= AvInput::Key::F1 && key <= AvInput::Key::F12)
         {
-            return Glfw(290 + static_cast<std::int32_t>(key)
-                - static_cast<std::int32_t>(KeyRowKey::F1));
+            return static_cast<KeyRowGlfwKey>(290 + value - static_cast<std::int32_t>(AvInput::Key::F1));
         }
-
         switch (key)
         {
-        case KeyRowKey::Space: return Glfw(32);
-        case KeyRowKey::Tab: return Glfw(258);
-        case KeyRowKey::Enter: return Glfw(257);
-        case KeyRowKey::LeftShift: return Glfw(340);
-        case KeyRowKey::RightShift: return Glfw(344);
-        case KeyRowKey::LeftCtrl: return Glfw(341);
-        case KeyRowKey::RightCtrl: return Glfw(345);
-        case KeyRowKey::LeftAlt: return Glfw(342);
-        case KeyRowKey::RightAlt: return Glfw(346);
-        case KeyRowKey::Left: return Glfw(263);
-        case KeyRowKey::Right: return Glfw(262);
-        case KeyRowKey::Up: return Glfw(265);
-        case KeyRowKey::Down: return Glfw(264);
-        case KeyRowKey::Insert: return Glfw(260);
-        case KeyRowKey::Home: return Glfw(268);
-        case KeyRowKey::End: return Glfw(269);
-        case KeyRowKey::PageUp: return Glfw(266);
-        case KeyRowKey::PageDown: return Glfw(267);
-        case KeyRowKey::CapsLock: return Glfw(280);
-        case KeyRowKey::OemMinus: return Glfw(45);
-        case KeyRowKey::OemPlus: return Glfw(61);
-        case KeyRowKey::OemOpenBrackets: return Glfw(91);
-        case KeyRowKey::OemCloseBrackets: return Glfw(93);
-        case KeyRowKey::OemSemicolon: return Glfw(59);
-        case KeyRowKey::OemQuotes: return Glfw(39);
-        case KeyRowKey::OemComma: return Glfw(44);
-        case KeyRowKey::OemPeriod: return Glfw(46);
-        case KeyRowKey::OemQuestion: return Glfw(47);
-        case KeyRowKey::OemBackslash:
-        case KeyRowKey::OemPipe:
-            return Glfw(92);
-        case KeyRowKey::OemTilde: return Glfw(96);
-        case KeyRowKey::Add: return Glfw(334);
-        case KeyRowKey::Subtract: return Glfw(333);
-        case KeyRowKey::Multiply: return Glfw(332);
-        case KeyRowKey::Divide: return Glfw(331);
-        default:
-            return std::nullopt;
+        case AvInput::Key::Space: return static_cast<KeyRowGlfwKey>(32);
+        case AvInput::Key::Tab: return static_cast<KeyRowGlfwKey>(258);
+        case AvInput::Key::Enter: return static_cast<KeyRowGlfwKey>(257);
+        case AvInput::Key::LeftShift: return static_cast<KeyRowGlfwKey>(340);
+        case AvInput::Key::RightShift: return static_cast<KeyRowGlfwKey>(344);
+        case AvInput::Key::LeftCtrl: return static_cast<KeyRowGlfwKey>(341);
+        case AvInput::Key::RightCtrl: return static_cast<KeyRowGlfwKey>(345);
+        case AvInput::Key::LeftAlt: return static_cast<KeyRowGlfwKey>(342);
+        case AvInput::Key::RightAlt: return static_cast<KeyRowGlfwKey>(346);
+        case AvInput::Key::Left: return static_cast<KeyRowGlfwKey>(263);
+        case AvInput::Key::Right: return static_cast<KeyRowGlfwKey>(262);
+        case AvInput::Key::Up: return static_cast<KeyRowGlfwKey>(265);
+        case AvInput::Key::Down: return static_cast<KeyRowGlfwKey>(264);
+        case AvInput::Key::Insert: return static_cast<KeyRowGlfwKey>(260);
+        case AvInput::Key::Home: return static_cast<KeyRowGlfwKey>(268);
+        case AvInput::Key::End: return static_cast<KeyRowGlfwKey>(269);
+        case AvInput::Key::PageUp: return static_cast<KeyRowGlfwKey>(266);
+        case AvInput::Key::PageDown: return static_cast<KeyRowGlfwKey>(267);
+        case AvInput::Key::CapsLock: return static_cast<KeyRowGlfwKey>(280);
+        case AvInput::Key::OemMinus: return static_cast<KeyRowGlfwKey>(45);
+        case AvInput::Key::OemPlus: return static_cast<KeyRowGlfwKey>(61);
+        case AvInput::Key::OemOpenBrackets: return static_cast<KeyRowGlfwKey>(91);
+        case AvInput::Key::OemCloseBrackets: return static_cast<KeyRowGlfwKey>(93);
+        case AvInput::Key::OemSemicolon: return static_cast<KeyRowGlfwKey>(59);
+        case AvInput::Key::OemQuotes: return static_cast<KeyRowGlfwKey>(39);
+        case AvInput::Key::OemComma: return static_cast<KeyRowGlfwKey>(44);
+        case AvInput::Key::OemPeriod: return static_cast<KeyRowGlfwKey>(46);
+        case AvInput::Key::OemQuestion: return static_cast<KeyRowGlfwKey>(47);
+        case AvInput::Key::OemBackslash:
+        case AvInput::Key::OemPipe: return static_cast<KeyRowGlfwKey>(92);
+        case AvInput::Key::OemTilde: return static_cast<KeyRowGlfwKey>(96);
+        case AvInput::Key::Add: return static_cast<KeyRowGlfwKey>(334);
+        case AvInput::Key::Subtract: return static_cast<KeyRowGlfwKey>(333);
+        case AvInput::Key::Multiply: return static_cast<KeyRowGlfwKey>(332);
+        case AvInput::Key::Divide: return static_cast<KeyRowGlfwKey>(331);
+        default: return std::nullopt;
         }
     }
 
-    void KeyRow::Render(KeyRowDrawingContext& context)
+    void KeyRow::Render(Media::DrawingContext& context)
     {
-        const double fillWidth = _control.Bounds().Width;
-        const double fillHeight = _control.Bounds().Height;
-        context.FillRectangle(KeyRowBrush::Transparent(),
-            GuiRect{0.0, 0.0, fillWidth, fillHeight});
-
-        const std::u16string labelText = _label.has_value()
+        const Av::Rect bounds = Bounds();
+        if (bounds.Width <= 0 || bounds.Height <= 0)
+        {
+            return;
+        }
+        context.FillRectangle(Media::Brushes::Transparent(), Av::Rect(0, 0, bounds.Width, bounds.Height));
+        const std::string labelText = _label.has_value()
             ? *_label
-            : Utf8ToUtf16(InputSettings::ActionName(RequireProperty()));
-        const TrackedTextFormattedText label = TrackedText::Make(
-            context, labelText, 12.0, true,
-            TrackedTextBrush{&GuiTheme::TextBrush});
-        context.DrawText(label, TrackedTextPoint{
-            4.0, (_control.Bounds().Height - label.Height) / 2.0
-        });
+            : ::MphRead::Mods::InputSettings::ActionName(RequireProperty());
+        const Media::FormattedText label = TrackedText::Make(labelText, 12, true, GuiTheme::TextBrush);
+        context.DrawText(label, Av::Point(4, (bounds.Height - label.Height()) / 2));
 
-        const GuiRect box = Box();
-        GuiColor edgeColor;
+        const Av::Rect box = Box();
+        const Media::Color edge = _listening ? GuiTheme::Warm
+            : IsFocused() || _hot ? GuiTheme::Accent : GuiTheme::Edge;
+        context.DrawRectangle(GuiTheme::PanelLightBrush,
+            std::make_shared<Media::Pen>(std::make_shared<Media::SolidColorBrush>(edge), 1),
+            Av::RoundedRect(box, 4));
+
+        std::string text;
         if (_listening)
         {
-            edgeColor = GuiTheme::Warm;
+            text = _get ? "press a key" : "press a key, a mouse button or the wheel";
         }
-        else if (_control.IsFocused() || _hot)
+        else if (_controllerHint.has_value())
         {
-            edgeColor = GuiTheme::Accent;
+            text = *_controllerHint;
         }
-        else
+        else if (_get)
         {
-            edgeColor = GuiTheme::Edge;
-        }
-        context.DrawRectangle(KeyRowBrush::Reference(GuiTheme::PanelLightBrush),
-            KeyRowPen(KeyRowBrush::Solid(edgeColor), 1.0),
-            KeyRowRoundedRect{box, 4.0});
-
-        std::u16string text;
-        if (_listening)
-        {
-            text = !_get.IsNull()
-                ? std::u16string(u"press a key")
-                : std::u16string(u"press a key, a mouse button or the wheel");
-        }
-        else if (!_get.IsNull())
-        {
-            if (_get.Invoke() == KeyUnknown)
+            if (_get() == KeyRowGlfwKey::Unknown)
             {
-                text = u"none";
+                text = "none";
             }
             else
             {
-                text = Utf8ToUtf16(InputSettings::KeyName(
-                    static_cast<InputKey>(_get.Invoke())));
+                text = ::MphRead::Mods::InputSettings::KeyName(static_cast<::MphRead::Mods::InputKey>(_get()));
             }
         }
         else
         {
-            text = Utf8ToUtf16(InputSettings::Describe(
-                InputSettings::Bind(RequireProperty())));
+            text = ::MphRead::Mods::InputSettings::Describe(
+                ::MphRead::Mods::InputSettings::Bind(RequireProperty()));
         }
-
-        const GuiColor valueColor = _listening ? GuiTheme::Warm : GuiTheme::Text;
-        const KeyRowBrush valueBrush = KeyRowBrush::Solid(valueColor);
-        TrackedTextFormattedText value = TrackedText::Make(
-            context, text, 12.0, true,
-            TrackedTextBrush{valueBrush.Brush()});
-        context.SetFormattedTextMaxTextWidth(value,
-            MathMax(20.0, box.Width - 12.0));
-        context.SetFormattedTextMaxTextHeight(value, box.Height);
-        context.SetFormattedTextTrimming(
-            value, KeyRowTextTrimming::CharacterEllipsis);
-        context.DrawText(value, TrackedTextPoint{
-            box.X + (box.Width - value.Width) / 2.0,
-            box.Y + (box.Height - value.Height) / 2.0
-        });
+        const Media::IBrushPtr valueBrush = std::make_shared<Media::SolidColorBrush>(
+            _listening ? GuiTheme::Warm : GuiTheme::Text);
+        Media::FormattedText value = TrackedText::Make(text, 12, true, valueBrush);
+        value.MaxTextWidth(MathMax(20.0, box.Width - 12));
+        value.MaxTextHeight(box.Height);
+        value.Trimming(Media::TextTrimming::CharacterEllipsis);
+        context.DrawText(value, Av::Point(box.X + (box.Width - value.Width()) / 2,
+            box.Y + (box.Height - value.Height()) / 2));
     }
 }

@@ -1,6 +1,7 @@
 
 #include "Encoding.hpp"
 #include "Exceptions.hpp"
+#include "Guid.hpp"
 #include "IO.hpp"
 
 #include <cstdlib>
@@ -501,6 +502,60 @@ namespace MphRead::NativeRuntime
 #endif
     }
 
+    bool DirectoryAnyFileRecursive(
+        const std::string& path,
+        const std::function<bool(const std::string&)>& predicate)
+    {
+        if (path.empty())
+        {
+            throw System::ArgumentException("The value cannot be an empty string. (Parameter 'path')");
+        }
+        if (!predicate)
+        {
+            throw System::ArgumentNullException("predicate");
+        }
+        const std::string fullPath = PathGetFullPath(path);
+        std::error_code error;
+        std::filesystem::recursive_directory_iterator iterator(
+            PathFromUtf8(fullPath), std::filesystem::directory_options::follow_directory_symlink, error);
+        if (error)
+        {
+#if defined(_WIN32)
+            ThrowForLastIOError(static_cast<unsigned long>(error.value()), fullPath);
+#else
+            ThrowForLastIOError(error.value(), fullPath, true);
+#endif
+        }
+        const std::filesystem::recursive_directory_iterator end{};
+        while (iterator != end)
+        {
+            const std::filesystem::directory_entry entry = *iterator;
+            const bool directory = entry.is_directory(error);
+            if (error)
+            {
+#if defined(_WIN32)
+                ThrowForLastIOError(static_cast<unsigned long>(error.value()), PathToUtf8(entry.path()));
+#else
+                ThrowForLastIOError(error.value(), PathToUtf8(entry.path()), true);
+#endif
+            }
+            if (!directory && predicate(PathToUtf8(entry.path())))
+            {
+                return true;
+            }
+            iterator.increment(error);
+            if (error)
+            {
+#if defined(_WIN32)
+                ThrowForLastIOError(static_cast<unsigned long>(error.value()), fullPath);
+#else
+                ThrowForLastIOError(error.value(), fullPath, true);
+#endif
+            }
+        }
+        return false;
+    }
+
 #if defined(_WIN32)
     namespace
     {
@@ -786,6 +841,49 @@ namespace MphRead::NativeRuntime
             {
                 ThrowForErrno(errno, pending[i], false);
             }
+#endif
+        }
+    }
+
+    std::string DirectoryCreateTempSubdirectory(std::string_view prefix)
+    {
+        const std::string temporary = PathGetTempPath();
+        for (;;)
+        {
+            const std::string name = std::string(prefix) + Guid::NewGuid().ToString("N");
+            const std::string candidate = PathCombine(temporary, name);
+            std::error_code error;
+            const bool created = std::filesystem::create_directory(PathFromUtf8(candidate), error);
+            if (created)
+            {
+                return PathGetFullPath(candidate);
+            }
+            if (!error)
+            {
+                continue;
+            }
+            if (error == std::errc::file_exists)
+            {
+                continue;
+            }
+#if defined(_WIN32)
+            ThrowForLastIOError(static_cast<unsigned long>(error.value()), candidate);
+#else
+            ThrowForLastIOError(error.value(), candidate, true);
+#endif
+        }
+    }
+
+    void DirectorySetCurrentDirectory(const std::string& path)
+    {
+        std::error_code error;
+        std::filesystem::current_path(PathFromUtf8(path), error);
+        if (error)
+        {
+#if defined(_WIN32)
+            ThrowForLastIOError(static_cast<unsigned long>(error.value()), path);
+#else
+            ThrowForLastIOError(error.value(), path, true);
 #endif
         }
     }
@@ -1156,6 +1254,48 @@ namespace MphRead::NativeRuntime
             ThrowForErrno(errno, fullPath, true);
         }
 #endif
+    }
+
+    void DirectoryDelete(const std::string& path, bool recursive)
+    {
+        if (!recursive)
+        {
+            DirectoryDelete(path);
+            return;
+        }
+        const std::string fullPath = PathGetFullPath(path);
+        std::error_code error;
+        const std::filesystem::file_status status
+            = std::filesystem::status(PathFromUtf8(fullPath), error);
+        if (error)
+        {
+#if defined(_WIN32)
+            ThrowForLastIOError(static_cast<unsigned long>(error.value()), fullPath);
+#else
+            ThrowForLastIOError(error.value(), fullPath, true);
+#endif
+        }
+        if (!std::filesystem::exists(status))
+        {
+#if defined(_WIN32)
+            ThrowForLastIOError(ERROR_PATH_NOT_FOUND, fullPath);
+#else
+            ThrowForLastIOError(ENOENT, fullPath, true);
+#endif
+        }
+        if (!std::filesystem::is_directory(status))
+        {
+            throw System::IO::IOException("The directory name is invalid: '" + fullPath + "'.");
+        }
+        std::filesystem::remove_all(PathFromUtf8(fullPath), error);
+        if (error)
+        {
+#if defined(_WIN32)
+            ThrowForLastIOError(static_cast<unsigned long>(error.value()), fullPath);
+#else
+            ThrowForLastIOError(error.value(), fullPath, true);
+#endif
+        }
     }
 
     std::vector<std::string> DirectoryGetFiles(const std::string& path)

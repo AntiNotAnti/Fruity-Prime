@@ -8,7 +8,9 @@
 #include <cstdint>
 #include <span>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <vector>
 
@@ -58,6 +60,25 @@ namespace MphRead::NativeRuntime
         AddressFamily Family = AddressFamily::Other;
         std::array<std::uint8_t, 4> Bytes{};
     };
+
+    enum class IPAddressFamily : std::uint8_t
+    {
+        InterNetwork,
+        InterNetworkV6
+    };
+
+    // The parts of System.Net.IPAddress used by launcher presentation. The
+    // socket Address above remains IPv4-only, as the network transport is.
+    struct IPAddressValue
+    {
+        IPAddressFamily Family = IPAddressFamily::InterNetwork;
+        std::array<std::uint8_t, 16> Bytes{};
+        std::uint32_t ScopeId = 0;
+    };
+
+    [[nodiscard]] std::optional<IPAddressValue> IPAddressTryParse(std::string_view value);
+    [[nodiscard]] bool IPAddressIsLoopback(const IPAddressValue& address) noexcept;
+    [[nodiscard]] std::vector<std::uint8_t> IPAddressGetAddressBytes(const IPAddressValue& address);
 
     struct EndPoint
     {

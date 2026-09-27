@@ -143,6 +143,8 @@ namespace MphRead::NativeRuntime::Skia
         Color Solid{0, 0, 0, 255};
         std::shared_ptr<Shader> Gradient{};
         double Opacity = 1.0;
+        // SKPaint.IsAntialias: false draws hard, whole-pixel edges.
+        bool Antialias = true;
     };
 
     struct StrokeStyle final
@@ -172,6 +174,9 @@ namespace MphRead::NativeRuntime::Skia
         // Straight RGBA in, as a decoded file is.
         [[nodiscard]] static std::shared_ptr<Bitmap> FromStraightRgba(
             std::int32_t width, std::int32_t height, const std::uint8_t* rgba);
+        // Premultiplied RGBA in, as a renderer hands it over.
+        [[nodiscard]] static std::shared_ptr<Bitmap> FromPremultipliedRgba(
+            std::int32_t width, std::int32_t height, const std::uint8_t* rgba, std::int32_t stride);
         // PNG, JPEG, BMP: whatever stb_image reads. Null when it cannot.
         [[nodiscard]] static std::shared_ptr<Bitmap> Decode(const std::uint8_t* data, std::size_t length);
 
@@ -182,6 +187,8 @@ namespace MphRead::NativeRuntime::Skia
     };
 
     enum class FilterQuality : std::uint8_t { None, Low, Medium, High };
+    // SKBlendMode, the two the launcher draws with.
+    enum class BlendMode : std::uint8_t { SrcOver, Overlay };
 
     // A font file loaded once and kept for the process.
     class Typeface final
@@ -261,7 +268,7 @@ namespace MphRead::NativeRuntime::Skia
         void FillPath(const Path& path, const Paint& paint);
         void StrokePath(const Path& path, const StrokeStyle& stroke, const Paint& paint);
         void DrawBitmap(const Bitmap& bitmap, const Rect& source, const Rect& destination, FilterQuality quality,
-            double opacity);
+            double opacity, BlendMode blend = BlendMode::SrcOver);
         void DrawBoxShadow(const Path& shape, const BoxShadowSpec& shadow, const Rect& shapeBounds,
             const std::array<Point, 4>& radii);
         // One run of text with its baseline starting at the origin, in local

@@ -21,7 +21,7 @@ namespace MphRead::Mods::Launcher::Gui
         };
 
         // A row on a settings page: the width of the panel, 34 tall.
-        constexpr GuiSize RowSize{420, 34};
+        constexpr Av::Size RowSize{420, 34};
 
         [[nodiscard]] std::string Bool(bool value)
         {

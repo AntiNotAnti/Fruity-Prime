@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <span>
+#include <string>
 
 #if defined(__ANDROID__)
 #include "../../Mods/Sound/AlEs.hpp"
@@ -44,6 +45,32 @@ namespace OpenTK::Audio::OpenAL
         Paused = 0x1013,
         Stopped = 0x1014
     };
+
+    struct ALDevice final
+    {
+        static const ALDevice Null;
+
+        std::intptr_t Handle = 0;
+
+        ALDevice() = default;
+        explicit ALDevice(std::intptr_t handle) : Handle(handle) { }
+    };
+
+    struct ALContext final
+    {
+        static const ALContext Null;
+
+        std::intptr_t Handle = 0;
+
+        ALContext() = default;
+        explicit ALContext(std::intptr_t handle) : Handle(handle) { }
+    };
+
+    namespace ALC
+    {
+        [[nodiscard]] ALContext GetCurrentContext();
+        [[nodiscard]] void* GetProcAddress(ALDevice device, const std::string& name);
+    }
 
     namespace AL
     {

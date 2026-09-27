@@ -46,6 +46,8 @@ namespace
     using PFN_CreateProgram = GLuint(APIENTRY*)();
     using PFN_CreateShader = GLuint(APIENTRY*)(GLenum);
     using PFN_DeleteFramebuffers = void(APIENTRY*)(GLsizei, const GLuint*);
+    using PFN_DeleteProgram = void(APIENTRY*)(GLuint);
+    using PFN_DeleteRenderbuffers = void(APIENTRY*)(GLsizei, const GLuint*);
     using PFN_DeleteShader = void(APIENTRY*)(GLuint);
     using PFN_DetachShader = void(APIENTRY*)(GLuint, GLuint);
     using PFN_FramebufferRenderbuffer = void(APIENTRY*)(GLenum, GLenum, GLenum, GLuint);
@@ -54,10 +56,13 @@ namespace
     using PFN_GenRenderbuffers = void(APIENTRY*)(GLsizei, GLuint*);
     using PFN_GetFramebufferAttachmentParameteriv
         = void(APIENTRY*)(GLenum, GLenum, GLenum, GLint*);
+    using PFN_GetProgramiv = void(APIENTRY*)(GLuint, GLenum, GLint*);
+    using PFN_GetProgramInfoLog = void(APIENTRY*)(GLuint, GLsizei, GLsizei*, GLchar*);
     using PFN_GetShaderiv = void(APIENTRY*)(GLuint, GLenum, GLint*);
     using PFN_GetShaderInfoLog = void(APIENTRY*)(GLuint, GLsizei, GLsizei*, GLchar*);
     using PFN_GetUniformLocation = GLint(APIENTRY*)(GLuint, const GLchar*);
     using PFN_LinkProgram = void(APIENTRY*)(GLuint);
+    using PFN_MultiTexCoord2f = void(APIENTRY*)(GLenum, GLfloat, GLfloat);
     using PFN_RenderbufferStorage = void(APIENTRY*)(GLenum, GLenum, GLsizei, GLsizei);
     using PFN_ShaderSource = void(APIENTRY*)(GLuint, GLsizei, const GLchar* const*, const GLint*);
     using PFN_Uniform1f = void(APIENTRY*)(GLint, GLfloat);
@@ -133,6 +138,8 @@ namespace
     MPHREAD_GL_ENTRY(PFN_CreateProgram, CreateProgram)
     MPHREAD_GL_ENTRY(PFN_CreateShader, CreateShader)
     MPHREAD_GL_ENTRY(PFN_DeleteFramebuffers, DeleteFramebuffers)
+    MPHREAD_GL_ENTRY(PFN_DeleteProgram, DeleteProgram)
+    MPHREAD_GL_ENTRY(PFN_DeleteRenderbuffers, DeleteRenderbuffers)
     MPHREAD_GL_ENTRY(PFN_DeleteShader, DeleteShader)
     MPHREAD_GL_ENTRY(PFN_DetachShader, DetachShader)
     MPHREAD_GL_ENTRY(PFN_FramebufferRenderbuffer, FramebufferRenderbuffer)
@@ -140,10 +147,13 @@ namespace
     MPHREAD_GL_ENTRY(PFN_GenFramebuffers, GenFramebuffers)
     MPHREAD_GL_ENTRY(PFN_GenRenderbuffers, GenRenderbuffers)
     MPHREAD_GL_ENTRY(PFN_GetFramebufferAttachmentParameteriv, GetFramebufferAttachmentParameteriv)
+    MPHREAD_GL_ENTRY(PFN_GetProgramiv, GetProgramiv)
+    MPHREAD_GL_ENTRY(PFN_GetProgramInfoLog, GetProgramInfoLog)
     MPHREAD_GL_ENTRY(PFN_GetShaderiv, GetShaderiv)
     MPHREAD_GL_ENTRY(PFN_GetShaderInfoLog, GetShaderInfoLog)
     MPHREAD_GL_ENTRY(PFN_GetUniformLocation, GetUniformLocation)
     MPHREAD_GL_ENTRY(PFN_LinkProgram, LinkProgram)
+    MPHREAD_GL_ENTRY(PFN_MultiTexCoord2f, MultiTexCoord2f)
     MPHREAD_GL_ENTRY(PFN_RenderbufferStorage, RenderbufferStorage)
     MPHREAD_GL_ENTRY(PFN_ShaderSource, ShaderSource)
     MPHREAD_GL_ENTRY(PFN_Uniform1f, Uniform1f)
@@ -320,6 +330,14 @@ namespace OpenTK::Graphics::OpenGL::GL
         ::glDeleteLists(static_cast<GLuint>(list), range);
     }
 
+    void DeleteProgram(std::int32_t program)
+    {
+        if (const auto fn = GetDeleteProgram())
+        {
+            fn(static_cast<GLuint>(program));
+        }
+    }
+
     void DeleteShader(std::int32_t shader)
     {
         if (const auto fn = GetDeleteShader())
@@ -355,6 +373,11 @@ namespace OpenTK::Graphics::OpenGL::GL
     void Disable(EnableCap cap)
     {
         ::glDisable(ToEnum(cap));
+    }
+
+    void DrawBuffer(DrawBufferMode mode)
+    {
+        ::glDrawBuffer(ToEnum(mode));
     }
 
     void Enable(EnableCap cap)
@@ -464,6 +487,36 @@ namespace OpenTK::Graphics::OpenGL::GL
         params = static_cast<std::int32_t>(value);
     }
 
+    void GetProgram(std::int32_t program, GetProgramParameterName pname, std::int32_t& params)
+    {
+        GLint value = 0;
+        if (const auto fn = GetGetProgramiv())
+        {
+            fn(static_cast<GLuint>(program), ToEnum(pname), &value);
+        }
+        params = static_cast<std::int32_t>(value);
+    }
+
+    std::string GetProgramInfoLog(std::int32_t program)
+    {
+        const auto lengthFn = GetGetProgramiv();
+        const auto logFn = GetGetProgramInfoLog();
+        if (lengthFn == nullptr || logFn == nullptr)
+        {
+            return std::string();
+        }
+        GLint length = 0;
+        lengthFn(static_cast<GLuint>(program), 0x8B84, &length);
+        if (length <= 1)
+        {
+            return std::string();
+        }
+        std::vector<char> buffer(static_cast<std::size_t>(length));
+        GLsizei written = 0;
+        logFn(static_cast<GLuint>(program), length, &written, buffer.data());
+        return std::string(buffer.data(), static_cast<std::size_t>(written));
+    }
+
     void GetShader(std::int32_t shader, ShaderParameter pname, std::int32_t& params)
     {
         GLint value = 0;
@@ -522,6 +575,33 @@ namespace OpenTK::Graphics::OpenGL::GL
         }
     }
 
+    void DeleteRenderbuffer(std::int32_t renderbuffer)
+    {
+        const GLuint name = static_cast<GLuint>(renderbuffer);
+        if (const auto fn = GetDeleteRenderbuffers())
+        {
+            fn(1, &name);
+        }
+    }
+
+    void LoadIdentity()
+    {
+        ::glLoadIdentity();
+    }
+
+    void MatrixMode(enum MatrixMode mode)
+    {
+        ::glMatrixMode(ToEnum(mode));
+    }
+
+    void MultiTexCoord2(TextureUnit texture, float s, float t)
+    {
+        if (const auto fn = GetMultiTexCoord2f())
+        {
+            fn(ToEnum(texture), s, t);
+        }
+    }
+
     void NewList(std::int32_t list, ListMode mode)
     {
         ::glNewList(static_cast<GLuint>(list), ToEnum(mode));
@@ -535,6 +615,11 @@ namespace OpenTK::Graphics::OpenGL::GL
     void PixelStore(PixelStoreParameter pname, std::int32_t param)
     {
         ::glPixelStorei(ToEnum(pname), param);
+    }
+
+    void LineWidth(float width)
+    {
+        ::glLineWidth(width);
     }
 
     void PolygonMode(TriangleFace face, enum PolygonMode mode)
@@ -590,6 +675,16 @@ namespace OpenTK::Graphics::OpenGL::GL
     void StencilOp(enum StencilOp sfail, enum StencilOp dpfail, enum StencilOp dppass)
     {
         ::glStencilOp(ToEnum(sfail), ToEnum(dpfail), ToEnum(dppass));
+    }
+
+    void TexEnv(TextureEnvTarget target, TextureEnvParameter pname, std::int32_t param)
+    {
+        ::glTexEnvi(ToEnum(target), ToEnum(pname), param);
+    }
+
+    void TexCoord2(float s, float t)
+    {
+        ::glTexCoord2f(s, t);
     }
 
     void TexCoord3(float s, float t, float r)
@@ -716,6 +811,21 @@ namespace OpenTK::Graphics::OpenGL::GL
         {
             fn(static_cast<GLuint>(program));
         }
+    }
+
+    void Vertex2(float x, float y)
+    {
+        ::glVertex2f(x, y);
+    }
+
+    void PopMatrix()
+    {
+        ::glPopMatrix();
+    }
+
+    void PushMatrix()
+    {
+        ::glPushMatrix();
     }
 
     void Vertex3(float x, float y, float z)

@@ -6,6 +6,7 @@
 
 #include "Controls.hpp"
 
+#include <string>
 #include <string_view>
 
 namespace MphRead::NativeRuntime::Avalonia::Controls
@@ -321,6 +322,58 @@ namespace MphRead::NativeRuntime::Avalonia::Controls
         void OnPropertyChanged(const AvaloniaPropertyChangedEventArgs& change) override;
     };
 
+    enum class PlacementMode : std::int32_t { Center, Bottom };
+
+    // Popup content rendered in the same TopLevel, above the normal control tree.
+    class Popup final : public Control
+    {
+    public:
+        Popup();
+        ~Popup() override;
+
+        [[nodiscard]] ControlPtr Child() const noexcept { return _child; }
+        void Child(ControlPtr value);
+        [[nodiscard]] Control* PlacementTarget() const noexcept { return _placementTarget; }
+        void PlacementTarget(Control* value) noexcept { _placementTarget = value; }
+        [[nodiscard]] PlacementMode Placement() const noexcept { return _placement; }
+        void Placement(PlacementMode value) noexcept { _placement = value; }
+        [[nodiscard]] bool IsLightDismissEnabled() const noexcept { return _isLightDismissEnabled; }
+        void IsLightDismissEnabled(bool value) noexcept { _isLightDismissEnabled = value; }
+        [[nodiscard]] bool ShouldUseOverlayLayer() const noexcept { return _shouldUseOverlayLayer; }
+        void ShouldUseOverlayLayer(bool value) noexcept { _shouldUseOverlayLayer = value; }
+        [[nodiscard]] bool IsOpen() const noexcept { return _isOpen; }
+
+        void Open();
+        void Close();
+        Event<Popup&> Closed;
+
+    protected:
+        Size MeasureOverride(Size availableSize) override;
+        Size ArrangeOverride(Size finalSize) override;
+
+    private:
+        friend class ::MphRead::NativeRuntime::Avalonia::TopLevel;
+        void TopLevelClosing(TopLevel* owner) noexcept;
+
+        ControlPtr _child;
+        Control* _placementTarget = nullptr;
+        TopLevel* _topLevel = nullptr;
+        PlacementMode _placement = PlacementMode::Center;
+        bool _isLightDismissEnabled = false;
+        bool _shouldUseOverlayLayer = true;
+        bool _isOpen = false;
+    };
+
+    // ToolTip.SetTip: show attached text in a non-interactive popup while its
+    // target is hovered or keyboard-focused.
+    class ToolTip final
+    {
+    public:
+        ToolTip() = delete;
+
+        static void SetTip(const ControlPtr& target, std::string text);
+    };
+
     class UserControl : public ContentControl
     {
     };
@@ -377,19 +430,16 @@ namespace MphRead::NativeRuntime::Avalonia::Controls
         Size ArrangeOverride(Size finalSize) override;
     };
 
-    // RenderOptions.SetBitmapInterpolationMode(visual, mode), attached.
-    class RenderOptions final
+    // Window.Icon: a picture for the title bar and the taskbar.
+    class WindowIcon final
     {
     public:
-        RenderOptions() = delete;
-        static AttachedProperty<Media::BitmapInterpolationMode>& BitmapInterpolationModeProperty;
-        static void SetBitmapInterpolationMode(AvaloniaObject& element, Media::BitmapInterpolationMode mode)
+        explicit WindowIcon(std::shared_ptr<Media::Imaging::Bitmap> bitmap)
+            : Bitmap(std::move(bitmap))
         {
-            element.SetValue(BitmapInterpolationModeProperty, mode);
         }
-        [[nodiscard]] static Media::BitmapInterpolationMode GetBitmapInterpolationMode(const AvaloniaObject& element)
-        {
-            return element.GetValue(BitmapInterpolationModeProperty);
-        }
+        // new WindowIcon(stream).
+        [[nodiscard]] static std::shared_ptr<WindowIcon> FromBytes(const std::vector<std::uint8_t>& bytes);
+        std::shared_ptr<Media::Imaging::Bitmap> Bitmap;
     };
 }

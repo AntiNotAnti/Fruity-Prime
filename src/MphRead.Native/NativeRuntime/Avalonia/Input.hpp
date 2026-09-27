@@ -376,6 +376,7 @@ namespace MphRead::NativeRuntime::Avalonia::Input
         using Interactivity::RoutedEventArgs::RoutedEventArgs;
         Input::Key Key = Input::Key::None;
         Input::KeyModifiers KeyModifiers = Input::KeyModifiers::None;
+        std::int32_t PhysicalKey = 0;
         std::optional<std::string> KeySymbol{};
     };
 

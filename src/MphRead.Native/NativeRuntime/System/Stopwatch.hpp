@@ -4,6 +4,7 @@
 // how many of its ticks make a second (QueryPerformanceCounter on Windows,
 // nanoseconds of CLOCK_MONOTONIC elsewhere).
 
+#include <compare>
 #include <cstdint>
 
 namespace MphRead::NativeRuntime
@@ -22,4 +23,84 @@ namespace MphRead::NativeRuntime
     {
         return static_cast<double>(ticks) / 10000.0;
     }
+
+    // System.TimeSpan, as far as a stopwatch reading needs it: a count of
+    // hundred-nanosecond ticks.
+    struct TimeSpan final
+    {
+        std::int64_t Ticks = 0;
+
+        [[nodiscard]] static constexpr TimeSpan FromSeconds(double seconds) noexcept
+        {
+            return TimeSpan{static_cast<std::int64_t>(seconds * 10000000.0)};
+        }
+        [[nodiscard]] static constexpr TimeSpan FromMilliseconds(double milliseconds) noexcept
+        {
+            return TimeSpan{static_cast<std::int64_t>(milliseconds * 10000.0)};
+        }
+        [[nodiscard]] constexpr double TotalSeconds() const noexcept { return static_cast<double>(Ticks) / 10000000.0; }
+        [[nodiscard]] constexpr double TotalMilliseconds() const noexcept { return static_cast<double>(Ticks) / 10000.0; }
+        friend constexpr TimeSpan operator-(TimeSpan a, TimeSpan b) noexcept { return {a.Ticks - b.Ticks}; }
+        friend constexpr TimeSpan operator+(TimeSpan a, TimeSpan b) noexcept { return {a.Ticks + b.Ticks}; }
+        friend constexpr auto operator<=>(const TimeSpan&, const TimeSpan&) noexcept = default;
+    };
+
+    // System.Diagnostics.Stopwatch.
+    class Stopwatch final
+    {
+    public:
+        [[nodiscard]] static Stopwatch StartNew() noexcept
+        {
+            Stopwatch watch;
+            watch.Start();
+            return watch;
+        }
+
+        void Start() noexcept
+        {
+            if (!_running)
+            {
+                _started = StopwatchGetTimestamp();
+                _running = true;
+            }
+        }
+        void Stop() noexcept
+        {
+            if (_running)
+            {
+                _elapsed += StopwatchGetTimestamp() - _started;
+                _running = false;
+            }
+        }
+        void Reset() noexcept
+        {
+            _elapsed = 0;
+            _running = false;
+        }
+        void Restart() noexcept
+        {
+            _elapsed = 0;
+            _started = StopwatchGetTimestamp();
+            _running = true;
+        }
+        [[nodiscard]] bool IsRunning() const noexcept { return _running; }
+        [[nodiscard]] std::int64_t ElapsedTicks() const noexcept
+        {
+            return _elapsed + (_running ? StopwatchGetTimestamp() - _started : 0);
+        }
+        [[nodiscard]] TimeSpan Elapsed() const noexcept
+        {
+            return TimeSpan{static_cast<std::int64_t>(static_cast<double>(ElapsedTicks()) * 10000000.0
+                / static_cast<double>(StopwatchFrequency()))};
+        }
+        [[nodiscard]] std::int64_t ElapsedMilliseconds() const noexcept
+        {
+            return static_cast<std::int64_t>(Elapsed().TotalMilliseconds());
+        }
+
+    private:
+        std::int64_t _started = 0;
+        std::int64_t _elapsed = 0;
+        bool _running = false;
+    };
 }

@@ -23,6 +23,8 @@ namespace MphRead::NativeRuntime
 
         // HashCode's s_seed.
         [[nodiscard]] std::uint32_t Seed() noexcept;
+        // Marvin.DefaultSeed used by string.GetHashCode().
+        [[nodiscard]] std::uint64_t StringSeed() noexcept;
 
         [[nodiscard]] constexpr std::uint32_t Round(std::uint32_t hash, std::uint32_t input) noexcept
         {
@@ -90,9 +92,9 @@ namespace MphRead::NativeRuntime
         return std::bit_cast<std::int32_t>(MixFinal(hash));
     }
 
-    // string.GetHashCode(): over the UTF-16 code units, seeded once per
-    // process, so two equal strings hash alike within a run and nothing may
-    // rely on the number across runs -- which is .NET's contract too.
+    // string.GetHashCode(): Marvin over the UTF-16 code units, with its own
+    // process seed. Equal strings hash alike within one run; the value is not
+    // stable across runs, as in .NET.
     [[nodiscard]] std::int32_t StringGetHashCode(std::string_view value) noexcept;
 
     // RuntimeHelpers.GetHashCode(object) / object.GetHashCode() for a

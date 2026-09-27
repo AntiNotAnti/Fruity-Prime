@@ -1,495 +1,392 @@
 #include "ServerRow.hpp"
+
+#include "Deck.hpp"
+#include "DeckText.hpp"
+#include "GuiTheme.hpp"
+#include "MapShot.hpp"
+#include "ServerBadge.hpp"
+#include "../../../Metadata/Rooms.hpp"
 #include "../../../NativeRuntime/System/Encoding.hpp"
 #include "../../../NativeRuntime/System/Managed.hpp"
-#include "NativeRuntime/System/Globalization.hpp"
+#include "../../../NativeRuntime/System/Number.hpp"
 
 #include <algorithm>
-#include <array>
-#include <charconv>
 #include <cmath>
-#include <cstddef>
-#include <exception>
-#include <iterator>
-#include <limits>
+#include <cstdint>
+#include <memory>
+#include <numbers>
+#include <optional>
+#include <string_view>
 #include <utility>
-
-using ::MphRead::NativeRuntime::CSharpTryFinally;
-using ::MphRead::NativeRuntime::MathMax;
-using ::MphRead::NativeRuntime::MathMin;
-using ::MphRead::NativeRuntime::Utf8ToUtf16;
-
-namespace
-{
-    using namespace MphRead::Mods::Launcher::Gui;
-
-    [[nodiscard]] std::optional<std::u16string_view> ViewOf(
-        const ServerRowStringRef& text) noexcept
-    {
-        if (!text)
-        {
-            return std::nullopt;
-        }
-        return std::u16string_view(*text);
-    }
-
-    [[nodiscard]] const std::u16string_view& RequireText(
-        const std::optional<std::u16string_view>& text)
-    {
-        if (!text.has_value())
-        {
-            throw ServerRowNullReferenceException();
-        }
-        return *text;
-    }
-
-}
 
 namespace MphRead::Mods::Launcher::Gui
 {
-    const ServerRowEventArgs ServerRowEventArgs::Empty{};
+    namespace Runtime = ::MphRead::NativeRuntime;
+    using namespace Runtime::Avalonia;
 
-    ServerRowEventHandler::ServerRowEventHandler(
-        std::shared_ptr<void> target, Callback function)
+    namespace
     {
-        if (function != nullptr)
+        [[nodiscard]] Av::Media::IBrushPtr Solid(Av::Media::Color colour)
         {
-            auto list = std::make_shared<std::vector<Invocation>>();
-            list->push_back(Invocation{std::move(target), function});
-            _invocations = std::move(list);
-        }
-    }
-
-    ServerRowEventHandler::ServerRowEventHandler(
-        std::shared_ptr<const std::vector<Invocation>> invocations) noexcept
-        : _invocations(std::move(invocations))
-    {
-    }
-
-    ServerRowEventHandler ServerRowEventHandler::Combine(
-        const ServerRowEventHandler& left, const ServerRowEventHandler& right)
-    {
-        if (left.IsNull())
-        {
-            return right;
-        }
-        if (right.IsNull())
-        {
-            return left;
+            return std::make_shared<Av::Media::SolidColorBrush>(colour);
         }
 
-        auto list = std::make_shared<std::vector<Invocation>>();
-        list->reserve(left._invocations->size() + right._invocations->size());
-        list->insert(list->end(), left._invocations->begin(), left._invocations->end());
-        list->insert(list->end(), right._invocations->begin(), right._invocations->end());
-        return ServerRowEventHandler(std::move(list));
-    }
-
-    bool ServerRowEventHandler::IsNull() const noexcept
-    {
-        return !_invocations || _invocations->empty();
-    }
-
-    bool operator==(
-        const ServerRowEventHandler& left, const ServerRowEventHandler& right) noexcept
-    {
-        if (left.IsNull() || right.IsNull())
+        [[nodiscard]] std::size_t FindNameTail(const std::string& name) noexcept
         {
-            return left.IsNull() == right.IsNull();
-        }
-        const auto& a = *left._invocations;
-        const auto& b = *right._invocations;
-        return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin());
-    }
-
-    void ServerRowEvent::Add(const ServerRowEventHandler& handler)
-    {
-        if (handler.IsNull())
-        {
-            return;
-        }
-
-        std::shared_ptr<const InvocationList> current = _handlers.load();
-        for (;;)
-        {
-            std::shared_ptr<const InvocationList> desired;
-            if (!current)
+            std::size_t at = name.size();
+            while (at > 1)
             {
-                desired = handler._invocations;
-            }
-            else
-            {
-                auto next = std::make_shared<InvocationList>();
-                next->reserve(current->size() + handler._invocations->size());
-                next->insert(next->end(), current->begin(), current->end());
-                next->insert(next->end(),
-                    handler._invocations->begin(), handler._invocations->end());
-                desired = std::move(next);
-            }
-            if (_handlers.compare_exchange_weak(current, desired))
-            {
-                return;
-            }
-        }
-    }
-
-    void ServerRowEvent::Remove(const ServerRowEventHandler& handler)
-    {
-        if (handler.IsNull())
-        {
-            return;
-        }
-
-        std::shared_ptr<const InvocationList> current = _handlers.load();
-        for (;;)
-        {
-            if (!current || current->size() < handler._invocations->size())
-            {
-                return;
-            }
-
-            const std::size_t removeCount = handler._invocations->size();
-            std::optional<std::size_t> match;
-            for (std::size_t start = current->size() - removeCount + 1; start-- > 0;)
-            {
-                if (std::equal(handler._invocations->begin(), handler._invocations->end(),
-                    current->begin() + static_cast<std::ptrdiff_t>(start)))
+                --at;
+                while (at > 0 && (static_cast<unsigned char>(name[at]) & 0xC0U) == 0x80U)
                 {
-                    match = start;
+                    --at;
+                }
+                if (Runtime::Utf16Length(std::string_view(name).substr(at)) > 7U)
+                {
+                    break;
+                }
+                const char ch = name[at];
+                if (ch == '.' || ch == '#')
+                {
+                    return at < name.size() - 1 ? at : std::string::npos;
+                }
+                if (ch == '-')
+                {
                     break;
                 }
             }
-            if (!match.has_value())
-            {
-                return;
-            }
-
-            std::shared_ptr<const InvocationList> desired;
-            if (removeCount != current->size())
-            {
-                auto next = std::make_shared<InvocationList>();
-                next->reserve(current->size() - removeCount);
-                next->insert(next->end(), current->begin(),
-                    current->begin() + static_cast<std::ptrdiff_t>(*match));
-                next->insert(next->end(),
-                    current->begin() + static_cast<std::ptrdiff_t>(*match + removeCount),
-                    current->end());
-                desired = std::move(next);
-            }
-
-            if (_handlers.compare_exchange_weak(current, desired))
-            {
-                return;
-            }
+            return std::string::npos;
         }
     }
 
-    void ServerRowEvent::Invoke(void* sender, const ServerRowEventArgs& args) const
+    ServerRow::Columns::Columns(double width, bool narrow)
+        : Narrow(narrow)
     {
-        const std::shared_ptr<const InvocationList> handlers = _handlers.load();
-        if (!handlers)
+        constexpr double padX = 0.6 * Deck::RowEm;
+        constexpr double gap = 0.55 * Deck::RowEm;
+        constexpr double numberWidth = 2.6 * 0.86 * Deck::RowEm;
+        FlagX = padX;
+        const double x = padX + FlagWidth + gap;
+        if (narrow)
         {
+            const double free = std::max(0.0,
+                width - padX * 2 - gap * 3 - FlagWidth - numberWidth);
+            NameWidth = free * (1.4 / 2.4);
+            MapWidth = free - NameWidth;
+            ModeWidth = 0;
+            PlayersWidth = 0;
+            NameX = x;
+            MapX = NameX + NameWidth + gap;
+            ModeX = PlayersX = 0;
+            PingWidth = numberWidth;
+            PingX = MapX + MapWidth + gap;
             return;
         }
-        for (const Invocation& handler : *handlers)
+        const double rest = std::max(0.0,
+            width - padX * 2 - gap * 5 - FlagWidth - numberWidth * 2);
+        NameWidth = rest * (1.5 / 3.8);
+        MapWidth = rest * (1.3 / 3.8);
+        ModeWidth = rest - NameWidth - MapWidth;
+        NameX = x;
+        MapX = NameX + NameWidth + gap;
+        ModeX = MapX + MapWidth + gap;
+        PlayersWidth = numberWidth;
+        PlayersX = ModeX + ModeWidth + gap;
+        PingWidth = numberWidth;
+        PingX = PlayersX + PlayersWidth + gap;
+    }
+
+    ServerRow::ServerRow(std::string name, std::string endpoint)
+        : _name(std::move(name)), _endpoint(std::move(endpoint)),
+          _pingBrush(GuiTheme::TextDimBrush)
+    {
+        Height(SlabHeight);
+        Focusable(true);
+        Cursor(std::make_shared<Input::Cursor>(Input::StandardCursorType::Hand));
+        Media::RenderOptions::SetEdgeMode(*this, Media::EdgeMode::Aliased);
+        DoubleTapped += [this](Input::InputElement&, Interactivity::RoutedEventArgs&)
         {
-            handler.Function(handler.Target.get(), sender, args);
-        }
-    }
-
-    ServerRowDrawingContext::ServerRowDrawingContext() noexcept
-        : TrackedTextAdapter(TrackedTextBrush{&GuiTheme::TextBrush})
-    {
-    }
-
-    ServerRow::Columns::Columns() noexcept
-        : NameX(0.0), NameWidth(0.0),
-          MapX(0.0), MapWidth(0.0),
-          ModeX(0.0), ModeWidth(0.0),
-          PlayersRight(0.0), PlayersWidth(0.0),
-          PingRight(0.0), PingWidth(0.0)
-    {
-    }
-
-    ServerRow::Columns::Columns(const Values& values) noexcept
-        : NameX(values[0]), NameWidth(values[1]),
-          MapX(values[2]), MapWidth(values[3]),
-          ModeX(values[4]), ModeWidth(values[5]),
-          PlayersRight(values[6]), PlayersWidth(values[7]),
-          PingRight(values[8]), PingWidth(values[9])
-    {
-    }
-
-    ServerRow::Columns::Values ServerRow::Columns::Compute(double width) noexcept
-    {
-        const double pingRight = width - Margin;
-        const double pingWidth = MaxPing;
-        const double playersRight = pingRight - MaxPing - Gutter;
-        const double playersWidth = MaxPlayers;
-        const double modeWidth = MathMin(
-            MaxMode, MathMax(0.0, (width - 200.0) * 0.4));
-        const double modeX = playersRight - MaxPlayers - Gutter - modeWidth;
-        const double nameX = Margin;
-        const double rest = MathMax(0.0, modeX - Gutter - Margin);
-        const double nameWidth = rest * NameShare;
-        const double mapX = nameX + nameWidth + Gutter;
-        const double mapWidth = MathMax(0.0, rest - nameWidth - Gutter);
-        return Values{
-            nameX, nameWidth,
-            mapX, mapWidth,
-            modeX, modeWidth,
-            playersRight, playersWidth,
-            pingRight, pingWidth
+            if (_asking || !_answered)
+            {
+                return;
+            }
+            Clicked(*this);
+            Activated(*this);
         };
     }
 
-    ServerRow::Columns::Columns(double width) noexcept
-        : Columns(Compute(width))
+    void ServerRow::IsSelected(bool value)
     {
-    }
-
-    ServerRow::Columns& ServerRow::Columns::operator=(
-        const Columns& other) noexcept
-    {
-        if (this != &other)
+        if (_selected == value)
         {
-            std::destroy_at(this);
-            std::construct_at(this, other);
+            return;
         }
-        return *this;
+        _selected = value;
+        InvalidateVisual();
     }
 
-    ServerRow::Columns& ServerRow::Columns::operator=(
-        Columns&& other) noexcept
+    void ServerRow::SetStatus(const ::MphRead::Mods::Network::ServerStatus& status)
     {
-        return *this = other;
-    }
-
-    ServerRow::ServerRow(ServerRowControlAdapter& control,
-        ServerRowStringRef name,
-        ServerRowStringRef endpoint)
-        : _control(control)
-    {
-        _name = std::move(name);
-        _endpoint = std::move(endpoint);
-        _map = u"asking...";
-        Height(30.0);
-        _control.SetFocusable(true);
-        _control.SetHandCursor();
-    }
-
-    double ServerRow::Height() const
-    {
-        return _control.GetHeight();
-    }
-
-    void ServerRow::Height(double value)
-    {
-        _control.SetHeight(value);
-    }
-
-    void ServerRow::AddClicked(const ServerRowEventHandler& handler)
-    {
-        _clicked.Add(handler);
-    }
-
-    void ServerRow::RemoveClicked(const ServerRowEventHandler& handler)
-    {
-        _clicked.Remove(handler);
-    }
-
-    void ServerRow::SetStatus(::MphRead::Mods::Network::ServerStatus status)
-    {
+        _asking = false;
         _answered = status.Online;
         if (!status.Online)
         {
-            _map = u"did not answer";
-            _mode = u"";
-            _players = u"";
-            _ping = u"--";
-            _pingBrush = &GuiTheme::BadBrush;
-            _control.InvalidateVisual();
+            _map = "did not answer";
+            _mode.clear();
+            _players = "—";
+            _ping = "—";
+            _pingBrush = Solid(GuiTheme::Bad);
+            Cursor(std::make_shared<Input::Cursor>(Input::StandardCursorType::Arrow));
+            InvalidateVisual();
             return;
         }
 
-        _map = Utf8ToUtf16(status.RoomKey);
-        _mode = Utf8ToUtf16(::MphRead::Mods::Network::NetStatus::ModeName(status.Mode));
-        if (status.MaxPlayers > 0)
-        {
-            std::u16string players = _control.FormatCurrentInt32(status.Players);
-            players.push_back(u'/');
-            players += _control.FormatCurrentInt32(status.MaxPlayers);
-            _players = std::move(players);
-        }
-        else
-        {
-            _players = ::MphRead::NativeRuntime::Utf8ToUtf16(::MphRead::NativeRuntime::ToStringInvariant(status.Players));
-        }
-
+        _roomKey = status.RoomKey;
+        const auto room = ::MphRead::Metadata::RoomMetadata.find(status.RoomKey);
+        _map = room != ::MphRead::Metadata::RoomMetadata.end() && room->second != nullptr
+            && room->second->InGameName.has_value() && !room->second->InGameName->empty()
+            ? *room->second->InGameName : status.RoomKey;
+        _mode = ::MphRead::Mods::Network::NetStatus::ModeName(status.Mode);
+        _players = status.MaxPlayers > 0
+            ? Runtime::ToString(status.Players) + "/" + Runtime::ToString(status.MaxPlayers)
+            : Runtime::ToStringInvariant(status.Players);
         if (status.Latency >= 0)
         {
-            _ping = ::MphRead::NativeRuntime::Utf8ToUtf16(::MphRead::NativeRuntime::ToStringInvariant(status.Latency));
-            _pingBrush = status.Latency < 80
-                ? &GuiTheme::GoodBrush
-                : status.Latency < 160
-                    ? &GuiTheme::WarmBrush
-                    : &GuiTheme::BadBrush;
+            _ping = Runtime::ToStringInvariant(status.Latency);
+            _pingBrush = Solid(PingColour(status.Latency));
         }
         else
         {
-            _ping = u"--";
-            _pingBrush = &GuiTheme::TextDimBrush;
+            _ping = "—";
+            _pingBrush = GuiTheme::TextDimBrush;
         }
-        _control.InvalidateVisual();
+        InvalidateVisual();
     }
 
-    void ServerRow::OnPointerEntered(ServerRowPointerEventArgs& e)
+    Media::Color ServerRow::PingColour(std::int32_t ms) noexcept
+    {
+        return ms < 60 ? GuiTheme::Good : ms < 120 ? GuiTheme::Warn : GuiTheme::Bad;
+    }
+
+    void ServerRow::OnPointerEntered(Input::PointerEventArgs& e)
     {
         _hot = true;
-        _control.InvalidateVisual();
-        _control.BaseOnPointerEntered(e);
+        InvalidateVisual();
+        Control::OnPointerEntered(e);
     }
 
-    void ServerRow::OnPointerExited(ServerRowPointerEventArgs& e)
+    void ServerRow::OnPointerExited(Input::PointerEventArgs& e)
     {
         _hot = false;
-        _control.InvalidateVisual();
-        _control.BaseOnPointerExited(e);
+        _lean = 0;
+        _tap.Cancel();
+        InvalidateVisual();
+        Control::OnPointerExited(e);
     }
 
-    void ServerRow::OnPointerPressed(ServerRowPointerPressedEventArgs& e)
+    void ServerRow::OnPointerPressed(Input::PointerPressedEventArgs& e)
     {
-        _control.Focus();
-        _clicked.Invoke(this, ServerRowEventArgs::Empty);
-        _control.BaseOnPointerPressed(e);
+        _tap.Press(e, *this);
+        InvalidateVisual();
+        Control::OnPointerPressed(e);
     }
 
-    void ServerRow::OnKeyDown(ServerRowKeyEventArgs& e)
+    void ServerRow::OnPointerMoved(Input::PointerEventArgs& e)
     {
-        if (e.Key == ServerRowKey::Enter || e.Key == ServerRowKey::Space)
+        if (_tap.Moved(e, *this))
         {
-            _clicked.Invoke(this, ServerRowEventArgs::Empty);
+            InvalidateVisual();
+        }
+        if (IsPointerOver() && SlabHeight > 0)
+        {
+            const double dy = (e.GetPosition(this).Y - SlabHeight / 2) / (SlabHeight / 2);
+            const double want = -std::clamp(dy, -1.0, 1.0) * 2.2;
+            if (std::abs(want - _lean) > 0.05)
+            {
+                _lean = want;
+                InvalidateVisual();
+            }
+        }
+        Control::OnPointerMoved(e);
+    }
+
+    void ServerRow::OnPointerReleased(Input::PointerReleasedEventArgs& e)
+    {
+        const bool tapped = _tap.Release(e, *this);
+        InvalidateVisual();
+        if (tapped && IsLive())
+        {
+            Focus();
+            Clicked(*this);
+        }
+        Control::OnPointerReleased(e);
+    }
+
+    void ServerRow::OnPointerCaptureLost(Input::PointerCaptureLostEventArgs& e)
+    {
+        _tap.Cancel();
+        InvalidateVisual();
+        Control::OnPointerCaptureLost(e);
+    }
+
+    void ServerRow::OnGotFocus(Input::GotFocusEventArgs& e)
+    {
+        InvalidateVisual();
+        Control::OnGotFocus(e);
+    }
+
+    void ServerRow::OnLostFocus(Input::FocusChangedEventArgs& e)
+    {
+        InvalidateVisual();
+        Control::OnLostFocus(e);
+    }
+
+    void ServerRow::OnKeyDown(Input::KeyEventArgs& e)
+    {
+        if ((e.Key == Input::Key::Enter || e.Key == Input::Key::Space) && IsLive())
+        {
+            Clicked(*this);
+            Activated(*this);
             e.Handled = true;
             return;
         }
-        _control.BaseOnKeyDown(e);
+        Control::OnKeyDown(e);
     }
 
-    void ServerRow::Render(ServerRowDrawingContext& context)
+    void ServerRow::Render(Media::DrawingContext& context)
     {
-        const double fullWidth = _control.Bounds().Width;
-        const double fullHeight = _control.Bounds().Height;
-        const GuiRect full{0.0, 0.0, fullWidth, fullHeight};
-        context.FillRectangle(ServerRowBrush::Transparent(), full);
-
-        bool highlighted = _hot;
-        if (!highlighted)
-        {
-            highlighted = _control.IsFocused();
-        }
-        if (highlighted)
-        {
-            context.FillRectangle(
-                ServerRowBrush::Reference(GuiTheme::PanelLightBrush), full, 4.0);
-        }
-
-        const Columns columns(_control.Bounds().Width);
-        GuiBrush* nameBrush = _answered
-            ? &GuiTheme::TextBrush
-            : &GuiTheme::TextDimBrush;
-        Draw(context, ViewOf(_name), columns.NameX, columns.NameWidth,
-            nameBrush, true, false);
-        Draw(context, std::u16string_view(_map), columns.MapX, columns.MapWidth,
-            &GuiTheme::TextDimBrush, false, false);
-        Draw(context, std::u16string_view(_mode), columns.ModeX, columns.ModeWidth,
-            &GuiTheme::TextDimBrush, false, false);
-        Draw(context, std::u16string_view(_players), columns.PlayersRight,
-            columns.PlayersWidth, &GuiTheme::TextBrush, false, true);
-        Draw(context, std::u16string_view(_ping), columns.PingRight,
-            columns.PingWidth, _pingBrush, false, true);
-    }
-
-    void ServerRow::Draw(ServerRowDrawingContext& context,
-        std::optional<std::u16string_view> text, double x, double width,
-        GuiBrush* brush, bool bold, bool rightAlign, double size)
-    {
-        const std::u16string_view& required = RequireText(text);
-        if (required.empty() || width <= 4.0)
+        const double width = Bounds().Width;
+        if (width <= 0)
         {
             return;
         }
+        const bool live = (_hot || IsFocused() || _selected) && IsLive();
+        const double lip = live ? LipLive : Lip;
+        const double drop = _tap.Down() && IsLive() ? Lip : 0;
+        const Rect slab(0, drop, width, SlabHeight);
+        const RoundedRect round(slab, Radius);
 
-        TrackedTextFormattedText formatted = TrackedText::Make(
-            context, required, size, bold, TrackedTextBrush{brush});
-        context.SetFormattedTextMaxTextWidth(formatted, width);
-        context.SetFormattedTextMaxTextHeight(formatted, size * 1.6);
-        context.SetFormattedTextTrimming(
-            formatted, ServerRowTextTrimming::CharacterEllipsis);
+        context.FillRectangle(Media::Brushes::Transparent(), Rect(0, 0, width, Bounds().Height));
+        const double scale = _hot && !_tap.Down() && IsLive() ? 1.012 : 1;
+        auto pose = context.PushTransform(Av::Matrix::CreateTranslation(-width / 2, -SlabHeight / 2)
+            * Av::Matrix::CreateScale(scale, scale)
+            * Av::Matrix::CreateRotation(_lean * std::numbers::pi / 180 * 0.06)
+            * Av::Matrix::CreateTranslation(width / 2, SlabHeight / 2));
+        auto wait = context.PushOpacity(_asking ? 0.72 : 1);
 
-        const double left = rightAlign
-            ? x - MathMin(formatted.Width, width)
-            : x;
-        const GuiRect clip{
-            rightAlign ? x - width : x,
-            0.0,
-            width,
-            size * 1.6 + 8.0
-        };
-        const ServerRowClipHandle clipHandle = context.PushClip(clip);
-        CSharpTryFinally(
-            [&]()
+        const Media::Color ring = _selected ? GuiTheme::Accent
+            : live ? Deck::Rgb(0x4a6f8c) : GuiTheme::Edge;
+        const Media::BoxShadows shadows(Deck::Shadow(0, 0, 0, live || _selected ? 2 : 1, ring),
+            {Deck::Shadow(0, lip, 0, 0, Deck::Fade(0, live ? 0.5 : 0.45))});
+        context.DrawRectangle(Solid(GuiTheme::PanelDeep), {}, round, shadows);
+
+        DrawMap(context, round, slab, live);
+        const Columns columns(width, Deck::Narrow(*this));
+        const double top = drop;
+        ServerBadge::Draw(context, _endpoint, _answered, columns.FlagX,
+            top + Runtime::RoundToEven((SlabHeight - Columns::FlagHeight) / 2));
+
+        const Av::Media::IBrushPtr nameInk = _asking || !_answered
+            ? GuiTheme::TextDimBrush : GuiTheme::TextBrush;
+        DrawName(context, columns.NameX, columns.NameWidth, top, nameInk);
+        Cell(context, _map, columns.MapX, columns.MapWidth, top, 1.02, true,
+            _answered ? Solid(Deck::Rgb(0xcfd6e4)) : GuiTheme::TextDimBrush);
+        if (!columns.Narrow)
+        {
+            Cell(context, _mode, columns.ModeX, columns.ModeWidth, top, 0.82, false,
+                GuiTheme::TextDimBrush);
+            Cell(context, _players, columns.PlayersX, columns.PlayersWidth, top, 0.86, false,
+                GuiTheme::TextBrush, true);
+        }
+        Cell(context, _ping, columns.PingX, columns.PingWidth, top, 0.86, false, _pingBrush, true);
+    }
+
+    void ServerRow::DrawMap(Media::DrawingContext& context, const RoundedRect& round,
+        const Rect& slab, bool live)
+    {
+        const std::optional<std::string> key = _answered
+            ? std::optional<std::string>(_roomKey) : std::nullopt;
+        const auto shot = MapShot::For(key);
+        if (shot == nullptr)
+        {
+            return;
+        }
+        {
+            auto opacity = context.PushOpacity(live ? 0.72 : 0.5);
+            auto clip = context.PushClip(round);
+            const double scale = slab.Width / shot->Size().Width;
+            const double height = shot->Size().Height * scale;
+            context.DrawImage(*shot, Rect(slab.X, slab.Y + (slab.Height - height) / 2,
+                slab.Width, height));
+        }
+        {
+            auto clip = context.PushClip(round);
+            auto scrim = std::make_shared<Media::LinearGradientBrush>();
+            scrim->StartPoint = RelativePoint(0, 0, RelativeUnit::Relative);
+            scrim->EndPoint = RelativePoint(1, 0, RelativeUnit::Relative);
+            scrim->GradientStops = {
+                Media::GradientStop(Media::Color::FromArgb(240, 10, 12, 16), 0),
+                Media::GradientStop(Media::Color::FromArgb(184, 10, 12, 16), 0.45),
+                Media::GradientStop(Media::Color::FromArgb(224, 10, 12, 16), 1)
+            };
+            context.FillRectangle(scrim, slab);
+        }
+    }
+
+    void ServerRow::Cell(Media::DrawingContext& context, const std::string& text,
+        double x, double width, double top, double sizeEms, bool display,
+        const Media::IBrushPtr& ink, bool rightAlign)
+    {
+        if (text.empty() || width <= 2)
+        {
+            return;
+        }
+        const double size = Deck::RowEm * sizeEms;
+        const auto laid = DeckText::Run(text, display ? Deck::Label(false) : Deck::Body(false),
+            size, ink, Runtime::RoundToEven(width));
+        const double left = rightAlign ? x + width - std::min(laid->Width(), width) : x;
+        auto clip = context.PushClip(Rect(Runtime::RoundToEven(x), top,
+            Runtime::RoundToEven(width), SlabHeight));
+        context.DrawText(*laid, Point(Runtime::RoundToEven(left),
+            Runtime::RoundToEven(top + (SlabHeight - laid->Height()) / 2)));
+    }
+
+    void ServerRow::DrawName(Media::DrawingContext& context, double x, double width,
+        double top, const Media::IBrushPtr& ink)
+    {
+        if (width <= 2)
+        {
+            return;
+        }
+        const double size = Deck::RowEm * 1.2;
+        const std::size_t cut = FindNameTail(_name);
+        const std::string stem = cut != std::string::npos ? _name.substr(0, cut) : _name;
+        const std::string tail = cut != std::string::npos ? _name.substr(cut) : std::string{};
+        auto clip = context.PushClip(Rect(Runtime::RoundToEven(x), top,
+            Runtime::RoundToEven(width), SlabHeight));
+        double pen = x;
+        pen += Shadowed(context, stem, size, ink, pen, top, width);
+        if (!tail.empty())
+        {
+            const double left = width - (pen - x);
+            if (left > size * 0.5)
             {
-                context.DrawText(formatted, TrackedTextPoint{left, 8.0});
-            },
-            [&]()
-            {
-                context.DisposeClip(clipHandle);
-            });
+                Shadowed(context, tail, size, GuiTheme::AccentBrush, pen, top, left);
+            }
+        }
     }
 
-    ServerRowStringRef ServerRow::Endpoint() const noexcept
+    double ServerRow::Shadowed(Media::DrawingContext& context, const std::string& text,
+        double size, const Media::IBrushPtr& ink, double x, double top, double width)
     {
-        return _endpoint;
-    }
-
-    ServerHeader::ServerHeader(ServerHeaderControlAdapter& control)
-        : _control(control)
-    {
-        Height(22.0);
-        _control.SetIsHitTestVisible(false);
-    }
-
-    double ServerHeader::Height() const
-    {
-        return _control.GetHeight();
-    }
-
-    void ServerHeader::Height(double value)
-    {
-        _control.SetHeight(value);
-    }
-
-    void ServerHeader::Render(ServerRowDrawingContext& context)
-    {
-        const ServerRow::Columns columns(_control.Bounds().Width);
-        ServerRow::Draw(context, std::u16string_view(u"SERVER"),
-            columns.NameX, columns.NameWidth,
-            &GuiTheme::TextDimBrush, true, false, 11.0);
-        ServerRow::Draw(context, std::u16string_view(u"MAP"),
-            columns.MapX, columns.MapWidth,
-            &GuiTheme::TextDimBrush, true, false, 11.0);
-        ServerRow::Draw(context, std::u16string_view(u"TYPE"),
-            columns.ModeX, columns.ModeWidth,
-            &GuiTheme::TextDimBrush, true, false, 11.0);
-        ServerRow::Draw(context, std::u16string_view(u"PLAYERS"),
-            columns.PlayersRight, columns.PlayersWidth,
-            &GuiTheme::TextDimBrush, true, true, 11.0);
-        ServerRow::Draw(context, std::u16string_view(u"PING"),
-            columns.PingRight, columns.PingWidth,
-            &GuiTheme::TextDimBrush, true, true, 11.0);
-
-        const double lineY = _control.Bounds().Height - 1.0;
-        const double lineWidth = _control.Bounds().Width;
-        context.FillRectangle(ServerRowBrush::Reference(GuiTheme::EdgeBrush),
-            GuiRect{0.0, lineY, lineWidth, 1.0});
+        const Media::IBrushPtr shadow = Solid(Media::Color::FromArgb(204, 0, 0, 0));
+        const auto under = DeckText::Run(text, Deck::Label(false), size, shadow,
+            Runtime::RoundToEven(width));
+        const auto over = DeckText::Run(text, Deck::Label(false), size, ink,
+            Runtime::RoundToEven(width));
+        const double y = Runtime::RoundToEven(top + (SlabHeight - over->Height()) / 2);
+        context.DrawText(*under, Point(Runtime::RoundToEven(x), y + 2));
+        context.DrawText(*over, Point(Runtime::RoundToEven(x), y));
+        return std::min(over->Width(), width);
     }
 }

@@ -361,9 +361,10 @@ namespace MphRead
 
         struct FrameEventArgs final { double Time = 0.0; };
         struct ResizeEventArgs final { OpenTK::Mathematics::Vector2i Size{}; };
+        struct WindowPositionEventArgs final { OpenTK::Mathematics::Vector2i Position{}; };
         struct MouseButtonEventArgs final { MouseButton Button{}; };
         struct MouseMoveEventArgs final { float DeltaX = 0.0F; float DeltaY = 0.0F; };
-        struct MouseWheelEventArgs final { float OffsetY = 0.0F; };
+        struct MouseWheelEventArgs final { float OffsetX = 0.0F; float OffsetY = 0.0F; };
         struct TextInputEventArgs final { std::uint32_t Unicode = 0; };
 
         struct WindowSettings final
@@ -372,12 +373,24 @@ namespace MphRead
             std::string Title{};
             double UpdateFrequency = 0.0;
             bool StartVisible = false;
-            enum class ContextProfile : std::int32_t { Compatability };
+            enum class ContextProfile : std::int32_t { Any, Compatability };
             enum class ContextFlags : std::int32_t { Default };
             ContextProfile Profile = ContextProfile::Compatability;
             ContextFlags Flags = ContextFlags::Default;
             std::int32_t ApiMajor = 3;
             std::int32_t ApiMinor = 2;
+        };
+
+        struct WindowIconImage final
+        {
+            std::int32_t Width = 0;
+            std::int32_t Height = 0;
+            std::vector<std::uint8_t> Pixels{};
+        };
+
+        struct WindowIcon final
+        {
+            std::vector<WindowIconImage> Images{};
         };
 
         // The overridable members of OpenTK's GameWindow, which GameWindow.Run
@@ -390,12 +403,16 @@ namespace MphRead
             virtual void OnLoad() {}
             virtual void OnRenderFrame(const FrameEventArgs& args) { (void)args; }
             virtual void OnResize(const ResizeEventArgs& e) { (void)e; }
+            virtual void OnMove(const WindowPositionEventArgs& e) { (void)e; }
+            virtual void OnMaximizedChanged(bool maximized) { (void)maximized; }
+            virtual void OnFocusedChanged(bool focused) { (void)focused; }
             virtual void OnMouseDown(const MouseButtonEventArgs& e) { (void)e; }
             virtual void OnMouseUp(const MouseButtonEventArgs& e) { (void)e; }
             virtual void OnMouseMove(const MouseMoveEventArgs& e) { (void)e; }
             virtual void OnMouseWheel(const MouseWheelEventArgs& e) { (void)e; }
             virtual void OnTextInput(const TextInputEventArgs& e) { (void)e; }
             virtual void OnKeyDown(const KeyboardKeyEventArgs& e) { (void)e; }
+            virtual void OnKeyUp(const KeyboardKeyEventArgs& e) { (void)e; }
             virtual void OnClosing() {}
         };
 
@@ -433,18 +450,24 @@ namespace MphRead
             virtual void VSync(RendererPlatform::VSyncMode value) = 0;
             virtual void UpdateFrequency(double value) = 0;
             virtual void Visible(bool value) = 0;
+            virtual void SetIcon(const WindowIcon& icon) = 0;
+            [[nodiscard]] virtual void* NativeHandle() const = 0;
             virtual void Close() = 0;
             virtual void SwapBuffers() = 0;
             virtual void BaseOnClosing() = 0;
             virtual void BaseOnLoad() = 0;
             virtual void BaseOnRenderFrame(const FrameEventArgs& args) = 0;
             virtual void BaseOnResize(const ResizeEventArgs& e) = 0;
+            virtual void BaseOnMove(const WindowPositionEventArgs& e) = 0;
+            virtual void BaseOnMaximizedChanged(bool maximized) = 0;
+            virtual void BaseOnFocusedChanged(bool focused) = 0;
             virtual void BaseOnMouseDown(const MouseButtonEventArgs& e) = 0;
             virtual void BaseOnMouseUp(const MouseButtonEventArgs& e) = 0;
             virtual void BaseOnMouseMove(const MouseMoveEventArgs& e) = 0;
             virtual void BaseOnMouseWheel(const MouseWheelEventArgs& e) = 0;
             virtual void BaseOnTextInput(const TextInputEventArgs& e) = 0;
             virtual void BaseOnKeyDown(const KeyboardKeyEventArgs& e) = 0;
+            virtual void BaseOnKeyUp(const KeyboardKeyEventArgs& e) = 0;
 
             // NativeWindow's own properties, as WindowMode reads and sets them.
             [[nodiscard]] virtual std::int32_t WindowBorder() const = 0;
@@ -455,6 +478,8 @@ namespace MphRead
             virtual void ClientSize(OpenTK::Mathematics::Vector2i value) = 0;
             // CurrentMonitor.ClientArea.
             [[nodiscard]] virtual MonitorArea CurrentMonitorClientArea() const = 0;
+            // CurrentMonitor.WorkArea, kept separate for FitToScreen.
+            [[nodiscard]] virtual MonitorArea CurrentMonitorWorkArea() const = 0;
             // Monitors.GetMonitors(), each one's ClientArea.
             [[nodiscard]] virtual std::vector<MonitorArea> MonitorClientAreas() const = 0;
             [[nodiscard]] virtual WindowStateValue WindowState() const = 0;
@@ -552,14 +577,23 @@ namespace MphRead
     {
     public:
         static void LogCreatingWindow();
-        RenderWindow();
+        explicit RenderWindow(bool shell = false);
         RenderWindow(const RenderWindow&) = delete;
         RenderWindow& operator=(const RenderWindow&) = delete;
         RenderWindow(RenderWindow&&) = delete;
         RenderWindow& operator=(RenderWindow&&) = delete;
         ~RenderWindow() override;
 
+        [[nodiscard]] bool HasScene() const noexcept;
         [[nodiscard]] MphRead::Scene& Scene() const;
+        [[nodiscard]] OpenTK::Mathematics::Vector2i FramebufferSize() const;
+        [[nodiscard]] void* WindowPtr() const;
+        void Title(std::string value);
+        [[nodiscard]] std::shared_ptr<MphRead::Scene> NewSideScene();
+        MphRead::Scene& BeginScene();
+        void LoadScene();
+        void EndScene();
+        void FeedKey(const RendererPlatform::KeyboardKeyEventArgs& e);
         void AddRoom(std::int32_t id, GameMode mode = GameMode::None,
             std::int32_t playerCount = 0, BossFlags bossFlags = BossFlags::Unspecified,
             std::int32_t nodeLayerMask = 0, std::int32_t entityLayerId = -1);
@@ -597,17 +631,25 @@ namespace MphRead
         void OnLoad() override;
         void OnRenderFrame(const RendererPlatform::FrameEventArgs& args) override;
         void OnResize(const RendererPlatform::ResizeEventArgs& e) override;
+        void OnMove(const RendererPlatform::WindowPositionEventArgs& e) override;
+        void OnMaximizedChanged(bool maximized) override;
+        void OnFocusedChanged(bool focused) override;
         void OnMouseDown(const RendererPlatform::MouseButtonEventArgs& e) override;
         void OnMouseUp(const RendererPlatform::MouseButtonEventArgs& e) override;
         void OnMouseMove(const RendererPlatform::MouseMoveEventArgs& e) override;
         void OnMouseWheel(const RendererPlatform::MouseWheelEventArgs& e) override;
         void OnTextInput(const RendererPlatform::TextInputEventArgs& e) override;
         void OnKeyDown(const RendererPlatform::KeyboardKeyEventArgs& e) override;
+        void OnKeyUp(const RendererPlatform::KeyboardKeyEventArgs& e) override;
 
     private:
         [[nodiscard]] static const RendererPlatform::WindowSettings& Settings();
         static bool OnWayland();
         static void IgnoreUnavailableGlfwFeatures();
+        [[nodiscard]] std::shared_ptr<MphRead::Scene> NewScene();
+        void EndOrClose();
+        void Reveal();
+        [[nodiscard]] std::pair<double, double> PointerPixels(double x, double y) const;
         void FitToScreen();
         void ApplyFrameRateSettings();
 
@@ -615,6 +657,8 @@ namespace MphRead
         static constexpr OpenTK::Mathematics::Vector2i _minimumSize{1024, 720};
         std::shared_ptr<RendererPlatform::Window> _window{};
         std::shared_ptr<MphRead::Scene> _scene{};
+        bool _shell = false;
+        bool _sceneLoaded = false;
         bool _startedHidden = true;
         std::int32_t _applyStartupIn = 0;
         bool _sceneReady = false;
@@ -633,6 +677,8 @@ public: \
     void Size(OpenTK::Mathematics::Vector2i value) noexcept; \
     [[nodiscard]] OpenTK::Mathematics::Matrix4 PerspectiveMatrix() const noexcept; \
     [[nodiscard]] MphRead::CameraMode CameraMode() const noexcept; \
+    [[nodiscard]] bool SideScene() const noexcept; \
+    void SideScene(bool value) noexcept; \
     [[nodiscard]] bool ShowCursor() const; \
     [[nodiscard]] MphRead::Formats::Culling::FrustumInfo& FrustumInfo() const; \
     [[nodiscard]] bool FrameAdvance() const noexcept; \
@@ -690,6 +736,7 @@ public: \
     [[nodiscard]] bool IsNodeRefVisible(MphRead::Formats::Culling::NodeRef nodeRef); \
     [[nodiscard]] bool IsNodeRefAudible(MphRead::Formats::Culling::NodeRef nodeRef); \
     void OnLoad(); \
+    void UnloadGl(); \
     void InitEntity(const std::shared_ptr<MphRead::Entities::EntityBase>& entity); \
     [[nodiscard]] OpenTK::Mathematics::Vector2i RenderSize() const; \
     void OnResize(); \
@@ -948,6 +995,7 @@ private: \
     OpenTK::Mathematics::Matrix4 _viewInvRotYMatrix = MphRead::RendererDetail::IdentityMatrix(); \
     OpenTK::Mathematics::Matrix4 _perspectiveMatrix = MphRead::RendererDetail::IdentityMatrix(); \
     MphRead::CameraMode _cameraMode = MphRead::CameraMode::Pivot; \
+    bool _sideScene = false; \
     float _pivotAngleY = 0.0F; \
     float _pivotAngleX = 0.0F; \
     float _pivotDistance = 5.0F; \
@@ -964,7 +1012,8 @@ private: \
     std::shared_ptr<MphRead::Formats::Culling::FrustumInfo> _frustumInfo{}; \
     bool _showTextures = true; \
     bool _showColors = true; \
-    bool _wireframe = false; \
+    std::int32_t _wireframeLevel = 0; \
+    static constexpr std::int32_t MaxWireframeLevel = 5; \
     std::int32_t _volumeEdges = 0; \
     bool _faceCulling = true; \
     bool _scanVisor = false; \

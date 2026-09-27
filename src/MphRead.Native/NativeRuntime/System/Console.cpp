@@ -444,6 +444,18 @@ namespace MphRead::NativeRuntime
 #endif
     }
 
+    bool ConsoleIsOutputRedirected() noexcept
+    {
+#if defined(_WIN32)
+        const HANDLE output = ::GetStdHandle(STD_OUTPUT_HANDLE);
+        DWORD mode = 0;
+        return output == nullptr || output == INVALID_HANDLE_VALUE
+            || ::GetConsoleMode(output, &mode) == 0;
+#else
+        return ::isatty(STDOUT_FILENO) == 0;
+#endif
+    }
+
     std::optional<std::string> ConsoleReadLine()
     {
 #if defined(_WIN32)

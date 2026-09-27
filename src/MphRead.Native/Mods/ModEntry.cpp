@@ -13,7 +13,15 @@
 #include "InputSettings.hpp"
 #if defined(MPHREAD_AVALONIA)
 #include "Launcher/Gui/GuiLauncher.hpp"
+#include "Launcher/Gui/TapCheck.hpp"
 #include "Launcher/Gui/UiCapture.hpp"
+#include "Launcher/Gui/UiDesigns.hpp"
+#endif
+#if defined(MPHREAD_SHELL)
+#include "Launcher/Gui/DeckTile.hpp"
+#include "Launcher/Gui/Shell.hpp"
+#include "Launcher/Gui/UiBench.hpp"
+#include "Launcher/Gui/UiSurface.hpp"
 #endif
 #include "Launcher/Portable/LauncherPrefs.hpp"
 #include "Launcher/Portable/TextLauncher.hpp"
@@ -772,9 +780,7 @@ namespace
 #if defined(MPHREAD_AVALONIA)
         try
         {
-            return MphRead::Mods::Launcher::Gui::UiCapture::Run(
-                MphRead::Mods::Launcher::Gui::Detail::UiCaptureAdapterInstance(),
-                directory);
+            return MphRead::Mods::Launcher::Gui::UiCapture::Run(directory);
         }
         catch (const std::exception& ex)
         {
@@ -856,6 +862,110 @@ namespace MphRead::Mods
             std::int32_t waitFor = -1;
             if (!Int32TryParseCurrentCulture(args[static_cast<std::size_t>(applyAt + 2)], waitFor))
             {
+#if defined(_MSC_VER)
+    __declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
+    __attribute__((noinline))
+#endif
+    int RunUiBench(const std::vector<std::string>& args)
+    {
+#if defined(MPHREAD_SHELL)
+        try
+        {
+            using namespace MphRead::Mods::Launcher::Gui;
+            UiBench::Slow = HasFlag(args, "uibenchslow");
+            UiBench::AsAndroid = HasFlag(args, "uibenchandroid");
+            DeckTile::CacheChrome = !HasFlag(args, "uibenchnochrome");
+            UiBench::FreeFrames = HasFlag(args, "uibenchfree");
+            UiBench::OnlySize = ValueAfter(args, "uibenchsize");
+            UiBench::OnlyMove = ValueAfter(args, "uibenchonly");
+            UiBench::Shot = ValueAfter(args, "uibenchshot");
+            double parsed = 0;
+            if (TryParseDoubleInvariant(ValueAfter(args, "uibenchscale"), parsed, false))
+            {
+                UiBench::ScaleOverride = parsed;
+            }
+            return UiBench::Run(ValueAfter(args, "uibench"));
+        }
+        catch (const std::exception& ex)
+        {
+            WriteLine(std::string("[uibench] no launcher toolkit here: ") + ex.what());
+            return 1;
+        }
+#else
+        (void)args;
+        WriteLine("[uibench] this build has no launcher surface to measure");
+        return 1;
+#endif
+    }
+
+#if defined(_MSC_VER)
+    __declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
+    __attribute__((noinline))
+#endif
+    int RunUiDesigns(const std::string& directory)
+    {
+#if defined(MPHREAD_AVALONIA)
+        try
+        {
+            return MphRead::Mods::Launcher::Gui::UiDesigns::Run(directory);
+        }
+        catch (const std::exception& ex)
+        {
+            WriteLine(std::string("[uidesign] no launcher toolkit here: ") + ex.what());
+            return 1;
+        }
+#else
+        (void)directory;
+        WriteLine("[uidesign] this build has no Avalonia launcher");
+        return 1;
+#endif
+    }
+
+#if defined(_MSC_VER)
+    __declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
+    __attribute__((noinline))
+#endif
+    int RunShellCapture(const std::string& directory)
+    {
+#if defined(MPHREAD_SHELL)
+        using namespace MphRead::Mods::Launcher::Gui;
+        Shell::RequestShots(directory);
+        if (!GuiLauncher::TryRun())
+        {
+            return 1;
+        }
+        const std::int32_t misses = Shell::ShotMisses();
+        if (misses > 0)
+        {
+            WriteLine("[shellshot] " + std::to_string(misses) + " step(s) found nothing to press");
+            return 1;
+        }
+        return 0;
+#else
+        (void)directory;
+        WriteLine("[shellshot] this build has no launcher");
+        return 1;
+#endif
+    }
+
+#if defined(_MSC_VER)
+    __declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
+    __attribute__((noinline))
+#endif
+    int RunTapCheck()
+    {
+#if defined(MPHREAD_AVALONIA)
+        return MphRead::Mods::Launcher::Gui::TapCheck::Run();
+#else
+        WriteLine("[tapcheck] this build has no launcher");
+        return 1;
+#endif
+    }
+
                 waitFor = -1;
             }
             SetExitCode(Update::DesktopUpdate::Apply(
@@ -1177,6 +1287,48 @@ namespace MphRead::Mods
             const std::optional<std::string> reportPortValue = ValueAfter(args, "masterport");
             std::int32_t parsedReportPort = 0;
             if (reportPortValue.has_value() && Int32TryParseCurrentCulture(*reportPortValue, parsedReportPort))
+        const std::optional<std::string> uiShot = ValueAfter(args, "uishot");
+        if (uiShot.has_value())
+        {
+            SetExitCode(RunUiCapture(*uiShot));
+            return true;
+        }
+
+        if (::HasFlag(args, "uibench"))
+        {
+            SetExitCode(RunUiBench(args));
+            return true;
+        }
+
+        const std::optional<std::string> uiDesign = ValueAfter(args, "uidesign");
+        if (uiDesign.has_value())
+        {
+            SetExitCode(RunUiDesigns(*uiDesign));
+            return true;
+        }
+
+        const std::optional<std::string> shellShot = ValueAfter(args, "shellshot");
+        if (shellShot.has_value())
+        {
+            SetExitCode(RunShellCapture(*shellShot));
+            return true;
+        }
+
+        if (::HasFlag(args, "tapcheck"))
+        {
+            SetExitCode(RunTapCheck());
+            return true;
+        }
+
+        if (::HasFlag(args, "fullscreen") || ::HasFlag(args, "borderless"))
+        {
+            WindowMode::Startup(WindowStartMode::BorderlessFullscreen);
+        }
+        else if (::HasFlag(args, "windowed"))
+        {
+            WindowMode::Startup(WindowStartMode::Windowed);
+        }
+
             {
                 reportPort = parsedReportPort;
             }
@@ -1212,15 +1364,6 @@ namespace MphRead::Mods
         if (!::HasFlag(args, "mapgen"))
         {
             MapGen::CustomRooms::GenerateMissing();
-        }
-
-        if (::HasFlag(args, "fullscreen") || ::HasFlag(args, "borderless"))
-        {
-            WindowMode::Startup(WindowStartMode::BorderlessFullscreen);
-        }
-        else if (::HasFlag(args, "windowed"))
-        {
-            WindowMode::Startup(WindowStartMode::Windowed);
         }
 
         if (::HasFlag(args, "nohelmet"))
@@ -1489,6 +1632,12 @@ namespace MphRead::Mods
         }
 
         const std::optional<std::string> hostGame = ValueAfter(args, "hostgame");
+        if (::HasFlag(args, "uinativeres"))
+        {
+#if defined(MPHREAD_SHELL)
+            Launcher::Gui::UiSurface::NativeRaster(true);
+#endif
+        }
         if (hostGame.has_value())
         {
             const std::string masterHost = ValueAfter(args, "master").value_or(

@@ -87,6 +87,8 @@ namespace MphRead::NativeRuntime::Avalonia
         // Every descendant, depth first, as GetVisualDescendants() yields them.
         [[nodiscard]] std::vector<Visual*> GetVisualDescendants() const;
         [[nodiscard]] std::vector<Visual*> GetVisualAncestors() const;
+        // VisualExtensions.IsVisualAncestorOf: target is somewhere under this.
+        [[nodiscard]] bool IsVisualAncestorOf(const Visual* target) const noexcept;
 
         // Visual.AffectsRender<T>(...).
         template <typename T, typename... Properties>
@@ -301,6 +303,9 @@ namespace MphRead::NativeRuntime::Avalonia
             static Interactivity::RoutedEvent TextInputEvent;
             static Interactivity::RoutedEvent GotFocusEvent;
             static Interactivity::RoutedEvent LostFocusEvent;
+            // Gestures.TappedEvent / DoubleTappedEvent.
+            static Interactivity::RoutedEvent TappedEvent;
+            static Interactivity::RoutedEvent DoubleTappedEvent;
 
             [[nodiscard]] bool Focusable() const { return GetValue(FocusableProperty); }
             void Focusable(bool value) { SetValue(FocusableProperty, value); }
@@ -335,6 +340,8 @@ namespace MphRead::NativeRuntime::Avalonia
             Event<InputElement&, TextInputEventArgs&> TextInput;
             Event<InputElement&, GotFocusEventArgs&> GotFocus;
             Event<InputElement&, FocusChangedEventArgs&> LostFocus;
+            Event<InputElement&, Interactivity::RoutedEventArgs&> Tapped;
+            Event<InputElement&, Interactivity::RoutedEventArgs&> DoubleTapped;
 
         protected:
             virtual void OnPointerEntered(PointerEventArgs& e) { (void)e; }

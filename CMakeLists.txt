@@ -128,11 +128,10 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
 endif()
 set_target_properties(fruity_mphread_native PROPERTIES OUTPUT_NAME "MphRead.Native")
 
-# The windowed launcher. The name is upstream's, from the toolkit the C# build
-# uses; here it selects NativeRuntime/Avalonia, which is the same screens on
-# NativeRuntime/Gui's own toolkit.
+# The native desktop executable carries the launcher toolkit and the one-window
+# shell. Android uses its activity/view integration in the C# head instead.
 if(NOT ANDROID)
-    target_compile_definitions(fruity_mphread_native PUBLIC MPHREAD_AVALONIA)
+    target_compile_definitions(fruity_mphread_native PUBLIC MPHREAD_AVALONIA MPHREAD_SHELL)
 endif()
 
 if(WIN32)
@@ -188,6 +187,7 @@ if(NOT ANDROID)
     if(WIN32)
         # The executable's own icon, the csproj's ApplicationIcon.
         enable_language(RC)
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/MphRead/Assets/Backgrounds/launcher-bg.jpg"
         set(FRUITY_APP_ICON "${FRUITY_MPHREAD_ROOT}/Assets/fruity-prime.ico")
         file(TO_CMAKE_PATH "${FRUITY_APP_ICON}" FRUITY_APP_ICON)
         file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/FruityPrime.rc"

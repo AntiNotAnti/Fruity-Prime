@@ -30,9 +30,14 @@ namespace OpenTK::Windowing::GraphicsLibraryFramework
 
     namespace GLFW
     {
+        using ProcAddress = void (*)();
+
         [[nodiscard]] bool Init();
         void Terminate();
         void PollEvents();
+        [[nodiscard]] bool ExtensionSupported(const std::string& extension);
+        [[nodiscard]] ProcAddress GetProcAddress(const std::string& procedure);
+        void GetVersion(std::int32_t& major, std::int32_t& minor, std::int32_t& revision);
         [[nodiscard]] bool JoystickPresent(std::int32_t jid);
         [[nodiscard]] bool JoystickIsGamepad(std::int32_t jid);
         [[nodiscard]] bool GetGamepadState(std::int32_t jid, GamepadState& state);

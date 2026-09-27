@@ -5,6 +5,7 @@
 #include "Launcher/Portable/LauncherPrefs.hpp"
 #include "../NativeRuntime/System/DateTime.hpp"
 #include "../NativeRuntime/System/ExceptionText.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -20,6 +21,8 @@ namespace MphRead::Mods
         using OpenTK::Mathematics::Vector2i;
         using MphRead::RendererPlatform::MonitorArea;
         using MphRead::RendererPlatform::WindowStateValue;
+        using MphRead::NativeRuntime::UncheckedAdd;
+        using MphRead::NativeRuntime::UncheckedSubtract;
 
         // How much of the window has to be on a display for the saved position
         // to be used as it is.
@@ -38,7 +41,7 @@ namespace MphRead::Mods
         bool DirtyState = false;
         std::int64_t ChangedAtTicks = 0;
 
-        // The work area of the display this rectangle is usably on, or nothing
+        // The client area of the display this rectangle is usably on, or nothing
         // when it is on none of them.
         [[nodiscard]] std::optional<MonitorArea> Fit(
             MphRead::RenderWindow& window, Vector2i position, Vector2i size)
@@ -46,16 +49,17 @@ namespace MphRead::Mods
             for (const MonitorArea& monitor : window.MonitorClientAreas())
             {
                 const MonitorArea& area = monitor;
-                const std::int32_t maxX = area.Min.X + area.Size.X;
-                const std::int32_t maxY = area.Min.Y + area.Size.Y;
-                const bool acrossX = position.X + size.X > area.Min.X + VisibleMargin
-                    && position.X < maxX - VisibleMargin;
+                const std::int32_t maxX = UncheckedAdd(area.Min.X, area.Size.X);
+                const std::int32_t maxY = UncheckedAdd(area.Min.Y, area.Size.Y);
+                const bool acrossX = UncheckedAdd(position.X, size.X)
+                        > UncheckedAdd(area.Min.X, VisibleMargin)
+                    && position.X < UncheckedSubtract(maxX, VisibleMargin);
                 // The *top* edge, not the whole height: a title bar below the
                 // bottom of the screen is a window that cannot be moved, and
                 // that is the only part of being off the edge that traps
                 // anybody.
-                const bool downY = position.Y >= area.Min.Y - VisibleMargin
-                    && position.Y < maxY - VisibleMargin;
+                const bool downY = position.Y >= UncheckedSubtract(area.Min.Y, VisibleMargin)
+                    && position.Y < UncheckedSubtract(maxY, VisibleMargin);
                 if (acrossX && downY)
                 {
                     return area;

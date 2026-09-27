@@ -35,13 +35,79 @@ namespace MphRead::NativeRuntime::Avalonia::Media
 
     std::u32string ToUtf32(std::string_view text)
     {
-        return Utf8ToUtf32(text);
+        // Avalonia controls carry managed strings in memory. WTF-8 keeps an
+        // unpaired UTF-16 surrogate representable, which can result when the
+        // controller keyboard removes one code unit from a supplementary character.
+        const std::wstring wide = Wtf8ToWide(text);
+        std::u32string result;
+        result.reserve(wide.size());
+        if constexpr (sizeof(wchar_t) == 2)
+        {
+            for (std::size_t index = 0; index < wide.size(); ++index)
+            {
+                char32_t value = static_cast<char32_t>(wide[index]);
+                if (value >= 0xD800U && value <= 0xDBFFU && index + 1 < wide.size())
+                {
+                    const char32_t low = static_cast<char32_t>(wide[index + 1]);
+                    if (low >= 0xDC00U && low <= 0xDFFFU)
+                    {
+                        value = 0x10000U + ((value - 0xD800U) << 10) + (low - 0xDC00U);
+                        ++index;
+                    }
+                }
+                result.push_back(value);
+            }
+        }
+        else
+        {
+            for (const wchar_t value : wide)
+            {
+                result.push_back(static_cast<char32_t>(value));
+            }
+        }
+        return result;
     }
 
     std::string ToUtf8(std::u32string_view text)
     {
-        return Utf32ToUtf8(text);
+        // The inverse keeps lone surrogates in WTF-8 instead of replacing
+        // them, so an in-memory Avalonia string round-trips through layouts.
+        std::wstring wide;
+        wide.reserve(text.size());
+        for (char32_t value : text)
+        {
+            if (value > 0x10FFFFU)
+            {
+                value = 0xFFFDU;
+            }
+            if constexpr (sizeof(wchar_t) == 2)
+            {
+                if (value > 0xFFFFU)
+                {
+                    value -= 0x10000U;
+                    wide.push_back(static_cast<wchar_t>(0xD800U + (value >> 10)));
+                    wide.push_back(static_cast<wchar_t>(0xDC00U + (value & 0x3FFU)));
+                }
+                else
+                {
+                    wide.push_back(static_cast<wchar_t>(value));
+                }
+            }
+            else
+            {
+                wide.push_back(static_cast<wchar_t>(value));
+            }
+        }
+        return WideToWtf8(wide);
     }
+
+    AttachedProperty<BitmapInterpolationMode>& RenderOptions::BitmapInterpolationModeProperty
+        = RegisterAttached<RenderOptions, Media::BitmapInterpolationMode>("BitmapInterpolationMode",
+            Media::BitmapInterpolationMode::Unspecified, true);
+    AttachedProperty<EdgeMode>& RenderOptions::EdgeModeProperty
+        = RegisterAttached<RenderOptions, Media::EdgeMode>("EdgeMode", Media::EdgeMode::Unspecified, true);
+    AttachedProperty<TextRenderingMode>& RenderOptions::TextRenderingModeProperty
+        = RegisterAttached<RenderOptions, Media::TextRenderingMode>("TextRenderingMode", Media::TextRenderingMode::Unspecified, true);
 
     // ------------------------------------------------------------ fonts
 
@@ -346,7 +412,7 @@ namespace MphRead::NativeRuntime::Avalonia::Media
         return text.size();
     }
 
-    void TextLayout::Draw(Skia::Canvas& canvas, Point origin, const IBrushPtr& overrideBrush) const
+    void TextLayout::Draw(Skia::Canvas& canvas, Point origin, const IBrushPtr& overrideBrush, bool aliased) const
     {
         const IBrushPtr& brush = overrideBrush != nullptr ? overrideBrush : _foreground;
         if (brush == nullptr || _lines.empty())
@@ -355,6 +421,7 @@ namespace MphRead::NativeRuntime::Avalonia::Media
         }
         Skia::Paint paint;
         paint.Opacity = brush->Opacity;
+        paint.Antialias = !aliased;
         if (const auto* solid = dynamic_cast<const SolidColorBrush*>(brush.get()))
         {
             paint.Solid = ToSkia(solid->Color);
@@ -589,6 +656,32 @@ namespace MphRead::NativeRuntime::Avalonia::Media
             return FromBytes(FileReadAllBytes(path));
         }
 
+        std::shared_ptr<Bitmap> Bitmap::FromPremultipliedRgba(const std::uint8_t* rgba, Avalonia::PixelSize size,
+            std::int32_t stride)
+        {
+            return std::make_shared<Bitmap>(Skia::Bitmap::FromPremultipliedRgba(size.Width, size.Height, rgba, stride));
+        }
+
+        std::shared_ptr<Bitmap> Bitmap::DecodeToWidth(const std::vector<std::uint8_t>& bytes, std::int32_t width)
+        {
+            std::shared_ptr<Skia::Bitmap> source = Skia::Bitmap::Decode(bytes.data(), bytes.size());
+            if (source == nullptr)
+            {
+                throw std::invalid_argument("Unable to load bitmap from provided data");
+            }
+            if (width <= 0 || source->Width() == width)
+            {
+                return std::make_shared<Bitmap>(std::move(source));
+            }
+            const std::int32_t height = std::max(1, static_cast<std::int32_t>(std::lround(
+                static_cast<double>(source->Height()) * width / source->Width())));
+            auto scaled = std::make_shared<Skia::Bitmap>(width, height);
+            Skia::Canvas canvas(*scaled);
+            canvas.DrawBitmap(*source, Skia::Rect::FromXYWH(0, 0, source->Width(), source->Height()),
+                Skia::Rect::FromXYWH(0, 0, width, height), Skia::FilterQuality::High, 1.0);
+            return std::make_shared<Bitmap>(std::move(scaled));
+        }
+
         Avalonia::Size Bitmap::Size() const
         {
             return _pixels == nullptr ? Avalonia::Size{}
@@ -624,6 +717,12 @@ namespace MphRead::NativeRuntime::Avalonia::Media
     Skia::Rect ToSkia(const Rect& rect) noexcept
     {
         return Skia::Rect::FromXYWH(rect.X, rect.Y, rect.Width, rect.Height);
+    }
+
+    DrawingContext::DrawingContext(std::unique_ptr<Skia::Canvas> canvas)
+        : _ownedCanvas(std::move(canvas)), _canvas(*_ownedCanvas)
+    {
+        _baseSaves = _canvas.SaveCount();
     }
 
     DrawingContext::DrawingContext(Skia::Canvas& canvas)
@@ -690,9 +789,10 @@ namespace MphRead::NativeRuntime::Avalonia::Media
 
     void DrawingContext::Fill(const Skia::Path& path, const IBrushPtr& brush, const Rect& bounds)
     {
-        const std::optional<Skia::Paint> paint = PaintFor(brush, bounds);
+        std::optional<Skia::Paint> paint = PaintFor(brush, bounds);
         if (paint.has_value())
         {
+            paint->Antialias = _options.back().EdgeMode != EdgeMode::Aliased;
             _canvas.FillPath(path, *paint);
         }
     }
@@ -703,11 +803,12 @@ namespace MphRead::NativeRuntime::Avalonia::Media
         {
             return;
         }
-        const std::optional<Skia::Paint> paint = PaintFor(pen->Brush, bounds);
+        std::optional<Skia::Paint> paint = PaintFor(pen->Brush, bounds);
         if (!paint.has_value())
         {
             return;
         }
+        paint->Antialias = _options.back().EdgeMode != EdgeMode::Aliased;
         Skia::StrokeStyle style;
         style.Width = pen->Thickness;
         style.Cap = pen->LineCap == PenLineCap::Round ? Skia::LineCap::Round
@@ -726,7 +827,7 @@ namespace MphRead::NativeRuntime::Avalonia::Media
     void DrawingContext::DrawText(const FormattedText& text, Point origin)
     {
         DrawCount++;
-        text.Layout().Draw(_canvas, origin);
+        text.Layout().Draw(_canvas, origin, nullptr, _options.back().TextRenderingMode == TextRenderingMode::Alias);
     }
 
     void DrawingContext::DrawRectangle(const IBrushPtr& brush, const IPenPtr& pen, const Rect& rect, double radiusX,
@@ -787,6 +888,36 @@ namespace MphRead::NativeRuntime::Avalonia::Media
             }
         }
         Stroke(path, pen, rect);
+    }
+
+    void DrawingContext::DrawRectangle(const IBrushPtr& brush, const IPenPtr& pen, const RoundedRect& rect,
+        const BoxShadows& boxShadows)
+    {
+        DrawCount++;
+        const std::array<Skia::Point, 4> radii{Skia::Point{rect.RadiiTopLeft.X, rect.RadiiTopLeft.Y},
+            Skia::Point{rect.RadiiTopRight.X, rect.RadiiTopRight.Y},
+            Skia::Point{rect.RadiiBottomRight.X, rect.RadiiBottomRight.Y},
+            Skia::Point{rect.RadiiBottomLeft.X, rect.RadiiBottomLeft.Y}};
+        Skia::Path path;
+        path.AddRoundRect(ToSkia(rect.Rect), radii);
+        for (const BoxShadow& shadow : boxShadows.Items())
+        {
+            if (!shadow.IsInset)
+            {
+                _canvas.DrawBoxShadow(path, {shadow.OffsetX, shadow.OffsetY, shadow.Blur, shadow.Spread,
+                    ToSkia(shadow.Color), false}, ToSkia(rect.Rect), radii);
+            }
+        }
+        Fill(path, brush, rect.Rect);
+        for (const BoxShadow& shadow : boxShadows.Items())
+        {
+            if (shadow.IsInset)
+            {
+                _canvas.DrawBoxShadow(path, {shadow.OffsetX, shadow.OffsetY, shadow.Blur, shadow.Spread,
+                    ToSkia(shadow.Color), true}, ToSkia(rect.Rect), radii);
+            }
+        }
+        Stroke(path, pen, rect.Rect);
     }
 
     void DrawingContext::DrawRectangle(const IPenPtr& pen, const Rect& rect, double cornerRadius)
@@ -861,7 +992,9 @@ namespace MphRead::NativeRuntime::Avalonia::Media
         default:
             break;
         }
-        _canvas.DrawBitmap(*pixels, ToSkia(sourceRect), ToSkia(destRect), quality, 1.0);
+        _canvas.DrawBitmap(*pixels, ToSkia(sourceRect), ToSkia(destRect), quality, 1.0,
+            _options.back().BitmapBlendingMode == BitmapBlendingMode::Overlay ? Skia::BlendMode::Overlay
+                                                                              : Skia::BlendMode::SrcOver);
     }
 
     void DrawingContext::DrawImage(const IImage& source, const Rect& destRect)
@@ -922,6 +1055,18 @@ namespace MphRead::NativeRuntime::Avalonia::Media
         return state;
     }
 
+    DrawingContext::PushedState DrawingContext::PushClip(const RoundedRect& clip)
+    {
+        PushedState state = Pushed();
+        Skia::Path path;
+        path.AddRoundRect(ToSkia(clip.Rect), {Skia::Point{clip.RadiiTopLeft.X, clip.RadiiTopLeft.Y},
+            Skia::Point{clip.RadiiTopRight.X, clip.RadiiTopRight.Y},
+            Skia::Point{clip.RadiiBottomRight.X, clip.RadiiBottomRight.Y},
+            Skia::Point{clip.RadiiBottomLeft.X, clip.RadiiBottomLeft.Y}});
+        _canvas.ClipPath(path);
+        return state;
+    }
+
     DrawingContext::PushedState DrawingContext::PushGeometryClip(const Geometry& clip)
     {
         PushedState state = Pushed();
@@ -962,6 +1107,18 @@ namespace MphRead::NativeRuntime::Avalonia::Media
         if (options.BitmapInterpolationMode != BitmapInterpolationMode::Unspecified)
         {
             _options.back().BitmapInterpolationMode = options.BitmapInterpolationMode;
+        }
+        if (options.EdgeMode != EdgeMode::Unspecified)
+        {
+            _options.back().EdgeMode = options.EdgeMode;
+        }
+        if (options.TextRenderingMode != TextRenderingMode::Unspecified)
+        {
+            _options.back().TextRenderingMode = options.TextRenderingMode;
+        }
+        if (options.BitmapBlendingMode != BitmapBlendingMode::Unspecified)
+        {
+            _options.back().BitmapBlendingMode = options.BitmapBlendingMode;
         }
         return state;
     }

@@ -302,6 +302,15 @@ namespace System
         }
     };
 
+    class EntryPointNotFoundException final : public std::runtime_error
+    {
+    public:
+        explicit EntryPointNotFoundException(std::string_view message)
+            : std::runtime_error(std::string(message))
+        {
+        }
+    };
+
     namespace Collections::Generic
     {
         class KeyNotFoundException final : public std::out_of_range

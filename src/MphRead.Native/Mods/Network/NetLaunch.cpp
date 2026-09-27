@@ -4,7 +4,10 @@
 
 #include "../../Features.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
+#include "../../Program.hpp"
+#include "../../Renderer.hpp"
 #include "../../Scene.hpp"
+#include "../Launcher/Portable/MatchStart.hpp"
 #include "../Launcher/Portable/LaunchPlan.hpp"
 #include "../Launcher/Portable/LauncherPrefs.hpp"
 #include "../RespawnChoice.hpp"
@@ -199,6 +202,63 @@ namespace MphRead::Mods::Network
         {
             NativeRuntime::AppendUtf8(_terminalInput, key.KeyChar);
         }
+    }
+
+    bool NetLaunch::TickTerminalLobby(RenderWindow& window)
+    {
+        if (!_terminalLobby)
+        {
+            return false;
+        }
+        if (NetSession::PersistentLobby() && NetSession::IsInLobby() && window.HasScene())
+        {
+            window.EndScene();
+            NetSession::ResetMatchState();
+            NativeRuntime::ConsoleWriteLine(
+                "Returned to lobby. Commands: ready, start, leave.");
+        }
+        if (window.HasScene())
+        {
+            return false;
+        }
+        NetSession::Pump();
+        PollTerminalInput();
+        if (!NetSession::Active() || NetSession::Refused() || NetSession::SessionTimedOut())
+        {
+            _terminalLobby = false;
+            NetSession::Stop();
+            window.Close();
+            return true;
+        }
+        if (NetSession::ShouldLoadMatch())
+        {
+            const std::optional<MatchDefinition> match = NetSession::ActiveMatchDefinition();
+            if (match.has_value())
+            {
+                try
+                {
+                    Launcher::LaunchPlan::Init init;
+                    init.Kind = Launcher::LaunchKind::Online;
+                    init.RoomKey = match->RoomKey;
+                    init.Mode = match->Mode;
+                    init.Hunter = NetSession::LocalHunter();
+                    init.PlayerName = NetSession::PlayerName();
+                    Launcher::LaunchPlan plan(init);
+                    if (!Launcher::MatchStart::Begin(window,
+                        GameState::LoadSettings(), std::move(plan)))
+                    {
+                        throw ProgramException("The map could not be loaded.");
+                    }
+                }
+                catch (const std::exception& ex)
+                {
+                    NetSession::ReportMatchLoadFailed(ex.what());
+                    NetSession::Stop();
+                    window.Close();
+                }
+            }
+        }
+        return !window.HasScene();
     }
 
     const std::string& NetLaunch::LastJoinError()

@@ -5,11 +5,13 @@
 #include "Runtime.hpp"
 
 #include <cerrno>
+#include <chrono>
 #include <cstring>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -514,4 +516,161 @@ namespace MphRead::NativeRuntime
         return WIFEXITED(waitStatus) ? WEXITSTATUS(waitStatus) : 128 + WTERMSIG(waitStatus);
 #endif
     }
+
+#if defined(__APPLE__)
+    std::optional<std::string> ProcessRunCaptureOutputTimeout(
+        const std::string& fileName,
+        const std::vector<std::string>& arguments,
+        std::chrono::milliseconds timeout)
+    {
+        std::vector<std::string> strings;
+        strings.push_back(fileName);
+        strings.insert(strings.end(), arguments.begin(), arguments.end());
+        std::vector<char*> argv;
+        for (std::string& value : strings)
+        {
+            argv.push_back(value.data());
+        }
+        argv.push_back(nullptr);
+
+        int out[2];
+        int statusPipe[2];
+        if (::pipe(out) != 0)
+        {
+            ThrowStartFailure(fileName, std::strerror(errno));
+        }
+        if (::pipe(statusPipe) != 0)
+        {
+            const int error = errno;
+            ::close(out[0]);
+            ::close(out[1]);
+            ThrowStartFailure(fileName, std::strerror(error));
+        }
+        if (::fcntl(statusPipe[1], F_SETFD, FD_CLOEXEC) < 0)
+        {
+            const int error = errno;
+            ::close(out[0]);
+            ::close(out[1]);
+            ::close(statusPipe[0]);
+            ::close(statusPipe[1]);
+            ThrowStartFailure(fileName, std::strerror(error));
+        }
+        const pid_t pid = ::fork();
+        if (pid < 0)
+        {
+            const int error = errno;
+            ::close(out[0]);
+            ::close(out[1]);
+            ::close(statusPipe[0]);
+            ::close(statusPipe[1]);
+            ThrowStartFailure(fileName, std::strerror(error));
+        }
+        if (pid == 0)
+        {
+            ::close(out[0]);
+            ::close(statusPipe[0]);
+            ::dup2(out[1], STDOUT_FILENO);
+            ::close(out[1]);
+            ::execvp(argv[0], argv.data());
+            const int error = errno;
+            static_cast<void>(::write(statusPipe[1], &error, sizeof(error)));
+            ::_exit(127);
+        }
+        ::close(out[1]);
+        ::close(statusPipe[1]);
+        int childError = 0;
+        ssize_t startRead = 0;
+        do
+        {
+            startRead = ::read(statusPipe[0], &childError, sizeof(childError));
+        }
+        while (startRead < 0 && errno == EINTR);
+        ::close(statusPipe[0]);
+        if (startRead == static_cast<ssize_t>(sizeof(childError)))
+        {
+            ::close(out[0]);
+            while (::waitpid(pid, nullptr, 0) < 0 && errno == EINTR)
+            {
+            }
+            ThrowStartFailure(fileName, std::strerror(childError));
+        }
+        if (startRead < 0)
+        {
+            const int error = errno;
+            static_cast<void>(::kill(pid, SIGKILL));
+            ::close(out[0]);
+            while (::waitpid(pid, nullptr, 0) < 0 && errno == EINTR)
+            {
+            }
+            throw std::runtime_error(std::strerror(error));
+        }
+
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        int waitStatus = 0;
+        for (;;)
+        {
+            const pid_t waited = ::waitpid(pid, &waitStatus, WNOHANG);
+            if (waited == pid)
+            {
+                break;
+            }
+            if (waited < 0)
+            {
+                if (errno == EINTR)
+                {
+                    continue;
+                }
+                const int error = errno;
+                static_cast<void>(::kill(pid, SIGKILL));
+                ::close(out[0]);
+                while (::waitpid(pid, nullptr, 0) < 0 && errno == EINTR)
+                {
+                }
+                throw std::runtime_error(std::strerror(error));
+            }
+            if (std::chrono::steady_clock::now() >= deadline)
+            {
+                if (::kill(pid, SIGKILL) != 0 && errno != ESRCH)
+                {
+                    const int error = errno;
+                    ::close(out[0]);
+                    while (::waitpid(pid, nullptr, 0) < 0 && errno == EINTR)
+                    {
+                    }
+                    throw std::runtime_error(std::strerror(error));
+                }
+                while (::waitpid(pid, nullptr, 0) < 0 && errno == EINTR)
+                {
+                }
+                ::close(out[0]);
+                return std::nullopt;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+
+        std::string output;
+        char buffer[4096];
+        for (;;)
+        {
+            const ssize_t readCount = ::read(out[0], buffer, sizeof(buffer));
+            if (readCount > 0)
+            {
+                output.append(buffer, static_cast<std::size_t>(readCount));
+                continue;
+            }
+            if (readCount == 0)
+            {
+                break;
+            }
+            if (errno != EINTR)
+            {
+                const int error = errno;
+                ::close(out[0]);
+                throw std::runtime_error(std::strerror(error));
+            }
+        }
+        ::close(out[0]);
+        return output;
+    }
+#endif
 }

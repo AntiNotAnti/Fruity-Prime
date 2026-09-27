@@ -1,99 +1,50 @@
 #include "ProgressRow.hpp"
 
-#include <charconv>
+#include <algorithm>
 #include <cmath>
-#include <limits>
-#include <string>
-#include "../../../NativeRuntime/System/IO.hpp"
-#include "../../../NativeRuntime/System/Managed.hpp"
-#include "NativeRuntime/System/Globalization.hpp"
-
-using ::MphRead::NativeRuntime::MathMax;
-using ::MphRead::NativeRuntime::RoundToEven;
-
-namespace
-{
-    [[nodiscard]] double MathClamp01(double value) noexcept
-    {
-        if (value < 0.0)
-        {
-            return 0.0;
-        }
-        if (value > 1.0)
-        {
-            return 1.0;
-        }
-        return value;
-    }
-
-    [[nodiscard]] std::int32_t DoubleToInt32(double value) noexcept
-    {
-        if (std::isnan(value))
-        {
-            return 0;
-        }
-        if (value >= static_cast<double>(std::numeric_limits<std::int32_t>::max()))
-        {
-            return std::numeric_limits<std::int32_t>::max();
-        }
-        if (value <= static_cast<double>(std::numeric_limits<std::int32_t>::min()))
-        {
-            return std::numeric_limits<std::int32_t>::min();
-        }
-        return static_cast<std::int32_t>(value);
-    }
-
-}
 
 namespace MphRead::Mods::Launcher::Gui
 {
-    ProgressRow::ProgressRow(ProgressRowControlAdapter& control)
-        : _control(control)
+    using namespace ::MphRead::NativeRuntime::Avalonia;
+
+    ProgressRow::ProgressRow()
     {
-        _control.SetHeight(44.0);
-        _control.SetIsVisible(false);
+        Height(44);
+        IsVisible(false);
     }
 
-    void ProgressRow::Set(double fraction, const std::string& stage)
+    void ProgressRow::Set(double fraction, std::string stage)
     {
-        _fraction = MathClamp01(fraction);
-        _stage = stage;
-        _control.SetIsVisible(true);
-        _control.InvalidateVisual();
+        _fraction = std::clamp(fraction, 0.0, 1.0);
+        _stage = std::move(stage);
+        IsVisible(true);
+        InvalidateVisual();
     }
 
-    void ProgressRow::Render(ProgressRowDrawingContext& context, ProgressRowBounds bounds)
+    void ProgressRow::Render(Media::DrawingContext& context)
     {
-        const double width = bounds.Width;
-        constexpr double barHeight = 8.0;
-        const double barTop = bounds.Height - barHeight - 2.0;
+        const double width = Bounds().Width;
+        constexpr double barHeight = 8;
+        const double barTop = Bounds().Height - barHeight - 2;
 
-        const ProgressRowFormattedText stage = context.CreateFormattedText(_stage,
-            ProgressRowCulture::Invariant, ProgressRowFlowDirection::LeftToRight,
-            ProgressRowFace::FaceFalse, 12.0, ProgressRowBrush::TextDimBrush);
-        context.DrawText(stage, ProgressRowPoint{0.0, 2.0});
+        const Media::FormattedText stage(_stage, Media::InvariantCulture, Media::FlowDirection::LeftToRight,
+            GuiTheme::Face(false), 12, GuiTheme::TextDimBrush);
+        context.DrawText(stage, Point{0, 2});
 
-        const std::int32_t percentValue = DoubleToInt32(RoundToEven(_fraction * 100.0));
-        const std::string percent = ::MphRead::NativeRuntime::ToStringInvariant(percentValue) + "%";
-        const ProgressRowFormattedText number = context.CreateFormattedText(percent,
-            ProgressRowCulture::Invariant, ProgressRowFlowDirection::LeftToRight,
-            ProgressRowFace::FaceTrue, 12.0, ProgressRowBrush::TextBrush);
-        context.DrawText(number, ProgressRowPoint{width - number.Width, 2.0});
+        const std::string percent = std::to_string(static_cast<std::int32_t>(std::round(_fraction * 100))) + "%";
+        const Media::FormattedText number(percent, Media::InvariantCulture, Media::FlowDirection::LeftToRight,
+            GuiTheme::Face(true), 12, GuiTheme::TextBrush);
+        context.DrawText(number, Point{width - number.Width(), 2});
 
-        context.DrawRectangle(ProgressRowBrush::Ink, ProgressRowPen::Null,
-            ProgressRowRoundedRect{
-                ProgressRowRect{0.0, barTop, width, barHeight},
-                barHeight / 2.0
-            });
-
+        context.DrawRectangle(std::make_shared<Media::SolidColorBrush>(GuiTheme::Ink), nullptr,
+            RoundedRect(Rect(0, barTop, width, barHeight), barHeight / 2));
         const double filled = width * _fraction;
-        if (filled > 1.0)
+        if (filled > 1)
         {
-            context.DrawRectangle(ProgressRowBrush::AccentBrush, ProgressRowPen::Null,
-                ProgressRowRoundedRect{
-                    ProgressRowRect{0.0, barTop, MathMax(filled, barHeight), barHeight},
-                    barHeight / 2.0
-                });
+            // Rounded at both ends, so a bar that has barely started still
+            // looks like a bar.
+            context.DrawRectangle(GuiTheme::AccentBrush, nullptr,
+                RoundedRect(Rect(0, barTop, std::max(filled, barHeight), barHeight), barHeight / 2));
         }
     }
 }

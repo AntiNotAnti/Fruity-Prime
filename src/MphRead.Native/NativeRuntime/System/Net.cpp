@@ -1,16 +1,20 @@
 #include "Net.hpp"
 #include "Exceptions.hpp"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <bit>
+#include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <utility>
 #include <vector>
@@ -24,10 +28,12 @@
 #endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <netioapi.h>
 #include <windows.h>
 #else
 #include <cerrno>
 #include <netdb.h>
+#include <net/if.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -120,7 +126,7 @@ namespace MphRead::NativeRuntime
     }
 
     [[nodiscard]] bool TryParseManagedIPv4(
-        const std::string& text, std::array<std::uint8_t, 4>& bytes) noexcept
+        std::string_view text, std::array<std::uint8_t, 4>& bytes) noexcept
     {
         if (text.empty() || text.find(':') != std::string::npos)
         {
@@ -251,6 +257,217 @@ namespace MphRead::NativeRuntime
             static_cast<std::uint8_t>(value & 0xFFU)
         };
         return true;
+    }
+
+    [[nodiscard]] bool TryParseIPv6(std::string_view text, std::array<std::uint8_t, 16>& bytes) noexcept
+    {
+        std::array<std::uint16_t, 8> left{};
+        std::array<std::uint16_t, 8> right{};
+        std::size_t leftCount = 0;
+        std::size_t rightCount = 0;
+        const std::size_t compression = text.find("::");
+        if (compression != std::string_view::npos
+            && text.find("::", compression + 2) != std::string_view::npos)
+        {
+            return false;
+        }
+
+        const auto parseParts = [](std::string_view parts, std::array<std::uint16_t, 8>& output,
+            std::size_t& count, bool allowIPv4Tail) noexcept
+        {
+            if (parts.empty())
+            {
+                return true;
+            }
+            std::size_t start = 0;
+            while (start < parts.size())
+            {
+                const std::size_t end = parts.find(':', start);
+                const std::size_t stop = end == std::string_view::npos ? parts.size() : end;
+                if (stop == start)
+                {
+                    return false;
+                }
+                const std::string_view part = parts.substr(start, stop - start);
+                if (part.find('.') != std::string_view::npos)
+                {
+                    if (!allowIPv4Tail || stop != parts.size() || count > 6)
+                    {
+                        return false;
+                    }
+                    std::array<std::uint8_t, 4> ipv4{};
+                    if (!TryParseManagedIPv4(part, ipv4))
+                    {
+                        return false;
+                    }
+                    output[count++] = static_cast<std::uint16_t>((ipv4[0] << 8) | ipv4[1]);
+                    output[count++] = static_cast<std::uint16_t>((ipv4[2] << 8) | ipv4[3]);
+                }
+                else
+                {
+                    if (part.size() > 4 || count >= output.size())
+                    {
+                        return false;
+                    }
+                    std::uint32_t value = 0;
+                    for (const char ch : part)
+                    {
+                        value <<= 4;
+                        if (ch >= '0' && ch <= '9') value |= static_cast<std::uint32_t>(ch - '0');
+                        else if (ch >= 'a' && ch <= 'f') value |= static_cast<std::uint32_t>(ch - 'a' + 10);
+                        else if (ch >= 'A' && ch <= 'F') value |= static_cast<std::uint32_t>(ch - 'A' + 10);
+                        else return false;
+                    }
+                    if (part.empty())
+                    {
+                        return false;
+                    }
+                    output[count++] = static_cast<std::uint16_t>(value);
+                }
+                if (end == std::string_view::npos)
+                {
+                    break;
+                }
+                start = end + 1;
+                if (start == parts.size())
+                {
+                    return false;
+                }
+            }
+            return true;
+        };
+
+        if (compression == std::string_view::npos)
+        {
+            if (!parseParts(text, left, leftCount, true) || leftCount != 8)
+            {
+                return false;
+            }
+        }
+        else
+        {
+            const std::string_view leftText = text.substr(0, compression);
+            const std::string_view rightText = text.substr(compression + 2);
+            if (!parseParts(leftText, left, leftCount, false)
+                || !parseParts(rightText, right, rightCount, true)
+                || leftCount + rightCount >= 8)
+            {
+                return false;
+            }
+        }
+
+        std::array<std::uint16_t, 8> words{};
+        std::copy_n(left.begin(), leftCount, words.begin());
+        if (compression == std::string_view::npos)
+        {
+            words = left;
+        }
+        else
+        {
+            std::copy_n(right.begin(), rightCount, words.begin() + static_cast<std::ptrdiff_t>(8 - rightCount));
+        }
+        for (std::size_t i = 0; i < words.size(); ++i)
+        {
+            bytes[i * 2] = static_cast<std::uint8_t>(words[i] >> 8);
+            bytes[i * 2 + 1] = static_cast<std::uint8_t>(words[i]);
+        }
+        return true;
+    }
+
+    std::optional<IPAddressValue> IPAddressTryParse(std::string_view value)
+    {
+        if (value.find('\0') != std::string_view::npos)
+        {
+            return std::nullopt;
+        }
+
+        const std::string text(value);
+        std::array<std::uint8_t, 4> ipv4{};
+        if (TryParseManagedIPv4(text, ipv4))
+        {
+            IPAddressValue result{};
+            result.Family = IPAddressFamily::InterNetwork;
+            std::copy(ipv4.begin(), ipv4.end(), result.Bytes.begin());
+            return result;
+        }
+
+        if (text.size() > 65U)
+        {
+            return std::nullopt;
+        }
+        std::string host = text;
+        if (!host.empty() && (host.front() == '[' || host.back() == ']'))
+        {
+            if (host.size() < 2U || host.front() != '[' || host.back() != ']')
+            {
+                return std::nullopt;
+            }
+            host = host.substr(1, host.size() - 2);
+        }
+
+        const std::size_t scopeAt = host.find('%');
+        std::uint32_t scopeId = 0;
+        if (scopeAt != std::string::npos)
+        {
+            const std::string_view scope(host.data() + scopeAt + 1, host.size() - scopeAt - 1);
+            if (scope.empty())
+            {
+                return std::nullopt;
+            }
+            const auto [end, error] = std::from_chars(scope.data(), scope.data() + scope.size(), scopeId);
+            if (error != std::errc{} || end != scope.data() + scope.size())
+            {
+                // .NET also accepts a scope written as a local interface name.
+                const std::string interfaceName(scope);
+#if defined(_WIN32)
+                EnsureWinsock();
+#endif
+                scopeId = ::if_nametoindex(interfaceName.c_str());
+                if (scopeId == 0)
+                {
+                    return std::nullopt;
+                }
+            }
+            host.resize(scopeAt);
+        }
+        if (host.empty() || host.size() > 45U)
+        {
+            return std::nullopt;
+        }
+
+        IPAddressValue result{};
+        result.Family = IPAddressFamily::InterNetworkV6;
+        if (!TryParseIPv6(host, result.Bytes))
+        {
+            return std::nullopt;
+        }
+        result.ScopeId = scopeId;
+        return result;
+    }
+
+    bool IPAddressIsLoopback(const IPAddressValue& address) noexcept
+    {
+        if (address.Family == IPAddressFamily::InterNetwork)
+        {
+            return address.Bytes[0] == 127;
+        }
+        if (address.ScopeId != 0)
+        {
+            return false;
+        }
+        const bool ipv6Loopback = std::all_of(address.Bytes.begin(), address.Bytes.end() - 1,
+                [](std::uint8_t byte) { return byte == 0; })
+            && address.Bytes.back() == 1;
+        constexpr std::array<std::uint8_t, 16> mappedLoopback{
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 127, 0, 0, 1
+        };
+        return ipv6Loopback || address.Bytes == mappedLoopback;
+    }
+
+    std::vector<std::uint8_t> IPAddressGetAddressBytes(const IPAddressValue& address)
+    {
+        const std::size_t size = address.Family == IPAddressFamily::InterNetwork ? 4U : 16U;
+        return {address.Bytes.begin(), address.Bytes.begin() + static_cast<std::ptrdiff_t>(size)};
     }
 
     [[nodiscard]] std::size_t ManagedUtf16Length(

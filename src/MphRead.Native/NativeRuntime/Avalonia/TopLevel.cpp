@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace MphRead::NativeRuntime::Avalonia
 {
@@ -58,6 +59,15 @@ namespace MphRead::NativeRuntime::Avalonia
 
     TopLevel::~TopLevel()
     {
+        const std::vector<Controls::ControlPtr> overlays = _overlays;
+        for (const Controls::ControlPtr& overlay : overlays)
+        {
+            if (auto* popup = dynamic_cast<Controls::Popup*>(overlay.get()); popup != nullptr)
+            {
+                popup->TopLevelClosing(this);
+            }
+            RemoveOverlay(overlay.get());
+        }
         // Children go first, while the root they point at still exists.
         Content(Controls::ControlPtr{});
     }
@@ -90,6 +100,39 @@ namespace MphRead::NativeRuntime::Avalonia
         _renderDirty = true;
     }
 
+    void TopLevel::AddOverlay(const Controls::ControlPtr& overlay)
+    {
+        if (overlay == nullptr || std::any_of(_overlays.begin(), _overlays.end(), [&overlay](const Controls::ControlPtr& item)
+            {
+                return item.get() == overlay.get();
+            }))
+        {
+            return;
+        }
+        overlay->ZIndex(std::numeric_limits<std::int32_t>::max());
+        _overlays.push_back(overlay);
+        AddVisualChild(overlay);
+        _layoutDirty = true;
+        _renderDirty = true;
+    }
+
+    void TopLevel::RemoveOverlay(const Controls::Control* overlay)
+    {
+        const auto found = std::find_if(_overlays.begin(), _overlays.end(), [overlay](const Controls::ControlPtr& item)
+        {
+            return item.get() == overlay;
+        });
+        if (found == _overlays.end())
+        {
+            return;
+        }
+        const Controls::ControlPtr keep = *found;
+        RemoveVisualChild(keep);
+        _overlays.erase(found);
+        _layoutDirty = true;
+        _renderDirty = true;
+    }
+
     void TopLevel::ExecuteLayoutPass()
     {
         // Measure and arrange until nothing asks again, as the layout manager
@@ -99,6 +142,11 @@ namespace MphRead::NativeRuntime::Avalonia
             _layoutDirty = false;
             Measure(_clientSize);
             Arrange(Rect(_clientSize));
+            for (const Controls::ControlPtr& overlay : _overlays)
+            {
+                overlay->Measure(_clientSize);
+                overlay->Arrange(Rect(_clientSize));
+            }
             if (!_layoutDirty && IsMeasureValid() && IsArrangeValid())
             {
                 break;
@@ -130,6 +178,24 @@ namespace MphRead::NativeRuntime::Avalonia
             const Avalonia::CornerRadius radius = visual.ClipCornerRadius();
             const Rect bounds(visual.Bounds().GetSize());
             clip.emplace(radius.IsZero() ? context.PushClip(bounds) : context.PushClip(bounds, radius));
+        }
+        // The render options this visual inherits, when they differ from what
+        // is already in effect.
+        std::optional<Media::DrawingContext::PushedState> options;
+        {
+            Media::RenderOptions wanted;
+            wanted.BitmapInterpolationMode = Media::RenderOptions::GetBitmapInterpolationMode(visual);
+            wanted.EdgeMode = Media::RenderOptions::GetEdgeMode(visual);
+            wanted.TextRenderingMode = Media::TextOptions::GetTextRenderingMode(visual);
+            const Media::RenderOptions& current = context.CurrentRenderOptions();
+            if ((wanted.BitmapInterpolationMode != Media::BitmapInterpolationMode::Unspecified
+                    && wanted.BitmapInterpolationMode != current.BitmapInterpolationMode)
+                || (wanted.EdgeMode != Media::EdgeMode::Unspecified && wanted.EdgeMode != current.EdgeMode)
+                || (wanted.TextRenderingMode != Media::TextRenderingMode::Unspecified
+                    && wanted.TextRenderingMode != current.TextRenderingMode))
+            {
+                options.emplace(context.PushRenderOptions(wanted));
+            }
         }
         const std::size_t before = context.DrawCount;
         visual.Render(context);
@@ -312,12 +378,45 @@ namespace MphRead::NativeRuntime::Avalonia
             e.UpdateKind = kind;
             e.ClickCount = _clickCount;
             target->RaiseEvent(e);
+            // Gestures.PointerPressed: an even click on the element the first
+            // one landed on is a double tap.
+            Input::InputElement* hit = InputHitTest(point);
+            _pressedOn = hit;
+            if (_clickCount % 2 == 0 && hit != nullptr && hit == _firstTapOn)
+            {
+                // Avalonia only recognizes DoubleTapped for a left press;
+                // touch is represented as a left press by TouchDevice.
+                if (pointer.Type == Input::PointerType::Touch || kind == Input::PointerUpdateKind::LeftButtonPressed)
+                {
+                    Interactivity::RoutedEventArgs tap(&Input::InputElement::DoubleTappedEvent);
+                    hit->RaiseEvent(tap);
+                    _doubleTappedOn = hit;
+                }
+                else
+                {
+                    _doubleTappedOn = nullptr;
+                }
+            }
+            else
+            {
+                _firstTapOn = hit;
+                _doubleTappedOn = nullptr;
+            }
         }
         else if (&routedEvent == &Input::InputElement::PointerReleasedEvent)
         {
             Input::PointerReleasedEventArgs e(&routedEvent, &pointer, point, this, modifiers, Timestamp());
             e.UpdateKind = kind;
             target->RaiseEvent(e);
+            // Gestures.PointerReleased: a release over what was pressed is a tap.
+            Input::InputElement* hit = InputHitTest(point);
+            if (hit != nullptr && hit == _pressedOn && hit != _doubleTappedOn)
+            {
+                Interactivity::RoutedEventArgs tap(&Input::InputElement::TappedEvent);
+                hit->RaiseEvent(tap);
+            }
+            _pressedOn = nullptr;
+            _doubleTappedOn = nullptr;
         }
         else
         {
@@ -393,7 +492,31 @@ namespace MphRead::NativeRuntime::Avalonia
         }
         auto& touch = _touches[id];
         touch = std::make_unique<Input::IPointer>(NextPointerId(), Input::PointerType::Touch, _touches.size() == 1);
-        _clickCount = 1;
+        const auto now = std::chrono::steady_clock::now();
+        if (_touches.size() > 1)
+        {
+            // Avalonia resets the tap history when more than one finger is
+            // down, so a multi-touch gesture cannot be the first half of a
+            // double tap.
+            _touchClickCount = 1;
+            _lastTouchPress = {};
+        }
+        else if (_lastTouchPress != std::chrono::steady_clock::time_point{}
+            && now - _lastTouchPress <= std::chrono::milliseconds(500)
+            && std::abs(point.X - _lastTouchPressPoint.X) <= 25
+            && std::abs(point.Y - _lastTouchPressPoint.Y) <= 25)
+        {
+            ++_touchClickCount;
+            _lastTouchPress = now;
+            _lastTouchPressPoint = point;
+        }
+        else
+        {
+            _touchClickCount = 1;
+            _lastTouchPress = now;
+            _lastTouchPressPoint = point;
+        }
+        _clickCount = _touchClickCount;
         UpdatePointerOver(*touch, point, Input::RawInputModifiers::LeftMouseButton);
         RaisePointer(*touch, Input::InputElement::PointerPressedEvent, point, Input::RawInputModifiers::LeftMouseButton,
             Input::PointerUpdateKind::LeftButtonPressed);
@@ -435,12 +558,13 @@ namespace MphRead::NativeRuntime::Avalonia
     }
 
     void TopLevel::RaiseKey(const Interactivity::RoutedEvent& routedEvent, Input::Key key,
-        Input::RawInputModifiers modifiers, std::optional<std::string> keySymbol)
+        Input::RawInputModifiers modifiers, std::int32_t physicalKey, std::optional<std::string> keySymbol)
     {
         Input::KeyEventArgs e(&routedEvent);
         e.Key = key;
         e.KeyModifiers = static_cast<Input::KeyModifiers>(static_cast<std::int32_t>(modifiers)
             & static_cast<std::int32_t>(Input::RawInputModifiers::KeyboardMask));
+        e.PhysicalKey = physicalKey;
         e.KeySymbol = std::move(keySymbol);
         Interactivity::Interactive* target = _focused != nullptr ? static_cast<Interactivity::Interactive*>(_focused)
                                                                  : static_cast<Interactivity::Interactive*>(this);
@@ -449,12 +573,24 @@ namespace MphRead::NativeRuntime::Avalonia
 
     void TopLevel::KeyPress(Input::Key key, Input::RawInputModifiers modifiers, std::optional<std::string> keySymbol)
     {
-        RaiseKey(Input::InputElement::KeyDownEvent, key, modifiers, std::move(keySymbol));
+        RaiseKey(Input::InputElement::KeyDownEvent, key, modifiers, 0, std::move(keySymbol));
     }
 
     void TopLevel::KeyRelease(Input::Key key, Input::RawInputModifiers modifiers, std::optional<std::string> keySymbol)
     {
-        RaiseKey(Input::InputElement::KeyUpEvent, key, modifiers, std::move(keySymbol));
+        RaiseKey(Input::InputElement::KeyUpEvent, key, modifiers, 0, std::move(keySymbol));
+    }
+
+    void TopLevel::KeyPress(Input::Key key, Input::RawInputModifiers modifiers, std::int32_t physicalKey,
+        std::optional<std::string> keySymbol)
+    {
+        RaiseKey(Input::InputElement::KeyDownEvent, key, modifiers, physicalKey, std::move(keySymbol));
+    }
+
+    void TopLevel::KeyRelease(Input::Key key, Input::RawInputModifiers modifiers, std::int32_t physicalKey,
+        std::optional<std::string> keySymbol)
+    {
+        RaiseKey(Input::InputElement::KeyUpEvent, key, modifiers, physicalKey, std::move(keySymbol));
     }
 
     void TopLevel::TextInput(const std::string& text)
@@ -527,6 +663,14 @@ namespace MphRead::NativeRuntime::Avalonia
             _focused = nullptr;
         }
         std::erase(_pointerOver, &element);
+        if (_pressedOn == &element)
+        {
+            _pressedOn = nullptr;
+        }
+        if (_firstTapOn == &element)
+        {
+            _firstTapOn = nullptr;
+        }
         if (_mouse->Captured() == &element)
         {
             _mouse->Capture(nullptr);
@@ -547,6 +691,11 @@ namespace MphRead::NativeRuntime::Avalonia
         : Bitmap(std::make_shared<Skia::Bitmap>(size.Width, size.Height))
     {
         (void)dpi;
+    }
+
+    std::unique_ptr<Media::DrawingContext> Media::Imaging::RenderTargetBitmap::CreateDrawingContext()
+    {
+        return std::make_unique<Media::DrawingContext>(std::make_unique<Skia::Canvas>(*_pixels));
     }
 
     void Media::Imaging::RenderTargetBitmap::Render(Visual& visual)

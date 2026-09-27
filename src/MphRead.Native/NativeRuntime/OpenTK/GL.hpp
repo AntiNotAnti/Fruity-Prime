@@ -51,7 +51,7 @@ namespace OpenTK::Graphics::OpenGL
         using ::OpenTK::Graphics::OpenGL::FramebufferErrorCode;
 
         enum class AlphaFunction : std::int32_t { Less = 0x0201, Equal = 0x0202 };
-        enum class BlendingFactor : std::int32_t { SrcAlpha = 0x0302, OneMinusSrcAlpha = 0x0303 };
+        enum class BlendingFactor : std::int32_t { One = 1, SrcAlpha = 0x0302, OneMinusSrcAlpha = 0x0303 };
         enum class ClearBufferMask : std::int32_t
         {
             DepthBufferBit = 0x00000100,
@@ -62,6 +62,20 @@ namespace OpenTK::Graphics::OpenGL
         {
             return static_cast<ClearBufferMask>(static_cast<std::int32_t>(left) | static_cast<std::int32_t>(right));
         }
+        enum class DrawBufferMode : std::int32_t
+        {
+            None = 0,
+            FrontLeft = 0x0400,
+            FrontRight = 0x0401,
+            BackLeft = 0x0402,
+            BackRight = 0x0403,
+            Front = 0x0404,
+            Back = 0x0405,
+            Left = 0x0406,
+            Right = 0x0407,
+            FrontAndBack = 0x0408,
+            ColorAttachment0 = 0x8CE0
+        };
         enum class DepthFunction : std::int32_t { Less = 0x0201, Lequal = 0x0203 };
         enum class EnableCap : std::int32_t
         {
@@ -82,18 +96,29 @@ namespace OpenTK::Graphics::OpenGL
         };
         enum class FramebufferParameterName : std::int32_t { FramebufferAttachmentDepthSize = 0x8216 };
         enum class FramebufferTarget : std::int32_t { ReadFramebuffer = 0x8CA8, Framebuffer = 0x8D40 };
+        enum class GetProgramParameterName : std::int32_t { LinkStatus = 0x8B82 };
         enum class ListMode : std::int32_t { Compile = 0x1300 };
+        enum class MatrixMode : std::int32_t { Modelview = 0x1700, Projection = 0x1701 };
         enum class PixelFormat : std::int32_t
         {
             Alpha = 0x1906, Red = 0x1903, Rgb = 0x1907, Rgba = 0x1908, DepthStencil = 0x84F9
         };
         enum class PixelInternalFormat : std::int32_t
         {
-            Alpha = 0x1906, Red = 0x1903, Rgb = 0x1907, Rgba = 0x1908, Depth24Stencil8 = 0x88F0
+            Alpha = 0x1906, Red = 0x1903, Rgb = 0x1907, Rgba = 0x1908,
+            Rgba8 = 0x8058, Depth24Stencil8 = 0x88F0
         };
         enum class PixelStoreParameter : std::int32_t
         {
-            UnpackAlignment = 0x0CF5, PackAlignment = 0x0D05
+            UnpackSwapBytes = 0x0CF0,
+            UnpackLsbFirst = 0x0CF1,
+            UnpackRowLength = 0x0CF2,
+            UnpackSkipRows = 0x0CF3,
+            UnpackSkipPixels = 0x0CF4,
+            UnpackAlignment = 0x0CF5,
+            UnpackSkipImages = 0x806D,
+            UnpackImageHeight = 0x806E,
+            PackAlignment = 0x0D05
         };
         enum class PixelType : std::int32_t { UnsignedByte = 0x1401, UnsignedInt248 = 0x84FA };
         enum class PolygonMode : std::int32_t { Line = 0x1B01, Fill = 0x1B02 };
@@ -133,8 +158,13 @@ namespace OpenTK::Graphics::OpenGL
             TextureMagFilter = 0x2800,
             TextureMinFilter = 0x2801,
             TextureWrapS = 0x2802,
-            TextureWrapT = 0x2803
+            TextureWrapT = 0x2803,
+            TextureBaseLevel = 0x813C,
+            TextureMaxLevel = 0x813D
         };
+        enum class TextureEnvMode : std::int32_t { Modulate = 0x2100, Replace = 0x1E01 };
+        enum class TextureEnvParameter : std::int32_t { TextureEnvMode = 0x2200 };
+        enum class TextureEnvTarget : std::int32_t { TextureEnv = 0x2300 };
         enum class TextureTarget : std::int32_t { Texture2D = 0x0DE1 };
         enum class TextureUnit : std::int32_t { Texture0 = 0x84C0, Texture1 = 0x84C1 };
         enum class TextureWrapMode : std::int32_t { Repeat = 0x2901, ClampToEdge = 0x812F, MirroredRepeat = 0x8370 };
@@ -165,12 +195,14 @@ namespace OpenTK::Graphics::OpenGL
         [[nodiscard]] std::int32_t CreateShader(ShaderType type);
         void CullFace(TriangleFace mode);
         void DeleteLists(std::int32_t list, std::int32_t range);
+        void DeleteProgram(std::int32_t program);
         void DeleteShader(std::int32_t shader);
         void DeleteTexture(std::int32_t texture);
         void DepthFunc(DepthFunction func);
         void DepthMask(bool flag);
         void DetachShader(std::int32_t program, std::int32_t shader);
         void Disable(EnableCap cap);
+        void DrawBuffer(DrawBufferMode mode);
         void Enable(EnableCap cap);
         void End();
         void EndList();
@@ -179,6 +211,7 @@ namespace OpenTK::Graphics::OpenGL
         void FramebufferTexture2D(FramebufferTarget target, FramebufferAttachment attachment,
             TextureTarget textarget, std::int32_t texture, std::int32_t level);
         void DeleteFramebuffer(std::int32_t framebuffer);
+        void DeleteRenderbuffer(std::int32_t renderbuffer);
         [[nodiscard]] std::int32_t GenFramebuffer();
         [[nodiscard]] std::int32_t GenLists(std::int32_t range);
         [[nodiscard]] std::int32_t GenRenderbuffer();
@@ -190,14 +223,20 @@ namespace OpenTK::Graphics::OpenGL
         void DebugMessageCallback(void* callback, const void* userParam);
         void GetFramebufferAttachmentParameter(FramebufferTarget target, FramebufferAttachment attachment,
             FramebufferParameterName pname, std::int32_t& params);
+        void GetProgram(std::int32_t program, GetProgramParameterName pname, std::int32_t& params);
+        [[nodiscard]] std::string GetProgramInfoLog(std::int32_t program);
         void GetShader(std::int32_t shader, ShaderParameter pname, std::int32_t& params);
         [[nodiscard]] std::string GetShaderInfoLog(std::int32_t shader);
         [[nodiscard]] std::string GetString(StringName name);
         [[nodiscard]] std::int32_t GetUniformLocation(std::int32_t program, const std::string& name);
         void LinkProgram(std::int32_t program);
+        void LoadIdentity();
+        void MatrixMode(enum MatrixMode mode);
+        void MultiTexCoord2(TextureUnit texture, float s, float t);
         void NewList(std::int32_t list, ListMode mode);
         void Normal3(float nx, float ny, float nz);
         void PixelStore(PixelStoreParameter pname, std::int32_t param);
+        void LineWidth(float width);
         void PolygonMode(TriangleFace face, PolygonMode mode);
         void PolygonOffset(float factor, float units);
         void ReadBuffer(ReadBufferMode src);
@@ -209,6 +248,8 @@ namespace OpenTK::Graphics::OpenGL
         void StencilFunc(StencilFunction func, std::int32_t ref, std::int32_t mask);
         void StencilMask(std::int32_t mask);
         void StencilOp(StencilOp sfail, StencilOp dpfail, StencilOp dppass);
+        void TexEnv(TextureEnvTarget target, TextureEnvParameter pname, std::int32_t param);
+        void TexCoord2(float s, float t);
         void TexCoord3(float s, float t, float r);
         void TexCoord3(::OpenTK::Mathematics::Vector3 coord);
         void TexSubImage2D(TextureTarget target, std::int32_t level, std::int32_t xoffset,
@@ -229,8 +270,11 @@ namespace OpenTK::Graphics::OpenGL
         void UniformMatrix4(std::int32_t location, bool transpose, const ::OpenTK::Mathematics::Matrix4& matrix);
         void UniformMatrix4(std::int32_t location, std::int32_t count, bool transpose, const float* value);
         void UseProgram(std::int32_t program);
+        void Vertex2(float x, float y);
         void Vertex3(float x, float y, float z);
         void Vertex3(::OpenTK::Mathematics::Vector3 vector);
+        void PopMatrix();
+        void PushMatrix();
         void Scissor(std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height);
         void Viewport(std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height);
     }

@@ -22,6 +22,9 @@ namespace OpenTK::Windowing::GraphicsLibraryFramework::GLFW
     bool Init() { Unavailable("glfwInit"); }
     void Terminate() { Unavailable("glfwTerminate"); }
     void PollEvents() { Unavailable("glfwPollEvents"); }
+    bool ExtensionSupported(const std::string&) { Unavailable("glfwExtensionSupported"); }
+    ProcAddress GetProcAddress(const std::string&) { Unavailable("glfwGetProcAddress"); }
+    void GetVersion(std::int32_t&, std::int32_t&, std::int32_t&) { Unavailable("glfwGetVersion"); }
     bool JoystickPresent(std::int32_t) { Unavailable("glfwJoystickPresent"); }
     bool JoystickIsGamepad(std::int32_t) { Unavailable("glfwJoystickIsGamepad"); }
     bool GetGamepadState(std::int32_t, GamepadState&) { Unavailable("glfwGetGamepadState"); }
@@ -73,6 +76,21 @@ namespace OpenTK::Windowing::GraphicsLibraryFramework::GLFW
     void PollEvents()
     {
         ::glfwPollEvents();
+    }
+
+    bool ExtensionSupported(const std::string& extension)
+    {
+        return ::glfwExtensionSupported(extension.c_str()) == GLFW_TRUE;
+    }
+
+    ProcAddress GetProcAddress(const std::string& procedure)
+    {
+        return ::glfwGetProcAddress(procedure.c_str());
+    }
+
+    void GetVersion(std::int32_t& major, std::int32_t& minor, std::int32_t& revision)
+    {
+        ::glfwGetVersion(&major, &minor, &revision);
     }
 
     bool JoystickPresent(std::int32_t jid)

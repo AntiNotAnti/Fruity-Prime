@@ -266,7 +266,7 @@ namespace MphRead::NativeRuntime::Avalonia::Media
         [[nodiscard]] double CaretX(std::size_t index) const;
         [[nodiscard]] std::size_t HitTest(double x) const;
 
-        void Draw(Skia::Canvas& canvas, Point origin, const IBrushPtr& overrideBrush = nullptr) const;
+        void Draw(Skia::Canvas& canvas, Point origin, const IBrushPtr& overrideBrush = nullptr, bool aliased = false) const;
 
     private:
         [[nodiscard]] double Measure(std::u32string_view text) const;
@@ -517,11 +517,55 @@ namespace MphRead::NativeRuntime::Avalonia::Media
     // ------------------------------------------------------------- imaging
 
     enum class BitmapInterpolationMode : std::int32_t { Unspecified, None, LowQuality, MediumQuality, HighQuality };
+    enum class EdgeMode : std::int32_t { Unspecified, Antialias, Aliased };
+    enum class BitmapBlendingMode : std::int32_t
+    {
+        Unspecified, SourceOver, Source, Destination, DestinationOver, SourceIn, DestinationIn, SourceOut,
+        DestinationOut, SourceAtop, DestinationAtop, Xor, Plus, Screen, Overlay, Darken, Lighten, ColorDodge,
+        ColorBurn, HardLight, SoftLight, Difference, Exclusion, Multiply, Hue, Saturation, Color, Luminosity
+    };
+    enum class TextRenderingMode : std::int32_t { Unspecified, Alias, Antialias, SubpixelAntialias };
 
+    // Avalonia.Media.RenderOptions: the struct a context pushes, and the
+    // attached properties that set it on a visual and flow down the tree.
     struct RenderOptions final
     {
-        BitmapInterpolationMode BitmapInterpolationMode = BitmapInterpolationMode::Unspecified;
+        Media::BitmapInterpolationMode BitmapInterpolationMode = Media::BitmapInterpolationMode::Unspecified;
+        Media::EdgeMode EdgeMode = Media::EdgeMode::Unspecified;
+        Media::TextRenderingMode TextRenderingMode = Media::TextRenderingMode::Unspecified;
+        Media::BitmapBlendingMode BitmapBlendingMode = Media::BitmapBlendingMode::Unspecified;
         std::optional<bool> RequiresFullOpacityHandling{};
+
+        static AttachedProperty<Media::BitmapInterpolationMode>& BitmapInterpolationModeProperty;
+        static AttachedProperty<Media::EdgeMode>& EdgeModeProperty;
+        static AttachedProperty<Media::TextRenderingMode>& TextRenderingModeProperty;
+
+        static void SetBitmapInterpolationMode(AvaloniaObject& element, Media::BitmapInterpolationMode mode)
+        {
+            element.SetValue(BitmapInterpolationModeProperty, mode);
+        }
+        [[nodiscard]] static Media::BitmapInterpolationMode GetBitmapInterpolationMode(const AvaloniaObject& element)
+        {
+            return element.GetValue(BitmapInterpolationModeProperty);
+        }
+        static void SetEdgeMode(AvaloniaObject& element, Media::EdgeMode mode) { element.SetValue(EdgeModeProperty, mode); }
+        [[nodiscard]] static Media::EdgeMode GetEdgeMode(const AvaloniaObject& element)
+        {
+            return element.GetValue(EdgeModeProperty);
+        }
+    };
+
+    // Avalonia.Media.TextOptions.
+    struct TextOptions final
+    {
+        static void SetTextRenderingMode(AvaloniaObject& element, Media::TextRenderingMode mode)
+        {
+            element.SetValue(RenderOptions::TextRenderingModeProperty, mode);
+        }
+        [[nodiscard]] static Media::TextRenderingMode GetTextRenderingMode(const AvaloniaObject& element)
+        {
+            return element.GetValue(RenderOptions::TextRenderingModeProperty);
+        }
     };
 
     // IImage.
@@ -541,6 +585,13 @@ namespace MphRead::NativeRuntime::Avalonia::Media
             // new Bitmap(stream) / new Bitmap(path).
             [[nodiscard]] static std::shared_ptr<Bitmap> FromBytes(const std::vector<std::uint8_t>& bytes);
             [[nodiscard]] static std::shared_ptr<Bitmap> FromFile(const std::string& path);
+            // Bitmap.DecodeToWidth(stream, width): decoded, then resampled to
+            // that width with the aspect kept.
+            [[nodiscard]] static std::shared_ptr<Bitmap> DecodeToWidth(const std::vector<std::uint8_t>& bytes,
+                std::int32_t width);
+            // new Bitmap(PixelFormat.Rgba8888, AlphaFormat.Premul, address, size, dpi, stride).
+            [[nodiscard]] static std::shared_ptr<Bitmap> FromPremultipliedRgba(const std::uint8_t* rgba,
+                Avalonia::PixelSize size, std::int32_t stride);
             explicit Bitmap(std::shared_ptr<Skia::Bitmap> pixels);
 
             [[nodiscard]] Avalonia::Size Size() const override;
@@ -561,11 +612,16 @@ namespace MphRead::NativeRuntime::Avalonia::Media
     {
     public:
         explicit DrawingContext(Skia::Canvas& canvas);
+        // A context that owns the canvas it draws with, as one made for a
+        // bitmap does.
+        explicit DrawingContext(std::unique_ptr<Skia::Canvas> canvas);
 
         void DrawText(const FormattedText& text, Point origin);
         void DrawRectangle(const IBrushPtr& brush, const IPenPtr& pen, const Rect& rect, double radiusX = 0.0,
             double radiusY = 0.0, const BoxShadows& boxShadows = {});
         void DrawRectangle(const IBrushPtr& brush, const IPenPtr& pen, const Rect& rect, const CornerRadius& radius,
+            const BoxShadows& boxShadows = {});
+        void DrawRectangle(const IBrushPtr& brush, const IPenPtr& pen, const RoundedRect& rect,
             const BoxShadows& boxShadows = {});
         void DrawRectangle(const IPenPtr& pen, const Rect& rect, double cornerRadius = 0.0);
         void FillRectangle(const IBrushPtr& brush, const Rect& rect, double cornerRadius = 0.0);
@@ -601,6 +657,7 @@ namespace MphRead::NativeRuntime::Avalonia::Media
 
         [[nodiscard]] PushedState PushClip(const Rect& clip);
         [[nodiscard]] PushedState PushClip(const Rect& clip, const CornerRadius& radius);
+        [[nodiscard]] PushedState PushClip(const RoundedRect& clip);
         [[nodiscard]] PushedState PushGeometryClip(const Geometry& clip);
         [[nodiscard]] PushedState PushOpacity(double opacity);
         [[nodiscard]] PushedState PushTransform(const Avalonia::Matrix& matrix);
@@ -611,6 +668,7 @@ namespace MphRead::NativeRuntime::Avalonia::Media
         // what Avalonia hit-tests it by.
         std::size_t DrawCount = 0;
         [[nodiscard]] const Avalonia::Matrix& CurrentTransform() const noexcept { return _transform.back(); }
+        [[nodiscard]] const RenderOptions& CurrentRenderOptions() const noexcept { return _options.back(); }
 
     private:
         void Fill(const Skia::Path& path, const IBrushPtr& brush, const Rect& bounds);
@@ -619,6 +677,7 @@ namespace MphRead::NativeRuntime::Avalonia::Media
         [[nodiscard]] PushedState Pushed();
         void PopTo(std::size_t depth) noexcept;
 
+        std::unique_ptr<Skia::Canvas> _ownedCanvas;
         Skia::Canvas& _canvas;
         std::vector<Avalonia::Matrix> _transform{Avalonia::Matrix::Identity()};
         std::vector<RenderOptions> _options{RenderOptions{}};

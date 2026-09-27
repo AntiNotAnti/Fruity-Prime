@@ -1,157 +1,69 @@
 #include "GuiTheme.hpp"
 
-#include <cmath>
-#include <limits>
-#include <stdexcept>
-#include <utility>
+#include "../../../NativeRuntime/System/Managed.hpp"
 
-namespace
-{
-    constexpr std::string_view AppIconUri
-        = "avares://FruityPrime/Assets/fruity-prime-mark.png";
-
-    [[nodiscard]] std::uint8_t DoubleToByteUnchecked(double value) noexcept
-    {
-        // net9.0 lowers an unchecked double -> byte conversion through a
-        // saturating double -> Int32 conversion followed by unchecked
-        // Int32 -> byte truncation.
-        std::int32_t integer;
-        if (std::isnan(value))
-        {
-            integer = 0;
-        }
-        else if (value <= static_cast<double>(
-            std::numeric_limits<std::int32_t>::min()))
-        {
-            integer = std::numeric_limits<std::int32_t>::min();
-        }
-        else if (value >= static_cast<double>(
-            std::numeric_limits<std::int32_t>::max()))
-        {
-            integer = std::numeric_limits<std::int32_t>::max();
-        }
-        else
-        {
-            integer = static_cast<std::int32_t>(value);
-        }
-        return static_cast<std::uint8_t>(integer);
-    }
-}
+#include <exception>
+#include <mutex>
 
 namespace MphRead::Mods::Launcher::Gui
 {
-    const GuiColor GuiTheme::Ink = GuiColor::FromRgb(10, 12, 16);
-    const GuiColor GuiTheme::Panel = GuiColor::FromRgb(18, 21, 28);
-    const GuiColor GuiTheme::PanelLight = GuiColor::FromRgb(26, 31, 41);
-    const GuiColor GuiTheme::Edge = GuiColor::FromRgb(38, 46, 60);
-    const GuiColor GuiTheme::Text = GuiColor::FromRgb(230, 234, 242);
-    const GuiColor GuiTheme::TextDim = GuiColor::FromRgb(138, 147, 166);
-    const GuiColor GuiTheme::Accent = GuiColor::FromRgb(41, 197, 255);
-    const GuiColor GuiTheme::Warm = GuiColor::FromRgb(255, 179, 71);
-    const GuiColor GuiTheme::Good = GuiColor::FromRgb(110, 231, 135);
-    const GuiColor GuiTheme::Bad = GuiColor::FromRgb(255, 107, 107);
+    using namespace ::MphRead::NativeRuntime::Avalonia;
 
-    GuiBrush GuiTheme::InkBrush{Ink};
-    GuiBrush GuiTheme::PanelBrush{Panel};
-    GuiBrush GuiTheme::PanelLightBrush{PanelLight};
-    GuiBrush GuiTheme::EdgeBrush{Edge};
-    GuiBrush GuiTheme::TextBrush{Text};
-    GuiBrush GuiTheme::TextDimBrush{TextDim};
-    GuiBrush GuiTheme::AccentBrush{Accent};
-    GuiBrush GuiTheme::WarmBrush{Warm};
-    GuiBrush GuiTheme::GoodBrush{Good};
-    GuiBrush GuiTheme::BadBrush{Bad};
-
-    GuiBrush GuiTheme::ScrimBrush{
-        GuiColor::FromArgb(196, Ink.R, Ink.G, Ink.B)};
-
-    const GuiFontFamily GuiTheme::Display{
-        "avares://Avalonia.Fonts.Inter/Assets#Inter",
-        "Inter",
-        "avares://Avalonia.Fonts.Inter/Assets"};
-
-    const GuiLazyWindowIcon GuiTheme::AppIcon{};
-
-    bool GuiLazyWindowIcon::IsValueCreated() const
+    double GuiTheme::PixelSize(double wanted)
     {
-        std::lock_guard lock(_mutex);
-        return _state == State::Completed;
+        // Nearest even point, floor of 9.
+        return ::MphRead::NativeRuntime::MathMax(9.0,
+            ::MphRead::NativeRuntime::RoundToEven(wanted / 2) * 2);
     }
 
-    const std::optional<GuiWindowIcon>& GuiLazyWindowIcon::Value() const
+    Media::Typeface GuiTheme::Face(bool bold)
     {
+        return Media::Typeface(bold ? PixelSemi : Pixel, Media::FontStyle::Normal, Media::FontWeight::Normal);
+    }
+
+    Media::FormattedText GuiTheme::Lay(std::string_view text, double size, const Media::IBrushPtr& brush, bool bold)
+    {
+        return Media::FormattedText(text, Media::InvariantCulture, Media::FlowDirection::LeftToRight, Face(bold),
+            PixelSize(size), brush);
+    }
+
+    void GuiTheme::PixelPerfect(Visual& visual)
+    {
+        // Edges aliased, glyphs not: the chunky look is the shapes, and a
+        // pixel face at eleven points with no antialiasing loses the
+        // difference between an "e" and an "o".
+        Media::RenderOptions::SetEdgeMode(visual, Media::EdgeMode::Aliased);
+        Media::TextOptions::SetTextRenderingMode(visual, Media::TextRenderingMode::Antialias);
+        // Nearest-neighbour for bitmaps too, so a map render scaled into a
+        // row is scaled the way the rest of the screen is drawn.
+        Media::RenderOptions::SetBitmapInterpolationMode(visual, Media::BitmapInterpolationMode::None);
+    }
+
+    std::shared_ptr<Controls::WindowIcon> GuiTheme::AppIcon()
+    {
+        static std::once_flag once;
+        static std::shared_ptr<Controls::WindowIcon> icon;
+        std::call_once(once, []
         {
-            std::unique_lock lock(_mutex);
-            for (;;)
+            try
             {
-                if (_state == State::Completed)
-                {
-                    return _value;
-                }
-                if (_state == State::Running)
-                {
-                    if (_owner == std::this_thread::get_id())
-                    {
-                        throw std::logic_error(
-                            "ValueFactory attempted to access the Value property of this instance.");
-                    }
-                    _condition.wait(lock, [this]
-                    {
-                        return _state != State::Running;
-                    });
-                    continue;
-                }
-
-                _state = State::Running;
-                _owner = std::this_thread::get_id();
-                break;
+                icon = Controls::WindowIcon::FromBytes(
+                    Platform::AssetLoader::Open("avares://FruityPrime/Assets/fruity-prime-mark.png"));
             }
-        }
-
-        std::optional<GuiWindowIcon> value;
-        try
-        {
-            value = Detail::GuiThemeLoadWindowIcon(AppIconUri);
-        }
-        catch (...)
-        {
-            value.reset();
-        }
-
-        {
-            std::lock_guard lock(_mutex);
-            _value = std::move(value);
-            _owner = std::thread::id{};
-            _state = State::Completed;
-        }
-        _condition.notify_all();
-        return _value;
+            catch (const std::exception&)
+            {
+                icon = nullptr;
+            }
+        });
+        return icon;
     }
 
-    GuiTypeface GuiTheme::Face(bool bold) noexcept
+    Media::Color GuiTheme::Shade(Media::Color color, double amount)
     {
-        return GuiTypeface{
-            &Display,
-            GuiFontStyle::Normal,
-            bold ? GuiFontWeight::SemiBold : GuiFontWeight::Normal,
-            GuiFontStretch::Normal
-        };
-    }
-
-    GuiColor GuiTheme::Shade(GuiColor color, double amount) noexcept
-    {
-        const double t = amount < 0.0 ? -amount : amount;
-        const int target = amount >= 0.0 ? 255 : 0;
-        return GuiColor::FromArgb(
-            color.A,
-            DoubleToByteUnchecked(color.R + (target - color.R) * t),
-            DoubleToByteUnchecked(color.G + (target - color.G) * t),
-            DoubleToByteUnchecked(color.B + (target - color.B) * t));
-    }
-
-    GuiRoundedRect GuiTheme::Round(GuiRect rect, double radius) noexcept
-    {
-        const GuiVector radii{radius, radius};
-        return GuiRoundedRect{rect, radii, radii, radii, radii};
+        const double t = amount < 0 ? -amount : amount;
+        const int target = amount >= 0 ? 255 : 0;
+        return Media::Color::FromArgb(color.A, static_cast<std::uint8_t>(color.R + (target - color.R) * t),
+            static_cast<std::uint8_t>(color.G + (target - color.G) * t),
+            static_cast<std::uint8_t>(color.B + (target - color.B) * t));
     }
 }

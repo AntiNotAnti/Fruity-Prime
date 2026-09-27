@@ -13,6 +13,7 @@ namespace MphRead
     enum class GameMode : std::uint8_t;
     enum class Hunter : std::uint8_t;
     class Scene;
+    class RenderWindow;
 }
 
 namespace MphRead::Mods::Network
@@ -36,6 +37,7 @@ namespace MphRead::Mods::Network
         static bool Join(const std::string& address, std::int32_t port,
             const std::string& playerName, Hunter hunter,
             std::int32_t timeoutMs = 8000, std::int32_t color = -1);
+        static bool TickTerminalLobby(RenderWindow& window);
 
         static const std::string& LastJoinError();
         static void DisableCheatsForMatch();

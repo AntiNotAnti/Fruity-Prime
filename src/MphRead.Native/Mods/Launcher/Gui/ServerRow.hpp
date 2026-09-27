@@ -1,293 +1,104 @@
 #pragma once
 
-#include "../../../NativeRuntime/System/Exceptions.hpp"
-#include "NativeRuntime/System/AtomicSharedPtr.hpp"
-#include "GuiTheme.hpp"
-#include "TrackedText.hpp"
-#include "../../Network/NetStatus.hpp"
+#include "Deck.hpp"
+#include "Tap.hpp"
+#include "../../../Mods/Network/NetStatus.hpp"
 
-#include <array>
-#include <atomic>
-#include <cstdint>
-#include <memory>
-#include <optional>
-#include <stdexcept>
 #include <string>
-#include <string_view>
-#include <vector>
 
 namespace MphRead::Mods::Launcher::Gui
 {
-    using ServerRowStringRef = std::shared_ptr<const std::u16string>;
+    namespace Av = ::MphRead::NativeRuntime::Avalonia;
 
-    using ServerRowNullReferenceException = ::System::NullReferenceException;
-
-    // Keep the surrogate numerically identical to Avalonia 11.3.11 Key so
-    // adapters can pass raw Key values through without remapping or collision.
-    enum class ServerRowKey : std::int32_t
-    {
-        Other = 0,
-        Enter = 6,
-        Space = 18
-    };
-
-    enum class ServerRowTextTrimming : std::uint8_t
-    {
-        CharacterEllipsis
-    };
-
-    enum class ServerRowBrushKind : std::uint8_t
-    {
-        Transparent,
-        Reference
-    };
-
-    struct ServerRowBrush final
-    {
-        ServerRowBrushKind Kind;
-        GuiBrush* Brush;
-
-        [[nodiscard]] static constexpr ServerRowBrush Transparent() noexcept
-        {
-            return ServerRowBrush{ServerRowBrushKind::Transparent, nullptr};
-        }
-
-        [[nodiscard]] static constexpr ServerRowBrush Reference(GuiBrush& brush) noexcept
-        {
-            return ServerRowBrush{ServerRowBrushKind::Reference, &brush};
-        }
-    };
-
-    struct ServerRowPointerEventArgs final
-    {
-        void* Native = nullptr;
-    };
-
-    struct ServerRowPointerPressedEventArgs final
-    {
-        void* Native = nullptr;
-    };
-
-    struct ServerRowKeyEventArgs final
-    {
-        void* Native = nullptr;
-        ServerRowKey Key = ServerRowKey::Other;
-        bool Handled = false;
-    };
-
-    struct ServerRowEventArgs final
-    {
-        static const ServerRowEventArgs Empty;
-    };
-
-    class ServerRowEventHandler final
-    {
-    public:
-        using Callback = void (*)(void* target, void* sender, const ServerRowEventArgs& args);
-
-        ServerRowEventHandler() = default;
-        ServerRowEventHandler(std::shared_ptr<void> target, Callback function);
-
-        [[nodiscard]] static ServerRowEventHandler Combine(
-            const ServerRowEventHandler& left, const ServerRowEventHandler& right);
-
-        [[nodiscard]] bool IsNull() const noexcept;
-
-        friend bool operator==(
-            const ServerRowEventHandler& left, const ServerRowEventHandler& right) noexcept;
-
-    private:
-        struct Invocation final
-        {
-            std::shared_ptr<void> Target;
-            Callback Function = nullptr;
-
-            friend bool operator==(
-                const Invocation& left, const Invocation& right) noexcept
-            {
-                return left.Target.get() == right.Target.get()
-                    && left.Function == right.Function;
-            }
-        };
-
-        explicit ServerRowEventHandler(
-            std::shared_ptr<const std::vector<Invocation>> invocations) noexcept;
-
-        std::shared_ptr<const std::vector<Invocation>> _invocations;
-
-        friend class ServerRowEvent;
-    };
-
-    class ServerRowEvent final
-    {
-    public:
-        void Add(const ServerRowEventHandler& handler);
-        void Remove(const ServerRowEventHandler& handler);
-
-    private:
-        friend class ServerRow;
-        void Invoke(void* sender, const ServerRowEventArgs& args) const;
-
-        using Invocation = ServerRowEventHandler::Invocation;
-        using InvocationList = std::vector<Invocation>;
-        ::MphRead::NativeRuntime::AtomicSharedPtr<const InvocationList> _handlers{};
-    };
-
-    class ServerRowControlAdapter
-    {
-    public:
-        virtual ~ServerRowControlAdapter() = default;
-
-        virtual void SetHeight(double height) = 0;
-        [[nodiscard]] virtual double GetHeight() const = 0;
-        virtual void SetFocusable(bool focusable) = 0;
-        virtual void SetHandCursor() = 0;
-        virtual void Focus() = 0;
-        [[nodiscard]] virtual bool IsFocused() const = 0;
-        [[nodiscard]] virtual GuiRect Bounds() const = 0;
-
-        // DefaultInterpolatedStringHandler uses CurrentCulture for the
-        // $"{players}/{maxPlayers}" branch in the C# oracle.
-        [[nodiscard]] virtual std::u16string FormatCurrentInt32(std::int32_t value) const = 0;
-
-        virtual void InvalidateVisual() = 0;
-
-        virtual void BaseOnPointerEntered(ServerRowPointerEventArgs& e) = 0;
-        virtual void BaseOnPointerExited(ServerRowPointerEventArgs& e) = 0;
-        virtual void BaseOnPointerPressed(ServerRowPointerPressedEventArgs& e) = 0;
-        virtual void BaseOnKeyDown(ServerRowKeyEventArgs& e) = 0;
-    };
-
-    class ServerHeaderControlAdapter
-    {
-    public:
-        virtual ~ServerHeaderControlAdapter() = default;
-
-        virtual void SetHeight(double height) = 0;
-        [[nodiscard]] virtual double GetHeight() const = 0;
-        virtual void SetIsHitTestVisible(bool isHitTestVisible) = 0;
-        [[nodiscard]] virtual GuiRect Bounds() const = 0;
-    };
-
-    struct ServerRowClipHandle final
-    {
-        std::uintptr_t Native = 0;
-    };
-
-    class ServerRowDrawingContext : public TrackedTextAdapter
-    {
-    public:
-        ServerRowDrawingContext() noexcept;
-        ~ServerRowDrawingContext() override = default;
-
-        virtual void FillRectangle(
-            ServerRowBrush brush, GuiRect rect, double radius = 0.0) = 0;
-        virtual void SetFormattedTextMaxTextWidth(
-            TrackedTextFormattedText& text, double maxTextWidth) = 0;
-        virtual void SetFormattedTextMaxTextHeight(
-            TrackedTextFormattedText& text, double maxTextHeight) = 0;
-        virtual void SetFormattedTextTrimming(
-            TrackedTextFormattedText& text, ServerRowTextTrimming trimming) = 0;
-        [[nodiscard]] virtual ServerRowClipHandle PushClip(GuiRect rect) = 0;
-        virtual void DisposeClip(ServerRowClipHandle handle) = 0;
-    };
-
-    class ServerRow final
+    // One server in the browser: a slab with its own map behind it.
+    class ServerRow final : public Av::Controls::Control
     {
     public:
         struct Columns final
         {
-            const double NameX;
-            const double NameWidth;
-            const double MapX;
-            const double MapWidth;
-            const double ModeX;
-            const double ModeWidth;
-            const double PlayersRight;
-            const double PlayersWidth;
-            const double PingRight;
-            const double PingWidth;
+            static constexpr double FlagWidth = 1.5 * Deck::RowEm;
+            static constexpr double FlagHeight = 1.05 * Deck::RowEm;
 
-            Columns() noexcept;
-            explicit Columns(double width) noexcept;
-            Columns(const Columns&) noexcept = default;
-            Columns(Columns&&) noexcept = default;
-            Columns& operator=(const Columns& other) noexcept;
-            Columns& operator=(Columns&& other) noexcept;
+            double FlagX = 0;
+            double NameX = 0;
+            double NameWidth = 0;
+            double MapX = 0;
+            double MapWidth = 0;
+            double ModeX = 0;
+            double ModeWidth = 0;
+            double PlayersX = 0;
+            double PlayersWidth = 0;
+            double PingX = 0;
+            double PingWidth = 0;
+            bool Narrow = false;
 
-        private:
-            static constexpr double Margin = 8.0;
-            static constexpr double Gutter = 10.0;
-            static constexpr double MaxPing = 34.0;
-            static constexpr double MaxPlayers = 52.0;
-            static constexpr double MaxMode = 66.0;
-            static constexpr double NameShare = 0.44;
-
-            using Values = std::array<double, 10>;
-            explicit Columns(const Values& values) noexcept;
-            [[nodiscard]] static Values Compute(double width) noexcept;
+            Columns(double width, bool narrow);
         };
 
-        ServerRow(ServerRowControlAdapter& control,
-            ServerRowStringRef name,
-            ServerRowStringRef endpoint);
+        static constexpr double SlabHeight = 29.6;
 
-        ServerRow(const ServerRow&) = delete;
-        ServerRow& operator=(const ServerRow&) = delete;
-        ServerRow(ServerRow&&) = delete;
-        ServerRow& operator=(ServerRow&&) = delete;
+        explicit ServerRow(std::string name, std::string endpoint);
 
-        [[nodiscard]] double Height() const;
-        void Height(double value);
+        Av::Event<ServerRow&> Clicked;
+        Av::Event<ServerRow&> Activated;
 
-        void AddClicked(const ServerRowEventHandler& handler);
-        void RemoveClicked(const ServerRowEventHandler& handler);
+        [[nodiscard]] bool IsSelected() const noexcept { return _selected; }
+        void IsSelected(bool value);
+        [[nodiscard]] bool IsLive() const noexcept { return _answered && !_asking; }
 
-        void SetStatus(::MphRead::Mods::Network::ServerStatus status);
+        void SetStatus(const ::MphRead::Mods::Network::ServerStatus& status);
+        [[nodiscard]] static Av::Media::Color PingColour(std::int32_t ms) noexcept;
 
-        void OnPointerEntered(ServerRowPointerEventArgs& e);
-        void OnPointerExited(ServerRowPointerEventArgs& e);
-        void OnPointerPressed(ServerRowPointerPressedEventArgs& e);
-        void OnKeyDown(ServerRowKeyEventArgs& e);
+        [[nodiscard]] const std::string& Endpoint() const noexcept { return _endpoint; }
+        [[nodiscard]] std::string RoomKey() const { return _answered ? _roomKey : std::string{}; }
+        [[nodiscard]] const std::string& DisplayName() const noexcept { return _name; }
+        [[nodiscard]] const std::string& MapName() const noexcept { return _map; }
+        [[nodiscard]] const std::string& ModeName() const noexcept { return _mode; }
+        [[nodiscard]] const std::string& PlayerCount() const noexcept { return _players; }
+        [[nodiscard]] const std::string& PingText() const noexcept { return _ping; }
+        [[nodiscard]] Av::Media::IBrushPtr PingBrush() const noexcept { return _pingBrush; }
 
-        void Render(ServerRowDrawingContext& context);
+        void Render(Av::Media::DrawingContext& context) override;
 
-        static void Draw(ServerRowDrawingContext& context,
-            std::optional<std::u16string_view> text, double x, double width,
-            GuiBrush* brush, bool bold, bool rightAlign, double size = 13.0);
-
-        [[nodiscard]] ServerRowStringRef Endpoint() const noexcept;
+    protected:
+        void OnPointerEntered(Av::Input::PointerEventArgs& e) override;
+        void OnPointerExited(Av::Input::PointerEventArgs& e) override;
+        void OnPointerPressed(Av::Input::PointerPressedEventArgs& e) override;
+        void OnPointerMoved(Av::Input::PointerEventArgs& e) override;
+        void OnPointerReleased(Av::Input::PointerReleasedEventArgs& e) override;
+        void OnPointerCaptureLost(Av::Input::PointerCaptureLostEventArgs& e) override;
+        void OnKeyDown(Av::Input::KeyEventArgs& e) override;
+        void OnGotFocus(Av::Input::GotFocusEventArgs& e) override;
+        void OnLostFocus(Av::Input::FocusChangedEventArgs& e) override;
 
     private:
-        ServerRowControlAdapter& _control;
-        ServerRowStringRef _name;
-        ServerRowStringRef _endpoint;
-        std::u16string _map;
-        std::u16string _mode;
-        std::u16string _players;
-        std::u16string _ping;
-        GuiBrush* _pingBrush = &GuiTheme::TextDimBrush;
+        static constexpr double Lip = 3;
+        static constexpr double LipLive = 5;
+        static constexpr double Radius = 0.4 * Deck::RowEm;
+
+        void DrawMap(Av::Media::DrawingContext& context, const Av::RoundedRect& round,
+            const Av::Rect& slab, bool live);
+        static void Cell(Av::Media::DrawingContext& context, const std::string& text,
+            double x, double width, double top, double sizeEms, bool display,
+            const Av::Media::IBrushPtr& ink, bool rightAlign = false);
+        void DrawName(Av::Media::DrawingContext& context, double x, double width,
+            double top, const Av::Media::IBrushPtr& ink);
+        static double Shadowed(Av::Media::DrawingContext& context, const std::string& text,
+            double size, const Av::Media::IBrushPtr& ink, double x, double top, double width);
+
+        const std::string _name;
+        const std::string _endpoint;
+        std::string _map = "asking…";
+        std::string _roomKey;
+        std::string _mode;
+        std::string _players = "—";
+        std::string _ping = "—";
+        Av::Media::IBrushPtr _pingBrush;
         bool _answered = false;
+        bool _asking = true;
         bool _hot = false;
-        ServerRowEvent _clicked;
-    };
-
-    class ServerHeader final
-    {
-    public:
-        explicit ServerHeader(ServerHeaderControlAdapter& control);
-
-        ServerHeader(const ServerHeader&) = delete;
-        ServerHeader& operator=(const ServerHeader&) = delete;
-        ServerHeader(ServerHeader&&) = delete;
-        ServerHeader& operator=(ServerHeader&&) = delete;
-
-        [[nodiscard]] double Height() const;
-        void Height(double value);
-
-        void Render(ServerRowDrawingContext& context);
-
-    private:
-        ServerHeaderControlAdapter& _control;
+        bool _selected = false;
+        double _lean = 0;
+        Tap _tap;
     };
 }
