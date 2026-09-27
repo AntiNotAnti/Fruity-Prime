@@ -185,6 +185,11 @@ namespace
                                            : std::string(description),
                     static_cast<std::int32_t>(code));
             }
+            double cursorX = 0.0;
+            double cursorY = 0.0;
+            ::glfwGetCursorPos(_handle, &cursorX, &cursorY);
+            _mouse.X = _lastReportedMouseX = static_cast<float>(cursorX);
+            _mouse.Y = _lastReportedMouseY = static_cast<float>(cursorY);
             _updateFrequency = settings.UpdateFrequency;
             ::glfwMakeContextCurrent(_handle);
             ::glfwSwapInterval(1);
@@ -225,6 +230,13 @@ namespace
             while (::glfwWindowShouldClose(_handle) == GLFW_FALSE)
             {
                 ::MphRead::NativeRuntime::FrameHeartbeat();
+                // OpenTK's NewInputFrame polls the current cursor position
+                // separately from the cursor callback's last-reported point.
+                double cursorX = 0.0;
+                double cursorY = 0.0;
+                ::glfwGetCursorPos(_handle, &cursorX, &cursorY);
+                _mouse.X = static_cast<float>(cursorX);
+                _mouse.Y = static_cast<float>(cursorY);
                 ::glfwPollEvents();
                 const auto now = std::chrono::steady_clock::now();
                 const double elapsed
@@ -657,8 +669,10 @@ namespace
             // MouseMoveEventArgs carries the delta, which OpenTK computes from
             // the previous position.
             MouseMoveEventArgs args;
-            args.DeltaX = newX - self->_mouse.X;
-            args.DeltaY = newY - self->_mouse.Y;
+            args.DeltaX = newX - self->_lastReportedMouseX;
+            args.DeltaY = newY - self->_lastReportedMouseY;
+            self->_lastReportedMouseX = newX;
+            self->_lastReportedMouseY = newY;
             self->_mouse.X = newX;
             self->_mouse.Y = newY;
             if (self->_events != nullptr)
@@ -691,6 +705,8 @@ namespace
         double _updateFrequency = 0.0;
         MphRead::RendererPlatform::KeyboardState _keyboard{};
         MphRead::RendererPlatform::MouseState _mouse{};
+        float _lastReportedMouseX = 0.0F;
+        float _lastReportedMouseY = 0.0F;
     };
 }
 

@@ -34,7 +34,8 @@
 - 別件の不具合監査は継続中: 試合中のカーソル表示・画面端でエイムが止まる問題を最初に監査中。次に Online の `did not answer`、続いて Online/Offline 等のメニューの重さ・メモリ使用を確認する。9月27日のカーソル/サーバー記録は当時の調査メモとして残し、今回の再監査で再確認する。
 - `InputSettings.cs` と `.cpp/.hpp` を一ファイル単位で再照合。現行C#・C++とも `stylus_mode` の明示値だけでStylusModeを有効にし、`pointer_jump_guard` は独立設定として扱う。読み込み・保存に差異なし。
 - `Renderer.cs` と `Renderer.cpp` のカーソル取得条件、PlayerInputへのpointer sample・acceptsInput引数を照合。条件と順序は一致し、C++ `CursorState::Grabbed` も OpenTK と同じ `GLFW_CURSOR_DISABLED` に対応する。コード上は同じ入力状態なら両版ともカーソルを隠し、画面端に制限されない。
-- 未完了の確認点: native `GlfwWindow` はカーソル位置を `OnCursorPos` callbackで更新する一方、C# OpenTK 4.9.4 の `MouseState.NewFrame` は `glfwGetCursorPos` でも毎入力フレーム位置を読む。NativeRuntimeのこの差が報告症状に関係するか、続けて呼び出し順と実行時状態を調べる。現時点で再現実行はしていない。
+- `NativeRuntime/OpenTK/RendererPlatform.cpp` をOpenTK 4.9.4の `NativeWindow` / `MouseState` と照合。C#はcallback差分用 `_lastReportedMousePos` と `MouseState.NewFrame` のポーリング位置を分けるが、nativeは `_mouse.X/Y` を両方に使い、`glfwGetCursorPos` を呼んでいなかった。nativeに別々の差分基準と、window作成時・event pump前の位置取得を追加。C#と同じくcallback差分と現在位置を別管理する。Windows Release `ninja -k 0` 成功（既存 `offsetof` 警告のみ）。
+- カーソル/エイム監査は継続。設定読込、Rendererのgrab条件、`GLFW_CURSOR_DISABLED` への対応は現行C#と一致し、同じ状態ならカーソルは隠れて端に制限されない。位置ポーリング差は修正済みだが、これだけで可視カーソル症状が解消したとは未確認。再現時のgrab条件と実際のGLFW cursor modeをruntimeで確認する。
 
 ### 2026-09-28 C++固有のフリーズ対策
 
