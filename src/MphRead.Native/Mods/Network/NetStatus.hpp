@@ -16,11 +16,6 @@ namespace MphRead::Mods::Network
 {
     struct ServerStatusPacket;
 
-    namespace Detail
-    {
-
-    }
-
     struct ServerStatus
     {
         SessionPhase Phase = SessionPhase::Lobby;

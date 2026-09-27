@@ -4,6 +4,7 @@
 #include "NetProtocol.hpp"
 #include "../../Formats/Formats.hpp"
 #include "../../Metadata/Metadata.hpp"
+#include "../../NativeRuntime/System/ExceptionText.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 
@@ -184,10 +185,12 @@ namespace MphRead::Mods::Network
                 catch (const ::MphRead::NativeRuntime::SocketException&)
                 {
                 }
-                catch (const std::exception& ex)
+                catch (...)
                 {
+                    const std::string message
+                        = ::MphRead::NativeRuntime::ExceptionMessage(std::current_exception());
                     return ServerStatus::Offline(
-                        "Cannot reach " + address + ": " + ex.what());
+                        "Cannot reach " + address + ": " + message);
                 }
 
                 return allowJoinProbe
@@ -369,32 +372,5 @@ namespace MphRead::Mods::Network
             builder.push_back(ch);
         }
         return builder;
-    }
-}
-
-namespace MphRead::Mods::Network::Detail
-{
-    // Existing NetLaunch.cpp consumes NetStatus through this narrow bridge so
-    // this slice can be added without modifying that already-owned file.
-    struct NetLaunchServerStatus
-    {
-        bool Online;
-        std::int32_t Players;
-        std::int32_t MaxPlayers;
-        std::int32_t Protocol;
-    };
-
-    NetLaunchServerStatus NetLaunchQueryStatus(
-        const std::string& address, std::int32_t port,
-        bool allowJoinProbe, std::int32_t timeoutMs)
-    {
-        const ServerStatus status = NetStatus::Query(
-            address, port, allowJoinProbe, timeoutMs);
-        return {
-            status.Online,
-            status.Players,
-            status.MaxPlayers,
-            status.Protocol
-        };
     }
 }
