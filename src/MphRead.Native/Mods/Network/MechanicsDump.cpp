@@ -6,6 +6,7 @@
 #include "../../Metadata/Player.hpp"
 #include "../../Metadata/Weapons.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
 
@@ -13,7 +14,6 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <iostream>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -122,11 +122,7 @@ namespace MphRead::Mods::Network
         Items(text);
         Bots(text);
         Networking(text);
-        std::cout.write(text.data(), static_cast<std::streamsize>(text.size()));
-        if (!std::cout)
-        {
-            throw std::ios_base::failure("Console write failed.");
-        }
+        ::MphRead::NativeRuntime::ConsoleWrite(text);
     }
 
     void MechanicsDump::Weapons(std::string& text)
