@@ -39,6 +39,9 @@
 - Windows上で試合中のマウス操作を自動再現できるUI操作手段がないため、カーソル症状のruntime確認は保留。既存のゲームデータは利用可能。ゲーム内で再現する際は `-debuglog` の `cursor grab=... focus=...` 行を採取し、grab解除条件を確認する。
 - Online監査開始: `PlayScreen.cs/.cpp` のサーバー一覧更新・個別status問い合わせと `NetMaster.cs/.cpp` の `Query`、`NetStatus.cs/.cpp` を一ファイルずつ比較。依頼処理・UDP query/response判定・タイムアウト時の「did not answer」表示に現時点で差異なし。Windows Release C# buildは成功（既存のobsolete警告4件）。Android buildは未実施。
 - 同一Windows環境で既存C++ Release版とC# Release版の `-servers -debuglog` を続けて実行。両方とも `net.livetek.fr:27889` から「4 listed」を受け取り、4件すべての直接status queryが「did not answer」。この再現ではC#とC++に差は出ず、現環境で報告されたC++固有差を確認できなかった。サーバーまたは経路の一時的状態と区別するため、transport実装の残りと、既知のC#正常環境での結果を引き続き確認する。
+- Online/Offline等のメニュー性能監査を開始。Windows Release版を同じ `-uibench` 条件（2560x1440ウィンドウ、1920x1080の描画面）で測定したところ、Offline mapsのScrollはC++ 70.69 ms/描画（約14 fps）、C# 8.32 ms（約117 fps）。RepaintはC++ 38.87 ms（約25 fps）、C# 14.08 ms（約70 fps）。少なくともこの画面・条件ではC++の描画コストが大きいが、実画面全般の原因やユーザー報告のPC全体フリーズを確定する値ではない。
+- `-uibench play ... -uibenchonly Scroll` は非同期のサーバー一覧がベンチ中に揃わず描画0件だったため、Online行の測定結果として扱わない。メモリ使用量・増加傾向もまだ計測しておらず、メモリリークとは判定していない。
+- 描画監査中に、native `NativeRuntime/Skia/Skia.cpp` の `Canvas::FillPath` がclip付き矩形をmask生成・一時バッファ経由で処理する経路を確認。C#側との描画意味を保ったまま差分を一ファイル単位で監査中で、これがベンチ差の原因かは未確定。現時点で修正はまだ入れていない。次はこのラスタ経路と画像blit、画面遷移時のリソース寿命をC#側と照合し、差異を見つけた場合に修正・再測定する。
 
 ### 2026-09-28 C++固有のフリーズ対策
 
