@@ -38,9 +38,9 @@ namespace MphRead::Mods::Launcher
         {
         }
 
-        std::string ServerName;
-        std::string Endpoint;
-        bool CreatedLocally = false;
+        const std::string ServerName;
+        const std::string Endpoint;
+        const bool CreatedLocally;
 
         [[nodiscard]] bool operator==(const LobbyContext&) const = default;
     };

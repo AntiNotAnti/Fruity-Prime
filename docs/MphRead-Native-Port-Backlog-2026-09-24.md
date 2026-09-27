@@ -77,7 +77,7 @@
   MapReport.ListItems。MapCheck（-mapcheck）・AltFormProbe（-altprobe）・MapReport.ListItems（-mapitems）は
   ModEntryから配線・監査済み。セクション10 完了。
 - 11 Launcher portable: 移植済み。C#原本との再監査は移植状況と別に一ファイルずつ実施中。
-  RomWhitelist・TextLauncher・GameFiles は監査完了、LaunchPlan は監査待ち。
+  RomWhitelist・TextLauncher・GameFiles・LaunchPlan は監査完了。
   LaunchPlan（LobbyContext）、GameFiles（Root=AppPaths、RomWhitelist 照合）、TextLauncher（InputEnded・insane・StartupForced）、
   NativeFilePicker（NativeRuntime に ProcessRunCaptureOutput）は移植時の確認を完了。MatchStart は RenderWindow の1ウィンドウ API を使う形へ移植し、
   C#原本との静的監査とWindows Release buildを完了。
@@ -736,7 +736,7 @@
 | A | +67/-0 | `Mods/Launcher/Portable/RomWhitelist.cs` | — 新規 | 完了（C#全文・Program/GameFiles直接呼出し監査済、MD5 file I/OをFile.OpenRead相当へ修正、Windows Release build済。実ROM runtime未実施） |
 | M | +24/-7 | `Mods/Launcher/Portable/TextLauncher.cs` | .cpp,.hpp | 完了（C#全文・ModEntry/各設定/ネットワーク/GameFiles/MatchStart直接接続監査済、整数parse overflow・例外stack出力を修正、Windows Release build済。UI runtime未実施） |
 | M | +15/-3 | `Mods/Launcher/Portable/GameFiles.cs` | .cpp,.hpp | 完了（C#全文・直接呼出し監査済、Version.TryParseの`-0`・POSIX timeoutの子孫停止・SIGPIPE処理を修正、Windows Release build済。POSIX build/runtime・抽出runtime未実施） |
-| M | +4/-0 | `Mods/Launcher/Portable/LaunchPlan.cs` | .cpp,.hpp | 監査待ち |
+| M | +4/-0 | `Mods/Launcher/Portable/LaunchPlan.cs` | .cpp,.hpp | 完了（C#全文・直接呼出し監査済、LobbyContextのinit-only性をnativeにも適用、Windows Release build済。runtime未実施） |
 
 ## 12. Launcher GUI — 70 ファイル (新規 50), C# +22132 行
 
@@ -1072,3 +1072,4 @@
 - `Mods/Launcher/Portable/RomWhitelist.cs` 全文、native `.hpp/.cpp`、`Program` のROM drag-and-drop入口、`GameFiles::RunSetup` の共通setup入口を照合。7件のMD5/label、lowercase化、認識時のlabel・不一致/読込失敗時のnullと拒否文を確認した。NativeRuntime監査は今回追加されたMD5 file helperだけに限定。`std::ifstream`を使っていたためC# `File.OpenRead`のUTF-8 path、`FileShare.Read`、open/read例外分類と異なっていた箇所を、同じ設定の `FileStream` に変更。`git diff --check`通過、Windows Release全体の `ninja -k 0` 成功。実ROM runtime未実施。Android buildは全Androidファイル監査完了後。
 - `Mods/Launcher/Portable/TextLauncher.cs` 全文とnative `.hpp/.cpp`、`ModEntry` のGUI/text fallback・`-launcher`分岐、GameFiles setup、Updater、LauncherPrefs、room/mode/hunter選択、directory browse、online join、host request/start、AdventureSave、MatchStartの直接接続を照合。menu loop・EOF終了、設定の保存順、endpoint parse、各既定値と失敗分岐は一致。C# invariant `Int32.TryParse` に対しnativeのuint64桁あふれがwrapして有効値になる差を、乗算前の上限判定で修正。C#例外stack行がnativeで常に空だった差は、既存のnative stack captureを共通API化してconsoleへ出すよう修正。`git diff --check`通過、Windows Release全体の `ninja -k 0` 成功（既存`offsetof`警告）。UI runtime未実施。Android buildは全Androidファイル監査完了後。
 - `Mods/Launcher/Portable/GameFiles.cs` 全文、native `.hpp/.cpp` と直接呼び出しを一ファイル単位で照合。paths.txtの読込・version境界・Paths初期化、ROM whitelist、desktop子プロセスの引数/作業ディレクトリ/標準入出力/10分timeout、Android in-process setup、ReportWriter、SetupScreen/TextLauncher/MatchStart/Shell/Android root設定の接続を確認した。`Version.TryParse` が受理する `-0` をnative parserが拒否する差を修正。POSIX timeoutを子孫プロセスにも適用する専用process groupを設け、入力pipeの `SIGPIPE` を全thread共通のsignal dispositionで抑止していた箇所を、呼出しthreadだけのsignal maskへ変更した。`git diff --check`通過、Windows Release全体の `ninja -k 0` 成功（既存 `offsetof` 警告）。POSIX build/runtime、実ROM抽出runtimeは未実施。Android buildは全Androidファイル監査完了後。
+- `Mods/Launcher/Portable/LaunchPlan.cs` 全文、native `.hpp/.cpp`、Hunterのenum値とResolve/Reroll呼出し、LobbyContext/LaunchPlanの生成・保持・MatchStart利用を照合。Random hunterをNetLaunchのIdentify前に一度だけ確定する順序、front screen再表示時の再抽選、全Plan項目の既定値・enum値・copy/WithRoomKey相当を確認。C# recordのinit-only性に対してnative LobbyContextの値が変更可能だったため、3フィールドをconst化。`git diff --check`通過、Windows Release全体の `ninja -k 0` 成功（既存`offsetof`警告）。画面runtime未実施。Android buildは全Androidファイル監査完了後。
