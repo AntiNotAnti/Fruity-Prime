@@ -1219,7 +1219,13 @@ namespace MphRead
             }
             case InstructionCode::END_VTXS: GL::End(); break;
             case InstructionCode::MTX_RESTORE:
-                if (!isRoom) matrixId = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
+                if (!isRoom)
+                {
+                    // NDS MTX_RESTORE uses only parameter bits 0-4. Passing the
+                    // complete 32-bit word through to the shader can turn ignored
+                    // hardware bits into an out-of-range mtx_stack[] index.
+                    matrixId = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0)) & 0x1FU;
+                }
                 GL::TexCoord3(texX, texY, matrixId);
                 break;
             case InstructionCode::NOP: break;

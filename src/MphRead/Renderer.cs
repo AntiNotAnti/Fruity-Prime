@@ -1242,7 +1242,10 @@ namespace MphRead
                     // in order to allow toggling room node transforms, keep the matrix ID at 0
                     if (!isRoom)
                     {
-                        matrixId = instruction.Arguments[0];
+                        // NDS MTX_RESTORE uses only parameter bits 0-4. The
+                        // remaining bits are ignored by the hardware and must
+                        // not become an out-of-range shader array index.
+                        matrixId = instruction.Arguments[0] & 0x1F;
                     }
                     GL.TexCoord3(texX, texY, matrixId);
                     break;
