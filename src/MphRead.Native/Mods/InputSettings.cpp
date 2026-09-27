@@ -922,10 +922,11 @@ namespace MphRead::Mods
                     ParseBind(*property, value);
                 }
             }
-            // Old files used pointer_jump_guard as the stylus master. Explicit
-            // new settings win regardless of line order.
-            Input::PointerInput::StylusMode(!IsAndroid()
-                && (stylusMode.has_value() ? *stylusMode : legacyGuard.has_value() ? *legacyGuard : false));
+            // Only an explicit stylus_mode turns stylus mode on. pointer_jump_guard
+            // was written true by every older build (it was the default), so
+            // reading it as the stylus switch released the cursor for everybody.
+            (void)legacyGuard;
+            Input::PointerInput::StylusMode(!IsAndroid() && stylusMode.has_value() && *stylusMode);
             Input::GamepadOptions::Load(lines);
             Input::PadBindings::LoadSlots(lines);
             for (auto line = lines.rbegin(); line != lines.rend(); ++line)

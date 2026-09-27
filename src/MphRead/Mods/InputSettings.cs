@@ -490,10 +490,12 @@ namespace MphRead.Mods
                         ParseBind(property, value);
                     }
                 }
-                // Old files used pointer_jump_guard as the stylus master. Explicit
-                // new settings win regardless of line order.
+                // Only an explicit stylus_mode turns stylus mode on. pointer_jump_guard
+                // was written true by every older build (it was the default), so
+                // reading it as the stylus switch released the cursor for everybody.
+                _ = legacyGuard;
                 Input.PointerInput.StylusMode = !OperatingSystem.IsAndroid()
-                    && (stylusMode ?? legacyGuard ?? false);
+                    && (stylusMode ?? false);
                 Input.GamepadOptions.Load(savedLines);
                 Input.PadBindings.LoadSlots(savedLines);
                 string? preset = savedLines.LastOrDefault(l => l.StartsWith("gamepad_preset=", StringComparison.Ordinal));
