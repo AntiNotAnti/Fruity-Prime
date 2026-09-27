@@ -557,7 +557,7 @@
 | A | +111/-0 | `Mods/Input/PointerDevice.cs` | — 新規 | 完了（C#全文・Renderer/PlayerInput呼出元監査済、device/contact/primary/delta parity確認） |
 | A | +101/-0 | `Mods/Input/ControllerRuntimeChecks.cs` | — 新規 | 完了（C#全文監査済、event timeoutの非block性を修正、Windows Release build済） |
 | M | +99/-11 | `Mods/Input/GamepadMappings.cs` | .cpp,.hpp | 完了（C#全文監査済、mapping/GUIDのUTF-16長とunchecked countを修正、Windows Release build済） |
-| A | +87/-0 | `Mods/Input/AimAssist/AimAssistTelemetry.cs` | — 新規 | 完了 |
+| A | +87/-0 | `Mods/Input/AimAssist/AimAssistTelemetry.cs` | — 新規 | 完了（C#全文・Hit/Shot/Record呼出元監査済、unchecked集計を修正、Windows Release build済） |
 | A | +85/-0 | `Mods/Input/GamepadMappingWizard.cs` | — 新規 | 完了 |
 | M | +82/-117 | `Mods/Input/GamepadInput.cs` | .cpp,.hpp | 完了 |
 | M | +79/-274 | `Mods/Input/GamepadDesktop.cs` | .cpp,.hpp | 完了 |
@@ -936,3 +936,5 @@
   event再入確認をC#のtimeout後も戻る`Task.Wait(1000)`に合わせ、timeout時にfuture破棄でblockする`std::async`をdetached packaged taskへ変更。Windows Release build済、check harness自体は未実行。
 - `Mods/Input/GamepadMappings.cs` をC#全文とnative `.cpp/.hpp`で照合。resource/settings/environmentの読込優先順、override置換、platform filter、GLFWへの一括適用、capability解析、summaryとsuggestion出力を確認。
   C# `string.Length` とnative UTF-8 byte長の差が出るmapping上限/GUID判定を既存`Utf16Length`へ合わせ、C# unchecked `int` のfiles/lines集計をwrap演算へ変更。差分修正以外はなし。Windows Release build済。
+- `Mods/Input/AimAssist/AimAssistTelemetry.cs` をC#全文とnative `.cpp/.hpp`、`AimAssistWorld`/`PlayerEntityHaptics`/`PlayerEntity`/`ModEntry`の呼出元で照合。opt-in・authority/player/spectator filter、weapon/input/range bucket、shot/hit対応、全統計値、process-exit保存、JSON項目と配列順を確認。
+  `Shots`/`HitEvents`/`Samples`/`TargetSamples`/`Switches`と`ObservedDamage`の加算をC# unchecked wrapに合わせ、native signed overflowを解消。Windows Release build済。

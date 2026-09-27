@@ -12,6 +12,7 @@
 #include "../../../NativeRuntime/System/Globalization.hpp"
 #include "../../../NativeRuntime/System/IO.hpp"
 #include "../../../NativeRuntime/System/Json.hpp"
+#include "../../../NativeRuntime/System/Managed.hpp"
 #include "../../../NativeRuntime/System/Number.hpp"
 
 #include <algorithm>
@@ -38,7 +39,7 @@ namespace MphRead::Mods::Input::AimAssist
     {
         if (_path.has_value() && _current != nullptr)
         {
-            _current->Shots++;
+            Runtime::IncrementInPlace(_current->Shots);
             LastShot[Beam(weapon)] = _current;
         }
     }
@@ -51,8 +52,9 @@ namespace MphRead::Mods::Input::AimAssist
         {
             if (const std::shared_ptr<Bucket>& bucket = LastShot[Beam(weapon)])
             {
-                bucket->HitEvents++;
-                bucket->ObservedDamage += damage;
+                Runtime::IncrementInPlace(bucket->HitEvents);
+                bucket->ObservedDamage = Runtime::UncheckedAdd(bucket->ObservedDamage,
+                    static_cast<std::int64_t>(damage));
             }
         }
     }
@@ -88,18 +90,18 @@ namespace MphRead::Mods::Input::AimAssist
             slot->Distance = Distances[range];
         }
         _current = slot;
-        slot->Samples++;
+        Runtime::IncrementInPlace(slot->Samples);
         slot->FrictionSum += result.Friction;
         slot->CorrectionSum += correction;
         if (result.TargetSlot >= 0)
         {
-            slot->TargetSamples++;
+            Runtime::IncrementInPlace(slot->TargetSamples);
             slot->SecondsOnTarget += 1.0 / 60;
             slot->ErrorSum += target.BodyError.Length();
             slot->VelocitySum += velocity;
             if (result.TargetSlot != _lastTarget)
             {
-                slot->Switches++;
+                Runtime::IncrementInPlace(slot->Switches);
             }
         }
         if (result.RotationStrength > 0)
