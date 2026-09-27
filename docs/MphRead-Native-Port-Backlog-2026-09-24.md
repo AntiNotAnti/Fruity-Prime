@@ -568,7 +568,7 @@
 | M | +71/-47 | `Mods/Input/GamepadLayout.cs` | .cpp,.hpp | 完了（C#全文・GamepadDesktop/GamepadMappings呼出元監査済、layout定義とraw readが一致、Windows Release build済） |
 | A | +69/-0 | `Mods/Input/GamepadAnalog.cs` | — 新規 | 完了（C#全文・Input/Manager/Layout/Calibration/Haptics/Checks呼出元監査済、演算と状態合成が一致、Windows Release build済） |
 | A | +62/-0 | `Mods/Input/GamepadCalibration.cs` | — 新規 | 完了（C#全文・GamepadSetupPanel/Manager/EnhancementChecks呼出元監査済、sample・percentile・apply条件一致、Windows Release build済） |
-| A | +56/-0 | `Mods/Input/GamepadGlyphs.cs` | — 新規 | 完了 |
+| A | +56/-0 | `Mods/Input/GamepadGlyphs.cs` | — 新規 | 完了（C#全文・Desktop/Manager/PadBinding/InputPrompt/UI呼出元監査済、family判定とglyph優先順一致、Windows Release build済） |
 | A | +55/-0 | `Mods/Input/AimAssist/AimAssistDebug.cs` | — 新規 | 完了 |
 | A | +54/-0 | `Mods/Input/PadAction.cs` | — 新規 | 完了 |
 | A | +54/-0 | `Mods/Input/PlayerEntityMouseFlick.cs` | — 新規 | 完了 |
@@ -952,3 +952,4 @@
 - `Mods/Input/GamepadLayout.cs` をC#全文とnative `.cpp/.hpp`、`GamepadDesktop` raw-readおよび`GamepadMappings`の選択/compatibility呼出元で照合。Xbox/flat/macOS Bluetooth各index、GUID/形状条件、axis-capability、finite軸/trigger floor、Y反転、button・hat bit mappingと境界処理が一致。修正なし。Windows Release build済。
 - `Mods/Input/GamepadAnalog.cs` をC#全文とnative `.cpp/.hpp`、`GamepadInput`/Manager/Layout/Calibration/Haptics/Checks呼出元で照合。finite clamp、radial deadzone、4 response curve、trigger hysteresis、8方向quantize、curve enum parse/format、key＋motion button合成が一致。quantizeのnearbyintはC#のties-to-evenと同じ既定rounding modeで、repoにmode変更がないことも確認。修正なし。Windows Release build済、gamepadcheck未実行。
 - `Mods/Input/GamepadCalibration.cs` をC#全文とnative `.cpp/.hpp`、`GamepadSetupPanel`のRawState採取・`GamepadManager`のtrigger変換・`GamepadEnhancementChecks`の接続で照合。2048件上限、dirty cache、rest/range各10件条件、NaN先頭のfloat percentile、左右stick range/center判定、deadzone、trigger min/maxの0.4幅条件、Apply順、Summaryのcurrent-culture書式が一致。修正なし。Windows Release build済、check harness未実行。
+- `Mods/Input/GamepadGlyphs.cs` をC#全文とnative `.cpp/.hpp`、`GamepadDesktop`/`GamepadManager`/`PadBindingState`/`InputPrompt`/launcher glyph viewの呼出元で照合。vendor ID優先順、GUID offset、name token順、設定family→device family→genericの選択、PlayStation/Nintendo remap、fallback labelsとflags `ToString`が一致。修正なし。Windows Release build済。
