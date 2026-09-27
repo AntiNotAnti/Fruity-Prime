@@ -731,7 +731,7 @@
 |---|---|---|---|---|
 | A | +320/-0 | `Mods/Launcher/Portable/NativeFilePicker.cs` | — 新規 | 完了（C#全文・SetupScreen/PlayScreen/Shell接続監査済、PATH/UTF-8出力/例外境界/COM cleanupを修正、Windows Release native build済。Linux/macOS picker runtime未実施） |
 | M | +98/-42 | `Mods/Launcher/Portable/MatchStart.cs` | .cpp,.hpp | 完了（静的監査済み、Section 12 後にビルド） |
-| M | +87/-8 | `Mods/Launcher/Portable/LauncherPrefs.cs` | .cpp,.hpp | 完了 |
+| M | +87/-8 | `Mods/Launcher/Portable/LauncherPrefs.cs` | .cpp,.hpp | 完了（C#全文・Load/Save/Directory直接接続監査済、catch(Exception)境界を修正、Windows Release native build済。runtime未実施） |
 | A | +67/-0 | `Mods/Launcher/Portable/RomWhitelist.cs` | — 新規 | 完了 |
 | M | +24/-7 | `Mods/Launcher/Portable/TextLauncher.cs` | .cpp,.hpp | 完了 |
 | M | +15/-3 | `Mods/Launcher/Portable/GameFiles.cs` | .cpp,.hpp | 完了 |
@@ -1067,3 +1067,4 @@
 ### 2026-09-28 Section 11 Launcher portable監査
 
 - `Mods/Launcher/Portable/NativeFilePicker.cs` 全文をnative `.hpp/.cpp`と照合。WindowsのSTA dialog/owner/filter/flags、LinuxのPATH検索順とzenity/kdialog引数、macOS osascript escaping、cancel時null・既存file確認・失敗ログを確認。`SetupScreen`/`PlayScreen`のpicker選択後処理と`Shell`のOwner/Suppressed設定も照合。nativeのPATH読込を `EnvironmentGetVariable`、tool stdoutを.NET互換UTF-8 decode、例外捕捉をC# `catch (Exception)`相当へ修正し、COM apartment cleanupをRAIIで保証した。`git diff --check`通過、Windows Release `fruity_mphread_native` compile/link green。Linux/macOS picker実行は未実施。
+- `Mods/Launcher/Portable/LauncherPrefs.cs` 全文とnative `.hpp/.cpp`を照合。全既定値、launcher.txtのpath、行/キー/value trim、key別の空値・範囲条件、Invariant整数/Boolean/Hunter enum parsing、color clamp、window mode/geometry parser、保存キーと順序を確認。Shell/StartScreen/ModEntry/TextLauncher/各GUI・WindowGeometry/Diagnostics/Android MainActivity・PreviewService・AndroidApp のLoad/Save/Directory直接接続も照合。C# `catch (Exception)` に対しnative `Load`/`Save` が `std::exception` のみだったためcatch-allを追加。`git diff --check`通過、Windows Release `fruity_mphread_native` compile/link green。runtime未実施。Android buildは全Androidファイル監査完了後。

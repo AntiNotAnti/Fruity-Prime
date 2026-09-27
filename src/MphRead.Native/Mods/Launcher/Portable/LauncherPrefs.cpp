@@ -584,6 +584,9 @@ namespace MphRead::Mods::Launcher
         catch (const std::exception&)
         {
         }
+        catch (...)
+        {
+        }
     }
 
     void LauncherPrefs::Save()
@@ -636,6 +639,9 @@ namespace MphRead::Mods::Launcher
             FileWriteAllLines(path, lines);
         }
         catch (const std::exception&)
+        {
+        }
+        catch (...)
         {
         }
     }
