@@ -953,3 +953,8 @@
 - `Mods/Input/GamepadAnalog.cs` をC#全文とnative `.cpp/.hpp`、`GamepadInput`/Manager/Layout/Calibration/Haptics/Checks呼出元で照合。finite clamp、radial deadzone、4 response curve、trigger hysteresis、8方向quantize、curve enum parse/format、key＋motion button合成が一致。quantizeのnearbyintはC#のties-to-evenと同じ既定rounding modeで、repoにmode変更がないことも確認。修正なし。Windows Release build済、gamepadcheck未実行。
 - `Mods/Input/GamepadCalibration.cs` をC#全文とnative `.cpp/.hpp`、`GamepadSetupPanel`のRawState採取・`GamepadManager`のtrigger変換・`GamepadEnhancementChecks`の接続で照合。2048件上限、dirty cache、rest/range各10件条件、NaN先頭のfloat percentile、左右stick range/center判定、deadzone、trigger min/maxの0.4幅条件、Apply順、Summaryのcurrent-culture書式が一致。修正なし。Windows Release build済、check harness未実行。
 - `Mods/Input/GamepadGlyphs.cs` をC#全文とnative `.cpp/.hpp`、`GamepadDesktop`/`GamepadManager`/`PadBindingState`/`InputPrompt`/launcher glyph viewの呼出元で照合。vendor ID優先順、GUID offset、name token順、設定family→device family→genericの選択、PlayStation/Nintendo remap、fallback labelsとflags `ToString`が一致。修正なし。Windows Release build済。
+
+### 2026-09-27 native launcher regression audit
+
+- `NativeRuntime/System/Tasks.cpp` の `TaskRun` を `Tasks.hpp` とC# `Task.Run`、全native直接呼出元（特に `NetMasterClient::FindHosts` のサーバー行ごとの並列問い合わせ）で照合。C#は共有ThreadPoolへ投入するがnativeは呼出しごとにOSスレッドをdetachしていた。hardware concurrencyまで遅延拡張する共有キューに変更し、行数に比例するスレッド・スタック生成を止めた。Windows Releaseのnative static library compile/link成功。ネットワーク実サーバーでの応答確認は未実施。
+- Launcher CPU/memory診断: `-uibench maps -uibenchsize 1280x720 -uibenchonly Paint` はrender 97.09 ms、約10 fps。併せたプロセスメモリ採取はprivate bytes最大57.5 MB、working set最大65.4 MB、5 threadsで、この測定内に増え続けるメモリは観測しなかった。1920x1080ではrender 229.08 ms、約4 fps。従ってOffline画面の再描画はCPU描画の重さが直接確認できたが、この診断だけではユーザーPC全体のフリーズ原因や1080pのメモリ状態は確定しない。UI描画の修正とOnline画面の実サーバー確認は継続。

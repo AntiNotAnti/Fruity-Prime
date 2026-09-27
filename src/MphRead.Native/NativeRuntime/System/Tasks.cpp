@@ -1,7 +1,11 @@
 #include "Tasks.hpp"
 #include "Exceptions.hpp"
 
+#include <algorithm>
 #include <chrono>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
 
 #include <string>
 #include <thread>
@@ -18,6 +22,79 @@
 #include <pthread.h>
 #endif
 #include <utility>
+
+namespace
+{
+    class TaskThreadPool final
+    {
+    public:
+        void Queue(std::function<void()> action)
+        {
+            std::unique_lock lock(_mutex);
+            _queue.push_back(std::move(action));
+
+            const unsigned int processorCount = std::max(1U, std::thread::hardware_concurrency());
+            if (_workers < processorCount && _idleWorkers == 0)
+            {
+                ++_workers;
+                try
+                {
+                    std::thread([this] { Worker(); }).detach();
+                }
+                catch (...)
+                {
+                    --_workers;
+                    _queue.pop_back();
+                    throw;
+                }
+            }
+
+            lock.unlock();
+            _ready.notify_one();
+        }
+
+    private:
+        void Worker()
+        {
+            for (;;)
+            {
+                std::function<void()> action;
+                {
+                    std::unique_lock lock(_mutex);
+                    ++_idleWorkers;
+                    _ready.wait(lock, [this] { return !_queue.empty(); });
+                    --_idleWorkers;
+                    action = std::move(_queue.front());
+                    _queue.pop_front();
+                }
+
+                try
+                {
+                    action();
+                }
+                catch (...)
+                {
+                    // Task.Run captures exceptions in its returned task.
+                    // These fire-and-forget callers do not observe that task.
+                }
+            }
+        }
+
+        std::mutex _mutex;
+        std::condition_variable _ready;
+        std::deque<std::function<void()>> _queue;
+        unsigned int _workers = 0;
+        unsigned int _idleWorkers = 0;
+    };
+
+    TaskThreadPool& SharedTaskThreadPool()
+    {
+        // ThreadPool workers are background work and must not hold process
+        // shutdown open, as with the managed ThreadPool.
+        static TaskThreadPool* pool = new TaskThreadPool();
+        return *pool;
+    }
+}
 
 namespace MphRead::NativeRuntime
 {
@@ -82,17 +159,6 @@ namespace MphRead::NativeRuntime
         {
             return;
         }
-        std::thread([work = std::move(action)]()
-        {
-            // An exception inside the task is captured by the task; one nobody
-            // observes does not end the process.
-            try
-            {
-                work();
-            }
-            catch (...)
-            {
-            }
-        }).detach();
+        SharedTaskThreadPool().Queue(std::move(action));
     }
 }
