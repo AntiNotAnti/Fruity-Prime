@@ -17,6 +17,11 @@ namespace MphRead
     class WeaponInfo;
 }
 
+namespace MphRead::Mods::Network
+{
+    class NetPlayerLifecycle;
+}
+
 namespace MphRead::Entities
 {
     class PlayerEntity;
@@ -136,7 +141,6 @@ namespace MphRead::Entities
         // spawns it. Zero for anything nobody aimed.
         std::uint32_t ModLaunchFrame = 0;
         [[nodiscard]] const Mods::Network::ShotKey& ModLaunchKey() const noexcept { return _modLaunchKey; }
-        void ModLaunchKey(const Mods::Network::ShotKey& value) noexcept { _modLaunchKey = value; }
         // Spawn's firing phase must survive until a Shock Coil beam tests an enemy.
         std::uint64_t ModContinuousPhase = 0;
         bool ModHasSharedContinuousPhase = false;
@@ -248,6 +252,9 @@ namespace MphRead::Entities
             ModelInstance& inst, std::int32_t index) override;
 
     private:
+        friend class ::MphRead::Mods::Network::NetPlayerLifecycle;
+        void ModLaunchKey(const Mods::Network::ShotKey& value) noexcept { _modLaunchKey = value; }
+
         Mods::Network::ShotKey _modLaunchKey{};
         void CheckCollision();
         void ProcessRicochet(Formats::CollisionResult colRes);

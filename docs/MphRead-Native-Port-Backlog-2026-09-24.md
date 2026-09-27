@@ -28,8 +28,8 @@
 
 ### 2026-09-28 現在の監査状態
 
-- 表の302項目中293項目はC#対比監査済み、8項目は監査待ち、1項目は監査中。監査待ちはSection 13の8ファイル。TapCheckはC#全文・14ケース・`-tapcheck`接続を監査し、Windows Releaseで14件すべて成功。GameFilesのPOSIX修正はmacOS/Clang・Linux/GCC CIで成功。Windows/MSVC CIのC2015を受け、`Globalization.hpp`の非ASCII文字リテラルを同じUnicode値のescape表記へ置換し、Windows Release build成功。MSVC CIで再確認中。
-- Section 14 のAndroid 17ファイルは監査完了。共通nativeコードの残り監査・修正後に、arm64-v8aとx86_64の最終buildを実施する。
+- 表の302項目中294項目はC#対比監査済み、7項目は監査待ち、1項目は監査中。監査待ちはSection 13の `PlayerCollision.cs`、`NodeDefenseEntity.cs`、`Mods/Credits.cs`、`18_AlimbicTurret.cs`、`ItemInstanceEntity.cs`、`HalfturretEntity.cs`、`PlayerDraw.cs`。TapCheckはC#全文・14ケース・`-tapcheck`接続を監査し、Windows Releaseで14件すべて成功。BeamProjectileEntityはPR #1のC#差分66追加/33削除を照合し、`ModLaunchKey`のinternal setter範囲を修正、Windows Release全体build成功。GameFilesのPOSIX修正はmacOS/Clang・Linux/GCC CIで成功。Windows/MSVC CIのC2015を受けた`Globalization.hpp`のUnicode escape修正はローカルWindows Release build成功、CI run `36340165495` で再確認中。
+- Section 14 のAndroid 17ファイルは監査完了。CI run `36340165478` はarm64-v8aとx86_64の両方が成功（source SHA `bacb564c`）。その後に共通nativeの `BeamProjectileEntity.hpp` を変更したため、残りの共通native監査・修正後に両ABIの最終buildを再実施する。
 
 - 済: 1 Platform helpers / 3 Mods leaves / 8 Multiplayer・teams
   （ea3398e9 まで）。
@@ -829,7 +829,7 @@
 | M | +102/-126 | `GameState.cs` | .cpp,.hpp | 完了（C# PR #1差分監査・PlayPickedMap接続・Windows Release build済、runtime未実施） |
 | M | +95/-11 | `Entities/Players/PlayerAi.cs` | .cpp,.hpp | 完了（C# PR #1差分監査・Insane AI移植・Windows Release build済、runtime未実施） |
 | M | +71/-3 | `Formats/Formats.cs` | .cpp,.hpp | 完了（C# PR #1差分監査・Paths/Span対応・Windows Release build済） |
-| M | +66/-33 | `Entities/BeamProjectileEntity.cs` | .cpp,.hpp | 監査待ち（C#原本との個別対比監査前） |
+| M | +66/-33 | `Entities/BeamProjectileEntity.cs` | .cpp,.hpp | 完了（PR #1のC#差分全hunkとnative `.cpp/.hpp`、Spawn/ricochet・TeamRules・ContinuousWeaponPhase・NetPlayerLifecycle直接接続を照合。ModLaunchKeyのinternal setterをNetPlayerLifecycle限定に修正。Windows Release全体 `ninja -k 0` 成功、runtime未実施） |
 | M | +54/-0 | `Shaders.cs` | .cpp,.hpp | 完了（LauncherPhoto依存の2 shaderをC#と完全一致照合） |
 | M | +48/-6 | `Entities/Players/PlayerEntity.cs` | .cpp,.hpp | 完了（C# PR #1差分監査済、Windows Release build済） |
 | M | +45/-12 | `Read.cs` | .cpp,.hpp | 完了（C# PR #1差分監査・memory archive展開/診断・Windows Release build済、runtime未実施） |
@@ -882,8 +882,7 @@
 ### 2026-09-27 checkpoint gates
 
 - Section 12 launcher GUI は commit `12a7433b`、Section 2 diagnostics は `a535e260` で `develop2` にpush済み。
-- Section 13 の34ファイルとSection 12から延期したRenderer/side-scene呼び出しはC#原本との監査・配線を完了。
-  Windows Release buildで全native targetをcompile/link済み。画面runtimeは未実施。
+- Section 13 の34ファイルは移植・配線済みで、Windows Release buildのcompile/linkも完了。2026-09-28に行別の監査記録を照合した結果、当時の「34ファイル監査完了」という一括記録だけでは8行の個別C#監査を確認できなかった。BeamProjectileEntityを今回再監査し、残る7行は表で監査待ち。Section 13全体の監査完了とは扱わない。
 - Androidは17ファイルすべてのC#監査・MainActivity/AppBuilder/Renderer呼び出し配線後にarm64-v8aとx86_64をbuildした。
   両ABIともstatic library link成功（`build/native-android-arm64-v8a/build-retry10.log`、
   `build/native-android-x86_64/build-retry10.log`）。端末・実機runtimeは未実施。
@@ -1081,3 +1080,4 @@
 - macOS/Clang CIでGameFilesのDarwin signal-set macrosに対する`::`修飾と、macOS未提供の`sigtimedwait`を検出。`sigwait`を使うPOSIX共通処理へ変更し、再ビルドで確認中。
 - Windows/MSVC CIで`Globalization.hpp::CharIsWhiteSpace`の非ASCII character literalがC2015になることを検出。該当コードポイントだけをC# `char.IsWhiteSpace`と照合してUnicode escapeへ置換し、NativeRuntimeの確認を変更範囲に限定した。`git diff --check`とWindows Release全体の `ninja -k 0` 成功。MSVC CIで再確認中。
 - `Mods/Launcher/Gui/TapCheck.cs` 全文とnative `TapCheck.hpp/.cpp` の14ケースを順序・gesture・座標・期待値・出力まで照合し、C#/native両ModEntryの`-tapcheck`接続を確認。差異なし。Windows Release `FruityPrime.exe -tapcheck` は14/14成功。
+- `Entities/BeamProjectileEntity.cs` をPR #1 base `dcdc900f` からC# head `fe453ce6` までの差分（+66/-33）で全hunk照合し、native `.hpp/.cpp` と直接接続を比較。projectile shot identity、stale ricochet parent拒否、continuous weapon phase/ammo・damage cadence、team ally時のlife drain/homing除外、diagnostic、pooled beam spawn transformはnative実装と一致。`ModLaunchKey`だけC# `internal set` に対しnative setterがpublicだったため、`NetPlayerLifecycle` friendだけが書けるprivate setterへ修正。`git diff --check`とWindows Release全体 `ninja -k 0` 成功（既存`offsetof`警告）。ゲームruntime未実施。
