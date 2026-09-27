@@ -40,6 +40,7 @@
 #if !defined(_WIN32)
 #include <poll.h>
 #include <pthread.h>
+#include <signal.h>
 #include <time.h>
 #endif
 
@@ -860,7 +861,9 @@ namespace
     {
         static constexpr std::string_view text = "y\n\n";
         sigset_t sigpipe{};
-        if (::sigemptyset(&sigpipe) != 0 || ::sigaddset(&sigpipe, SIGPIPE) != 0)
+        // Darwin exposes these three sigset helpers as macros, so they cannot
+        // be qualified with the global namespace operator.
+        if (sigemptyset(&sigpipe) != 0 || sigaddset(&sigpipe, SIGPIPE) != 0)
         {
             throw std::ios_base::failure(ErrnoMessage(errno));
         }
@@ -881,7 +884,7 @@ namespace
         {
             throw std::ios_base::failure(ErrnoMessage(errno));
         }
-        const bool alreadyPending = ::sigismember(&pendingBefore, SIGPIPE) == 1;
+        const bool alreadyPending = sigismember(&pendingBefore, SIGPIPE) == 1;
 
         std::size_t offset = 0;
         while (offset < text.size())
@@ -901,10 +904,17 @@ namespace
             {
                 if (!alreadyPending)
                 {
-                    const timespec noWait{};
-                    while (::sigtimedwait(&sigpipe, nullptr, &noWait) < 0
-                        && errno == EINTR)
+                    int receivedSignal = 0;
+                    int waitError = 0;
+                    do
                     {
+                        waitError = ::sigwait(&sigpipe, &receivedSignal);
+                    }
+                    while (waitError == EINTR);
+                    if (waitError != 0 || receivedSignal != SIGPIPE)
+                    {
+                        throw std::ios_base::failure(ErrnoMessage(
+                            waitError != 0 ? waitError : EIO));
                     }
                 }
                 return;
