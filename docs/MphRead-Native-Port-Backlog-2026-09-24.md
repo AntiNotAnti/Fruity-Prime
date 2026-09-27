@@ -551,7 +551,7 @@
 | A | +199/-0 | `Mods/Input/GamepadProfiles.cs` | — 新規 | 完了（C#全文監査済、UTF-16/JSON/revision parity修正） |
 | A | +158/-0 | `Mods/Input/GamepadEnhancementChecks.cs` | — 新規 | 完了（C#全文監査済、チェック順・条件・例外を照合、Windows Release build済） |
 | A | +141/-0 | `Mods/Input/WeaponWheel.cs` | — 新規 | 完了（C#全文・HUD呼出元監査済、drag/availability境界を照合、Windows Release build済） |
-| A | +117/-0 | `Mods/Input/GamepadOptionState.cs` | — 新規 | 完了 |
+| A | +117/-0 | `Mods/Input/GamepadOptionState.cs` | — 新規 | 完了（C#全文監査済、defaults/Load/Write/Clone/Resetを照合、Windows Release build済） |
 | A | +116/-0 | `Mods/Input/GamepadUiRouter.cs` | — 新規 | 完了 |
 | A | +115/-0 | `Mods/Input/AimAssist/AimAssistWorld.cs` | — 新規 | 完了 |
 | A | +111/-0 | `Mods/Input/PointerDevice.cs` | — 新規 | 完了 |
@@ -924,3 +924,5 @@
   `GamepadProbe.Actions`は入力bindingを読むだけの処理であり、C#の2回評価とnativeの1回キャッシュによる結果差はない。native差分修正なし。Windows Release build済、check harness自体は未実行。
 - `Mods/Input/WeaponWheel.cs` をC#全文とnative `.cpp/.hpp`、HUDの直接呼出元で照合。absolute-device判定、drag開始/close時の初期化、step既定値、累積移動と離散step、未所持武器のskip、端での停止、範囲外availabilityの拒否が一致。
   呼出元のcurrent slotは`-1..5`、availabilityは6要素配列で、native spanの受け渡しも対応。native差分修正なし。Windows Release build済。
+- `Mods/Input/GamepadOptionState.cs` をC#全文とnative `.cpp/.hpp`で照合。field defaults、重複keyの後勝ち、culture/invariant parseの使い分け、finite/range fallback、legacy keys、enum/wheel-order validation、全fieldのWrite順、Clone/Resetを確認。
+  native差分修正なし。Windows Release build済。
