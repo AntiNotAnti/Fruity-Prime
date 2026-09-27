@@ -7,7 +7,7 @@
 #include "../SpectatorMode.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
-#include "../../Hud/HudInfo.hpp"
+#include "../../HUD/HudInfo.hpp"
 
 namespace MphRead::Entities
 {

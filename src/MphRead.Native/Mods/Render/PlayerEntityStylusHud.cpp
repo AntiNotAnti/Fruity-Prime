@@ -5,7 +5,7 @@
 #include "../../Scene.hpp"
 #include "../Input/GamepadInput.hpp"
 #include "../Input/StylusZone.hpp"
-#include "../../Hud/HudInfo.hpp"
+#include "../../HUD/HudInfo.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
