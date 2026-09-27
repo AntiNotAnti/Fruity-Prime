@@ -112,7 +112,7 @@
   LaunchPlan（LobbyContext）、GameFiles（Root=AppPaths、RomWhitelist 照合）、TextLauncher（InputEnded・insane・StartupForced）、
   NativeFilePicker（NativeRuntime に ProcessRunCaptureOutput）は移植時の確認を完了。MatchStart は RenderWindow の1ウィンドウ API を使う形へ移植し、
   C#原本との静的監査とWindows Release buildを完了。
-- 12 完了（移植差分）。今回のカーソル・Online・メニュー性能のruntime不具合監査は上記進捗ログで別途継続。C# は Avalonia headless + Skia CPU ラスタ → GL 転送（UiTopLevel/UiSurface/UiOverlay）。
+- 12 移植差分は完了。不具合監査は進行中（カーソル → Online → メニュー性能/メモリ）。カーソルruntime再現は保留、OnlineのC#との差は未解決、メニュー描画の性能差は残存、長時間メモリは未確認。詳細は上記進捗ログを参照。C# は Avalonia headless + Skia CPU ラスタ → GL 転送（UiTopLevel/UiSurface/UiOverlay）。
   旧 NativeRuntime/Gui（Element ツリー + GL 直描画、グラデーション・楕円・パス・影なし）では足りないので、
   C# と同じ形で NativeRuntime に再現する:
   (A) NativeRuntime/Skia: CPU RGBA premul キャンバス（AA パス塗り、ストローク、線形/放射グラデーション、
