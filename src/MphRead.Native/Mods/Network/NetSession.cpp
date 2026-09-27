@@ -96,9 +96,21 @@ namespace
                 index += unit.Length;
                 continue;
             }
-            result.push_back(unit.Value <= 0x7FU
-                ? static_cast<std::uint8_t>(unit.Value)
-                : static_cast<std::uint8_t>('?'));
+            if (unit.Value <= 0x7FU)
+            {
+                result.push_back(static_cast<std::uint8_t>(unit.Value));
+            }
+            else
+            {
+                // Encoding.ASCII replaces an unsupported UTF-16 code unit
+                // with '?'. A supplementary scalar occupies a surrogate
+                // pair, so the C# encoder emits two replacement bytes.
+                result.push_back(static_cast<std::uint8_t>('?'));
+                if (unit.Value > 0xFFFFU)
+                {
+                    result.push_back(static_cast<std::uint8_t>('?'));
+                }
+            }
             index += unit.Length;
         }
         return result;
@@ -1200,7 +1212,7 @@ namespace MphRead::Mods::Network
             if (generation == 0 || (previous != 0 && generation != previous
                 && !NetLifecycleTracker::Newer(generation, previous)))
             {
-                NetPlayerLifecycle::WrongGeneration++;
+                IncrementInPlace(NetPlayerLifecycle::WrongGeneration);
                 return;
             }
         }
@@ -1284,14 +1296,14 @@ namespace MphRead::Mods::Network
             if (state.AuthorityEpoch != previous->AuthorityEpoch
                 && !NetLifecycleTracker::Newer(state.AuthorityEpoch, previous->AuthorityEpoch))
             {
-                NetPlayerLifecycle::CrossAuthority++;
+                IncrementInPlace(NetPlayerLifecycle::CrossAuthority);
                 return;
             }
             if (state.AuthorityEpoch == previous->AuthorityEpoch
                 && state.MatchId != previous->MatchId
                 && !NetLifecycleTracker::Newer(state.MatchId, previous->MatchId))
             {
-                NetPlayerLifecycle::CrossMatch++;
+                IncrementInPlace(NetPlayerLifecycle::CrossMatch);
                 return;
             }
             if (state.AuthorityEpoch == previous->AuthorityEpoch
@@ -1363,12 +1375,12 @@ namespace MphRead::Mods::Network
     {
         if (match == 0 || match != CurrentMatchId())
         {
-            NetPlayerLifecycle::CrossMatch++;
+            IncrementInPlace(NetPlayerLifecycle::CrossMatch);
             return false;
         }
         if (epoch == 0 || epoch != AuthorityEpoch())
         {
-            NetPlayerLifecycle::CrossAuthority++;
+            IncrementInPlace(NetPlayerLifecycle::CrossAuthority);
             return false;
         }
         return true;
