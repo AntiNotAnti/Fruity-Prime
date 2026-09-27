@@ -338,11 +338,11 @@ namespace MphRead::Entities
                 {
                     if (&player != _owner && player.Health() > 0)
                     {
-                        ++Mods::Network::NetDamage::BombTeamSkips;
+                        ::MphRead::NativeRuntime::IncrementInPlace(Mods::Network::NetDamage::BombTeamSkips);
                     }
                     continue;
                 }
-                ++Mods::Network::NetDamage::BombPlayerChecks;
+                ::MphRead::NativeRuntime::IncrementInPlace(Mods::Network::NetDamage::BombPlayerChecks);
                 const Vector3 gapVector = player.Volume().SpherePosition
                     - static_cast<Vector3>(Position);
                 const float gap = Length(gapVector);
@@ -356,7 +356,7 @@ namespace MphRead::Entities
                 }
                 if (player.CheckHitByBomb(this, false))
                 {
-                    ++Mods::Network::NetDamage::BombHits;
+                    ::MphRead::NativeRuntime::IncrementInPlace(Mods::Network::NetDamage::BombHits);
                     hitEntity = &player;
                     _flags |= BombFlags::Exploding;
                 }

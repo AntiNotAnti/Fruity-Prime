@@ -631,7 +631,8 @@ namespace MphRead::Entities
             }
             if (Mods::Network::NetLog::Enabled())
             {
-                ManagedAt(Mods::Network::NetDamage::PlayerChecks, Index(player.SlotIndex()))++;
+                ::MphRead::NativeRuntime::IncrementInPlace(
+                    ManagedAt(Mods::Network::NetDamage::PlayerChecks, Index(player.SlotIndex())));
             }
             const bool hasHalfturret = player.Hunter() == Hunter::Weavel
                 && TestFlag(player.Flags2(), PlayerFlags2::Halfturret);
@@ -689,8 +690,10 @@ namespace MphRead::Entities
                 Mods::Network::NetDamage::NotePlayerOverlap(_owner.get(), player);
                 if (Mods::Network::NetLog::Enabled())
                 {
-                    ManagedAt(Mods::Network::NetDamage::PlayerOverlaps, Index(player.SlotIndex()))++;
-                    ManagedAt(Mods::Network::NetDamage::PlayerAccepted, Index(player.SlotIndex()))++;
+                    ::MphRead::NativeRuntime::IncrementInPlace(
+                        ManagedAt(Mods::Network::NetDamage::PlayerOverlaps, Index(player.SlotIndex())));
+                    ::MphRead::NativeRuntime::IncrementInPlace(
+                        ManagedAt(Mods::Network::NetDamage::PlayerAccepted, Index(player.SlotIndex())));
                 }
                 minDist = playerRes.Distance;
                 anyRes = playerRes;
@@ -700,7 +703,8 @@ namespace MphRead::Entities
             }
             else if (hitPlayer && Mods::Network::NetLog::Enabled())
             {
-                ManagedAt(Mods::Network::NetDamage::PlayerOverlaps, Index(player.SlotIndex()))++;
+                ::MphRead::NativeRuntime::IncrementInPlace(
+                    ManagedAt(Mods::Network::NetDamage::PlayerOverlaps, Index(player.SlotIndex())));
             }
 
             if (hasHalfturret && _owner.get() != playerTurret.get())
@@ -2123,10 +2127,10 @@ namespace MphRead::Entities
 
             if (beamRef._beam == BeamType::ShockCoil && RequireReference(owner).Type == EntityType::Player)
             {
-                ++Mods::Network::NetDamage::ShockCoilSpawned;
+                ::MphRead::NativeRuntime::IncrementInPlace(Mods::Network::NetDamage::ShockCoilSpawned);
                 if (beamRef._target)
                 {
-                    ++Mods::Network::NetDamage::ShockCoilAcquired;
+                    ::MphRead::NativeRuntime::IncrementInPlace(Mods::Network::NetDamage::ShockCoilAcquired);
                 }
             }
             if (Mods::Network::NetSession::Active() && TestFlag(weapon.Flags, WeaponFlags::Continuous))

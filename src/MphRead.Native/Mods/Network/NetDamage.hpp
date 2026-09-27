@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../Entities/Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "NetProtocol.hpp"
 #include "NetShotDiagnostics.hpp"
 
@@ -106,16 +107,25 @@ namespace MphRead::Mods::Network
         public:
             explicit PredictionScoreScope(bool active) : _active(active)
             {
-                if (active && _predictionScoreDepth++ == 0)
+                if (active)
                 {
-                    SaveScores();
+                    const bool outermost = _predictionScoreDepth == 0;
+                    ::MphRead::NativeRuntime::IncrementInPlace(_predictionScoreDepth);
+                    if (outermost)
+                    {
+                        SaveScores();
+                    }
                 }
             }
             ~PredictionScoreScope()
             {
-                if (_active && --_predictionScoreDepth == 0)
+                if (_active)
                 {
-                    RestoreScores();
+                    ::MphRead::NativeRuntime::DecrementInPlace(_predictionScoreDepth);
+                    if (_predictionScoreDepth == 0)
+                    {
+                        RestoreScores();
+                    }
                 }
             }
             PredictionScoreScope(const PredictionScoreScope&) = delete;

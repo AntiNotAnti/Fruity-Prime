@@ -70,11 +70,11 @@ namespace MphRead::Mods::Network
         {
             if (LengthSquared(shooter.Speed()) > 0.0004F)
             {
-                FiredMoving++;
+                IncrementInPlace(FiredMoving);
             }
             else
             {
-                FiredStill++;
+                IncrementInPlace(FiredStill);
             }
         }
         if (NetLog::Enabled())
@@ -293,9 +293,10 @@ namespace MphRead::Mods::Network
         {
             return;
         }
+        const std::int32_t signedAmount = std::bit_cast<std::int32_t>(amount);
         if (fromBomb)
         {
-            BombDamageDealt = UncheckedAdd(BombDamageDealt, std::bit_cast<std::int32_t>(amount));
+            BombDamageDealt = UncheckedAdd(BombDamageDealt, signedAmount);
             IncrementInPlace(BombDamageHits);
         }
         else
@@ -304,7 +305,7 @@ namespace MphRead::Mods::Network
             if (beamIndex >= 0 && beamIndex < static_cast<std::int32_t>(DamageByBeam.size()))
             {
                 const auto index = static_cast<std::size_t>(beamIndex);
-                DamageByBeam[index] = UncheckedAdd(DamageByBeam[index], std::bit_cast<std::int32_t>(amount));
+                DamageByBeam[index] = UncheckedAdd(DamageByBeam[index], signedAmount);
                 IncrementInPlace(HitsByBeam[index]);
             }
         }
@@ -315,11 +316,12 @@ namespace MphRead::Mods::Network
         }
         const auto index = static_cast<std::size_t>(slot);
         const auto weapon = static_cast<std::size_t>(NetShotDiagnostics::Bucket(beam));
-        NetShotDiagnostics::AuthorityHits[weapon]++;
-        NetShotDiagnostics::AuthorityDamage[weapon] += amount;
+        IncrementInPlace(NetShotDiagnostics::AuthorityHits[weapon]);
+        NetShotDiagnostics::AuthorityDamage[weapon] = UncheckedAdd(
+            NetShotDiagnostics::AuthorityDamage[weapon], static_cast<std::int64_t>(amount));
         if (Runtime::HasFlag(flags, Entities::DamageFlags::Headshot))
         {
-            NetShotDiagnostics::AuthorityHeadshots[weapon]++;
+            IncrementInPlace(NetShotDiagnostics::AuthorityHeadshots[weapon]);
         }
         if (attacker != nullptr && NetLog::Enabled())
         {
@@ -345,7 +347,7 @@ namespace MphRead::Mods::Network
                 + " hit slot " + std::to_string(slot) + " for " + std::to_string(amount) + " with "
                 + ::MphRead::ToString(beam) + " (launch " + std::to_string(launchFrame) + "), health "
                 + std::to_string(victim.Health()) + " -> "
-                + std::to_string(std::max(0, victim.Health() - static_cast<std::int32_t>(amount)));
+                + std::to_string(std::max(0, Runtime::UncheckedSubtract(victim.Health(), signedAmount)));
             if (attacker != nullptr)
             {
                 const OpenTK::Mathematics::Vector3 position = attacker->Position;
@@ -356,7 +358,7 @@ namespace MphRead::Mods::Network
             NetLog::Event(line);
         }
         NetHitClaims::NoteAuthorityHit(attacker != nullptr ? attacker->SlotIndex() : -1, slot, launchFrame,
-            static_cast<std::int32_t>(amount));
+            signedAmount);
         _attacker[index] = attacker != nullptr && attacker->SlotIndex() >= 0 && attacker->SlotIndex() < Slots
             ? static_cast<std::uint8_t>(attacker->SlotIndex())
             : NoSlot;
@@ -466,7 +468,7 @@ namespace MphRead::Mods::Network
         }
         if (!NetPlayerLifecycle::Matches(slot, state.SlotGeneration, state.LifeId))
         {
-            NetPlayerLifecycle::OldLifeDamage++;
+            IncrementInPlace(NetPlayerLifecycle::OldLifeDamage);
             return;
         }
         const auto index = static_cast<std::size_t>(slot);

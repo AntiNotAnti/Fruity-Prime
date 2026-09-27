@@ -1981,7 +1981,7 @@ namespace MphRead::Entities
 
     void PlayerEntity::SpawnBomb()
     {
-        ++Mods::Network::NetDamage::BombSpawnCalls;
+        ::MphRead::NativeRuntime::IncrementInPlace(Mods::Network::NetDamage::BombSpawnCalls);
         Matrix4 transform = IdentityMatrix();
         if (_hunter == Hunter::Kanden)
         {
@@ -2004,10 +2004,10 @@ namespace MphRead::Entities
                 }
                 if (detonated)
                 {
-                    ++Mods::Network::NetDamage::BombSpawnDetonated;
+                    ::MphRead::NativeRuntime::IncrementInPlace(Mods::Network::NetDamage::BombSpawnDetonated);
                     return;
                 }
-                ++Mods::Network::NetDamage::BombSpawnStaleCount;
+                ::MphRead::NativeRuntime::IncrementInPlace(Mods::Network::NetDamage::BombSpawnStaleCount);
                 _syluxBombCount = 0;
             }
             transform = GetTransformMatrix(Vector3(0.0F, 0.0F, 1.0F),
@@ -2016,11 +2016,11 @@ namespace MphRead::Entities
         const auto bomb = BombEntity::Spawn(this, transform, _scene);
         if (bomb == nullptr)
         {
-            ++Mods::Network::NetDamage::BombSpawnPoolEmpty;
+            ::MphRead::NativeRuntime::IncrementInPlace(Mods::Network::NetDamage::BombSpawnPoolEmpty);
         }
         if (bomb != nullptr)
         {
-            ++Mods::Network::NetDamage::BombSpawnMade;
+            ::MphRead::NativeRuntime::IncrementInPlace(Mods::Network::NetDamage::BombSpawnMade);
             if (_hunter == Hunter::Sylux)
             {
                 _syluxBombs.at(_syluxBombCount) = bomb;
