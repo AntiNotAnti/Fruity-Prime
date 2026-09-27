@@ -41,10 +41,13 @@
 - 同一Windows環境で既存C++ Release版とC# Release版の `-servers -debuglog` を続けて実行。両方とも `net.livetek.fr:27889` から「4 listed」を受け取り、4件すべての直接status queryが「did not answer」。この再現ではC#とC++に差は出ず、現環境で報告されたC++固有差を確認できなかった。サーバーまたは経路の一時的状態と区別するため、transport実装の残りと、既知のC#正常環境での結果を引き続き確認する。
 - `NativeRuntime/System/Net.cpp` の今回の Online 経路に関係するDNS→IPv4選択、endpoint生成/照合、UDP send/receive、timeout設定、socket破棄を `NetStatus.cs` の呼出し順と照合。query/JoinProbe双方で宛先・送信元一致判定とsocket寿命が一致し、差分修正なし。既知の旧サーバー応答長不足による非互換の記録は別に残し、同一環境でのC#正常結果は未確認。
 - `NativeRuntime/Skia/Skia.cpp` を一ファイル監査し、C# `DeckTile.cs` の `PushClip(face)` 内での `DrawImage(_ground)` / 矩形描画と照合。nativeは角丸clipがあると軸平行bitmapの専用blitを使わず、pixelごとの逆変換・画像sampleへ落ちていた。専用blitで列/行のsample位置を再利用し、clip coverageを合成してからblendするよう修正。矩形fillもclip maskを保持したまま解析的coverage経路を利用する。Windows Release `ninja -k 0` 成功。
+- `NativeRuntime/Avalonia/TopLevel.cpp` の `RenderVisual` をC# `UiTopLevelImpl` の可視clip/dirty領域の役割と照合。nativeは全描画時にsurface外・clip外のvisualもRenderしていたため、祖先のclip可視範囲を子へ伝えて描画不要なself/subtreeをskipするよう修正。Windows Release `ninja -k 0` 成功、C++/C#の `-uishot` は各26画面を出力し、`play-offline` のclip表示に崩れなし。offline map Scroll再計測はC++ 21.44 ms/47 fps、C# 8.55 ms/117 fpsで、今回のcullだけでは性能差はほぼ縮まらず、残るCPU raster/retained-render差を継続調査する。
+- 同条件のmap Scroll中、C++ `DeckTile::ChromeAsks` は1026、C#は211。`DeckTile::Chrome` のcache lookup自体は両実装で一致する。C# Avalonia compositorが保持・再利用するvisual contentをnative custom rendererは可視viewport内で描き直しており、単なるclip外visual走査では説明しきれない差が残る。C#の不足map（`MK_BLOCKFORT`）が1件あるため呼出回数は参考値として扱う。
 - 同じ `-uibench` 条件（2560x1440ウィンドウ、1920x1080描画面）のOffline mapsで、C++ Scrollは修正前71.40 ms/描画から21.67 ms（約46 fps）へ、Repaintは39.33 msから22.66 ms（約44 fps）へ短縮。C#の同条件はScroll 8.42 ms、Repaint 14.46 ms。描画差は大きく縮んだがまだ残り、これだけでユーザー報告のPC全体フリーズが解決したとは判定しない。
 - C++/C#双方で `-uishot` を実行し各26画面を生成。`play-offline` を目視比較し、修正によるclip境界の破綻は見られなかった。Onlineの `-uibench play ... -uibenchonly Scroll` は非同期サーバー一覧が揃わず描画0件のため、Online行の測定には使えない。
 - 同じOffline maps Scrollベンチを20 ms間隔でプロセス採取したピークは、C++ Working Set 95.3 MB / Private 87.4 MB、C# 159.1 MB / 108.5 MB。`-uishot` の26画面を一プロセスで描画したピークも、C++ 99.9 MB / 89.0 MB、C# 199.0 MB / 141.4 MBだった。これら短時間の標準画面測定ではC++の使用量が多いとは言えないが、長時間の増加・実プレイ中のPC全体フリーズは再現も判定もしていない。
 - 次のメモリ監査候補として `NativeRuntime/Skia/SkiaText.cpp` を確認中。`Typeface` ごとのFreeType glyph画像とadvance値をmapに保持し、現在の実装には上限・evictionがない。C# `DeckText` のFormattedText cacheは1024件超でclearされる一方、SkiaSharp内部cacheとは別物なので、ここだけでC#との差や実害を断定しない。長時間・複数画面での増加を調べ、保持寿命と並行利用を確認してから修正要否を決める。
+- `SkiaText.cpp` のcacheは`Typeface` lifetime中に残り、キーはglyphと26.6 pixel size。短時間のOffline scrollおよび26画面`-uishot`採取ではC++のWorking Set/PrivateがC#より低く、実害のある増加は未確認。C#側のSkiaSharp内部cacheとの仕様差も確定できていないため、pointer寿命・並行利用を壊すevictionは追加せず、長時間・動的Unicode入力の増加確認を保留する。
 
 ### 2026-09-28 C++固有のフリーズ対策
 

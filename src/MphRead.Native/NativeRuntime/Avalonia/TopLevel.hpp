@@ -138,7 +138,8 @@ namespace MphRead::NativeRuntime::Avalonia
 
         // Draw a subtree into a canvas, as RenderTargetBitmap.Render does.
         static void RenderVisual(Visual& visual, Media::DrawingContext& context, bool isRoot,
-            const Rect* damage = nullptr, bool updateRenderedContent = true, Matrix parentToRoot = Matrix::Identity());
+            const Rect* damage = nullptr, bool updateRenderedContent = true, Matrix parentToRoot = Matrix::Identity(),
+            const Rect* visibleRegion = nullptr);
 
         std::any TransparencyLevelHint{};
         std::any RequestedThemeVariant{};

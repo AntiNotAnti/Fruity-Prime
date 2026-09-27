@@ -198,7 +198,7 @@ namespace MphRead::NativeRuntime::Avalonia
     }
 
     void TopLevel::RenderVisual(Visual& visual, Media::DrawingContext& context, bool isRoot,
-        const Rect* damage, bool updateRenderedContent, Matrix parentToRoot)
+        const Rect* damage, bool updateRenderedContent, Matrix parentToRoot, const Rect* visibleRegion)
     {
         if (!visual.IsVisible() || visual.Opacity() <= 0)
         {
@@ -206,11 +206,18 @@ namespace MphRead::NativeRuntime::Avalonia
         }
         const Matrix localToRoot = isRoot ? parentToRoot : visual.LocalTransform() * parentToRoot;
         const Rect rootBounds = TransformToAABB(Rect(visual.Bounds().GetSize()), localToRoot);
+        const Rect renderBounds = visual.ClipToBounds() ? rootBounds : rootBounds.Inflate(RenderOverflow);
+        const bool visible = visibleRegion == nullptr || renderBounds.Intersects(*visibleRegion);
+        if (visual.ClipToBounds() && visibleRegion != nullptr && !rootBounds.Intersects(*visibleRegion))
+        {
+            return;
+        }
         if (damage != nullptr && !isRoot && visual.ClipToBounds() && !rootBounds.Intersects(*damage))
         {
             return;
         }
-        const bool drawSelf = damage == nullptr || isRoot || rootBounds.Inflate(RenderOverflow).Intersects(*damage);
+        const bool drawSelf = visible
+            && (damage == nullptr || isRoot || rootBounds.Inflate(RenderOverflow).Intersects(*damage));
         std::optional<Media::DrawingContext::PushedState> transform;
         if (!isRoot)
         {
@@ -258,9 +265,17 @@ namespace MphRead::NativeRuntime::Avalonia
                 visual.RenderedContent = context.DrawCount != before;
             }
         }
+        Rect childVisibleRegion;
+        const Rect* childVisibleRegionPtr = visibleRegion;
+        if (visual.ClipToBounds())
+        {
+            childVisibleRegion = visibleRegion == nullptr ? rootBounds : rootBounds.Intersect(*visibleRegion);
+            childVisibleRegionPtr = &childVisibleRegion;
+        }
         ForEachOrdered(visual, [&](Visual* child)
         {
-            RenderVisual(*child, context, false, damage, updateRenderedContent, localToRoot);
+            RenderVisual(*child, context, false, damage, updateRenderedContent, localToRoot,
+                childVisibleRegionPtr);
         });
         if (drawSelf)
         {
@@ -327,7 +342,8 @@ namespace MphRead::NativeRuntime::Avalonia
         {
             damageClip.emplace(context.PushClip(damage));
         }
-        RenderVisual(*this, context, true, fullRender ? nullptr : &damage, fullRender);
+        RenderVisual(*this, context, true, fullRender ? nullptr : &damage, fullRender,
+            Matrix::Identity(), fullRender ? &surface : &damage);
         _drawn++;
         if (Painted)
         {
