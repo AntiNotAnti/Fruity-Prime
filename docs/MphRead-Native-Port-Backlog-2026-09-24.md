@@ -853,7 +853,7 @@
 |---|---|---|---|---|
 | M | +1050/-99 | `Renderer.cs` | .cpp,.hpp | 完了（C#全文・直接呼出元再照合済、Scene.ShowCursorのWeaponWheel.Absolute条件漏れを修正してマウスホイール中のcursor captureを一致。Windows Release native library build済、runtime未実施） |
 | M | +872/-49 | `Mods/ModEntry.cs` | .cpp,.hpp | 完了（C#全分岐・引数照合、`teamprobe`/network/MapGen/server/launcher配線、Windows Release build済） |
-| M | +376/-94 | `Entities/Players/PlayerHud.cs` | .cpp,.hpp | 完了 |
+| M | +376/-94 | `Entities/Players/PlayerHud.cs` | .cpp,.hpp | 完了（C#全文・PR #1差分の全hunk監査済。team node countのnative範囲外アクセスをC#例外相当に修正。Windows Release build green、runtime未実施） |
 | M | +185/-40 | `Entities/Players/PlayerInput.cs` | .cpp,.hpp | 完了 |
 | M | +102/-126 | `GameState.cs` | .cpp,.hpp | 完了（C# PR #1差分監査・PlayPickedMap接続・Windows Release build済、runtime未実施） |
 | M | +95/-11 | `Entities/Players/PlayerAi.cs` | .cpp,.hpp | 完了（C# PR #1差分監査・Insane AI移植・Windows Release build済、runtime未実施） |
@@ -1118,6 +1118,7 @@
 - `Entities/ItemInstanceEntity.cs` をC#全文・native `.hpp/.cpp`・PR #1差分（+2/-2）で照合。data/rotation、item typeとaffinity置換、artifact effect、parent追従、despawn/owner/story state、SFX、charged weapon attraction、scan更新、FH itemと描画transformを確認。変更点のoptional nullable pickerはnativeのdefault `nullptr` とownerへの転送に一致し、PlayerProcessは両側で`this`、HealthSimulationTestは両側で引数省略。ItemSpawnEntityのhealth pickup slot記録（null時`-1`）と通知も一致。差異なし・コード変更なし（verified no-op）。`git diff --check`通過、Windows Release `ninja -k 0` はno work to do。runtime未実施。
 - `Entities/Players/HalfturretEntity.cs` をC#全文・native `.hpp/.cpp`・PR #1差分（+2/-1）で照合。コンストラクタ/health分割、状態timer、damage/freeze/burn、nearest-target探索、照準/発射、fall collision、HUD、描画/animation/light、double-damage material overridesを比較。変更されたself/死亡/allied-team/alphaのtarget filterは一致し、`TeamRules::AreAllies` と native 側実装もC#と同じ条件。`61 * uint damage`はC# binary numeric promotionでlongとなるため、nativeのint64積は同じ。差異なし・コード変更なし（verified no-op）。`git diff --check`通過、Windows Release `ninja -k 0` 成功（既存`offsetof`警告のみ）。runtime未実施。
 - `Entities/Players/PlayerDraw.cs` をC#全文・native `.hpp/.cpp`・PR #1差分（+1/-9）で照合。DrawのSpire alt-attackは両側で`AnimateSpireAltAttack`を呼び、collision poseは両側のsimulation `Process`から`UpdateSpireAltCollisionPose`を呼んでanimation後の左右rock位置を更新する。描画分岐、LOD、biped/alt-form、shadow、render-item traversal、double-damage texgen、morph-ball trail、death particle、volume表示も照合し一致。コード変更なし（verified no-op）。`git diff --check`通過、Windows Release `ninja -k 0` はno work to do。runtime未実施。
+- `Entities/Players/PlayerHud.cs` の全メソッドとPR #1差分（+376/-94）をnative `.hpp/.cpp`・直接呼出しと照合。基底C# blobはnative移植開始時の`992f4884`およびPR base `dcdc900f`と同一、現行C# blobはPR head `fe453ce6`と同一で、移植後のC#変更分はPR差分に限定される。weapon wheelの初期位置/close・gamepad/absolute/drag優先順、radarの描画条件・座標変換・blip、team scoreboard/node表示、weapon order、health visibility、opponent health、HUD draw順と補助実装の接続を照合。`ProcessHudNodes`/`DrawNodesBonuses`のnative `_teamNodeCounts`動的添字が`std::array::operator[]`で範囲外時UBとなりC#配列の`IndexOutOfRangeException`と異なるため、全動的添字を`ManagedAt`へ変更。`git diff --check`通過、Windows Release `ninja -k 0` 成功（PlayerHud compile・native library / FruityPrime.exe link、既存warnings）。runtime未実施。
 
 - Windows/MSVC CI run `36342122622` の失敗を確認し、`NativeRuntime/Avalonia/Base.hpp` の `Rect(Point, Point)` からMSVCでconstexpr評価できない `std::abs` を含むコンストラクターの `constexpr` 指定だけを外した。幾何計算式は変更なし。`git diff --check`、Windows Release `ninja -k 0`、Android arm64-v8a・x86_64各75段階の最終build成功。MSVC修正後CI待ち。
 

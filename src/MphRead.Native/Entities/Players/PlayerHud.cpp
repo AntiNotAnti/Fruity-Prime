@@ -2072,11 +2072,11 @@ namespace MphRead::Entities
             if (defense->CurrentTeam() != NodeDefenseEntity::NoTeam && defense->OccupyingTeam() == NodeDefenseEntity::NoTeam)
             {
                 const std::int32_t team = defense->CurrentTeam();
-                const std::int32_t count = ++_teamNodeCounts[static_cast<std::size_t>(team)];
+                const std::int32_t count = ++ManagedAt(_teamNodeCounts, team);
                 if (count > 1)
                 {
                     if (team == TeamIndex()) _mainNodeBonus = true;
-                    else if (_nodeBonusOpponent == -1 || count > _teamNodeCounts[static_cast<std::size_t>(_nodeBonusOpponent)])
+                    else if (_nodeBonusOpponent == -1 || count > ManagedAt(_teamNodeCounts, _nodeBonusOpponent))
                         _nodeBonusOpponent = team;
                 }
             }
@@ -2268,10 +2268,10 @@ namespace MphRead::Entities
             float y = _hudObjects->NodeBonusPosY + _objShiftY;
             for (std::int32_t team = 0; team < GameState::TeamCount(); team++)
             {
-                if (_teamNodeCounts[static_cast<std::size_t>(team)] < 2) continue;
+                if (ManagedAt(_teamNodeCounts, team) < 2) continue;
                 const Mods::Multiplayer::TeamPresentation& visual = Mods::Multiplayer::TeamVisuals::Get(team);
                 static_cast<void>(DrawText2D(_hudObjects->NodeBonusPosX + _objShiftX, y, Hud::Align::Left, 0,
-                    visual.Label + " x " + std::to_string(_teamNodeCounts[static_cast<std::size_t>(team)]),
+                    visual.Label + " x " + std::to_string(ManagedAt(_teamNodeCounts, team)),
                     visual.Color, 1.0F, -1.0F, -1, 0.8F));
                 y += 10;
             }
@@ -2285,7 +2285,7 @@ namespace MphRead::Entities
             _nodesInst->SetIndex(GameState::Teams() && TeamIndex() == 0 ? 2 : 4, RequireReference(_scene));
             RequireReference(_scene).DrawHudObject(_nodesInst);
             DrawText2D(_hudObjects->NodeBonusPosX + 12 + _objShiftX, _hudObjects->NodeBonusPosY + 2 + _objShiftY,
-                Hud::Align::Left, 0, "x " + std::to_string(_teamNodeCounts[static_cast<std::size_t>(TeamIndex())]));
+                Hud::Align::Left, 0, "x " + std::to_string(ManagedAt(_teamNodeCounts, TeamIndex())));
             DrawText2D(_hudObjects->NodeBonusPosX + _objShiftX, _hudObjects->NodeBonusPosY + 10 + _objShiftY,
                 Hud::Align::Left, 0, message);
         }
@@ -2297,7 +2297,7 @@ namespace MphRead::Entities
             _nodesInst->SetIndex(GameState::Teams() && _nodeBonusOpponent == 1 ? 4 : 2, RequireReference(_scene));
             RequireReference(_scene).DrawHudObject(_nodesInst);
             DrawText2D(_hudObjects->EnemyBonusPosX + 12 + _objShiftX, _hudObjects->EnemyBonusPosY + 2 + _objShiftY,
-                Hud::Align::Left, 2, "x " + std::to_string(_teamNodeCounts[static_cast<std::size_t>(_nodeBonusOpponent)]));
+                Hud::Align::Left, 2, "x " + std::to_string(ManagedAt(_teamNodeCounts, _nodeBonusOpponent)));
             DrawText2D(_hudObjects->EnemyBonusPosX + _objShiftX, _hudObjects->EnemyBonusPosY + 10 + _objShiftY,
                 Hud::Align::Left, 2, message);
         }
