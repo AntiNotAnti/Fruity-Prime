@@ -373,7 +373,7 @@ namespace MphRead::Mods::Network
             probe.Dispose();
             return true;
         }
-        catch (...)
+        catch (const Runtime::SocketException&)
         {
             return false;
         }

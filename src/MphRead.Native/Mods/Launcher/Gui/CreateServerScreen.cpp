@@ -496,11 +496,12 @@ namespace MphRead::Mods::Launcher::Gui
         const std::shared_ptr<CreateServerScreen> self = Self();
         auto task = std::async(std::launch::async, [self, cancel]
         {
+            const std::stop_token token = cancel->get_token();
             return Network::LocalServer::Install([self, cancel](float fraction)
             {
                 if (cancel->stop_requested())
                 {
-                    throw std::runtime_error("cancelled");
+                    return;
                 }
                 Threading::Dispatcher::UIThread().Post([self, cancel, fraction]
                 {
@@ -510,7 +511,7 @@ namespace MphRead::Mods::Launcher::Gui
                             "Fetching the dedicated-server package");
                     }
                 });
-            });
+            }, &token);
         }).share();
         Await(std::move(task), [self, cancel](bool ok)
         {

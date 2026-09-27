@@ -49,7 +49,7 @@
     NetMaster（HostCandidate・FindHosts・所有者トークン・CanHost フラグ）、
     NetHostSession、ModEntry の -server 部（-hostports・-affinityweapons）、
     HealthSimulationTest、NetHealthSyncTest、MapAuditTeams、SpireAltPoseCheck。
-  - 残り: LocalServer、NetLobbyTest。
+  - 残り: NetLobbyTest。
 - 6 入力 前半: ゲームパッド層を実行時設定オブジェクト化（PadBindingState/GamepadOptionState/
   GamepadRuntimeConfig/GamepadManager/Profiles/Haptics/UiRouter ほか 29 ファイル）。NativeRuntime に
   Numerics(Vector2/3)・Event・ProcessExit・JsonWriteIndented・FileMove・EnvironmentTickCount64。
@@ -644,7 +644,7 @@
 | M | +704/-105 | `Mods/Network/DedicatedServer.cs` | .cpp,.hpp | 完了（C#全文・native `.cpp/.hpp`・ModEntry/NetHostSession/HostPool/NetMasterの直接接続を監査。loop順序、Hello/Welcome/refusal/status、authoritative/relay、snapshot/intent、投票/rotation、ping/roster、切断/cleanupが一致。修正なし、静的監査のみ） |
 | A | +609/-0 | `Mods/Network/HitRig.cs` | — 新規 | 完了（C#全文・native `.cpp/.hpp`・ModEntry/NetTestScript/NetCheckClient/PlayerEntityの直接接続を監査。役割/照準/距離/発射cadence/controls edge/reportが一致。nativeの符号付きカウンター加算をC# unchecked wrapにし、snapshot frameのuint→intをbit reinterpretへ修正。Windows Release build green、runtime未実施） |
 | A | +558/-0 | `Mods/Network/NetSmoothing.cs` | — 新規 | 完了（C#全文・native `.cpp/.hpp`・NetSession/NetHooks/NetPlayerBridge/NetPlayerLifecycle/NetUnlagged/NetHitClaims/NetLog/NetCheckClient/ModEntry の直接接続を監査。snapshot記録、playout tick、補間/hold条件、life/generation guard、subframe ack、reset/rebase、診断値と呼び出し順が一致。nativeの符号付きカウンターをC# unchecked wrapへ修正。Windows Release build green、runtime未実施） |
-| A | +536/-0 | `Mods/Network/LocalServer.cs` | — 新規 | 完了 |
+| A | +536/-0 | `Mods/Network/LocalServer.cs` | — 新規 | 完了（C#全文・native `.cpp/.hpp`・ModEntryの`-installserver`/`-hostlocal`、CreateServerScreenのinstall/start/join接続を監査。実行ファイル選択、package取得/展開/実行bit、paths.txt/rotation、owner token、port選定、process継続/cleanup、cancelと起動待ちが一致。GUI installerからUpdateCheck/UpdateDownloadへstop tokenを渡し、progress callbackの例外cancelを除去。CanBindはC#同様SocketExceptionのみ処理。Windows Release build green、download/server runtime未実施） |
 | A | +536/-0 | `Mods/Network/NetLobbyTest.cs` | — 新規 | 完了 |
 | M | +489/-116 | `Mods/Network/NetSession.cs` | .cpp,.hpp | 完了 |
 | M | +481/-22 | `Mods/Network/NetUnlagged.cs` | .cpp,.hpp | 完了 |
@@ -729,7 +729,7 @@
 |---|---|---|---|---|
 | A | +1941/-0 | `Mods/Launcher/Gui/PlayScreen.cs` | .cpp,.hpp | 完了（C#全メソッド再監査・rounding/focus差を修正、StartScreen/InGameMenu/UiCapture接続済。Windows Release build済（2026-09-27）） |
 | A | +1529/-0 | `Mods/Launcher/Gui/UiDesigns.cs` | .cpp,.hpp | 完了（C# 原本監査済、`-uidesign`入口をModEntryへ接続） |
-| A | +1126/-0 | `Mods/Launcher/Gui/CreateServerScreen.cs` | .cpp,.hpp | 完了（C#監査済、StartScreen・UiCapture接続済） |
+| A | +1126/-0 | `Mods/Launcher/Gui/CreateServerScreen.cs` | .cpp,.hpp | 完了（C#監査済、StartScreen・UiCapture接続済。LocalServer installのcancel token伝達を修正） |
 | A | +1077/-0 | `Mods/Launcher/Gui/Shell.cs` | .cpp,.hpp | 完了（C# / PR #1原本監査済、`-shellshot`とSection 13 scene API接続済、Windows Release build済） |
 | A | +1031/-0 | `Mods/Launcher/Gui/UiSurface.cs` | .cpp,.hpp | 完了（C#監査済） |
 | A | +988/-0 | `Mods/Launcher/Gui/StartScreen.cs` | .cpp,.hpp | 完了（C#全文監査済、LobbyScreen・GuiLauncher・UiCapture接続済） |
