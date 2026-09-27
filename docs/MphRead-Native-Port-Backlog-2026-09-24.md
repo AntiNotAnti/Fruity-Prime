@@ -26,10 +26,19 @@
 
 作業中に更新する。コミットは develop2。
 
-### 2026-09-28 現在の監査状態
+### 2026-09-28 移植差分監査（302項目）の状態
 
 - 表の302項目はすべてC#対比監査済み。`GameFiles.cs`もC#全文・直接呼出し監査済みで、POSIX修正のmacOS/Clang・Linux/GCC CIとWindows Release buildを確認済み。個別監査の詳細は末尾ログを参照。最新Native C++ CI run `36348842034`（source `8c67ca37`）はWindows/MSVC・Android・Linux/GCC・macOS/Clangすべて成功。Windows Release `ninja -k 0`も成功。総合build run `36350578764`（source `6bfac073`）も全job成功。先行run `36348842072` で一度失敗したdedicated-server startup contractとbounded thumbnail worker regressionは再実行で成功し、失敗は再現しなかった。
 - Section 14 のAndroid 17ファイルは監査完了。`NativeRuntime/Avalonia/Base.hpp` のMSVC対応後、Android arm64-v8a・x86_64をそれぞれ最新ソースで最終buildし、両方とも成功（各75段階、静的ライブラリをリンク）。runtime/device確認は未実施。
+- 上記の `完了` はPR #1由来の302項目の移植差分監査を指す。別件のプレイ中不具合監査まで完了した意味ではない。C#版にはないとユーザーから報告された症状について、以前の「C#も同じ」とする9月27日の記録は結論として扱わず、現行ソースで再監査する。
+- 別件の不具合監査は継続中: 試合中のカーソル表示・画面端でエイムが止まる問題を最初に監査中。次に Online の `did not answer`、続いて Online/Offline 等のメニューの重さ・メモリ使用を確認する。9月27日のカーソル/サーバー記録は当時の調査メモとして残し、今回の再監査で再確認する。
+
+### 2026-09-28 C++固有のフリーズ対策
+
+- ユーザー指定のフリーズ対策コミットはすべて現在の `HEAD`（`68c26d7c746a2d30f94648743c836fffbb7c78c3`）の祖先であることを確認した。これらは今回のC#対比監査で差異として扱わず、意図的なC++固有修正として維持する。
+- Windows watchdog の render thread 強制停止を除去: `852bc7a50f340f80af6575ad17399a82b0a60058`。shader の配列範囲修正: `09f469273d32eafed15a8f75a93f62b9e91021a8`、`c782a756fd72269e10f0a48408463ca64a8549a9`。DS matrix restore index のmask: `30966b618379f05e723f3e7bbc3ff6e4ff8b4c98`。matrix upload bounds: `deba61b4048e46abb4dfab732c7aea57f0a5fa6e`。
+- Scene間のGL texture ID衝突修正: `5365698188263af96ab4c74d61fc84a088935568`、`54b17780f071e430e2d445da07984243466a18b3`。display list のScene所有化: `6bedab56b72ab088715b23855fcd5ed84fe0c250`。GL resource cleanup: `056f6eed4d51ef360ce990e03f2108eaf3542b12`、`d021335fc0a8eff380c167fcf078b4523de9be94`、`3137f43d2171b211d9bae4c730a6e3c4bcc6dbbb`、`4f88766a31b9f6061bff1a3a8aa5a98e1038b0a1`。
+- miniaudio callback の寿命/data race 修正: `61c132f4eef5b89637872ac3850efa1870478ba7`、`deb50ccf627ca56f8e116507054c1773efeab3c9`。コミットと現HEADへの包含は確認済み。今回、通常プレイでの再発有無を実機確認したものではない。
 
 - 済: 1 Platform helpers / 3 Mods leaves / 8 Multiplayer・teams
   （ea3398e9 まで）。
