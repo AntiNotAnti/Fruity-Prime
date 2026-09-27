@@ -1,8 +1,10 @@
 #include "AimAssistTarget.hpp"
 
+#include <string>
+
 namespace MphRead::Mods::Input::AimAssist
 {
-    const char* ToString(AimAssistPointType value) noexcept
+    std::string ToString(AimAssistPointType value)
     {
         switch (value)
         {
@@ -10,6 +12,6 @@ namespace MphRead::Mods::Input::AimAssist
         case AimAssistPointType::UpperChest: return "UpperChest";
         case AimAssistPointType::Head: return "Head";
         }
-        return "";
+        return std::to_string(static_cast<std::int32_t>(value));
     }
 }

@@ -47,15 +47,15 @@ namespace MphRead::Mods::Input::AimAssist
             const GamepadSnapshot snapshot = GamepadManager::Snapshot();
             _lines = {
                 std::string("Aim: ") + ToString(AimInputSourceTracker::Current()) + " pad: " + snapshot.DeviceId.value_or(""),
-                "Target " + ::MphRead::NativeRuntime::ToString(Result.TargetSlot) + " score " + N(Result.Score, "0.00") + " distance "
-                    + N(Target.Distance, "0.0") + " body " + N(Target.BodyError.Length(), "0.00") + " head "
-                    + N(Target.HeadError.Length(), "0.00"),
-                std::string("LOS body ") + B(Target.BodyVisible) + " head " + B(Target.HeadVisible) + " point "
-                    + ToString(Result.PointType) + " blend " + N(Result.HeadBlend, "0.00"),
-                "Friction " + N(Result.Friction, "0.00") + " rotation " + N(Result.RotationStrength, "0.00")
+                "Target " + ::MphRead::NativeRuntime::ToString(Result.TargetSlot()) + " score " + N(Result.Score(), "0.00") + " distance "
+                    + N(Target.Distance(), "0.0") + " body " + N(Target.BodyError().Length(), "0.00") + " head "
+                    + N(Target.HeadError().Length(), "0.00"),
+                std::string("LOS body ") + B(Target.BodyVisible()) + " head " + B(Target.HeadVisible()) + " point "
+                    + ToString(Result.PointType()) + " blend " + N(Result.HeadBlend(), "0.00"),
+                "Friction " + N(Result.Friction(), "0.00") + " rotation " + N(Result.RotationStrength(), "0.00")
                     + " velocity " + N(Velocity.X, "0.0") + "," + N(Velocity.Y, "0.0"),
-                "Raw " + N(Raw.X, "0.00") + "," + N(Raw.Y, "0.00") + " final " + N(Result.X, "0.00") + ","
-                    + N(Result.Y, "0.00") + " correction " + N(Result.X - Raw.X, "0.00") + "," + N(Result.Y - Raw.Y, "0.00")};
+                "Raw " + N(Raw.X, "0.00") + "," + N(Raw.Y, "0.00") + " final " + N(Result.X(), "0.00") + ","
+                    + N(Result.Y(), "0.00") + " correction " + N(Result.X() - Raw.X, "0.00") + "," + N(Result.Y() - Raw.Y, "0.00")};
         }
         scene.DrawHudFlatBox(2, 2, 254, 37, OpenTK::Mathematics::Vector4(0, 0, 0, .8F));
         float y = 4;

@@ -79,7 +79,7 @@ namespace MphRead::Mods::Input::AimAssist
         const std::int32_t input = AimInputSourceTracker::Current() == AimInputSource::Gamepad
             ? AimAssistDebug::UnassistedArm ? 1 : 2 : 0;
         const std::size_t beam = Beam(weapon);
-        const std::int32_t range = result.TargetSlot < 0 ? 3 : target.Distance < 5 ? 0 : target.Distance < 25 ? 1 : 2;
+        const std::int32_t range = result.TargetSlot() < 0 ? 3 : target.Distance() < 5 ? 0 : target.Distance() < 25 ? 1 : 2;
         std::shared_ptr<Bucket>& slot = Buckets[static_cast<std::size_t>(input)][beam][static_cast<std::size_t>(range)];
         if (slot == nullptr)
         {
@@ -91,28 +91,28 @@ namespace MphRead::Mods::Input::AimAssist
         }
         _current = slot;
         Runtime::IncrementInPlace(slot->Samples);
-        slot->FrictionSum += result.Friction;
+        slot->FrictionSum += result.Friction();
         slot->CorrectionSum += correction;
-        if (result.TargetSlot >= 0)
+        if (result.TargetSlot() >= 0)
         {
             Runtime::IncrementInPlace(slot->TargetSamples);
             slot->SecondsOnTarget += 1.0 / 60;
-            slot->ErrorSum += target.BodyError.Length();
+            slot->ErrorSum += target.BodyError().Length();
             slot->VelocitySum += velocity;
-            if (result.TargetSlot != _lastTarget)
+            if (result.TargetSlot() != _lastTarget)
             {
                 Runtime::IncrementInPlace(slot->Switches);
             }
         }
-        if (result.RotationStrength > 0)
+        if (result.RotationStrength() > 0)
         {
             slot->AssistSeconds += 1.0 / 60;
         }
-        if (result.HeadBlend > 0)
+        if (result.HeadBlend() > 0)
         {
             slot->HeadSeconds += 1.0 / 60;
         }
-        _lastTarget = result.TargetSlot;
+        _lastTarget = result.TargetSlot();
     }
 
     void AimAssistTelemetry::Save()

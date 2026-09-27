@@ -147,12 +147,10 @@ namespace MphRead::Entities
         const std::span<const AimAssistTarget> found(candidates.data(), count);
         AimAssistResult result = Mods::Input::AimAssist::AimAssist::Apply(_controllerAssist, found, NVector2(x, y),
             std::sqrt(aim.first * aim.first + aim.second * aim.second), move, 1.0F / 60, eligible, profile);
-        // C# `default(AimAssistTarget)` zeros fields instead of applying
-        // the record constructor's defaults (Eligible=true, UpperChest).
-        AimAssistTarget chosen{0, 0, {}, {}, 0.0F, false, false, false, AimAssistPointType::CenterMass};
+        AimAssistTarget chosen{};
         for (const AimAssistTarget& candidate : found)
         {
-            if (candidate.Slot == result.TargetSlot)
+            if (candidate.Slot() == result.TargetSlot())
             {
                 chosen = candidate;
             }
@@ -160,12 +158,7 @@ namespace MphRead::Entities
         using Mods::Input::AimAssist::AimAssistDebug;
         if (AimAssistDebug::UnassistedArm)
         {
-            result.X = x;
-            result.Y = y;
-            result.Friction = 1;
-            result.RotationStrength = 0;
-            result.HeadBlend = 0;
-            result.PointType = chosen.BodyPointType;
+            result = AimAssistResult{x, y, result.TargetSlot(), 1, 0, chosen.BodyPointType(), 0, result.Score()};
             _controllerAssist.PreviousOutput = NVector2(x, y);
         }
         AimAssistDebug::Result = result;
@@ -178,17 +171,17 @@ namespace MphRead::Entities
             float nearest = profile.Cone();
             for (const AimAssistTarget& candidate : found)
             {
-                if (candidate.BodyError.Length() < nearest)
+                if (candidate.BodyError().Length() < nearest)
                 {
                     chosen = candidate;
-                    nearest = candidate.BodyError.Length();
-                    observation = result;
-                    observation.TargetSlot = candidate.Slot;
+                    nearest = candidate.BodyError().Length();
+                    observation = AimAssistResult{result.X(), result.Y(), candidate.Slot(), result.Friction(),
+                        result.RotationStrength(), result.PointType(), result.HeadBlend(), result.Score()};
                 }
             }
         }
         Mods::Input::AimAssist::AimAssistTelemetry::Record(_currentWeapon, chosen, observation,
-            std::sqrt((result.X - x) * (result.X - x) + (result.Y - y) * (result.Y - y)),
+            std::sqrt((result.X() - x) * (result.X() - x) + (result.Y() - y) * (result.Y() - y)),
             _controllerAssist.AngularVelocity.Length());
         return result;
     }

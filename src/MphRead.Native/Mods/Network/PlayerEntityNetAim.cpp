@@ -1072,8 +1072,8 @@ namespace MphRead::Entities
         float x = Mods::Input::GamepadInput::AimDeltaX() * (zoomed ? Mods::Input::GamepadOptions::ScopedX() : 1);
         float y = Mods::Input::GamepadInput::AimDeltaY() * (zoomed ? Mods::Input::GamepadOptions::ScopedY() : 1);
         const auto assisted = ApplyControllerAssist(x, y);
-        x = assisted.X;
-        y = assisted.Y;
+        x = assisted.X();
+        y = assisted.Y();
         if (x == 0.0F && y == 0.0F)
         {
             return;
