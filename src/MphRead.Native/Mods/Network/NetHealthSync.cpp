@@ -75,7 +75,7 @@ namespace MphRead::Mods::Network
     std::int32_t NetHealthSync::Write(std::span<std::uint8_t> dest)
     {
         const std::int32_t length = HeaderSize + EntrySize * static_cast<std::int32_t>(_spawns.size());
-        if (static_cast<std::int32_t>(dest.size()) < length)
+        if (dest.size() < static_cast<std::size_t>(length))
         {
             throw ::MphRead::ProgramException("Health state exceeds snapshot capacity.");
         }
