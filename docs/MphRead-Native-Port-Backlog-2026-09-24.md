@@ -558,7 +558,7 @@
 | A | +101/-0 | `Mods/Input/ControllerRuntimeChecks.cs` | — 新規 | 完了（C#全文監査済、event timeoutの非block性を修正、Windows Release build済） |
 | M | +99/-11 | `Mods/Input/GamepadMappings.cs` | .cpp,.hpp | 完了（C#全文監査済、mapping/GUIDのUTF-16長とunchecked countを修正、Windows Release build済） |
 | A | +87/-0 | `Mods/Input/AimAssist/AimAssistTelemetry.cs` | — 新規 | 完了（C#全文・Hit/Shot/Record呼出元監査済、unchecked集計を修正、Windows Release build済） |
-| A | +85/-0 | `Mods/Input/GamepadMappingWizard.cs` | — 新規 | 完了 |
+| A | +85/-0 | `Mods/Input/GamepadMappingWizard.cs` | — 新規 | 完了（C#全文・Desktop/Setup/Checks呼出元監査済、nameのUnicode control/UTF-16切詰めを修正、Windows Release build済） |
 | M | +82/-117 | `Mods/Input/GamepadInput.cs` | .cpp,.hpp | 完了 |
 | M | +79/-274 | `Mods/Input/GamepadDesktop.cs` | .cpp,.hpp | 完了 |
 | A | +77/-0 | `Mods/Input/WindowsGamepadHaptics.cs` | — 新規 | 完了 |
@@ -938,3 +938,5 @@
   C# `string.Length` とnative UTF-8 byte長の差が出るmapping上限/GUID判定を既存`Utf16Length`へ合わせ、C# unchecked `int` のfiles/lines集計をwrap演算へ変更。差分修正以外はなし。Windows Release build済。
 - `Mods/Input/AimAssist/AimAssistTelemetry.cs` をC#全文とnative `.cpp/.hpp`、`AimAssistWorld`/`PlayerEntityHaptics`/`PlayerEntity`/`ModEntry`の呼出元で照合。opt-in・authority/player/spectator filter、weapon/input/range bucket、shot/hit対応、全統計値、process-exit保存、JSON項目と配列順を確認。
   `Shots`/`HitEvents`/`Samples`/`TargetSamples`/`Switches`と`ObservedDamage`の加算をC# unchecked wrapに合わせ、native signed overflowを解消。Windows Release build済。
+- `Mods/Input/GamepadMappingWizard.cs` をC#全文とnative `.cpp/.hpp`、`GamepadDesktop`/`GamepadSetupPanel`/`GamepadEnhancementChecks`の呼出元で照合。20-step順、device/shape検証、release-to-rest、button/hat/axisの検出優先と閾値、重複排除、GUID/platformとmapping形式を確認。
+  C# `char.IsControl`/`Take(100)`がUTF-16 code unit単位である点に合わせ、Unicode control除外とname切詰めをUTF-16経由へ修正。Windows Release build済。

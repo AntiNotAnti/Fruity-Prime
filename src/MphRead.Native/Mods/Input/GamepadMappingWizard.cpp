@@ -1,6 +1,8 @@
 #include "GamepadMappingWizard.hpp"
 
+#include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/Exceptions.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/Runtime.hpp"
 
 #include <algorithm>
@@ -11,6 +13,8 @@
 
 namespace MphRead::Mods::Input
 {
+    namespace Runtime = ::MphRead::NativeRuntime;
+
     namespace
     {
         constexpr std::array<std::pair<std::string_view, std::string_view>, 20> Steps{{
@@ -157,18 +161,22 @@ namespace MphRead::Mods::Input
         {
             throw System::InvalidOperationException("Invalid controller identifier.");
         }
-        std::string name;
-        for (const char c : _rest.Name)
+        const std::u16string managedName = Runtime::Utf8ToUtf16(_rest.Name);
+        std::u16string filteredName;
+        filteredName.reserve(std::min<std::size_t>(managedName.size(), 100));
+        for (const char16_t character : managedName)
         {
-            if (static_cast<unsigned char>(c) >= 0x20 && c != 0x7f && c != ',')
+            if (Runtime::CharIsControl(character) || character == u',')
             {
-                if (name.size() == 100)
-                {
-                    break;
-                }
-                name += c;
+                continue;
             }
+            if (filteredName.size() == 100)
+            {
+                break;
+            }
+            filteredName.push_back(character);
         }
+        const std::string name = Runtime::Utf16ToUtf8(filteredName);
         const std::string platform = ::MphRead::NativeRuntime::IsMacOS() ? "Mac OS X"
             : ::MphRead::NativeRuntime::IsWindows() ? "Windows" : "Linux";
         std::string joined;
