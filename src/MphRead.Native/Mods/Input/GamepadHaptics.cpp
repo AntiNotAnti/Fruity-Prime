@@ -7,6 +7,7 @@
 #include "HapticScheduler.hpp"
 #include "InputSourceTracker.hpp"
 #include "../../NativeRuntime/System/AppDomain.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/System/Runtime.hpp"
 
 #include <tuple>
@@ -66,7 +67,7 @@ namespace MphRead::Mods::Input
         {
             const std::shared_ptr<IGamepadHaptics> backend = found->second;
             state.Backends.erase(found);
-            backend->Stop();
+            ::MphRead::NativeRuntime::RequireReference(backend).Stop();
         }
     }
 
@@ -78,7 +79,7 @@ namespace MphRead::Mods::Input
         state.Scheduler.Reset();
         for (const auto& [id, backend] : state.Backends)
         {
-            backend->Stop();
+            ::MphRead::NativeRuntime::RequireReference(backend).Stop();
         }
     }
 
@@ -121,10 +122,11 @@ namespace MphRead::Mods::Input
             const float scale = GamepadAnalog::Finite(GamepadOptions::VibrationStrength(), 0, 1);
             if (scale <= 0)
             {
-                found->second->Stop();
+                ::MphRead::NativeRuntime::RequireReference(found->second).Stop();
                 return;
             }
-            found->second->Rumble(low * scale, high * scale, std::chrono::milliseconds(ms));
+            ::MphRead::NativeRuntime::RequireReference(found->second).Rumble(
+                low * scale, high * scale, std::chrono::milliseconds(ms));
         }
     }
 }
