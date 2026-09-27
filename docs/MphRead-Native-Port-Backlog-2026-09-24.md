@@ -576,7 +576,7 @@
 | A | +40/-0 | `Mods/Input/GamepadOptions.cs` | — 新規 | 完了（C#全propertyとState/RuntimeConfig委譲を照合済、WheelOrderを設定所有者付きで返しC#配列参照の寿命を保持、Windows Release build済。Android ABI buildはAndroid全ファイル完了後） |
 | A | +39/-0 | `Mods/Input/GamepadActions.cs` | — 新規 | 完了（C#全文・GamepadInput/GamepadEnhancementChecks呼出元監査済、invalid PadActionのshift countをC#の6bit maskに修正、Windows Release build済） |
 | A | +32/-0 | `Mods/Input/WeaponSelectionDirection.cs` | — 新規 | 完了（C#全文・GamepadInput/GamepadEnhancementChecks/GamepadChecks呼出元監査済、float→intを.NET 9+互換変換にしてNaN時のC++未定義動作を除去、Windows Release build済） |
-| A | +30/-0 | `Mods/Input/PlayerEntityHaptics.cs` | — 新規 | 完了 |
+| A | +30/-0 | `Mods/Input/PlayerEntityHaptics.cs` | — 新規 | 完了（C#全文・PlayerInput/PlayerSound/PlayerHud/PlayerEntity呼出元監査済、feedback gates・weapon-selection slot/null/available-array処理一致、Windows Release build済） |
 | A | +27/-0 | `Mods/Input/AimInputSourceTracker.cs` | — 新規 | 完了 |
 | A | +25/-0 | `Mods/Input/AimAssist/AimAssistTuning.cs` | — 新規 | 完了 |
 | M | +25/-18 | `Mods/Input/GamepadProbe.cs` | .cpp,.hpp | 完了 |
