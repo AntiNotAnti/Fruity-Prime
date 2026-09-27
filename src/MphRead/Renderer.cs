@@ -165,6 +165,12 @@ namespace MphRead
         // map each model's texture ID/palette ID combinations to the bound OpenGL texture ID and "onlyOpaque" boolean
         private int _textureCount = 0;
         private readonly Dictionary<int, TextureMap> _texPalMap = new Dictionary<int, TextureMap>();
+        // Display lists are GL resources owned by this Scene, not by the global
+        // Read cache. A side scene can be kept alive after a later Scene
+        // constructor clears that cache, so cache traversal cannot reliably
+        // find everything this Scene created when it is time to release GL.
+        private readonly HashSet<int> _displayLists = new HashSet<int>();
+        private readonly List<Model> _displayListModels = new List<Model>();
 
         private int _shaderProgramId = 0;
         private int _rttShaderProgramId = 0;
@@ -978,6 +984,11 @@ namespace MphRead
                         textureHeight = texture.Height;
                     }
                     listId = GL.GenLists(1);
+                    _displayLists.Add(listId);
+                    if (!_displayListModels.Any(value => ReferenceEquals(value, model)))
+                    {
+                        _displayListModels.Add(model);
+                    }
                     GL.NewList(listId, ListMode.Compile);
                     bool texgen = material.TexgenMode == TexgenMode.Normal;
                     DoDlist(model, mesh, textureWidth, textureHeight, texgen, isRoom);
@@ -2754,10 +2765,27 @@ namespace MphRead
                     }
                     _texPalMap.Remove(model.Id);
                 }
+                var ownedLists = new HashSet<int>();
                 foreach (Mesh mesh in model.Meshes)
                 {
-                    GL.DeleteLists(mesh.ListId, 1);
+                    if (mesh.ListId != 0 && _displayLists.Contains(mesh.ListId))
+                    {
+                        ownedLists.Add(mesh.ListId);
+                    }
                 }
+                foreach (int listId in ownedLists)
+                {
+                    GL.DeleteLists(listId, 1);
+                    _displayLists.Remove(listId);
+                }
+                foreach (Mesh mesh in model.Meshes)
+                {
+                    if (ownedLists.Contains(mesh.ListId))
+                    {
+                        mesh.ListId = 0;
+                    }
+                }
+                _displayListModels.RemoveAll(value => ReferenceEquals(value, model));
             }
             Read.RemoveModel(model.Name, model.FirstHunt);
         }
@@ -4320,17 +4348,25 @@ namespace MphRead
                 }
             }
             _texPalMap.Clear();
-            foreach (Model model in Read.CachedModels)
+            foreach (int listId in _displayLists)
+            {
+                if (listId != 0)
+                {
+                    GL.DeleteLists(listId, 1);
+                }
+            }
+            foreach (Model model in _displayListModels)
             {
                 foreach (Mesh mesh in model.Meshes)
                 {
-                    if (mesh.ListId != 0)
+                    if (_displayLists.Contains(mesh.ListId))
                     {
-                        GL.DeleteLists(mesh.ListId, 1);
                         mesh.ListId = 0;
                     }
                 }
             }
+            _displayLists.Clear();
+            _displayListModels.Clear();
             Read.ClearCache();
             if (_frameBuffer != 0)
             {

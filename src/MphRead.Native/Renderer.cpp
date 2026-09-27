@@ -1043,6 +1043,12 @@ namespace MphRead
                 }
                 listId = GL::GenLists(1);
                 tempListIds.emplace(mesh->DlistId, listId);
+                _displayLists.insert(listId);
+                if (std::find(_displayListModels.begin(), _displayListModels.end(), model)
+                    == _displayListModels.end())
+                {
+                    _displayListModels.push_back(model);
+                }
                 GL::NewList(listId, GL::ListMode::Compile);
                 const bool texgen = material.TexgenMode == TexgenMode::Normal;
                 DoDlist(model, *mesh, textureWidth, textureHeight, texgen, isRoom);
@@ -2138,10 +2144,27 @@ namespace MphRead
                 }
                 _texPalMap.erase(mapIt);
             }
+            std::unordered_set<std::int32_t> ownedLists;
             for (const auto& mesh : *model->Meshes)
             {
-                GL::DeleteLists(mesh->ListId, 1);
+                if (mesh->ListId != 0 && _displayLists.contains(mesh->ListId))
+                {
+                    ownedLists.insert(mesh->ListId);
+                }
             }
+            for (const std::int32_t listId : ownedLists)
+            {
+                GL::DeleteLists(listId, 1);
+                _displayLists.erase(listId);
+            }
+            for (const auto& mesh : *model->Meshes)
+            {
+                if (ownedLists.contains(mesh->ListId))
+                {
+                    mesh->ListId = 0;
+                }
+            }
+            std::erase(_displayListModels, model);
         }
         Read::RemoveModel(model->Name, model->FirstHunt);
     }
@@ -3586,17 +3609,29 @@ namespace MphRead
             }
         }
         _texPalMap.clear();
-        for (const std::shared_ptr<Model>& model : Read::CachedModels())
+        for (const std::int32_t listId : _displayLists)
         {
+            if (listId != 0)
+            {
+                GL::DeleteLists(listId, 1);
+            }
+        }
+        for (const std::shared_ptr<Model>& model : _displayListModels)
+        {
+            if (!model)
+            {
+                continue;
+            }
             for (const std::shared_ptr<Mesh>& mesh : *model->Meshes)
             {
-                if (mesh->ListId != 0)
+                if (mesh && _displayLists.contains(mesh->ListId))
                 {
-                    GL::DeleteLists(mesh->ListId, 1);
                     mesh->ListId = 0;
                 }
             }
         }
+        _displayLists.clear();
+        _displayListModels.clear();
         Read::ClearCache();
         if (_frameBuffer != 0)
         {
