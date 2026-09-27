@@ -301,7 +301,8 @@ namespace MphRead::Mods::MapGen
         if (def != nullptr)
         {
             MapImport* import = def->Import();
-            source = import->Resolve().value_or(import->Source());
+            const std::optional<std::string> resolved = import->Resolve();
+            source = resolved.has_value() ? *resolved : import->Source();
             if (!mapName.has_value())
             {
                 mapName = import->MapName();
