@@ -564,7 +564,7 @@
 | A | +77/-0 | `Mods/Input/WindowsGamepadHaptics.cs` | — 新規 | 完了（C#全文・GamepadHaptics/GamepadDesktop呼出元監査済、欠落XInputSetState export時の例外を修正、Windows Release build済） |
 | A | +76/-0 | `Mods/Input/AimAssist/AimAssistChecks.cs` | — 新規 | 完了（C#全文・GamepadChecksからの接続監査済、全assertionと順序が一致、Windows Release build済） |
 | A | +76/-0 | `Mods/Input/GamepadPlatformChecks.cs` | — 新規 | 完了（C#全文・GamepadChecks二箇所の接続監査済、全34assertion一致、Windows Release build済） |
-| A | +72/-0 | `Mods/Input/AimAssist/AimAssist.cs` | — 新規 | 完了 |
+| A | +72/-0 | `Mods/Input/AimAssist/AimAssist.cs` | — 新規 | 完了（C#全文・AimAssistWorld直結呼出監査済、native同式を確認、Windows Release build済） |
 | M | +71/-47 | `Mods/Input/GamepadLayout.cs` | .cpp,.hpp | 完了 |
 | A | +69/-0 | `Mods/Input/GamepadAnalog.cs` | — 新規 | 完了 |
 | A | +62/-0 | `Mods/Input/GamepadCalibration.cs` | — 新規 | 完了 |
@@ -948,3 +948,4 @@
   `XInputGetState`のみ存在して`XInputSetState`が欠落する環境でC# P/Invokeは例外になるがnativeが黙って振動を捨てていた差を、`System::EntryPointNotFoundException`で合わせた。Windows Release build済。
 - `Mods/Input/AimAssist/AimAssistChecks.cs` をC#全文とnative `.cpp/.hpp`、`GamepadChecks`からの接続で照合。23個の判定、状態の準備・変更順、30/120 Hz比較、入力ソース切替の時刻と期待値が一致し、差分修正なし。C#のGC割当計測はmanaged heap専用のためnativeでは実行できないが、`AimAssist::Apply`と呼出先を見てspan/value演算だけで割当経路がないことを確認した。Windows Release build済。
 - `Mods/Input/GamepadPlatformChecks.cs` をC#全文とnative `.cpp/.hpp`、`GamepadChecks.Run`内の二箇所の接続順で照合。macOS Xbox Bluetooth fixtureの軸/トリガー/10物理button/diagonal hat、mapping許可・拒否、Linux/generic fallback、4 preset、secondary slotを含むconflict swapの全34 assertionとreset順が一致。修正なし。Windows Release build済、check harness未実行。
+- `Mods/Input/AimAssist/AimAssist.cs` をC#全文とnative `.cpp/.hpp`、`PlayerEntity::ApplyControllerAssist`/`AimAssistWorld`の直接呼出元で照合。invalid入力/eligibility時のreset、intent閾値、target走査順・retain/challenger hysteresis、角速度補償、head delay/blend、距離/inner cone friction、opposition、rotation clamp、result scoreまで同式・同順序で、差分修正なし。Windows Release build済。
