@@ -1928,7 +1928,7 @@ namespace MphRead
         std::sort(kinks.begin(), kinks.end());
         const std::uint8_t median = kinks[kinks.size() / 2U];
         const float measured = std::pow(2.0F, (median / 255.0F - 1.0F) * 32.0F);
-        _depthQuantum = std::max(_claimedQuantum, measured);
+        _depthQuantum = ::MphRead::NativeRuntime::MathMax(_claimedQuantum, measured);
         const float ratio = measured / _claimedQuantum;
         const char* howBad = ratio < 2.0F ? "which is what the buffer stores"
             : ratio < 64.0F ? "which is coarser than it stores, and the ink threshold rises to match"
@@ -4076,7 +4076,7 @@ namespace MphRead
         float height;
         if (info->ScaleX == -1.0F || info->ScaleY == -1.0F)
         {
-            const float size = std::max(viewWidth, viewHeight) / 2.0F;
+            const float size = ::MphRead::NativeRuntime::MathMax(viewWidth, viewHeight) / 2.0F;
             width = size / (viewWidth / 2.0F);
             height = size / (viewHeight / 2.0F);
         }
