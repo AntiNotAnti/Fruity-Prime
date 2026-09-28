@@ -2672,7 +2672,7 @@ namespace MphRead::Entities
             float shake = 0.03F;
             if (!TestFlag(flags, DamageFlags::Burn))
             {
-                shake = std::max(damage * 0.01F, 0.05F);
+                shake = ::MphRead::NativeRuntime::MathMax(damage * 0.01F, 0.05F);
             }
             RequireReference(_cameraInfo).SetShake(shake);
         }
