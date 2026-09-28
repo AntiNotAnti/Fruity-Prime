@@ -901,7 +901,7 @@ namespace MphRead::Mods::Launcher::Gui
         std::int32_t port = Launcher::LauncherPrefs::ServerPort();
         if (_address != nullptr)
         {
-            ParseEndpoint(_address->Value(), host, port);
+            static_cast<void>(ParseEndpoint(_address->Value(), host, port));
         }
         return {host, port};
     }
