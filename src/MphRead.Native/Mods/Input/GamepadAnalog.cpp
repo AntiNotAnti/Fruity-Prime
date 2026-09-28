@@ -1,6 +1,7 @@
 #include "GamepadAnalog.hpp"
 
 #include "../../NativeRuntime/System/Enum.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -8,6 +9,8 @@
 
 namespace MphRead::Mods::Input
 {
+    using ::MphRead::NativeRuntime::RoundToEven;
+
     namespace
     {
         constexpr ::MphRead::NativeRuntime::EnumNameEntry CurveNames[] = {
@@ -70,7 +73,7 @@ namespace MphRead::Mods::Input
         {
             return {0, 0};
         }
-        const std::int32_t sector = (static_cast<std::int32_t>(std::nearbyint(
+        const std::int32_t sector = (static_cast<std::int32_t>(RoundToEven(
             std::atan2(y, x) / (std::numbers::pi_v<float> / 4))) + 8) % 8;
         switch (sector)
         {
