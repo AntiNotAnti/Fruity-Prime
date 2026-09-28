@@ -4413,8 +4413,9 @@ namespace MphRead
         ColorRgb color, float alpha, float scaleMult)
     {
         const float scale = _rendererSize.Y / 192.0F * scaleMult;
-        const Vector3 position3d(position.X * _rendererSize.X - _rendererSize.X / 2.0F,
-            (1.0F - position.Y) * _rendererSize.Y - _rendererSize.Y / 2.0F, -1.0F);
+        const Vector3 position3d(
+            position.X * _rendererSize.X - static_cast<float>(_rendererSize.X / 2),
+            (1.0F - position.Y) * _rendererSize.Y - static_cast<float>(_rendererSize.Y / 2), -1.0F);
         Matrix4 transform = CreateRotationZ(DegreesToRadians(angle))
             * CreateScale(scale, scale, 1.0F) * CreateTranslation(position3d);
         GL::UniformMatrix4(_shaderLocations->MatrixStack, false, transform);
