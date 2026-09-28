@@ -38,7 +38,9 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::ManagedAs;
+using ::MphRead::NativeRuntime::RoundToEven;
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -62,42 +64,9 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
 
-        [[nodiscard]] std::int32_t RoundToInt32ToEven(float value) noexcept
-        {
-            if (!std::isfinite(value))
-            {
-                return value > 0.0F
-                    ? std::numeric_limits<std::int32_t>::max()
-                    : std::numeric_limits<std::int32_t>::min();
-            }
-            const float floorValue = std::floor(value);
-            const float fraction = value - floorValue;
-            double rounded = floorValue;
-            if (fraction > 0.5F)
-            {
-                rounded = static_cast<double>(floorValue) + 1.0;
-            }
-            else if (fraction == 0.5F)
-            {
-                const auto floorInteger = static_cast<std::int64_t>(floorValue);
-                rounded = (floorInteger & 1LL) == 0
-                    ? floorValue
-                    : static_cast<double>(floorValue) + 1.0;
-            }
-            if (rounded >= static_cast<double>(std::numeric_limits<std::int32_t>::max()))
-            {
-                return std::numeric_limits<std::int32_t>::max();
-            }
-            if (rounded <= static_cast<double>(std::numeric_limits<std::int32_t>::min()))
-            {
-                return std::numeric_limits<std::int32_t>::min();
-            }
-            return static_cast<std::int32_t>(rounded);
-        }
-
         [[nodiscard]] std::uint8_t RoundToByteUnchecked(float value) noexcept
         {
-            return static_cast<std::uint8_t>(RoundToInt32ToEven(value));
+            return static_cast<std::uint8_t>(ConvertToInt32Net9(RoundToEven(value)));
         }
 
         [[nodiscard]] std::uint8_t IntToByteUnchecked(std::int32_t value) noexcept
