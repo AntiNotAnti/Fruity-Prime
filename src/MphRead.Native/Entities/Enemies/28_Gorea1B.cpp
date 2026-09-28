@@ -28,6 +28,8 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::RoundToEven;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
@@ -114,34 +116,7 @@ namespace MphRead::Entities::Enemies
         }
         [[nodiscard]] Enemy28Entity &RequireEnemy(Enemy28Entity *enemy) { return RequireReference(enemy); }
         [[nodiscard]] PlayerEntity &MainPlayer() { return RequireReference(PlayerEntity::Main()); }
-        [[nodiscard]] std::int32_t RoundToInt32ToEven(float value) noexcept
-        {
-            if (!std::isfinite(value))
-            {
-                return value > 0.0F ? std::numeric_limits<std::int32_t>::max() : std::numeric_limits<std::int32_t>::min();
-            }
-            const float floorValue = std::floor(value);
-            const float fraction = value - floorValue;
-            double rounded = floorValue;
-            if (fraction > 0.5F)
-            {
-                rounded = static_cast<double>(floorValue) + 1.0;
-            }
-            else if (fraction == 0.5F)
-            {
-                const auto floorInteger = static_cast<std::int64_t>(floorValue);
-                rounded = (floorInteger & 1LL) == 0 ? floorValue : static_cast<double>(floorValue) + 1.0;
-            }
-            if (rounded >= static_cast<double>(std::numeric_limits<std::int32_t>::max()))
-            {
-                return std::numeric_limits<std::int32_t>::max();
-            }
-            if (rounded <= static_cast<double>(std::numeric_limits<std::int32_t>::min()))
-            {
-                return std::numeric_limits<std::int32_t>::min();
-            }
-            return static_cast<std::int32_t>(rounded);
-        }
+
     }
     Enemy28Entity::Enemy28Entity(EnemyInstanceEntityData data, Formats::Culling::NodeRef nodeRef, Scene *scene) : GoreaEnemyEntityBase(data, nodeRef, scene)
     {
@@ -476,7 +451,7 @@ namespace MphRead::Entities::Enemies
             _field38 += _field34 / 2.0F;
         }
         _grappleInt += _field28 / 2.0F;
-        if (RoundToInt32ToEven(_grappleInt) > static_cast<std::int32_t>(_grappleVecs.size()))
+        if (ConvertToInt32Net9(RoundToEven(_grappleInt)) > static_cast<std::int32_t>(_grappleVecs.size()))
         {
             _grappleInt -= std::fmod(_grappleInt, 1.0F);
         }
