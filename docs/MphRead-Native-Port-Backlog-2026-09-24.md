@@ -59,6 +59,8 @@
 - 同じOffline maps Scrollベンチを20 ms間隔でプロセス採取したピークは、C++ Working Set 95.3 MB / Private 87.4 MB、C# 159.1 MB / 108.5 MB。`-uishot` の26画面を一プロセスで描画したピークも、C++ 99.9 MB / 89.0 MB、C# 199.0 MB / 141.4 MBだった。これら短時間の標準画面測定ではC++の使用量が多いとは言えないが、長時間の増加・実プレイ中のPC全体フリーズは再現も判定もしていない。
 - `NativeRuntime/Skia/SkiaText.cpp` の静的監査を完了。`Typeface::Impl` はglyph coverage画像とadvanceを`(codepoint, 26.6 pixel size)`の`std::map`に保持し、上限・evictionはない。`Typeface::Default`のfaceはstatic cacheがprocess lifetime保持する。FaceMutexがFreeTypeとmapアクセスを直列化し、map挿入は既存要素の参照を無効化せず、現行コードは消去しないため、`Rasterize`の返すglyph pointerに現在のrace/UAF経路は見つからない。一方で動的Unicodeや多数のサイズを長時間使えばメモリが増える余地はある。C# `DeckText` のFormattedText cacheは1024件超でclearされるがSkiaSharp内部cacheは別物で、短時間のOffline scroll/26画面`-uishot`採取ではC++ Working Set/Privateの方が低かった。メモリ増加の実測・実害は未確認で、pointer寿命を壊すevictionや所有方式変更は根拠なしに行わず、長時間/動的Unicode入力の確認を保留。
 
+- 9/28 `settings` 1920x1080 ScrollのSkia描画を一時in-process profilerで計測。`DrawBitmap` は73回/270 ms、`FillPath` は2974回/610 ms、`BlendSpan` は598621回/634 ms（inclusive計測なので重複し、合算不可）。WPRのCPU samplingはWindowsのsystem-performance policyに拒否されたため権限変更はせず、計測用コードは撤去した。背景bitmap（1952x1088、alpha 223を含む）を1.75倍で1920x1080へ描く限定Nearest/SrcOver経路を試し、既存と同じsample座標・整数premultiplied合成を使ったが、fast pathは3回/26.7 msで、Scroll renderは変更あり3回の中央値14.54 ms、clean HEAD 3回も14.54 ms（個別値14.49/14.54/15.01 ms対14.30/14.54/14.73 ms）。有意差がないため最適化・profilerとも破棄し、clean HEADでWindows Release `ninja -k 0` 成功。測定したのはheadless surfaceのCPU描画で、GL合成・長時間メモリ挙動・通常プレイ中のPC全体フリーズは確認していない。
+
 ### 2026-09-28 C++固有のフリーズ対策
 
 - ユーザー指定のフリーズ対策コミットはすべて監査時点の `HEAD`（`229c35a282f0e44d895d5478ce97f137f7710217`）の祖先であることを再確認した。これらは今回のC#対比監査で差異として扱わず、意図的なC++固有修正として維持する。
