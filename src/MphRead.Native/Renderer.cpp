@@ -4818,6 +4818,11 @@ namespace MphRead
 
     void Scene::OnKeyDown(const RendererPlatform::KeyboardKeyEventArgs& e)
     {
+        // The interactive console worker snapshots these same debug/output
+        // fields. Managed C# tolerates concurrent reads; native std::string,
+        // vectors and ordinary scalar fields do not. Use the same scene gate
+        // that already serializes simulation, draw and room transitions.
+        const std::lock_guard<std::recursive_mutex> gate(NativeRuntime::SceneGate());
 #if defined(DEBUG)
         using RendererPlatform::Key;
         if (Selection::OnKeyDown(e, *this))
@@ -5103,19 +5108,32 @@ namespace MphRead
         std::condition_variable_any delayCondition;
         while (!token.stop_requested())
         {
-            if (_promptState == PromptState::Load)
+            PromptState prompt = PromptState::None;
+            {
+                const std::lock_guard<std::recursive_mutex> gate(NativeRuntime::SceneGate());
+                prompt = _promptState;
+                _promptState = PromptState::None;
+            }
+            if (prompt == PromptState::Load)
             {
                 OutputLoadPrompt();
-                _promptState = PromptState::None;
                 _currentOutput.clear();
             }
-            else if (_promptState == PromptState::CameraPos)
+            else if (prompt == PromptState::CameraPos)
             {
                 OutputCameraPrompt();
-                _promptState = PromptState::None;
                 _currentOutput.clear();
             }
-            const std::string output = OutputGetAll();
+
+            std::string output;
+            {
+                // OutputGetAll walks live scene/entity/selection state. In C#
+                // those reads cannot corrupt managed containers. In native C++
+                // racing a frame update is undefined behaviour, so take the
+                // same gate as the writers while producing the snapshot.
+                const std::lock_guard<std::recursive_mutex> gate(NativeRuntime::SceneGate());
+                output = OutputGetAll();
+            }
             if (output != _currentOutput)
             {
                 NativeRuntime::ConsoleClear();
@@ -5224,7 +5242,10 @@ namespace MphRead
             }
             coords[i] = coord;
         }
-        _cameraPosition = Vector3(coords[0], coords[1], coords[2]);
+        {
+            const std::lock_guard<std::recursive_mutex> gate(NativeRuntime::SceneGate());
+            _cameraPosition = Vector3(coords[0], coords[1], coords[2]);
+        }
     }
 
     std::string Scene::OutputGetAll()
