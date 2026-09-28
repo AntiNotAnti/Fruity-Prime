@@ -2,6 +2,7 @@
 
 #include "DeckButton.hpp"
 #include "../../../NativeRuntime/System/Globalization.hpp"
+#include "../../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -10,6 +11,7 @@
 namespace MphRead::Mods::Launcher::Gui
 {
     using namespace ::MphRead::NativeRuntime::Avalonia;
+    using ::MphRead::NativeRuntime::RoundToEven;
 
     namespace
     {
@@ -466,14 +468,14 @@ namespace MphRead::Mods::Launcher::Gui
         if (std::abs(size - FontSize()) > 0.01)
         {
             FontSize(size);
-            LineHeight(std::round(size * 1.15));
+            LineHeight(RoundToEven(size * 1.15));
         }
         const Av::Size measured = TextBlock::MeasureOverride(availableSize);
         if (_lines <= 0)
         {
             return measured;
         }
-        const double height = std::round(size * 1.15 * _lines);
+        const double height = RoundToEven(size * 1.15 * _lines);
         return {measured.Width, height};
     }
 }
