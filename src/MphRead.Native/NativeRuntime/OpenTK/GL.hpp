@@ -62,6 +62,11 @@ namespace OpenTK::Graphics::OpenGL
         {
             return static_cast<ClearBufferMask>(static_cast<std::int32_t>(left) | static_cast<std::int32_t>(right));
         }
+        enum class BufferTarget : std::int32_t
+        {
+            PixelPackBuffer = 0x88EB,
+            PixelUnpackBuffer = 0x88EC
+        };
         enum class DrawBufferMode : std::int32_t
         {
             None = 0,
@@ -110,6 +115,12 @@ namespace OpenTK::Graphics::OpenGL
         };
         enum class PixelStoreParameter : std::int32_t
         {
+            PackSwapBytes = 0x0D00,
+            PackLsbFirst = 0x0D01,
+            PackRowLength = 0x0D02,
+            PackSkipRows = 0x0D03,
+            PackSkipPixels = 0x0D04,
+            PackAlignment = 0x0D05,
             UnpackSwapBytes = 0x0CF0,
             UnpackLsbFirst = 0x0CF1,
             UnpackRowLength = 0x0CF2,
@@ -117,8 +128,7 @@ namespace OpenTK::Graphics::OpenGL
             UnpackSkipPixels = 0x0CF4,
             UnpackAlignment = 0x0CF5,
             UnpackSkipImages = 0x806D,
-            UnpackImageHeight = 0x806E,
-            PackAlignment = 0x0D05
+            UnpackImageHeight = 0x806E
         };
         enum class PixelType : std::int32_t { UnsignedByte = 0x1401, UnsignedInt248 = 0x84FA };
         enum class PolygonMode : std::int32_t { Line = 0x1B01, Fill = 0x1B02 };
@@ -174,6 +184,7 @@ namespace OpenTK::Graphics::OpenGL
         void AlphaFunc(AlphaFunction func, float reference);
         void AttachShader(std::int32_t program, std::int32_t shader);
         void Begin(PrimitiveType mode);
+        void BindBuffer(BufferTarget target, std::int32_t buffer);
         void BindFramebuffer(FramebufferTarget target, std::int32_t framebuffer);
         void BindRenderbuffer(RenderbufferTarget target, std::int32_t renderbuffer);
         void BindTexture(TextureTarget target, std::int32_t texture);

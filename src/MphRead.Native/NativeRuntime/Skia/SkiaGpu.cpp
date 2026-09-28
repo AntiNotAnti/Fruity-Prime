@@ -83,6 +83,22 @@ namespace MphRead::NativeRuntime::Skia
         constexpr std::int32_t GlDepthFunc = 0x0B74;
         constexpr std::int32_t GlDepthWriteMask = 0x0B72;
         constexpr std::int32_t GlColorWriteMask = 0x0C23;
+        constexpr std::int32_t GlPackSwapBytes = 0x0D00;
+        constexpr std::int32_t GlPackLsbFirst = 0x0D01;
+        constexpr std::int32_t GlPackRowLength = 0x0D02;
+        constexpr std::int32_t GlPackSkipRows = 0x0D03;
+        constexpr std::int32_t GlPackSkipPixels = 0x0D04;
+        constexpr std::int32_t GlPackAlignment = 0x0D05;
+        constexpr std::int32_t GlUnpackSwapBytes = 0x0CF0;
+        constexpr std::int32_t GlUnpackLsbFirst = 0x0CF1;
+        constexpr std::int32_t GlUnpackRowLength = 0x0CF2;
+        constexpr std::int32_t GlUnpackSkipRows = 0x0CF3;
+        constexpr std::int32_t GlUnpackSkipPixels = 0x0CF4;
+        constexpr std::int32_t GlUnpackAlignment = 0x0CF5;
+        constexpr std::int32_t GlUnpackSkipImages = 0x806D;
+        constexpr std::int32_t GlUnpackImageHeight = 0x806E;
+        constexpr std::int32_t GlPixelPackBufferBinding = 0x88ED;
+        constexpr std::int32_t GlPixelUnpackBufferBinding = 0x88EF;
 
         [[nodiscard]] ::SkRect NativeRect(const Rect& r)
         {
@@ -333,6 +349,22 @@ namespace MphRead::NativeRuntime::Skia
         bool PreviousStencilEnabled = false;
         bool PreviousAlphaEnabled = false;
         bool PreviousPolygonOffsetEnabled = false;
+        std::int32_t PreviousPackSwapBytes = 0;
+        std::int32_t PreviousPackLsbFirst = 0;
+        std::int32_t PreviousPackRowLength = 0;
+        std::int32_t PreviousPackSkipRows = 0;
+        std::int32_t PreviousPackSkipPixels = 0;
+        std::int32_t PreviousPackAlignment = 4;
+        std::int32_t PreviousUnpackSwapBytes = 0;
+        std::int32_t PreviousUnpackLsbFirst = 0;
+        std::int32_t PreviousUnpackRowLength = 0;
+        std::int32_t PreviousUnpackSkipRows = 0;
+        std::int32_t PreviousUnpackSkipPixels = 0;
+        std::int32_t PreviousUnpackAlignment = 4;
+        std::int32_t PreviousUnpackSkipImages = 0;
+        std::int32_t PreviousUnpackImageHeight = 0;
+        std::int32_t PreviousPixelPackBuffer = 0;
+        std::int32_t PreviousPixelUnpackBuffer = 0;
 
         void EnsureContext()
         {
@@ -526,6 +558,29 @@ namespace MphRead::NativeRuntime::Skia
             GL::ColorMask(PreviousColorWrite[0] != 0, PreviousColorWrite[1] != 0,
                 PreviousColorWrite[2] != 0, PreviousColorWrite[3] != 0);
             GL::UseProgram(PreviousProgram);
+
+            // Ganesh changes GL pixel transfer state while uploading raster
+            // images. The game uploads room/model textures with client
+            // pointers and assumes the OpenGL defaults, so leaking any of
+            // these values (especially UNPACK_ROW_LENGTH or a PBO binding)
+            // corrupts the next texture upload.
+            GL::BindBuffer(GL::BufferTarget::PixelPackBuffer, PreviousPixelPackBuffer);
+            GL::BindBuffer(GL::BufferTarget::PixelUnpackBuffer, PreviousPixelUnpackBuffer);
+            GL::PixelStore(GL::PixelStoreParameter::PackSwapBytes, PreviousPackSwapBytes);
+            GL::PixelStore(GL::PixelStoreParameter::PackLsbFirst, PreviousPackLsbFirst);
+            GL::PixelStore(GL::PixelStoreParameter::PackRowLength, PreviousPackRowLength);
+            GL::PixelStore(GL::PixelStoreParameter::PackSkipRows, PreviousPackSkipRows);
+            GL::PixelStore(GL::PixelStoreParameter::PackSkipPixels, PreviousPackSkipPixels);
+            GL::PixelStore(GL::PixelStoreParameter::PackAlignment, PreviousPackAlignment);
+            GL::PixelStore(GL::PixelStoreParameter::UnpackSwapBytes, PreviousUnpackSwapBytes);
+            GL::PixelStore(GL::PixelStoreParameter::UnpackLsbFirst, PreviousUnpackLsbFirst);
+            GL::PixelStore(GL::PixelStoreParameter::UnpackRowLength, PreviousUnpackRowLength);
+            GL::PixelStore(GL::PixelStoreParameter::UnpackSkipRows, PreviousUnpackSkipRows);
+            GL::PixelStore(GL::PixelStoreParameter::UnpackSkipPixels, PreviousUnpackSkipPixels);
+            GL::PixelStore(GL::PixelStoreParameter::UnpackAlignment, PreviousUnpackAlignment);
+            GL::PixelStore(GL::PixelStoreParameter::UnpackSkipImages, PreviousUnpackSkipImages);
+            GL::PixelStore(GL::PixelStoreParameter::UnpackImageHeight, PreviousUnpackImageHeight);
+
             for (std::size_t i = 0; i < PreviousTexture2D.size(); ++i)
             {
                 GL::ActiveTexture(static_cast<GL::TextureUnit>(
@@ -601,6 +656,22 @@ namespace MphRead::NativeRuntime::Skia
         _impl->PreviousStencilEnabled = GL::IsEnabled(GL::EnableCap::StencilTest);
         _impl->PreviousAlphaEnabled = GL::IsEnabled(GL::EnableCap::AlphaTest);
         _impl->PreviousPolygonOffsetEnabled = GL::IsEnabled(GL::EnableCap::PolygonOffsetFill);
+        _impl->PreviousPackSwapBytes = GL::GetInteger(GlPackSwapBytes);
+        _impl->PreviousPackLsbFirst = GL::GetInteger(GlPackLsbFirst);
+        _impl->PreviousPackRowLength = GL::GetInteger(GlPackRowLength);
+        _impl->PreviousPackSkipRows = GL::GetInteger(GlPackSkipRows);
+        _impl->PreviousPackSkipPixels = GL::GetInteger(GlPackSkipPixels);
+        _impl->PreviousPackAlignment = GL::GetInteger(GlPackAlignment);
+        _impl->PreviousUnpackSwapBytes = GL::GetInteger(GlUnpackSwapBytes);
+        _impl->PreviousUnpackLsbFirst = GL::GetInteger(GlUnpackLsbFirst);
+        _impl->PreviousUnpackRowLength = GL::GetInteger(GlUnpackRowLength);
+        _impl->PreviousUnpackSkipRows = GL::GetInteger(GlUnpackSkipRows);
+        _impl->PreviousUnpackSkipPixels = GL::GetInteger(GlUnpackSkipPixels);
+        _impl->PreviousUnpackAlignment = GL::GetInteger(GlUnpackAlignment);
+        _impl->PreviousUnpackSkipImages = GL::GetInteger(GlUnpackSkipImages);
+        _impl->PreviousUnpackImageHeight = GL::GetInteger(GlUnpackImageHeight);
+        _impl->PreviousPixelPackBuffer = GL::GetInteger(GlPixelPackBufferBinding);
+        _impl->PreviousPixelUnpackBuffer = GL::GetInteger(GlPixelUnpackBufferBinding);
         _impl->InFrame = true;
         try
         {

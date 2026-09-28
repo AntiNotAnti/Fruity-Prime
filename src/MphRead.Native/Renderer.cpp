@@ -1370,6 +1370,23 @@ namespace MphRead
         return Vector3(1.0F, 1.0F, 1.0F);
     }
 
+    namespace
+    {
+        void PrepareClientTextureUpload()
+        {
+            GL::ActiveTexture(GL::TextureUnit::Texture0);
+            GL::BindBuffer(GL::BufferTarget::PixelUnpackBuffer, 0);
+            GL::PixelStore(GL::PixelStoreParameter::UnpackSwapBytes, 0);
+            GL::PixelStore(GL::PixelStoreParameter::UnpackLsbFirst, 0);
+            GL::PixelStore(GL::PixelStoreParameter::UnpackRowLength, 0);
+            GL::PixelStore(GL::PixelStoreParameter::UnpackSkipRows, 0);
+            GL::PixelStore(GL::PixelStoreParameter::UnpackSkipPixels, 0);
+            GL::PixelStore(GL::PixelStoreParameter::UnpackAlignment, 4);
+            GL::PixelStore(GL::PixelStoreParameter::UnpackSkipImages, 0);
+            GL::PixelStore(GL::PixelStoreParameter::UnpackImageHeight, 0);
+        }
+    }
+
     std::pair<std::int32_t, bool> Scene::BindTexture(const std::shared_ptr<Model>& model,
         std::int32_t textureId, std::int32_t paletteId, std::int32_t recolorId)
     {
@@ -1386,6 +1403,7 @@ namespace MphRead
         }
         const auto& texture = model->Recolors->at(static_cast<std::size_t>(recolorId))
             ->Textures->at(static_cast<std::size_t>(textureId));
+        PrepareClientTextureUpload();
         GL::BindTexture(GL::TextureTarget::Texture2D, bindingId);
         GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgba,
             texture.Width, texture.Height, 0, GL::PixelFormat::Rgba, GL::PixelType::UnsignedByte, pixels.data());
@@ -1405,6 +1423,7 @@ namespace MphRead
     {
         const std::int32_t bindingId = Mods::Render::GlNames::NextTexture();
         _ownedTextures.insert(bindingId);
+        PrepareClientTextureUpload();
         GL::BindTexture(GL::TextureTarget::Texture2D, bindingId);
         GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgba,
             width, height, 0, GL::PixelFormat::Rgba, GL::PixelType::UnsignedByte, data.data());
@@ -1416,6 +1435,7 @@ namespace MphRead
     void Scene::BindTexture(const std::vector<ColorRgba>& data, std::int32_t width, std::int32_t height,
         std::int32_t bindingId)
     {
+        PrepareClientTextureUpload();
         GL::BindTexture(GL::TextureTarget::Texture2D, bindingId);
         GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgba,
             width, height, 0, GL::PixelFormat::Rgba, GL::PixelType::UnsignedByte, data.data());

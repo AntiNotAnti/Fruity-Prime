@@ -39,6 +39,7 @@ namespace
 
     using PFN_ActiveTexture = void(APIENTRY*)(GLenum);
     using PFN_AttachShader = void(APIENTRY*)(GLuint, GLuint);
+    using PFN_BindBuffer = void(APIENTRY*)(GLenum, GLuint);
     using PFN_BindFramebuffer = void(APIENTRY*)(GLenum, GLuint);
     using PFN_BindRenderbuffer = void(APIENTRY*)(GLenum, GLuint);
     using PFN_CheckFramebufferStatus = GLenum(APIENTRY*)(GLenum);
@@ -122,6 +123,7 @@ namespace
 
     MPHREAD_GL_ENTRY(PFN_ActiveTexture, ActiveTexture)
     MPHREAD_GL_ENTRY(PFN_AttachShader, AttachShader)
+    MPHREAD_GL_ENTRY(PFN_BindBuffer, BindBuffer)
     MPHREAD_GL_ENTRY(PFN_BindFramebuffer, BindFramebuffer)
     MPHREAD_GL_ENTRY(PFN_BindRenderbuffer, BindRenderbuffer)
     MPHREAD_GL_ENTRY(PFN_CheckFramebufferStatus, CheckFramebufferStatus)
@@ -193,6 +195,14 @@ namespace OpenTK::Graphics::OpenGL::GL
     void Begin(PrimitiveType mode)
     {
         ::glBegin(ToEnum(mode));
+    }
+
+    void BindBuffer(BufferTarget target, std::int32_t buffer)
+    {
+        if (const auto fn = GetBindBuffer())
+        {
+            fn(ToEnum(target), static_cast<GLuint>(buffer));
+        }
     }
 
     void BindFramebuffer(FramebufferTarget target, std::int32_t framebuffer)
