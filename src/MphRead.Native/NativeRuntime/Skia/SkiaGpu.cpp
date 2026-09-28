@@ -21,7 +21,7 @@
 #include <include/core/SkSurface.h>
 #include <include/core/SkTypeface.h>
 #include <include/effects/SkDashPathEffect.h>
-#include <include/effects/SkGradient.h>
+#include <include/effects/SkGradientShader.h>
 #include <include/gpu/ganesh/GrBackendSurface.h>
 #include <include/gpu/ganesh/GrDirectContext.h>
 #include <include/gpu/ganesh/GrTypes.h>
@@ -118,21 +118,24 @@ namespace MphRead::NativeRuntime::Skia
             }
 
             std::vector<::SkColor4f> colors;
-            std::vector<float> positions;
-            colors.reserve(description.Stops.size());
-            positions.reserve(description.Stops.size());
+            std::vector<::SkScalar> positions;
+            colors.reserve(std::max<std::size_t>(description.Stops.size(), 2));
+            positions.reserve(std::max<std::size_t>(description.Stops.size(), 2));
             for (const GradientStop& stop : description.Stops)
             {
                 colors.push_back(NativeColor(stop.StopColor));
-                positions.push_back(static_cast<float>(std::clamp(stop.Offset, 0.0, 1.0)));
+                positions.push_back(static_cast<::SkScalar>(std::clamp(stop.Offset, 0.0, 1.0)));
             }
+            if (colors.size() == 1)
+            {
+                colors.push_back(colors.front());
+                positions.front() = 0.0F;
+                positions.push_back(1.0F);
+            }
+
             const ::SkTileMode tile = NativeTileMode(description.Spread);
-            ::SkGradient::Colors colorSet(
-                ::SkSpan<const ::SkColor4f>(colors.data(), colors.size()),
-                ::SkSpan<const float>(positions.data(), positions.size()), tile);
-            ::SkGradient::Interpolation interpolation;
-            interpolation.fInPremul = ::SkGradient::Interpolation::InPremul::kYes;
-            const ::SkGradient gradient(colorSet, interpolation);
+            ::SkGradientShader::Interpolation interpolation;
+            interpolation.fInPremul = ::SkGradientShader::Interpolation::InPremul::kYes;
 
             if (description.Kind == GradientKind::Linear)
             {
@@ -140,7 +143,8 @@ namespace MphRead::NativeRuntime::Skia
                     {static_cast<float>(description.Start.X), static_cast<float>(description.Start.Y)},
                     {static_cast<float>(description.End.X), static_cast<float>(description.End.Y)}
                 };
-                return ::SkShaders::LinearGradient(points, gradient);
+                return ::SkGradientShader::MakeLinear(points, colors.data(), nullptr, positions.data(),
+                    static_cast<int>(colors.size()), tile, interpolation, nullptr);
             }
 
             const float rx = static_cast<float>(std::max(std::abs(description.RadiusX), 1e-6));
@@ -153,9 +157,12 @@ namespace MphRead::NativeRuntime::Skia
                 0.0F, ry, static_cast<float>(description.Centre.Y), 0.0F, 0.0F, 1.0F);
             if (std::abs(focus.x()) < 1e-6F && std::abs(focus.y()) < 1e-6F)
             {
-                return ::SkShaders::RadialGradient({0.0F, 0.0F}, 1.0F, gradient, &ellipse);
+                return ::SkGradientShader::MakeRadial({0.0F, 0.0F}, 1.0F, colors.data(), nullptr,
+                    positions.data(), static_cast<int>(colors.size()), tile, interpolation, &ellipse);
             }
-            return ::SkShaders::TwoPointConicalGradient(focus, 0.0F, {0.0F, 0.0F}, 1.0F, gradient, &ellipse);
+            return ::SkGradientShader::MakeTwoPointConical(focus, 0.0F, {0.0F, 0.0F}, 1.0F,
+                colors.data(), nullptr, positions.data(), static_cast<int>(colors.size()),
+                tile, interpolation, &ellipse);
         }
 
         [[nodiscard]] ::SkPaint NativePaint(const Paint& paint, BlendMode blend = BlendMode::SrcOver)

@@ -531,6 +531,9 @@ namespace MphRead::Mods::Launcher::Gui
         try
         {
             UiTopLevelImpl topLevel;
+            // Capture is intentionally software/off-screen. Normal launcher
+            // frames remain Ganesh-backed and never read pixels back from the GPU.
+            topLevel.GpuRendering(false);
             topLevel.SetClientSize(Av::Size{size.Width, size.Height});
             Av::EmbeddableControlRoot& root = topLevel.Root();
             root.Background(GuiTheme::PanelBrush);

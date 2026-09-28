@@ -297,7 +297,9 @@ namespace MphRead::NativeRuntime::Avalonia
         const auto width = static_cast<std::int32_t>(std::max(1.0, std::round(_clientSize.Width)));
         const auto height = static_cast<std::int32_t>(std::max(1.0, std::round(_clientSize.Height)));
         bool fullRender = _fullRenderDirty;
-        const bool resize = _surface.Width() != width || _surface.Height() != height;
+        const bool resize = _gpuRendering
+            ? _surface.Width() != width || _surface.Height() != height
+            : _pixels.Width() != width || _pixels.Height() != height;
         if (resize)
         {
             fullRender = true;
@@ -326,23 +328,8 @@ namespace MphRead::NativeRuntime::Avalonia
         _renderDirty = false;
         _fullRenderDirty = false;
         _renderDamage = {};
-        _surface.BeginFrame();
-        try
+        const auto draw = [&](Skia::Canvas& canvas)
         {
-            if (resize)
-            {
-                _surface.Resize(width, height);
-            }
-            if (fullRender)
-            {
-                _surface.Clear({});
-            }
-            else
-            {
-                _surface.ClearRect({}, static_cast<std::int32_t>(damage.X), static_cast<std::int32_t>(damage.Y),
-                    static_cast<std::int32_t>(damage.Width), static_cast<std::int32_t>(damage.Height));
-            }
-            Skia::Canvas canvas(_surface);
             Media::DrawingContext context(canvas);
             std::optional<Media::DrawingContext::PushedState> damageClip;
             if (!fullRender)
@@ -351,12 +338,53 @@ namespace MphRead::NativeRuntime::Avalonia
             }
             RenderVisual(*this, context, true, fullRender ? nullptr : &damage, fullRender,
                 Matrix::Identity(), fullRender ? &surface : &damage);
-            _surface.EndFrame();
-        }
-        catch (...)
+        };
+
+        if (_gpuRendering)
         {
-            _surface.EndFrame();
-            throw;
+            _surface.BeginFrame();
+            try
+            {
+                if (resize)
+                {
+                    _surface.Resize(width, height);
+                }
+                if (fullRender)
+                {
+                    _surface.Clear({});
+                }
+                else
+                {
+                    _surface.ClearRect({}, static_cast<std::int32_t>(damage.X), static_cast<std::int32_t>(damage.Y),
+                        static_cast<std::int32_t>(damage.Width), static_cast<std::int32_t>(damage.Height));
+                }
+                Skia::Canvas canvas(_surface);
+                draw(canvas);
+                _surface.EndFrame();
+            }
+            catch (...)
+            {
+                _surface.EndFrame();
+                throw;
+            }
+        }
+        else
+        {
+            if (resize)
+            {
+                _pixels.Resize(width, height);
+            }
+            if (fullRender)
+            {
+                _pixels.Clear({});
+            }
+            else
+            {
+                _pixels.ClearRect({}, static_cast<std::int32_t>(damage.X), static_cast<std::int32_t>(damage.Y),
+                    static_cast<std::int32_t>(damage.Width), static_cast<std::int32_t>(damage.Height));
+            }
+            Skia::Canvas canvas(_pixels);
+            draw(canvas);
         }
         _drawn++;
         if (Painted)

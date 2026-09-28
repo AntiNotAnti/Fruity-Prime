@@ -148,9 +148,45 @@ if(NOT ANDROID)
     target_link_libraries(fruity_mphread_native PUBLIC OpenGL::GL)
 
     # The native launcher is rendered by real Skia Ganesh into the current
-    # OpenGL context. CPU bitmap canvases are retained only for off-screen use.
-    find_package(unofficial-skia CONFIG REQUIRED)
-    target_link_libraries(fruity_mphread_native PUBLIC unofficial::skia::skia)
+    # OpenGL context. vcpkg exports unofficial::skia::skia, while MSYS2 ships
+    # Skia through pkg-config as skia.pc.
+    find_package(unofficial-skia CONFIG QUIET)
+    if(TARGET unofficial::skia::skia)
+        target_link_libraries(fruity_mphread_native PUBLIC unofficial::skia::skia)
+    else()
+        find_package(PkgConfig REQUIRED)
+        pkg_check_modules(FRUITY_SKIA QUIET IMPORTED_TARGET skia)
+
+        # build-cpp.bat is intentionally local/untracked in some developer
+        # checkouts. Make a fresh MSYS2 checkout self-healing instead of
+        # requiring that helper to know every new native dependency.
+        if(MINGW AND NOT TARGET PkgConfig::FRUITY_SKIA)
+            get_filename_component(_fruity_mingw_bin "${CMAKE_COMMAND}" DIRECTORY)
+            get_filename_component(_fruity_mingw_prefix "${_fruity_mingw_bin}" DIRECTORY)
+            get_filename_component(_fruity_msys_root "${_fruity_mingw_prefix}" DIRECTORY)
+            find_program(FRUITY_PACMAN_EXECUTABLE
+                NAMES pacman.exe pacman
+                HINTS "${_fruity_msys_root}/usr/bin" "C:/msys64/usr/bin")
+            if(FRUITY_PACMAN_EXECUTABLE)
+                message(STATUS "Skia not found; installing mingw-w64-x86_64-skia with MSYS2 pacman")
+                execute_process(
+                    COMMAND "${FRUITY_PACMAN_EXECUTABLE}" -S --needed --noconfirm mingw-w64-x86_64-skia
+                    RESULT_VARIABLE FRUITY_SKIA_INSTALL_RESULT)
+                if(FRUITY_SKIA_INSTALL_RESULT EQUAL 0)
+                    # pkg-config caches variables, but a second module query
+                    # after package installation creates the imported target.
+                    pkg_check_modules(FRUITY_SKIA REQUIRED IMPORTED_TARGET skia)
+                endif()
+            endif()
+        endif()
+
+        if(NOT TARGET PkgConfig::FRUITY_SKIA)
+            message(FATAL_ERROR
+                "Skia Ganesh was not found. With MSYS2 install "
+                "mingw-w64-x86_64-skia; with vcpkg install skia[gl,freetype].")
+        endif()
+        target_link_libraries(fruity_mphread_native PUBLIC PkgConfig::FRUITY_SKIA)
+    endif()
 
     find_package(glfw3 CONFIG REQUIRED)
     target_link_libraries(fruity_mphread_native PUBLIC glfw)

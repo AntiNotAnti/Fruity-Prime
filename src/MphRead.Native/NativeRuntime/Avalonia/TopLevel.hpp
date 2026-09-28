@@ -95,9 +95,31 @@ namespace MphRead::NativeRuntime::Avalonia
         // ran into the retained Ganesh surface.
         bool Render();
 
-        [[nodiscard]] std::int32_t TextureId() const noexcept { return _surface.TextureId(); }
-        [[nodiscard]] std::int32_t PixelWidth() const noexcept { return _surface.Width(); }
-        [[nodiscard]] std::int32_t PixelHeight() const noexcept { return _surface.Height(); }
+        void GpuRendering(bool value) noexcept
+        {
+            if (_gpuRendering != value)
+            {
+                _gpuRendering = value;
+                InvalidateRender();
+            }
+        }
+        [[nodiscard]] bool GpuRendering() const noexcept { return _gpuRendering; }
+        [[nodiscard]] std::int32_t TextureId() const noexcept
+        {
+            return _gpuRendering ? _surface.TextureId() : 0;
+        }
+        [[nodiscard]] const std::uint8_t* Pixels() const noexcept
+        {
+            return _gpuRendering ? nullptr : _pixels.Pixels();
+        }
+        [[nodiscard]] std::int32_t PixelWidth() const noexcept
+        {
+            return _gpuRendering ? _surface.Width() : _pixels.Width();
+        }
+        [[nodiscard]] std::int32_t PixelHeight() const noexcept
+        {
+            return _gpuRendering ? _surface.Height() : _pixels.Height();
+        }
         [[nodiscard]] std::int32_t Drawn() const noexcept { return _drawn; }
         // Called when a pass has just finished into the GPU surface.
         std::function<void()> Painted{};
@@ -154,6 +176,8 @@ namespace MphRead::NativeRuntime::Avalonia
 
         Size _clientSize{1280, 768};
         Skia::GpuSurface _surface;
+        Skia::Bitmap _pixels;
+        bool _gpuRendering = true;
         std::int32_t _drawn = 0;
         bool _renderDirty = true;
         bool _fullRenderDirty = true;
