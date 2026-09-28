@@ -83,6 +83,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential \
             cmake \
+            autoconf \
+            autoconf-archive \
+            automake \
+            libtool \
             libarchive-dev \
             libcurl4-openssl-dev \
             zlib1g-dev \
@@ -145,7 +149,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          brew install curl libarchive zlib glfw freetype openal-soft
+          brew install autoconf autoconf-archive automake libtool curl libarchive zlib glfw freetype openal-soft
           echo "CMAKE_PREFIX_PATH=$(brew --prefix curl);$(brew --prefix libarchive);$(brew --prefix zlib);$(brew --prefix glfw);$(brew --prefix freetype);$(brew --prefix openal-soft)" >> "$GITHUB_ENV"
 
       - name: Install Skia Ganesh

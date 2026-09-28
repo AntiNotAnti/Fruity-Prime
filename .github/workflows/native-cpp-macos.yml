@@ -60,7 +60,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          brew install curl libarchive zlib glfw freetype jpeg-turbo openal-soft
+          brew install autoconf autoconf-archive automake libtool curl libarchive zlib glfw freetype jpeg-turbo openal-soft
           echo "CMAKE_PREFIX_PATH=$(brew --prefix curl);$(brew --prefix libarchive);$(brew --prefix zlib);$(brew --prefix glfw);$(brew --prefix freetype);$(brew --prefix jpeg-turbo);$(brew --prefix openal-soft)" >> "$GITHUB_ENV"
 
       - name: Save Homebrew download cache
