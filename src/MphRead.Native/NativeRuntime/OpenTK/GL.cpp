@@ -454,6 +454,17 @@ namespace OpenTK::Graphics::OpenGL::GL
         return static_cast<std::int32_t>(value);
     }
 
+    void GetIntegers(std::int32_t pname, std::int32_t* values)
+    {
+        static_assert(sizeof(GLint) == sizeof(std::int32_t));
+        ::glGetIntegerv(static_cast<GLenum>(pname), reinterpret_cast<GLint*>(values));
+    }
+
+    bool IsEnabled(EnableCap cap)
+    {
+        return ::glIsEnabled(ToEnum(cap)) == GL_TRUE;
+    }
+
     void DebugMessageCallback(void* callback, const void* userParam)
     {
         if (const auto fn = GetDebugMessageCallback())

@@ -463,6 +463,7 @@ namespace MphRead::NativeRuntime::Skia
 
     void Bitmap::Resize(std::int32_t width, std::int32_t height)
     {
+        ++_revision;
         _width = std::max(0, width);
         _height = std::max(0, height);
         _pixels.assign(static_cast<std::size_t>(_width) * static_cast<std::size_t>(_height) * 4, 0);
@@ -470,6 +471,7 @@ namespace MphRead::NativeRuntime::Skia
 
     void Bitmap::Clear(Color color)
     {
+        ++_revision;
         const float a = color.A / 255.0F;
         const std::uint8_t p[4]{static_cast<std::uint8_t>(std::lround(color.R * a)),
             static_cast<std::uint8_t>(std::lround(color.G * a)), static_cast<std::uint8_t>(std::lround(color.B * a)),
@@ -482,6 +484,7 @@ namespace MphRead::NativeRuntime::Skia
 
     void Bitmap::ClearRect(Color color, std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height)
     {
+        ++_revision;
         if (width <= 0 || height <= 0 || _width <= 0 || _height <= 0)
         {
             return;
@@ -730,8 +733,14 @@ namespace MphRead::NativeRuntime::Skia
         {
         public:
             Linear(Point start, Point end, std::vector<GradientStop> stops, SpreadMethod spread, const Matrix& m)
-                : GradientBase(std::move(stops), spread, m), _start(start)
+                : GradientBase(stops, spread, m), _start(start)
             {
+                _descriptor.Kind = GradientKind::Linear;
+                _descriptor.Start = start;
+                _descriptor.End = end;
+                _descriptor.Stops = std::move(stops);
+                _descriptor.Spread = spread;
+                _descriptor.LocalToDevice = m;
                 _dx = end.X - start.X;
                 _dy = end.Y - start.Y;
                 const double length = _dx * _dx + _dy * _dy;
@@ -744,11 +753,17 @@ namespace MphRead::NativeRuntime::Skia
                 Lookup(((p.X - _start.X) * _dx + (p.Y - _start.Y) * _dy) * _inverse, out);
             }
 
+            [[nodiscard]] const GradientDescriptor& Descriptor() const noexcept override
+            {
+                return _descriptor;
+            }
+
         private:
             Point _start;
             double _dx = 0;
             double _dy = 0;
             double _inverse = 0;
+            GradientDescriptor _descriptor{};
         };
 
         class Radial final : public GradientBase
@@ -756,9 +771,17 @@ namespace MphRead::NativeRuntime::Skia
         public:
             Radial(Point centre, Point origin, double rx, double ry, std::vector<GradientStop> stops,
                 SpreadMethod spread, const Matrix& m)
-                : GradientBase(std::move(stops), spread, m), _centre(centre), _origin(origin),
+                : GradientBase(stops, spread, m), _centre(centre), _origin(origin),
                   _rx(std::max(rx, 1e-9)), _ry(std::max(ry, 1e-9))
             {
+                _descriptor.Kind = GradientKind::Radial;
+                _descriptor.Centre = centre;
+                _descriptor.Origin = origin;
+                _descriptor.RadiusX = rx;
+                _descriptor.RadiusY = ry;
+                _descriptor.Stops = std::move(stops);
+                _descriptor.Spread = spread;
+                _descriptor.LocalToDevice = m;
             }
 
             void Shade(double x, double y, float out[4]) const override
@@ -790,11 +813,17 @@ namespace MphRead::NativeRuntime::Skia
                 Lookup(s <= 0 ? 1e9 : 1.0 / s, out);
             }
 
+            [[nodiscard]] const GradientDescriptor& Descriptor() const noexcept override
+            {
+                return _descriptor;
+            }
+
         private:
             Point _centre;
             Point _origin;
             double _rx;
             double _ry;
+            GradientDescriptor _descriptor{};
         };
     }
 
@@ -1087,8 +1116,26 @@ namespace MphRead::NativeRuntime::Skia
 
     // -------------------------------------------------------------- canvas
 
+    namespace
+    {
+        Bitmap& EmptyCanvasBitmap()
+        {
+            static Bitmap empty;
+            return empty;
+        }
+    }
+
     Canvas::Canvas(Bitmap& target)
         : _base(target)
+    {
+        State state;
+        state.ClipRight = target.Width();
+        state.ClipBottom = target.Height();
+        _states.push_back(std::move(state));
+    }
+
+    Canvas::Canvas(GpuSurface& target)
+        : _base(EmptyCanvasBitmap()), _gpu(&target)
     {
         State state;
         state.ClipRight = target.Width();
@@ -1119,11 +1166,20 @@ namespace MphRead::NativeRuntime::Skia
 
     void Canvas::Clear(Color color)
     {
+        if (_gpu != nullptr)
+        {
+            _gpu->Clear(color);
+            return;
+        }
         Target().Clear(color);
     }
 
     void Canvas::Save()
     {
+        if (_gpu != nullptr)
+        {
+            _gpu->Save();
+        }
         State copy = Current();
         copy.Layer = nullptr;
         copy.LayerLeft = 0;
@@ -1134,6 +1190,17 @@ namespace MphRead::NativeRuntime::Skia
 
     void Canvas::SaveLayerAlpha(double opacity)
     {
+        if (_gpu != nullptr)
+        {
+            State copy = Current();
+            copy.Layer = nullptr;
+            copy.LayerLeft = 0;
+            copy.LayerTop = 0;
+            copy.LayerOpacity = std::clamp(opacity, 0.0, 1.0);
+            _states.push_back(std::move(copy));
+            _gpu->SaveLayerAlpha(opacity);
+            return;
+        }
         Save();
         State& layer = Current();
         layer.LayerOpacity = std::clamp(opacity, 0.0, 1.0);
@@ -1154,6 +1221,11 @@ namespace MphRead::NativeRuntime::Skia
         }
         State top = std::move(_states.back());
         _states.pop_back();
+        if (_gpu != nullptr)
+        {
+            _gpu->Restore();
+            return;
+        }
         if (top.Layer == nullptr)
         {
             return;
@@ -1200,11 +1272,19 @@ namespace MphRead::NativeRuntime::Skia
     void Canvas::Concat(const Matrix& matrix)
     {
         Current().Transform = matrix.Then(Current().Transform);
+        if (_gpu != nullptr)
+        {
+            _gpu->Concat(matrix);
+        }
     }
 
     void Canvas::SetMatrix(const Matrix& matrix)
     {
         Current().Transform = matrix;
+        if (_gpu != nullptr)
+        {
+            _gpu->SetMatrix(matrix);
+        }
     }
 
     const Matrix& Canvas::TotalMatrix() const noexcept
@@ -1214,6 +1294,10 @@ namespace MphRead::NativeRuntime::Skia
 
     Rect Canvas::DeviceClipBounds() const noexcept
     {
+        if (_gpu != nullptr)
+        {
+            return _gpu->DeviceClipBounds();
+        }
         const State& s = Current();
         return Rect{static_cast<double>(s.ClipLeft), static_cast<double>(s.ClipTop), static_cast<double>(s.ClipRight),
             static_cast<double>(s.ClipBottom)};
@@ -1221,6 +1305,18 @@ namespace MphRead::NativeRuntime::Skia
 
     void Canvas::ClipRect(const Rect& rect, bool antialias)
     {
+        if (_gpu != nullptr)
+        {
+            _gpu->ClipRect(rect, antialias);
+            const Rect bounds = _gpu->DeviceClipBounds();
+            State& state = Current();
+            state.ClipLeft = static_cast<std::int32_t>(std::floor(bounds.Left));
+            state.ClipTop = static_cast<std::int32_t>(std::floor(bounds.Top));
+            state.ClipRight = static_cast<std::int32_t>(std::ceil(bounds.Right));
+            state.ClipBottom = static_cast<std::int32_t>(std::ceil(bounds.Bottom));
+            state.ClipMask = nullptr;
+            return;
+        }
         State& s = Current();
         const Matrix m = s.Transform;
         if (m.IsScaleTranslate())
@@ -1256,6 +1352,18 @@ namespace MphRead::NativeRuntime::Skia
 
     void Canvas::ClipPath(const Path& path, bool antialias)
     {
+        if (_gpu != nullptr)
+        {
+            _gpu->ClipPath(path, antialias);
+            const Rect bounds = _gpu->DeviceClipBounds();
+            State& state = Current();
+            state.ClipLeft = static_cast<std::int32_t>(std::floor(bounds.Left));
+            state.ClipTop = static_cast<std::int32_t>(std::floor(bounds.Top));
+            state.ClipRight = static_cast<std::int32_t>(std::ceil(bounds.Right));
+            state.ClipBottom = static_cast<std::int32_t>(std::ceil(bounds.Bottom));
+            state.ClipMask = nullptr;
+            return;
+        }
         State& s = Current();
         const Rect bounds = s.Transform.MapRect(path.Bounds());
         s.ClipLeft = std::max(s.ClipLeft, static_cast<std::int32_t>(std::floor(bounds.Left)));
@@ -1533,6 +1641,11 @@ namespace MphRead::NativeRuntime::Skia
 
     void Canvas::FillPath(const Path& path, const Paint& paint)
     {
+        if (_gpu != nullptr)
+        {
+            _gpu->FillPath(path, paint);
+            return;
+        }
         if (path.IsEmpty() || paint.Opacity <= 0)
         {
             return;
@@ -1621,6 +1734,11 @@ namespace MphRead::NativeRuntime::Skia
 
     void Canvas::StrokePath(const Path& path, const StrokeStyle& stroke, const Paint& paint)
     {
+        if (_gpu != nullptr)
+        {
+            _gpu->StrokePath(path, stroke, paint);
+            return;
+        }
         if (path.IsEmpty() || paint.Opacity <= 0 || stroke.Width <= 0)
         {
             return;
@@ -1635,6 +1753,11 @@ namespace MphRead::NativeRuntime::Skia
     void Canvas::DrawBitmap(const Bitmap& bitmap, const Rect& source, const Rect& destination, FilterQuality quality,
         double opacity, BlendMode blend)
     {
+        if (_gpu != nullptr)
+        {
+            _gpu->DrawBitmap(bitmap, source, destination, quality, opacity, blend);
+            return;
+        }
         if (bitmap.Width() <= 0 || bitmap.Height() <= 0 || destination.IsEmpty() || source.IsEmpty() || opacity <= 0)
         {
             return;
@@ -2047,6 +2170,11 @@ namespace MphRead::NativeRuntime::Skia
     void Canvas::DrawBoxShadow(const Path& shape, const BoxShadowSpec& shadow, const Rect& bounds,
         const std::array<Point, 4>& radii)
     {
+        if (_gpu != nullptr)
+        {
+            _gpu->DrawBoxShadow(shape, shadow, bounds, radii);
+            return;
+        }
         if (shadow.ShadowColor.A == 0)
         {
             return;
@@ -2311,6 +2439,11 @@ namespace MphRead::NativeRuntime::Skia
     void Canvas::DrawText(std::u32string_view text, const Typeface& typeface, double size, Point origin,
         const Paint& paint)
     {
+        if (_gpu != nullptr)
+        {
+            _gpu->DrawText(text, typeface, size, origin, paint);
+            return;
+        }
         if (text.empty() || size <= 0 || paint.Opacity <= 0)
         {
             return;

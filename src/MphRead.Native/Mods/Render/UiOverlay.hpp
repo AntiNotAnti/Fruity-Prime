@@ -18,6 +18,7 @@ namespace MphRead::Mods::Render
         static void Visible(bool value) noexcept;
         [[nodiscard]] static bool HasFrame() noexcept;
         static void Upload(const void* pixels, std::int32_t width, std::int32_t height);
+        static void UseTexture(std::int32_t texture, std::int32_t width, std::int32_t height);
         static void Draw(std::int32_t width, std::int32_t height);
         static void DrawAlone(::MphRead::RenderWindow& window, std::int32_t width, std::int32_t height);
         static void Release();
@@ -29,5 +30,7 @@ namespace MphRead::Mods::Render
         static std::int32_t _height;
         static bool _hasFrame;
         static bool _visible;
+        static bool _ownsTexture;
+        static bool _topRowAtTextureZero;
     };
 }

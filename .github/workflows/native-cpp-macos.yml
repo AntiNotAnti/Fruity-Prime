@@ -71,6 +71,25 @@ jobs:
           path: ~/Library/Caches/Homebrew/downloads
           key: native-homebrew-v1-${{ runner.os }}-${{ runner.arch }}-clang-${{ hashFiles('CMakeLists.txt', 'cmake/**', '.github/workflows/native-cpp-macos.yml') }}
 
+      - name: Install Skia Ganesh on macOS
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${VCPKG_INSTALLATION_ROOT:-}" && -x "${VCPKG_INSTALLATION_ROOT}/vcpkg" ]]; then
+            root="${VCPKG_INSTALLATION_ROOT}"
+          else
+            root="${RUNNER_TEMP}/vcpkg"
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git "$root"
+            "$root/bootstrap-vcpkg.sh" -disableMetrics
+          fi
+          if [[ "$(uname -m)" == "arm64" ]]; then
+            triplet="arm64-osx"
+          else
+            triplet="x64-osx"
+          fi
+          "$root/vcpkg" install "skia[gl,freetype]:$triplet" --clean-after-build
+          echo "FRUITY_SKIA_PREFIX=$root/installed/$triplet" >> "$GITHUB_ENV"
+
       - name: Configure with Clang
         shell: bash
         run: |
@@ -78,7 +97,7 @@ jobs:
           mkdir -p build/native
           cmake -S . -B build/native \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH:-}" 2>&1 | tee build/native/configure.log
+            -DCMAKE_PREFIX_PATH="${FRUITY_SKIA_PREFIX};${CMAKE_PREFIX_PATH:-}" 2>&1 | tee build/native/configure.log
 
       - name: Build shared native owners
         shell: bash

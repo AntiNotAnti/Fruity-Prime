@@ -16,6 +16,8 @@ namespace MphRead::Mods::Render
     std::int32_t UiOverlay::_height = 0;
     bool UiOverlay::_hasFrame = false;
     bool UiOverlay::_visible = false;
+    bool UiOverlay::_ownsTexture = false;
+    bool UiOverlay::_topRowAtTextureZero = true;
 
     bool UiOverlay::Visible() noexcept
     {
@@ -39,9 +41,17 @@ namespace MphRead::Mods::Render
             return;
         }
         GL::ActiveTexture(GL::TextureUnit::Texture0);
+        if (_texture != 0 && !_ownsTexture)
+        {
+            _texture = 0;
+            _width = 0;
+            _height = 0;
+        }
         if (_texture == 0)
         {
             _texture = Name;
+            _ownsTexture = true;
+            _topRowAtTextureZero = true;
             GL::BindTexture(GL::TextureTarget::Texture2D, _texture);
             GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,
                 static_cast<std::int32_t>(GL::TextureMinFilter::Linear));
@@ -73,6 +83,24 @@ namespace MphRead::Mods::Render
         _hasFrame = true;
         ::MphRead::NativeRuntime::GpuTrace::Uploads++;
         ::MphRead::NativeRuntime::GpuTrace::UploadBytes += static_cast<std::int64_t>(width) * height * 4;
+    }
+
+    void UiOverlay::UseTexture(std::int32_t texture, std::int32_t width, std::int32_t height)
+    {
+        if (texture == 0 || width <= 0 || height <= 0)
+        {
+            return;
+        }
+        if (_ownsTexture && _texture != 0)
+        {
+            GL::DeleteTexture(_texture);
+        }
+        _texture = texture;
+        _width = width;
+        _height = height;
+        _ownsTexture = false;
+        _topRowAtTextureZero = false;
+        _hasFrame = true;
     }
 
     void UiOverlay::Draw(std::int32_t width, std::int32_t height)
@@ -107,14 +135,16 @@ namespace MphRead::Mods::Render
         GL::MatrixMode(GL::MatrixMode::Modelview);
         GL::PushMatrix();
         GL::LoadIdentity();
+        const float topT = _topRowAtTextureZero ? 0.0F : 1.0F;
+        const float bottomT = _topRowAtTextureZero ? 1.0F : 0.0F;
         GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::TexCoord2(1, 0);
+        GL::TexCoord2(1, topT);
         GL::Vertex3(1, 1, 0);
-        GL::TexCoord2(0, 0);
+        GL::TexCoord2(0, topT);
         GL::Vertex3(-1, 1, 0);
-        GL::TexCoord2(1, 1);
+        GL::TexCoord2(1, bottomT);
         GL::Vertex3(1, -1, 0);
-        GL::TexCoord2(0, 1);
+        GL::TexCoord2(0, bottomT);
         GL::Vertex3(-1, -1, 0);
         GL::End();
         GL::PopMatrix();
@@ -141,13 +171,15 @@ namespace MphRead::Mods::Render
 
     void UiOverlay::Release()
     {
-        if (_texture != 0)
+        if (_texture != 0 && _ownsTexture)
         {
             GL::DeleteTexture(_texture);
-            _texture = 0;
         }
+        _texture = 0;
         _width = 0;
         _height = 0;
         _hasFrame = false;
+        _ownsTexture = false;
+        _topRowAtTextureZero = true;
     }
 }

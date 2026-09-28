@@ -89,6 +89,20 @@ jobs:
           path: ${{ env.APT_CACHE_DIR }}
           key: native-apt-v1-${{ runner.os }}-${{ runner.arch }}-gcc-${{ steps.apt-deps.outputs.digest }}-${{ hashFiles('.github/workflows/native-cpp-linux.yml') }}
 
+      - name: Install Skia Ganesh on Linux
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${VCPKG_INSTALLATION_ROOT:-}" && -x "${VCPKG_INSTALLATION_ROOT}/vcpkg" ]]; then
+            root="${VCPKG_INSTALLATION_ROOT}"
+          else
+            root="${RUNNER_TEMP}/vcpkg"
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git "$root"
+            "$root/bootstrap-vcpkg.sh" -disableMetrics
+          fi
+          "$root/vcpkg" install "skia[gl,freetype]:x64-linux" --clean-after-build
+          echo "FRUITY_SKIA_PREFIX=$root/installed/x64-linux" >> "$GITHUB_ENV"
+
       - name: Configure with GCC
         shell: bash
         run: |
@@ -96,7 +110,7 @@ jobs:
           mkdir -p build/native
           cmake -S . -B build/native \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH:-}" 2>&1 | tee build/native/configure.log
+            -DCMAKE_PREFIX_PATH="${FRUITY_SKIA_PREFIX};${CMAKE_PREFIX_PATH:-}" 2>&1 | tee build/native/configure.log
 
       - name: Build shared native owners
         shell: bash

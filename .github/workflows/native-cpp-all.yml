@@ -33,7 +33,7 @@ jobs:
           if (-not (Test-Path $vcpkg)) {
             throw "vcpkg.exe was not found at $vcpkg"
           }
-          & $vcpkg install curl:x64-windows libarchive:x64-windows zlib:x64-windows glfw3:x64-windows freetype:x64-windows openal-soft:x64-windows --clean-after-build
+          & $vcpkg install curl:x64-windows libarchive:x64-windows zlib:x64-windows glfw3:x64-windows freetype:x64-windows openal-soft:x64-windows "skia[gl,freetype]:x64-windows" --clean-after-build
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
@@ -94,11 +94,26 @@ jobs:
             libopenal-dev \
             libicu-dev
 
+      - name: Install Skia Ganesh
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${VCPKG_INSTALLATION_ROOT:-}" && -x "${VCPKG_INSTALLATION_ROOT}/vcpkg" ]]; then
+            root="${VCPKG_INSTALLATION_ROOT}"
+          else
+            root="${RUNNER_TEMP}/vcpkg"
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git "$root"
+            "$root/bootstrap-vcpkg.sh" -disableMetrics
+          fi
+          "$root/vcpkg" install "skia[gl,freetype]:x64-linux" --clean-after-build
+          echo "FRUITY_SKIA_PREFIX=$root/installed/x64-linux" >> "$GITHUB_ENV"
+
       - name: Configure
         shell: bash
         run: |
           set -euo pipefail
-          cmake -S . -B build/native -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake -S . -B build/native -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_PREFIX_PATH="${FRUITY_SKIA_PREFIX}"
 
       - name: Build C++ FruityPrime
         shell: bash
@@ -133,11 +148,31 @@ jobs:
           brew install curl libarchive zlib glfw freetype openal-soft
           echo "CMAKE_PREFIX_PATH=$(brew --prefix curl);$(brew --prefix libarchive);$(brew --prefix zlib);$(brew --prefix glfw);$(brew --prefix freetype);$(brew --prefix openal-soft)" >> "$GITHUB_ENV"
 
+      - name: Install Skia Ganesh
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${VCPKG_INSTALLATION_ROOT:-}" && -x "${VCPKG_INSTALLATION_ROOT}/vcpkg" ]]; then
+            root="${VCPKG_INSTALLATION_ROOT}"
+          else
+            root="${RUNNER_TEMP}/vcpkg"
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git "$root"
+            "$root/bootstrap-vcpkg.sh" -disableMetrics
+          fi
+          if [[ "$(uname -m)" == "arm64" ]]; then
+            triplet="arm64-osx"
+          else
+            triplet="x64-osx"
+          fi
+          "$root/vcpkg" install "skia[gl,freetype]:$triplet" --clean-after-build
+          echo "FRUITY_SKIA_PREFIX=$root/installed/$triplet" >> "$GITHUB_ENV"
+
       - name: Configure
         shell: bash
         run: |
           set -euo pipefail
-          cmake -S . -B build/native -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH"
+          cmake -S . -B build/native -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_PREFIX_PATH="${FRUITY_SKIA_PREFIX};$CMAKE_PREFIX_PATH"
 
       - name: Build C++ FruityPrime
         shell: bash

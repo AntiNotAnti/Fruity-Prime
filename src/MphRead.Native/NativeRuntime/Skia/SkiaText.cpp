@@ -71,6 +71,16 @@ namespace MphRead::NativeRuntime::Skia
         }
     }
 
+    const std::uint8_t* Typeface::FontData() const noexcept
+    {
+        return _impl != nullptr && !_impl->Data.empty() ? _impl->Data.data() : nullptr;
+    }
+
+    std::size_t Typeface::FontDataSize() const noexcept
+    {
+        return _impl != nullptr ? _impl->Data.size() : 0;
+    }
+
     std::shared_ptr<Typeface> Typeface::FromData(std::vector<std::uint8_t> data)
     {
         FT_Library library = Library();

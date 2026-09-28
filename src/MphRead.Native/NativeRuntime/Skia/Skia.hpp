@@ -1,12 +1,12 @@
 #pragma once
 
-// The part of SkiaSharp that Avalonia's Skia backend draws the launcher's
-// screens with, reproduced on the CPU: a premultiplied RGBA surface, paths
-// filled with anti-aliased coverage, strokes, solid and gradient paint, clips,
-// transforms, opacity layers, images, blurred shadows and FreeType text.
+// The subset of SkiaSharp that the launcher's Avalonia controls use.
 //
-// This is what the C# build gets from libSkiaSharp. The launcher never asks it
-// for anything a 2D canvas does not do, so this is a canvas and nothing more.
+// The desktop top level is backed by real Skia Ganesh on the game's current
+// OpenGL context. Bitmap-backed canvases remain available for RenderTargetBitmap
+// and other off-screen compatibility paths that genuinely need CPU pixels. The
+// public facade stays the same for the native Avalonia port, so choosing GPU or
+// CPU rendering does not leak into individual controls.
 
 #include <array>
 #include <cstdint>
@@ -106,6 +106,7 @@ namespace MphRead::NativeRuntime::Skia
         [[nodiscard]] std::vector<Contour> Flatten(const Matrix& matrix, double tolerance = 0.2) const;
 
     private:
+        friend struct GpuAccess;
         enum class Verb : std::uint8_t { Move, Line, Quad, Cubic, Close };
         std::vector<Verb> _verbs;
         std::vector<Point> _points;
@@ -124,13 +125,28 @@ namespace MphRead::NativeRuntime::Skia
 
     enum class SpreadMethod : std::uint8_t { Pad, Reflect, Repeat };
 
-    // What colour a pixel gets, before coverage.
+    enum class GradientKind : std::uint8_t { Linear, Radial };
+
+    struct GradientDescriptor final
+    {
+        GradientKind Kind = GradientKind::Linear;
+        Point Start{};
+        Point End{};
+        Point Centre{};
+        Point Origin{};
+        double RadiusX = 0.0;
+        double RadiusY = 0.0;
+        std::vector<GradientStop> Stops{};
+        SpreadMethod Spread = SpreadMethod::Pad;
+        Matrix LocalToDevice{};
+    };
+
     class Shader
     {
     public:
         virtual ~Shader() = default;
-        // Premultiplied, 0..1, at a device pixel centre.
         virtual void Shade(double x, double y, float out[4]) const = 0;
+        [[nodiscard]] virtual const GradientDescriptor& Descriptor() const noexcept = 0;
     };
 
     [[nodiscard]] std::shared_ptr<Shader> LinearGradient(Point start, Point end, std::vector<GradientStop> stops,
@@ -157,6 +173,8 @@ namespace MphRead::NativeRuntime::Skia
         double DashOffset = 0.0;
     };
 
+    class GpuSurface;
+
     // Premultiplied RGBA, rows top first, tightly packed.
     class Bitmap final
     {
@@ -166,7 +184,7 @@ namespace MphRead::NativeRuntime::Skia
 
         [[nodiscard]] std::int32_t Width() const noexcept { return _width; }
         [[nodiscard]] std::int32_t Height() const noexcept { return _height; }
-        [[nodiscard]] std::uint8_t* Pixels() noexcept { return _pixels.data(); }
+        [[nodiscard]] std::uint8_t* Pixels() noexcept { ++_revision; return _pixels.data(); }
         [[nodiscard]] const std::uint8_t* Pixels() const noexcept { return _pixels.data(); }
         void Clear(Color color = {});
         void ClearRect(Color color, std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height);
@@ -182,9 +200,13 @@ namespace MphRead::NativeRuntime::Skia
         [[nodiscard]] static std::shared_ptr<Bitmap> Decode(const std::uint8_t* data, std::size_t length);
 
     private:
+        friend class GpuSurface;
+        [[nodiscard]] std::uint64_t Revision() const noexcept { return _revision; }
+
         std::int32_t _width = 0;
         std::int32_t _height = 0;
         std::vector<std::uint8_t> _pixels;
+        std::uint64_t _revision = 1;
     };
 
     enum class FilterQuality : std::uint8_t { None, Low, Medium, High };
@@ -224,7 +246,10 @@ namespace MphRead::NativeRuntime::Skia
         [[nodiscard]] const GlyphImage* Rasterize(char32_t code, double size) const;
 
     private:
+        friend class GpuSurface;
         Typeface() = default;
+        [[nodiscard]] const std::uint8_t* FontData() const noexcept;
+        [[nodiscard]] std::size_t FontDataSize() const noexcept;
         struct Impl;
         std::unique_ptr<Impl> _impl;
     };
@@ -239,13 +264,56 @@ namespace MphRead::NativeRuntime::Skia
         bool Inset = false;
     };
 
+    class GpuSurface final
+    {
+    public:
+        GpuSurface();
+        ~GpuSurface();
+        GpuSurface(const GpuSurface&) = delete;
+        GpuSurface& operator=(const GpuSurface&) = delete;
+        GpuSurface(GpuSurface&&) noexcept;
+        GpuSurface& operator=(GpuSurface&&) noexcept;
+
+        void Resize(std::int32_t width, std::int32_t height);
+        [[nodiscard]] std::int32_t Width() const noexcept;
+        [[nodiscard]] std::int32_t Height() const noexcept;
+        [[nodiscard]] std::int32_t TextureId() const noexcept;
+        void BeginFrame();
+        void EndFrame();
+        void Clear(Color color);
+        void ClearRect(Color color, std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height);
+
+    private:
+        friend class Canvas;
+        struct Impl;
+        std::unique_ptr<Impl> _impl;
+
+        void Save();
+        void SaveLayerAlpha(double opacity);
+        void Restore();
+        void Concat(const Matrix& matrix);
+        void SetMatrix(const Matrix& matrix);
+        void ClipRect(const Rect& rect, bool antialias);
+        void ClipPath(const Path& path, bool antialias);
+        [[nodiscard]] Rect DeviceClipBounds() const noexcept;
+        void FillPath(const Path& path, const Paint& paint);
+        void StrokePath(const Path& path, const StrokeStyle& stroke, const Paint& paint);
+        void DrawBitmap(const Bitmap& bitmap, const Rect& source, const Rect& destination,
+            FilterQuality quality, double opacity, BlendMode blend);
+        void DrawBoxShadow(const Path& shape, const BoxShadowSpec& shadow, const Rect& shapeBounds,
+            const std::array<Point, 4>& radii);
+        void DrawText(std::u32string_view text, const Typeface& typeface, double size, Point origin,
+            const Paint& paint);
+    };
+
     class Canvas final
     {
     public:
         explicit Canvas(Bitmap& target);
+        explicit Canvas(GpuSurface& target);
 
-        [[nodiscard]] std::int32_t Width() const noexcept { return _base.Width(); }
-        [[nodiscard]] std::int32_t Height() const noexcept { return _base.Height(); }
+        [[nodiscard]] std::int32_t Width() const noexcept { return _gpu != nullptr ? _gpu->Width() : _base.Width(); }
+        [[nodiscard]] std::int32_t Height() const noexcept { return _gpu != nullptr ? _gpu->Height() : _base.Height(); }
 
         void Clear(Color color);
 
@@ -319,6 +387,7 @@ namespace MphRead::NativeRuntime::Skia
         [[nodiscard]] float ClipAt(std::int32_t x, std::int32_t y) const noexcept;
 
         Bitmap& _base;
+        GpuSurface* _gpu = nullptr;
         std::vector<State> _states;
     };
 

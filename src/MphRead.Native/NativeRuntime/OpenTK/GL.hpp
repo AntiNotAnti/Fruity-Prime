@@ -220,6 +220,8 @@ namespace OpenTK::Graphics::OpenGL
         // GL.GetInteger(GetPName) and GL.DebugMessageCallback, which the
         // capture path uses for the debug-output extension.
         [[nodiscard]] std::int32_t GetInteger(std::int32_t pname);
+        void GetIntegers(std::int32_t pname, std::int32_t* values);
+        [[nodiscard]] bool IsEnabled(EnableCap cap);
         void DebugMessageCallback(void* callback, const void* userParam);
         void GetFramebufferAttachmentParameter(FramebufferTarget target, FramebufferAttachment attachment,
             FramebufferParameterName pname, std::int32_t& params);

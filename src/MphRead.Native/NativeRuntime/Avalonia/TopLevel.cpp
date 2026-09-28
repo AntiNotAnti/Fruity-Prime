@@ -297,9 +297,9 @@ namespace MphRead::NativeRuntime::Avalonia
         const auto width = static_cast<std::int32_t>(std::max(1.0, std::round(_clientSize.Width)));
         const auto height = static_cast<std::int32_t>(std::max(1.0, std::round(_clientSize.Height)));
         bool fullRender = _fullRenderDirty;
-        if (_pixels.Width() != width || _pixels.Height() != height)
+        const bool resize = _surface.Width() != width || _surface.Height() != height;
+        if (resize)
         {
-            _pixels.Resize(width, height);
             fullRender = true;
         }
         const Rect surface{0, 0, static_cast<double>(width), static_cast<double>(height)};
@@ -326,24 +326,38 @@ namespace MphRead::NativeRuntime::Avalonia
         _renderDirty = false;
         _fullRenderDirty = false;
         _renderDamage = {};
-        if (fullRender)
+        _surface.BeginFrame();
+        try
         {
-            _pixels.Clear();
+            if (resize)
+            {
+                _surface.Resize(width, height);
+            }
+            if (fullRender)
+            {
+                _surface.Clear({});
+            }
+            else
+            {
+                _surface.ClearRect({}, static_cast<std::int32_t>(damage.X), static_cast<std::int32_t>(damage.Y),
+                    static_cast<std::int32_t>(damage.Width), static_cast<std::int32_t>(damage.Height));
+            }
+            Skia::Canvas canvas(_surface);
+            Media::DrawingContext context(canvas);
+            std::optional<Media::DrawingContext::PushedState> damageClip;
+            if (!fullRender)
+            {
+                damageClip.emplace(context.PushClip(damage));
+            }
+            RenderVisual(*this, context, true, fullRender ? nullptr : &damage, fullRender,
+                Matrix::Identity(), fullRender ? &surface : &damage);
+            _surface.EndFrame();
         }
-        else
+        catch (...)
         {
-            _pixels.ClearRect({}, static_cast<std::int32_t>(damage.X), static_cast<std::int32_t>(damage.Y),
-                static_cast<std::int32_t>(damage.Width), static_cast<std::int32_t>(damage.Height));
+            _surface.EndFrame();
+            throw;
         }
-        Skia::Canvas canvas(_pixels);
-        Media::DrawingContext context(canvas);
-        std::optional<Media::DrawingContext::PushedState> damageClip;
-        if (!fullRender)
-        {
-            damageClip.emplace(context.PushClip(damage));
-        }
-        RenderVisual(*this, context, true, fullRender ? nullptr : &damage, fullRender,
-            Matrix::Identity(), fullRender ? &surface : &damage);
         _drawn++;
         if (Painted)
         {

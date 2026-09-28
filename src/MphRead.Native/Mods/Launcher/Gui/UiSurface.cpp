@@ -366,10 +366,10 @@ namespace MphRead::Mods::Launcher::Gui
         UiRenderTimer::Pump(_impl);
         _drawMs += clock.Elapsed().TotalMilliseconds();
         clock.Restart();
-        if (_impl.Drawn() != drawn && _impl.Pixels() != nullptr)
+        if (_impl.Drawn() != drawn && _impl.TextureId() != 0)
         {
-            ::MphRead::Mods::Render::UiOverlay::Upload(
-                _impl.Pixels(), _impl.PixelWidth(), _impl.PixelHeight());
+            ::MphRead::Mods::Render::UiOverlay::UseTexture(
+                _impl.TextureId(), _impl.PixelWidth(), _impl.PixelHeight());
             _uploadMs += clock.Elapsed().TotalMilliseconds();
         }
         ::MphRead::Mods::Render::UiOverlay::Visible(true);

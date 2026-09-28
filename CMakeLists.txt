@@ -147,6 +147,11 @@ if(NOT ANDROID)
     find_package(OpenGL REQUIRED)
     target_link_libraries(fruity_mphread_native PUBLIC OpenGL::GL)
 
+    # The native launcher is rendered by real Skia Ganesh into the current
+    # OpenGL context. CPU bitmap canvases are retained only for off-screen use.
+    find_package(unofficial-skia CONFIG REQUIRED)
+    target_link_libraries(fruity_mphread_native PUBLIC unofficial::skia::skia)
+
     find_package(glfw3 CONFIG REQUIRED)
     target_link_libraries(fruity_mphread_native PUBLIC glfw)
 

@@ -92,15 +92,14 @@ namespace MphRead::NativeRuntime::Avalonia
         void ExecuteLayoutPass();
 
         // Lay out what changed and draw it if anything did. True when a pass
-        // ran into Pixels.
+        // ran into the retained Ganesh surface.
         bool Render();
 
-        // The frame: tightly packed RGBA, top row first, premultiplied.
-        [[nodiscard]] const std::uint8_t* Pixels() const noexcept { return _pixels.Pixels(); }
-        [[nodiscard]] std::int32_t PixelWidth() const noexcept { return _pixels.Width(); }
-        [[nodiscard]] std::int32_t PixelHeight() const noexcept { return _pixels.Height(); }
+        [[nodiscard]] std::int32_t TextureId() const noexcept { return _surface.TextureId(); }
+        [[nodiscard]] std::int32_t PixelWidth() const noexcept { return _surface.Width(); }
+        [[nodiscard]] std::int32_t PixelHeight() const noexcept { return _surface.Height(); }
         [[nodiscard]] std::int32_t Drawn() const noexcept { return _drawn; }
-        // Called when a pass has just finished into Pixels.
+        // Called when a pass has just finished into the GPU surface.
         std::function<void()> Painted{};
 
         // ---- input, as the windowing system would deliver it
@@ -154,7 +153,7 @@ namespace MphRead::NativeRuntime::Avalonia
         [[nodiscard]] std::uint64_t Timestamp() const;
 
         Size _clientSize{1280, 768};
-        Skia::Bitmap _pixels;
+        Skia::GpuSurface _surface;
         std::int32_t _drawn = 0;
         bool _renderDirty = true;
         bool _fullRenderDirty = true;
