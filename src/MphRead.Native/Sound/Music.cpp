@@ -981,7 +981,14 @@ namespace MphRead
                 {
                     ~LoadFinally()
                     {
-                        g_loadCount.fetch_sub(1, std::memory_order_acq_rel);
+                        // C# clears StopLoading in Task.finally. Do the same
+                        // once the last native load worker has left, without an
+                        // older generation clearing cancellation while a newer
+                        // worker is still pending.
+                        if (g_loadCount.fetch_sub(1, std::memory_order_acq_rel) == 1)
+                        {
+                            g_stopLoading.store(false, std::memory_order_release);
+                        }
                     }
                 } finally;
 
@@ -1065,7 +1072,7 @@ namespace MphRead
     void MusicPlayer::WaitForLoad(std::int32_t sleepMs)
     {
         EnsureMusicPlayerInitialized();
-        while (g_loading.load(std::memory_order_acquire))
+        while (g_loadCount.load(std::memory_order_acquire) != 0)
         {
             if (sleepMs < -1)
             {
