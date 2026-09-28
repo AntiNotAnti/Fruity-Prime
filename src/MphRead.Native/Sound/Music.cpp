@@ -316,8 +316,16 @@ namespace MphRead
         std::shared_ptr<NCSFPlayerStream> g_stream;
         std::shared_ptr<SoundPlayer> g_player;
         std::atomic<bool> g_available{false};
-        std::atomic<bool> g_loading{false};
+        // A managed Task can race logically without invalidating the CLR's
+        // object graph. Native load workers cannot: publishing one generation's
+        // stream/provider/player while another generation is removing them can
+        // leave an orphan player in the realtime mixer or clear the newer
+        // generation's globals. Count outstanding workers and give every load
+        // a generation; StopLoading invalidates the current generation.
+        std::atomic<std::int32_t> g_loadCount{0};
+        std::atomic<std::uint64_t> g_loadGeneration{0};
         std::atomic<bool> g_stopLoading{false};
+        std::recursive_mutex g_loadMutex;
         std::recursive_mutex g_playerMutex;
         constexpr std::int32_t SampleRate = 32728;
 
@@ -922,83 +930,136 @@ namespace MphRead
         return g_format;
     }
 
-    bool MusicPlayer::Loading() noexcept { EnsureMusicPlayerInitialized(); return g_loading.load(std::memory_order_acquire); }
-    bool MusicPlayer::StopLoading() noexcept { EnsureMusicPlayerInitialized(); return g_stopLoading.load(std::memory_order_acquire); }
-    void MusicPlayer::StopLoading(bool value) noexcept { EnsureMusicPlayerInitialized(); g_stopLoading.store(value, std::memory_order_release); }
+    bool MusicPlayer::Loading() noexcept
+    {
+        EnsureMusicPlayerInitialized();
+        return g_loadCount.load(std::memory_order_acquire) != 0;
+    }
+
+    bool MusicPlayer::StopLoading() noexcept
+    {
+        EnsureMusicPlayerInitialized();
+        return g_stopLoading.load(std::memory_order_acquire);
+    }
+
+    void MusicPlayer::StopLoading(bool value) noexcept
+    {
+        EnsureMusicPlayerInitialized();
+        g_stopLoading.store(value, std::memory_order_release);
+        if (value)
+        {
+            // Invalidate every worker already in flight. A later Load gets a
+            // fresh generation and clears this cancellation before it starts.
+            g_loadGeneration.fetch_add(1, std::memory_order_acq_rel);
+        }
+    }
 
     void MusicPlayer::Load(SeqId seqId, std::uint16_t tracks, float volume)
     {
         EnsureMusicPlayerInitialized();
         if (!g_available.load(std::memory_order_acquire)) return;
-        g_loading.store(true, std::memory_order_release);
         Stop();
         if (seqId == SeqId::None)
         {
-            g_loading.store(false, std::memory_order_release);
             return;
         }
-        std::thread([seqId, tracks, volume]
+
+        const std::uint64_t generation
+            = g_loadGeneration.fetch_add(1, std::memory_order_acq_rel) + 1U;
+        g_stopLoading.store(false, std::memory_order_release);
+        g_loadCount.fetch_add(1, std::memory_order_acq_rel);
+        try
         {
-            struct LoadFinally final
+            std::thread([seqId, tracks, volume, generation]
             {
-                ~LoadFinally()
+                // Only one native load/remove sequence may publish audio objects
+                // at once. Without this, two detached workers can interleave
+                // Remove -> g_stream -> g_provider -> g_player and the older
+                // worker can erase or strand the newer one's state.
+                std::lock_guard<std::recursive_mutex> loadGuard(g_loadMutex);
+                struct LoadFinally final
                 {
-                    g_loading.store(false, std::memory_order_release);
-                    g_stopLoading.store(false, std::memory_order_release);
-                }
-            } finally;
-            try
-            {
-                while (g_stopLoading.load(std::memory_order_acquire))
-                {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                }
-                MusicPlayer::Remove();
-                if (g_stopLoading.load(std::memory_order_acquire)) return;
-
-                const std::string path = Paths::Combine(Paths::FileSystem(), "_seq",
-                    Metadata::SequenceFiles.at(static_cast<std::size_t>(seqId)));
-                auto stream = std::make_shared<NCSFPlayerStream>(path, static_cast<std::uint32_t>(SampleRate),
-                    NCSFPlayer::Interpolation::None, 5, 115000, 5000,
-                    NCSF123::VolumeType::ReplayGainAlbum, NCSF123::PeakType::ReplayGainTrack,
-                    true, volume, 0, 0, false);
-                {
-                    std::lock_guard<std::recursive_mutex> guard(g_playerMutex);
-                    g_stream = stream;
-                }
-                for (std::int32_t i = 0; i < 16; i++)
-                {
-                    if ((tracks & (1U << i)) == 0)
+                    ~LoadFinally()
                     {
-                        MusicPlayer::TrackVolume(i, 0);
-                        MusicPlayer::TrackMute(i, true);
+                        g_loadCount.fetch_sub(1, std::memory_order_acq_rel);
                     }
-                }
-                if (g_stopLoading.load(std::memory_order_acquire)) return;
+                } finally;
 
-                auto provider = std::make_shared<RawDataProvider>(stream, SampleFormat::F32, SampleRate);
+                const auto cancelled = [generation]() noexcept
                 {
-                    std::lock_guard<std::recursive_mutex> guard(g_playerMutex);
-                    g_provider = provider;
-                }
-                if (g_stopLoading.load(std::memory_order_acquire)) return;
+                    return generation != g_loadGeneration.load(std::memory_order_acquire)
+                        || g_stopLoading.load(std::memory_order_acquire);
+                };
+                const auto cancelAndRemove = [&cancelled]() -> bool
+                {
+                    if (!cancelled())
+                    {
+                        return false;
+                    }
+                    MusicPlayer::Remove();
+                    return true;
+                };
 
-                auto player = std::make_shared<SoundPlayer>(g_audioEngine, g_format, provider);
+                try
                 {
-                    std::lock_guard<std::recursive_mutex> guard(g_playerMutex);
-                    g_player = player;
+                    if (cancelled()) return;
+                    MusicPlayer::Remove();
+                    if (cancelled()) return;
+
+                    const std::string path = Paths::Combine(Paths::FileSystem(), "_seq",
+                        Metadata::SequenceFiles.at(static_cast<std::size_t>(seqId)));
+                    auto stream = std::make_shared<NCSFPlayerStream>(path, static_cast<std::uint32_t>(SampleRate),
+                        NCSFPlayer::Interpolation::None, 5, 115000, 5000,
+                        NCSF123::VolumeType::ReplayGainAlbum, NCSF123::PeakType::ReplayGainTrack,
+                        true, volume, 0, 0, false);
+                    if (cancelled()) return;
+                    {
+                        std::lock_guard<std::recursive_mutex> guard(g_playerMutex);
+                        g_stream = stream;
+                    }
+                    if (cancelAndRemove()) return;
+
+                    for (std::int32_t i = 0; i < 16; i++)
+                    {
+                        if ((tracks & (1U << i)) == 0)
+                        {
+                            MusicPlayer::TrackVolume(i, 0);
+                            MusicPlayer::TrackMute(i, true);
+                        }
+                    }
+                    if (cancelAndRemove()) return;
+
+                    auto provider = std::make_shared<RawDataProvider>(stream, SampleFormat::F32, SampleRate);
+                    {
+                        std::lock_guard<std::recursive_mutex> guard(g_playerMutex);
+                        g_provider = provider;
+                    }
+                    if (cancelAndRemove()) return;
+
+                    auto player = std::make_shared<SoundPlayer>(g_audioEngine, g_format, provider);
+                    {
+                        std::lock_guard<std::recursive_mutex> guard(g_playerMutex);
+                        g_player = player;
+                    }
+                    if (cancelAndRemove()) return;
+
+                    g_playbackDevice->MasterMixer.AddComponent(player);
+                    if (cancelAndRemove()) return;
+                    g_playbackDevice->Start();
                 }
-                if (g_stopLoading.load(std::memory_order_acquire)) return;
-                g_playbackDevice->MasterMixer.AddComponent(player);
-                if (g_stopLoading.load(std::memory_order_acquire)) return;
-                g_playbackDevice->Start();
-            }
-            catch (...)
-            {
-                // Task.Run captures faults in the Task; because Music.cs does not retain/await it,
-                // there is no synchronous propagation to the game thread.
-            }
-        }).detach();
+                catch (...)
+                {
+                    // Task.Run captures faults in the Task; because Music.cs does not retain/await it,
+                    // there is no synchronous propagation to the game thread.
+                    MusicPlayer::Remove();
+                }
+            }).detach();
+        }
+        catch (...)
+        {
+            g_loadCount.fetch_sub(1, std::memory_order_acq_rel);
+            throw;
+        }
     }
 
     void MusicPlayer::WaitForLoad(std::int32_t sleepMs)
@@ -1115,6 +1176,11 @@ namespace MphRead
     void MusicPlayer::Remove(bool shutdown)
     {
         EnsureMusicPlayerInitialized();
+        // Serialize removal with every load worker. The mutex is recursive
+        // because Load performs the same cleanup before publishing a new
+        // generation.
+        std::lock_guard<std::recursive_mutex> loadGuard(g_loadMutex);
+
         std::shared_ptr<SoundPlayer> player;
         std::shared_ptr<RawDataProvider> provider;
         std::shared_ptr<NCSFPlayerStream> stream;
@@ -1124,19 +1190,40 @@ namespace MphRead
             provider = g_provider;
             stream = g_stream;
         }
+
         if (player)
         {
-            assert(provider != nullptr);
-            assert(stream != nullptr);
             player->Stop();
             if (shutdown) g_playbackDevice->Stop();
             g_playbackDevice->MasterMixer.RemoveComponent(player);
+        }
+        if (provider)
+        {
             provider->Dispose();
+        }
+        if (stream)
+        {
             stream->Dispose();
+        }
+        if (player)
+        {
             player->Dispose();
-            std::lock_guard<std::recursive_mutex> guard(g_playerMutex);
+        }
+
+        // Never clear a newer object if a caller published one after the
+        // snapshot. The load mutex prevents that for normal load workers, and
+        // the identity checks keep this correct for any future caller too.
+        std::lock_guard<std::recursive_mutex> guard(g_playerMutex);
+        if (g_provider == provider)
+        {
             g_provider.reset();
+        }
+        if (g_stream == stream)
+        {
             g_stream.reset();
+        }
+        if (g_player == player)
+        {
             g_player.reset();
         }
     }
