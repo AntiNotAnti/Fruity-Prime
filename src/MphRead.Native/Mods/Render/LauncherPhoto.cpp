@@ -1,12 +1,12 @@
 #include "LauncherPhoto.hpp"
 
-#include "LauncherNoise.hpp"
 #include "../DebugLog.hpp"
 #include "../../Shaders.hpp"
 #include "../../NativeRuntime/Avalonia/Media.hpp"
 #include "../../NativeRuntime/Avalonia/Platform.hpp"
 #include "../../NativeRuntime/OpenTK/GL.hpp"
 #include "../../NativeRuntime/System/ExceptionText.hpp"
+#include "../../NativeRuntime/System/Stopwatch.hpp"
 
 #include <exception>
 #include <memory>
@@ -18,6 +18,7 @@ namespace MphRead::Mods::Render
 {
     namespace GL = ::OpenTK::Graphics::OpenGL::GL;
     namespace Avalonia = ::MphRead::NativeRuntime::Avalonia;
+    namespace Runtime = ::MphRead::NativeRuntime;
 
     namespace
     {
@@ -38,6 +39,12 @@ namespace MphRead::Mods::Render
                 }
             }
         };
+
+        [[nodiscard]] std::int64_t BackdropClock()
+        {
+            static const std::int64_t clock = Runtime::StopwatchGetTimestamp();
+            return clock;
+        }
     }
 
     bool LauncherPhoto::_enabled = false;
@@ -48,7 +55,9 @@ namespace MphRead::Mods::Render
     std::int32_t LauncherPhoto::_program = 0;
     bool LauncherPhoto::_programTried = false;
     std::int32_t LauncherPhoto::_photoUniform = -1;
-    std::int32_t LauncherPhoto::_noiseUniform = -1;
+    std::int32_t LauncherPhoto::_timeUniform = -1;
+    std::int32_t LauncherPhoto::_viewWidthUniform = -1;
+    std::int32_t LauncherPhoto::_viewHeightUniform = -1;
     std::int32_t LauncherPhoto::_strengthUniform = -1;
 
     void LauncherPhoto::Enabled(bool value) noexcept
@@ -106,7 +115,9 @@ namespace MphRead::Mods::Render
 
             _program = program;
             _photoUniform = GL::GetUniformLocation(program, "photo");
-            _noiseUniform = GL::GetUniformLocation(program, "noise");
+            _timeUniform = GL::GetUniformLocation(program, "time");
+            _viewWidthUniform = GL::GetUniformLocation(program, "view_width");
+            _viewHeightUniform = GL::GetUniformLocation(program, "view_height");
             _strengthUniform = GL::GetUniformLocation(program, "strength");
             DebugLog::Line("ui", "the moving backdrop is on");
             return true;
@@ -144,8 +155,9 @@ namespace MphRead::Mods::Render
         const float v0 = (1 - v) / 2;
         const float v1 = v0 + v;
 
-        const bool moving = LauncherNoise::Step(width, height)
-            && LauncherNoise::Texture() != 0 && EnsureProgram();
+        // Generate the moving layer in the fragment shader. CPU work here is
+        // scalar uniform setup only: there is no pixel fill or noise upload.
+        const bool moving = EnsureProgram();
         GL::UseProgram(moving ? _program : 0);
         GL::Disable(GL::EnableCap::DepthTest);
         GL::Disable(GL::EnableCap::CullFace);
@@ -153,17 +165,6 @@ namespace MphRead::Mods::Render
         GL::Disable(GL::EnableCap::StencilTest);
         GL::Disable(GL::EnableCap::Blend);
 
-        GL::ActiveTexture(GL::TextureUnit::Texture1);
-        if (moving)
-        {
-            GL::Enable(GL::EnableCap::Texture2D);
-            GL::BindTexture(GL::TextureTarget::Texture2D, LauncherNoise::Texture());
-        }
-        else
-        {
-            GL::BindTexture(GL::TextureTarget::Texture2D, 0);
-            GL::Disable(GL::EnableCap::Texture2D);
-        }
         GL::ActiveTexture(GL::TextureUnit::Texture0);
         GL::Enable(GL::EnableCap::Texture2D);
         GL::BindTexture(GL::TextureTarget::Texture2D, _texture);
@@ -172,9 +173,13 @@ namespace MphRead::Mods::Render
         GL::Color4(1, 1, 1, 1);
         if (moving)
         {
+            const float seconds = static_cast<float>(
+                Runtime::TimeSpanTotalMilliseconds(Runtime::StopwatchGetElapsedTicks(BackdropClock())) / 1000.0);
             GL::Uniform1(_photoUniform, 0);
-            GL::Uniform1(_noiseUniform, 1);
             GL::Uniform1(_strengthUniform, Strength);
+            GL::Uniform1(_timeUniform, seconds);
+            GL::Uniform1(_viewWidthUniform, static_cast<float>(width));
+            GL::Uniform1(_viewHeightUniform, static_cast<float>(height));
         }
 
         GL::MatrixMode(GL::MatrixMode::Projection);
@@ -206,10 +211,6 @@ namespace MphRead::Mods::Render
         GL::BindTexture(GL::TextureTarget::Texture2D, 0);
         if (moving)
         {
-            GL::ActiveTexture(GL::TextureUnit::Texture1);
-            GL::BindTexture(GL::TextureTarget::Texture2D, 0);
-            GL::Disable(GL::EnableCap::Texture2D);
-            GL::ActiveTexture(GL::TextureUnit::Texture0);
             GL::UseProgram(0);
         }
         GL::Enable(GL::EnableCap::Blend);

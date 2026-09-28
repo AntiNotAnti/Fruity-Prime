@@ -1,19 +1,18 @@
 #include "MovingBackdrop.hpp"
 
-#include "../../DebugLog.hpp"
-
 #include <algorithm>
-#include <exception>
+#include <cmath>
+#include <memory>
+#include <numbers>
 
 namespace MphRead::Mods::Launcher::Gui
 {
     using namespace ::MphRead::NativeRuntime::Avalonia;
 
     MovingBackdrop::MovingBackdrop()
-        : _timer(Threading::TimeSpan(::MphRead::Mods::Render::NoiseField::Gap / 1000.0), Threading::DispatcherPriority::Render,
+        : _timer(Threading::TimeSpan(FrameSeconds), Threading::DispatcherPriority::Render,
               [this] { Tick(); })
     {
-        // It is the ground, not a control.
         IsHitTestVisible(false);
     }
 
@@ -36,15 +35,12 @@ namespace MphRead::Mods::Launcher::Gui
     {
         Control::OnAttachedToVisualTree();
         _live.push_back(this);
-        // One frame straight away, so the layer is there for the first
-        // picture -- and so a capture, which never starts the timer, has one.
         Threading::Dispatcher::UIThread().Post([this] { Tick(); }, Threading::DispatcherPriority::Loaded);
         Arbitrate();
     }
 
     void MovingBackdrop::OnDetachedFromVisualTree()
     {
-        // A screen that is not on the glass does not get a frame of CPU.
         std::erase(_live, this);
         _timer.Stop();
         Arbitrate();
@@ -67,75 +63,59 @@ namespace MphRead::Mods::Launcher::Gui
         }
     }
 
-    Av::Size MovingBackdrop::ArrangeOverride(Av::Size finalSize)
+    void MovingBackdrop::Tick()
     {
-        Step(finalSize.Width, finalSize.Height);
-        return Control::ArrangeOverride(finalSize);
-    }
-
-    void MovingBackdrop::Step(double w, double h)
-    {
-        if (w <= 0 || h <= 0 || !_field.Step(w, h, Deck::Still()))
+        if (_suspended)
         {
             return;
         }
-        const std::shared_ptr<Media::Imaging::Bitmap> cut = Cut();
-        if (cut == nullptr)
+        if (!Deck::Still())
         {
-            return;
+            _phase = std::fmod(_phase + PhaseStep, 1.0);
         }
-        _bitmap = cut;
         InvalidateVisual();
     }
 
     void MovingBackdrop::Render(Media::DrawingContext& context)
     {
-        const std::shared_ptr<Media::Imaging::Bitmap> bitmap = _bitmap;
         const double w = Bounds().Width;
         const double h = Bounds().Height;
-        if (bitmap == nullptr || w <= 0 || h <= 0)
+        if (w <= 0 || h <= 0)
         {
             return;
         }
-        // Magnified with hard cells, and overlaid.
-        Media::RenderOptions options;
-        options.BitmapInterpolationMode = Media::BitmapInterpolationMode::None;
-        options.BitmapBlendingMode = Media::BitmapBlendingMode::Overlay;
-        auto state = context.PushRenderOptions(options);
-        context.DrawImage(*bitmap, Rect(0, 0, w, h));
-    }
 
-    std::shared_ptr<Media::Imaging::Bitmap> MovingBackdrop::Cut()
-    {
-        const std::int32_t w = _field.Width();
-        const std::int32_t h = _field.Height();
-        if (w <= 0 || h <= 0)
-        {
-            return nullptr;
-        }
-        try
-        {
-            const std::vector<std::uint8_t>& source = _field.Pixels();
-            const std::int32_t stride = w * 4;
-            const std::size_t size = static_cast<std::size_t>(stride) * static_cast<std::size_t>(h);
-            if (_rgba.size() != size)
-            {
-                _rgba.assign(size, 0);
-            }
-            for (std::size_t i = 0, p = 0; i < _rgba.size(); i += 4, p += 3)
-            {
-                _rgba[i + 0] = static_cast<std::uint8_t>(source[p + 0] * Alpha / 255);
-                _rgba[i + 1] = static_cast<std::uint8_t>(source[p + 1] * Alpha / 255);
-                _rgba[i + 2] = static_cast<std::uint8_t>(source[p + 2] * Alpha / 255);
-                _rgba[i + 3] = Alpha;
-            }
-            return Media::Imaging::Bitmap::FromPremultipliedRgba(_rgba.data(), PixelSize{w, h}, stride);
-        }
-        catch (const std::exception& ex)
-        {
-            DebugLog::Line("ui", std::string("the moving backdrop could not be drawn: ") + ex.what());
-            _timer.Stop();
-            return nullptr;
-        }
+        // The old implementation rebuilt an RGBA noise bitmap on the CPU at
+        // 30 Hz. These animated washes are vector primitives, so a live
+        // TopLevel keeps the entire effect on Ganesh/OpenGL.
+        const double angle = _phase * 2.0 * std::numbers::pi;
+        const double warmX = 0.34 + std::sin(angle) * 0.12;
+        const double warmY = 0.42 + std::cos(angle * 0.83) * 0.10;
+        const double coolX = 0.70 + std::cos(angle * 0.71) * 0.13;
+        const double coolY = 0.62 + std::sin(angle * 0.91) * 0.11;
+
+        auto warm = std::make_shared<Media::RadialGradientBrush>();
+        warm->Center = RelativePoint(warmX, warmY, RelativeUnit::Relative);
+        warm->GradientOrigin = warm->Center;
+        warm->RadiusX = RelativeScalar(0.58, RelativeUnit::Relative);
+        warm->RadiusY = RelativeScalar(0.68, RelativeUnit::Relative);
+        warm->GradientStops = {
+            Media::GradientStop(Media::Color::FromArgb(50, 0xc4, 0x60, 0x58), 0),
+            Media::GradientStop(Media::Color::FromArgb(0, 0xc4, 0x60, 0x58), 1)
+        };
+
+        auto cool = std::make_shared<Media::RadialGradientBrush>();
+        cool->Center = RelativePoint(coolX, coolY, RelativeUnit::Relative);
+        cool->GradientOrigin = cool->Center;
+        cool->RadiusX = RelativeScalar(0.62, RelativeUnit::Relative);
+        cool->RadiusY = RelativeScalar(0.72, RelativeUnit::Relative);
+        cool->GradientStops = {
+            Media::GradientStop(Media::Color::FromArgb(58, 0x30, 0x70, 0xba), 0),
+            Media::GradientStop(Media::Color::FromArgb(0, 0x30, 0x70, 0xba), 1)
+        };
+
+        const Rect box(0, 0, w, h);
+        context.FillRectangle(warm, box);
+        context.FillRectangle(cool, box);
     }
 }

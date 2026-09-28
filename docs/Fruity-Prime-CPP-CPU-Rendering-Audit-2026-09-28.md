@@ -7,6 +7,21 @@
 - 対象: C++版のみ
 - C#版との比較: 実施していない
 
+> [!IMPORTANT]
+> **撤去作業完了後の状態（2026-09-28）**
+>
+> この文書の本文はCPUレンダリング撤去前の監査結果を保存したもの。
+> `develop2` のライブ経路については、この監査を受けて以下を実施した。
+>
+> - `DeckTile` の full tile / chrome / ground の全 `RenderTargetBitmap` bakeを撤去し、Ganesh/OpenGLの現在の `DrawingContext` へ直接描画。
+> - `MapShot` の `DecodeToWidth()` CPU resamplingを撤去。画像は一度decodeし、表示サイズへのsamplingはGPU側で実施。
+> - desktop launcherの30Hz `NoiseField`生成・noise texture uploadを撤去し、`BackdropFragmentShader` 内のprocedural noiseへ移行。
+> - `MovingBackdrop` のCPU RGBA bitmap生成を撤去し、GPU-backed vector gradient animationへ変更。
+> - `UiCapture` / `UiBench` / `GamepadUiChecks` のsoftware TopLevelは診断・検証専用として残存し、通常ライブ経路からは到達しない。
+> - JPEG/PNG decodeや `glReadPixels()` はCPU rasterizerではないため対象外。
+>
+> **結論: 通常のC++ライブ経路（試合中Map Voteを含む）から、監査で確認されたCPU rasterization / procedural pixel generationは撤去済み。**
+
 ## 結論
 
 **C++版にはCPUレンダリング経路が残っている。**

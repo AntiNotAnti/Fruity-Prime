@@ -245,15 +245,47 @@ void main()
 #version 120
 
 uniform sampler2D photo;
-uniform sampler2D noise;
 uniform float strength;
+uniform float time;
+uniform float view_width;
+uniform float view_height;
 varying vec2 photocoord;
 varying vec2 noisecoord;
+
+float hash12(vec2 p)
+{
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+}
+
+float value_noise(vec2 p)
+{
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    float a = hash12(i);
+    float b = hash12(i + vec2(1.0, 0.0));
+    float c = hash12(i + vec2(0.0, 1.0));
+    float d = hash12(i + vec2(1.0, 1.0));
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
 
 void main()
 {
     vec3 b = texture2D(photo, photocoord).rgb;
-    vec3 s = texture2D(noise, noisecoord).rgb;
+    vec2 cells = vec2(
+        clamp(view_width / 6.0, 1.0, 320.0),
+        clamp(view_height / 6.0, 1.0, 320.0));
+    vec2 uv = noisecoord * cells * 0.055;
+    float wx = value_noise(vec2(uv.x + time * 2.0, uv.y)) * 4.4;
+    float wy = value_noise(vec2(uv.x, uv.y - time * 1.6)) * 4.4;
+    float n = value_noise(uv + vec2(wx, wy));
+    n = n * n * (3.0 - 2.0 * n);
+
+    vec3 hot = vec3(196.0, 96.0, 88.0) / 255.0;
+    vec3 cold = vec3(48.0, 112.0, 186.0) / 255.0;
+    vec3 floor_colour = vec3(14.0, 20.0, 30.0) / 255.0;
+    vec3 s = clamp(floor_colour + mix(cold, hot, n) * (0.18 + n * 0.95), 0.0, 1.0);
+
     vec3 lo = 2.0 * b * s;
     vec3 hi = 1.0 - 2.0 * (1.0 - b) * (1.0 - s);
     vec3 over = mix(lo, hi, step(vec3(0.5), b));

@@ -27,7 +27,9 @@ namespace MphRead::Mods::Render
         static std::int32_t _program;
         static bool _programTried;
         static std::int32_t _photoUniform;
-        static std::int32_t _noiseUniform;
         static std::int32_t _strengthUniform;
+        static std::int32_t _timeUniform;
+        static std::int32_t _viewWidthUniform;
+        static std::int32_t _viewHeightUniform;
     };
 }
