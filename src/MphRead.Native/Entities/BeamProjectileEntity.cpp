@@ -2266,7 +2266,7 @@ namespace MphRead::Entities
                                 }
                                 if (canTarget)
                                 {
-                                    const float div2 = std::min(dist / range, 1.0F);
+                                    const float div2 = ::MphRead::NativeRuntime::MathMin(dist / range, 1.0F);
                                     if (div1 >= tolerance + div2 * (Fixed::ToFloat(4094) - tolerance))
                                     {
                                         curDiv = div1;
