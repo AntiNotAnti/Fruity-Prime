@@ -134,7 +134,8 @@ namespace MphRead::Entities::Enemies
     {
         const Vector3 between = static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
             - static_cast<Vector3>(Position);
-        const float shake = std::min(1.0F / LengthSquared(between) * 3.0F, shakeMax);
+        const float shake = ::MphRead::NativeRuntime::MathMin(
+            1.0F / LengthSquared(between) * 3.0F, shakeMax);
         RequireReference(RequireReference(PlayerEntity::Main()).CameraInfo().get()).SetShake(shake);
     }
 
