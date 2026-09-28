@@ -844,7 +844,7 @@ public: \
     void DrawHudFlatBox(float left, float top, float right, float bottom, OpenTK::Mathematics::Vector4 color); \
     void DrawHudObject(const std::shared_ptr<MphRead::Hud::HudObjectInstance>& inst, std::int32_t mode = 0, float scale = 1.0F); \
     void DrawIconModel(OpenTK::Mathematics::Vector2 position, float angle, \
-        const std::shared_ptr<MphRead::ModelInstance>& inst, MphRead::ColorRgb color, float alpha); \
+        const std::shared_ptr<MphRead::ModelInstance>& inst, MphRead::ColorRgb color, float alpha, float scaleMult = 1.0F); \
     void DrawHudFilterModel(const std::shared_ptr<MphRead::ModelInstance>& inst, float alpha = 1.0F); \
     void DrawHudDamageModel(const std::shared_ptr<MphRead::ModelInstance>& inst); \
     void LookAt(OpenTK::Mathematics::Vector3 target); \
