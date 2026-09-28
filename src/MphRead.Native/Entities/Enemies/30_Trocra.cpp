@@ -1,0 +1,200 @@
+#include "30_Trocra.hpp"
+
+#include "28_Gorea1B.hpp"
+#include "../../Formats/CollisionDetection.hpp"
+#include "../../Scene.hpp"
+#include "../../Utility/Rng.hpp"
+#include "../EnemySpawnEntity.hpp"
+#include "../ItemInstanceEntity.hpp"
+#include "../Players/PlayerEntity.hpp"
+#include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
+
+#include <cassert>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <limits>
+#include <memory>
+#include <optional>
+
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::ManagedAs;
+using ::MphRead::NativeRuntime::RoundToEven;
+using ::MphRead::NativeRuntime::MathClamp;
+using ::MphRead::NativeRuntime::RequireReference;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::ScaleVector;
+
+namespace MphRead::Entities::Enemies
+{
+    namespace
+    {
+        using OpenTK::Mathematics::Vector3;
+
+        [[nodiscard]] bool Visible(const Enemy30Entity& enemy) noexcept
+        {
+            return TypeExtensions::TestFlag(
+                static_cast<EnemyFlags>(enemy.Flags), EnemyFlags::Visible);
+        }
+
+        [[nodiscard]] bool HitMainPlayer(Enemy30Entity& enemy)
+        {
+            const std::int32_t slotIndex = RequireReference(PlayerEntity::Main()).SlotIndex();
+            if (slotIndex < 0
+                || static_cast<std::size_t>(slotIndex) >= enemy.HitPlayers.size())
+            {
+                throw SceneDetail::IndexOutOfRangeException();
+            }
+            return enemy.HitPlayers[static_cast<std::size_t>(slotIndex)];
+        }
+
+
+    }
+
+    Enemy30Entity::Enemy30Entity(EnemyInstanceEntityData data,
+        Formats::Culling::NodeRef nodeRef, Scene* scene)
+        : GoreaEnemyEntityBase(data, nodeRef, scene),
+          _spawner(ManagedAs<EnemySpawnEntity>(data.Spawner))
+    {
+        assert(_spawner != nullptr);
+    }
+
+    void Enemy30Entity::EnemyInitialize()
+    {
+        InitializeCommon(_spawner);
+        Flags |= EnemyFlags::OnRadar;
+        Flags &= ~EnemyFlags::NoHomingCo;
+        _health = 15;
+        _hurtVolumeInit = CollisionVolume(Vector3::Zero, 1.0F);
+        SetUpModel("PowerBomb");
+        Gorea1B = nullptr;
+    }
+
+    void Enemy30Entity::EnemyProcess()
+    {
+        if (Visible(*this))
+        {
+            if (_health > 0 && HitMainPlayer(*this))
+            {
+                DieAndSpawnEffect(164);
+            }
+            if (_health > 0)
+            {
+                Formats::CollisionResult discard{};
+                const Vector3 position = Position;
+                const Vector3 travel = _prevPos - position;
+                if (LengthSquared(travel) > 1.0F / 128.0F
+                    && Formats::CollisionDetection::CheckBetweenPoints(
+                        _prevPos, position, Formats::TestFlags::Beams, _scene, discard))
+                {
+                    DieAndSpawnEffect(164);
+                }
+            }
+        }
+    }
+
+    void Enemy30Entity::DieAndSpawnEffect(std::int32_t effectId)
+    {
+        SpawnEffect(effectId, Position);
+
+        const Vector3 playerPosition = RequireReference(PlayerEntity::Main()).Position;
+        const Vector3 entityPosition = Position;
+        Vector3 between = playerPosition - entityPosition;
+        const float distance = Length(between);
+        if (distance < 2.0F)
+        {
+            Formats::CollisionResult discard{};
+            const Vector3 position = Position;
+            const Vector3 limitMin(
+                position.X - 2.0F, position.Y - 2.0F, position.Z - 2.0F);
+            const Vector3 limitMax(
+                position.X + 2.0F, position.Y + 2.0F, position.Z + 2.0F);
+            const auto& candidates = Formats::CollisionDetection::GetCandidatesForLimits(
+                std::nullopt, Vector3::Zero, 0, limitMin, limitMax, false, _scene);
+            if (!Formats::CollisionDetection::CheckBetweenPoints(
+                &candidates, _prevPos, Position, Formats::TestFlags::Beams, _scene, discard))
+            {
+                std::int32_t damage = 15;
+                float force = 1.0F;
+                if (!HitMainPlayer(*this))
+                {
+                    const float factor = MathClamp(distance / 2.0F, 0.0F, 1.0F);
+                    damage -= ConvertToInt32Net9(RoundToEven(
+                        static_cast<float>(damage) - 15.0F * factor));
+                    force -= factor;
+                }
+                if (distance > 1.0F / 128.0F)
+                {
+                    between = ScaleVector(between.Normalized(), force);
+                }
+                else
+                {
+                    between = ScaleVector(Vector3(0.0F, 1.0F, 0.0F), force);
+                }
+                RequireReference(PlayerEntity::Main()).TakeDamage(
+                    damage, DamageFlags::NoDmgInvuln, between, this);
+            }
+        }
+
+        _soundSource.PlaySfx(
+            SfxId::GOREA_ATTACK3B, false, false, -1.0F, true);
+        _health = 0;
+        Flags &= ~EnemyFlags::Visible;
+        Flags &= ~EnemyFlags::CollidePlayer;
+        Flags &= ~EnemyFlags::CollideBeam;
+        Flags &= ~EnemyFlags::OnRadar;
+        Flags |= EnemyFlags::Invincible;
+        const Vector3 position = Position;
+        Position = Vector3(position.X, 524288.0F, position.Z);
+        _speed = Vector3::Zero;
+    }
+
+    bool Enemy30Entity::EnemyTakeDamage(EntityBase* source)
+    {
+        (void)source;
+        if (_health == 0)
+        {
+            if (Gorea1B != nullptr)
+            {
+                RequireReference(_scene).SendMessage(
+                    Message::Destroyed, this, Gorea1B, 0, 0);
+            }
+
+            bool spawn = false;
+            ItemType itemType = ItemType::None;
+            const std::uint32_t random = Rng::GetRandomInt2(190);
+            if (random < 10)
+            {
+                spawn = true;
+                itemType = ItemType::HealthSmall;
+            }
+            else if (random < 70)
+            {
+                spawn = true;
+                itemType = ItemType::UASmall;
+            }
+            if (spawn)
+            {
+                const std::int32_t despawnTime = 300 * 2;
+                auto item = std::make_shared<ItemInstanceEntity>(
+                    ItemInstanceEntityData(Position, itemType, despawnTime),
+                    NodeRef, _scene);
+                RequireReference(_scene).AddEntity(item);
+            }
+        }
+        return false;
+    }
+
+    void Enemy30Entity::Explode()
+    {
+        DieAndSpawnEffect(75);
+    }
+
+    void Enemy30Entity::SetSpeed(Vector3 speed)
+    {
+        _speed = speed;
+    }
+}

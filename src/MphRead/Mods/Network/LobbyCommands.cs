@@ -82,6 +82,7 @@ namespace MphRead.Mods.Network
         {
             TeamLayout layout = LobbyRules.ResolveTeamLayout(match);
             Span<int> counts = stackalloc int[4];
+            counts.Clear();
             foreach (Peer peer in _peers)
                 if (peer != exclude && peer.TeamIndex >= 0 && peer.TeamIndex < layout.TeamCount) counts[peer.TeamIndex]++;
             return TeamRules.ChooseTeam(layout, counts);

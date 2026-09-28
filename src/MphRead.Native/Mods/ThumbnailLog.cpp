@@ -1,0 +1,670 @@
+#include "ThumbnailLog.hpp"
+#include "../NativeRuntime/System/DateTime.hpp"
+#include "Launcher/Portable/GameFiles.hpp"
+#include "Branding.hpp"
+#include "Update/BuildVersion.hpp"
+#include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Runtime.hpp"
+
+#include <algorithm>
+#include <cerrno>
+#include <chrono>
+#include <cstdio>
+#include <ctime>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <ios>
+#include <limits>
+#include <memory>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <thread>
+#include <vector>
+
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#include <stdlib.h>
+#include <sys/mount.h>
+#elif defined(__FreeBSD__)
+#include <sys/mount.h>
+#include <sys/param.h>
+#include <sys/sysctl.h>
+#include <sys/types.h>
+#elif defined(__linux__)
+#include <stdlib.h>
+#include <sys/auxv.h>
+#include <sys/vfs.h>
+#elif defined(__unix__)
+#include <stdlib.h>
+#endif
+
+#if defined(__unix__) || defined(__APPLE__)
+#include <fcntl.h>
+#include <sys/file.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
+
+using ::MphRead::NativeRuntime::AppContextBaseDirectory;
+using ::MphRead::NativeRuntime::EnvironmentProcessPath;
+using ::MphRead::NativeRuntime::FileWriteAllText;
+using ::MphRead::NativeRuntime::PathCombine;
+using ::MphRead::NativeRuntime::PathFromUtf8;
+
+namespace MphRead::Mods::Launcher::Detail
+{
+    // Narrow link boundary for Launcher.GameFiles.Root. GameFiles has not been
+    // ported to Native yet; its eventual native owner must return the current
+    // Root value here rather than ThumbnailLog owning a second copy of it.
+}
+
+namespace
+{
+    [[nodiscard]] std::chrono::system_clock::time_point ToSystemClock(
+        std::filesystem::file_time_type value)
+    {
+        const auto fileNow = std::filesystem::file_time_type::clock::now();
+        const auto systemNow = std::chrono::system_clock::now();
+        return std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+            systemNow + (value - fileNow));
+    }
+
+    [[nodiscard]] std::string BaseDirectoryLastWriteTime()
+    {
+        const std::filesystem::file_time_type fileTime
+            = std::filesystem::last_write_time(PathFromUtf8(AppContextBaseDirectory()));
+        return ::MphRead::NativeRuntime::DateTimeToString(
+            ::MphRead::NativeRuntime::DateTimeToLocalTime(
+                ::MphRead::NativeRuntime::DateTimeFromSystemClock(ToSystemClock(fileTime))),
+            "yyyy-MM-dd HH:mm");
+    }
+
+    [[nodiscard]] std::string EntryAssemblyVersion()
+    {
+        // A native executable has no System.Reflection Assembly identity.
+        // The build may supply the exact managed-equivalent assembly version;
+        // otherwise preserve the source expression's null fallback, "?".
+#if defined(MPHREAD_ENTRY_ASSEMBLY_VERSION)
+        constexpr char version[] = MPHREAD_ENTRY_ASSEMBLY_VERSION;
+        return std::string(version, sizeof(version) - 1);
+#else
+        return "?";
+#endif
+    }
+
+    [[nodiscard]] std::string EntryAssemblyInformationalVersion()
+    {
+#if defined(MPHREAD_ENTRY_ASSEMBLY_INFORMATIONAL_VERSION)
+        constexpr char version[] = MPHREAD_ENTRY_ASSEMBLY_INFORMATIONAL_VERSION;
+        return std::string(version, sizeof(version) - 1);
+#elif defined(MPHREAD_BUILDVERSION_NO_ENTRY_ASSEMBLY) \
+    && defined(MPHREAD_BUILDVERSION_ASSEMBLY_INFORMATIONAL_VERSION)
+        constexpr char version[] = MPHREAD_BUILDVERSION_ASSEMBLY_INFORMATIONAL_VERSION;
+        return std::string(version, sizeof(version) - 1);
+#else
+        // Native has no CLR assembly attributes. Keep the C# null-coalescing
+        // fallback unless the build adapter supplies the informational value.
+        return "unknown";
+#endif
+    }
+
+    [[nodiscard]] constexpr std::string_view NewLine() noexcept
+    {
+#if defined(_WIN32)
+        return "\r\n";
+#else
+        return "\n";
+#endif
+    }
+
+    class NonIoFileFailure final : public std::runtime_error
+    {
+    public:
+        explicit NonIoFileFailure(const char* message)
+            : std::runtime_error(message)
+        {
+        }
+    };
+
+#if defined(_WIN32)
+    [[noreturn]] void ThrowFileFailure(DWORD error)
+    {
+        switch (error)
+        {
+        case ERROR_ACCESS_DENIED:
+        case ERROR_OPERATION_ABORTED:
+            throw NonIoFileFailure("file access was not permitted");
+        default:
+            throw std::ios_base::failure(
+                "thumbnail log I/O failed",
+                std::error_code(static_cast<int>(error), std::system_category()));
+        }
+    }
+
+    class Win32FileHandle final
+    {
+    public:
+        explicit Win32FileHandle(HANDLE value) noexcept
+            : _value(value)
+        {
+        }
+
+        Win32FileHandle(const Win32FileHandle&) = delete;
+        Win32FileHandle& operator=(const Win32FileHandle&) = delete;
+
+        ~Win32FileHandle()
+        {
+            if (_value != INVALID_HANDLE_VALUE)
+            {
+                (void)::CloseHandle(_value);
+            }
+        }
+
+        [[nodiscard]] HANDLE Get() const noexcept
+        {
+            return _value;
+        }
+
+    private:
+        HANDLE _value;
+    };
+
+    void WriteBytes(const std::filesystem::path& path, std::string_view text,
+        std::ios::openmode mode)
+    {
+        const bool append = (mode & std::ios::app) != std::ios::openmode{};
+        const DWORD creationDisposition = append ? OPEN_ALWAYS : CREATE_ALWAYS;
+
+        const HANDLE rawHandle = ::CreateFileW(
+            path.c_str(),
+            GENERIC_WRITE,
+            FILE_SHARE_READ,
+            nullptr,
+            creationDisposition,
+            FILE_ATTRIBUTE_NORMAL,
+            nullptr);
+        if (rawHandle == INVALID_HANDLE_VALUE)
+        {
+            ThrowFileFailure(::GetLastError());
+        }
+        const Win32FileHandle handle(rawHandle);
+
+        if (append)
+        {
+            LARGE_INTEGER length{};
+            if (::GetFileSizeEx(handle.Get(), &length) == 0)
+            {
+                ThrowFileFailure(::GetLastError());
+            }
+            LARGE_INTEGER position{};
+            position.QuadPart = length.QuadPart;
+            if (::SetFilePointerEx(handle.Get(), position, nullptr, FILE_BEGIN) == 0)
+            {
+                ThrowFileFailure(::GetLastError());
+            }
+        }
+
+        std::size_t offset = 0;
+        constexpr std::size_t MaxChunk = static_cast<std::size_t>(
+            std::numeric_limits<DWORD>::max());
+        while (offset < text.size())
+        {
+            const std::size_t count = std::min(MaxChunk, text.size() - offset);
+            DWORD written = 0;
+            if (::WriteFile(
+                    handle.Get(),
+                    text.data() + offset,
+                    static_cast<DWORD>(count),
+                    &written,
+                    nullptr) == 0)
+            {
+                ThrowFileFailure(::GetLastError());
+            }
+            if (written == 0)
+            {
+                throw std::ios_base::failure("thumbnail log write made no progress");
+            }
+            offset += static_cast<std::size_t>(written);
+        }
+    }
+#elif defined(__unix__) || defined(__APPLE__)
+    [[noreturn]] void ThrowFileFailure(int error)
+    {
+        switch (error)
+        {
+#ifdef EACCES
+        case EACCES:
+#endif
+#ifdef EBADF
+        case EBADF:
+#endif
+#ifdef EPERM
+        case EPERM:
+#endif
+#ifdef EFBIG
+        case EFBIG:
+#endif
+#ifdef ECANCELED
+        case ECANCELED:
+#endif
+            throw NonIoFileFailure("file access was not permitted");
+        default:
+            throw std::ios_base::failure(
+                "thumbnail log I/O failed",
+                std::error_code(error, std::generic_category()));
+        }
+    }
+
+    [[noreturn]] void ThrowOpenFileFailure(int error)
+    {
+#ifdef EISDIR
+        if (error == EISDIR)
+        {
+            // SafeFileHandle.Open remaps a writable-directory EISDIR from
+            // open(2) to EACCES before constructing the managed exception.
+            throw NonIoFileFailure("file access was not permitted");
+        }
+#endif
+        ThrowFileFailure(error);
+    }
+
+    class FileDescriptor final
+    {
+    public:
+        explicit FileDescriptor(int value) noexcept
+            : _value(value)
+        {
+        }
+
+        FileDescriptor(const FileDescriptor&) = delete;
+        FileDescriptor& operator=(const FileDescriptor&) = delete;
+
+        ~FileDescriptor()
+        {
+            if (_value >= 0)
+            {
+                (void)::close(_value);
+            }
+        }
+
+        [[nodiscard]] int Get() const noexcept
+        {
+            return _value;
+        }
+
+    private:
+        int _value;
+    };
+
+    [[nodiscard]] bool SupportsSharedWriteLock(int descriptor) noexcept
+    {
+#if defined(__linux__)
+        struct statfs status{};
+        int result = -1;
+        do
+        {
+            result = ::fstatfs(descriptor, &status);
+        }
+#ifdef EINTR
+        while (result < 0 && errno == EINTR);
+#else
+        while (false);
+#endif
+        if (result < 0)
+        {
+            return false;
+        }
+
+        const std::uint32_t fileSystemType = static_cast<std::uint32_t>(status.f_type);
+        return fileSystemType != 0x6969U
+            && fileSystemType != 0xFF534D42U
+            && fileSystemType != 0x517BU
+            && fileSystemType != 0xFE534D42U;
+#elif defined(__APPLE__) || defined(__FreeBSD__)
+        struct statfs status{};
+        int result = -1;
+        do
+        {
+            result = ::fstatfs(descriptor, &status);
+        }
+#ifdef EINTR
+        while (result < 0 && errno == EINTR);
+#else
+        while (false);
+#endif
+        if (result < 0)
+        {
+            return false;
+        }
+
+        const std::string_view fileSystemName(status.f_fstypename);
+        return fileSystemName != "nfs"
+            && fileSystemName != "cifs"
+            && fileSystemName != "smb"
+            && fileSystemName != "smb2";
+#else
+        return true;
+#endif
+    }
+
+    void AcquireSharedFileLock(int descriptor)
+    {
+        for (;;)
+        {
+            if (::flock(descriptor, LOCK_SH | LOCK_NB) == 0)
+            {
+                return;
+            }
+            const int error = errno;
+#ifdef EINTR
+            if (error == EINTR)
+            {
+                continue;
+            }
+#endif
+#ifdef EWOULDBLOCK
+            if (error == EWOULDBLOCK)
+            {
+                throw std::ios_base::failure(
+                    "thumbnail log sharing violation",
+                    std::error_code(error, std::generic_category()));
+            }
+#endif
+#ifdef EAGAIN
+            if (error == EAGAIN)
+            {
+                throw std::ios_base::failure(
+                    "thumbnail log sharing violation",
+                    std::error_code(error, std::generic_category()));
+            }
+#endif
+            // .NET treats Unix FileShare locking as best-effort and ignores
+            // failures other than EWOULDBLOCK.
+            return;
+        }
+    }
+
+    [[nodiscard]] int OpenFile(const std::filesystem::path& path)
+    {
+        int flags = O_WRONLY | O_CREAT;
+#ifdef O_CLOEXEC
+        flags |= O_CLOEXEC;
+#endif
+
+        int descriptor = -1;
+        do
+        {
+            descriptor = ::open(path.c_str(), flags, 0666);
+        }
+#ifdef EINTR
+        while (descriptor < 0 && errno == EINTR);
+#else
+        while (false);
+#endif
+        if (descriptor < 0)
+        {
+            ThrowOpenFileFailure(errno);
+        }
+        return descriptor;
+    }
+
+    [[nodiscard]] bool CanSeek(int descriptor) noexcept
+    {
+        errno = 0;
+        return ::lseek(descriptor, 0, SEEK_CUR) != static_cast<off_t>(-1);
+    }
+
+    [[nodiscard]] off_t FileLength(int descriptor)
+    {
+        struct stat status{};
+        if (::fstat(descriptor, &status) != 0)
+        {
+            ThrowFileFailure(errno);
+        }
+        return status.st_size;
+    }
+
+    void TruncateLikeFileModeCreate(int descriptor)
+    {
+        if (::ftruncate(descriptor, 0) == 0)
+        {
+            return;
+        }
+        const int error = errno;
+#ifdef EBADF
+        if (error == EBADF)
+        {
+            return;
+        }
+#endif
+#ifdef EINVAL
+        if (error == EINVAL)
+        {
+            return;
+        }
+#endif
+        ThrowFileFailure(error);
+    }
+
+    void WriteBytesAtOffset(int descriptor, std::string_view text,
+        bool seekable, off_t fileOffset)
+    {
+        std::size_t textOffset = 0;
+        constexpr std::size_t MaxChunk = static_cast<std::size_t>(
+            std::numeric_limits<ssize_t>::max());
+        while (textOffset < text.size())
+        {
+            const std::size_t count = std::min(MaxChunk, text.size() - textOffset);
+            ssize_t written = -1;
+            do
+            {
+                written = seekable
+                    ? ::pwrite(descriptor, text.data() + textOffset, count, fileOffset)
+                    : ::write(descriptor, text.data() + textOffset, count);
+            }
+#ifdef EINTR
+            while (written < 0 && errno == EINTR);
+#else
+            while (false);
+#endif
+            if (written < 0)
+            {
+                ThrowFileFailure(errno);
+            }
+            if (written == 0)
+            {
+                throw std::ios_base::failure("thumbnail log write made no progress");
+            }
+            const std::size_t advanced = static_cast<std::size_t>(written);
+            textOffset += advanced;
+            if (seekable)
+            {
+                fileOffset += static_cast<off_t>(written);
+            }
+        }
+    }
+
+    void WriteBytes(const std::filesystem::path& path, std::string_view text,
+        std::ios::openmode mode)
+    {
+        const bool append = (mode & std::ios::app) != std::ios::openmode{};
+        const FileDescriptor descriptor(OpenFile(path));
+        if (SupportsSharedWriteLock(descriptor.Get()))
+        {
+            AcquireSharedFileLock(descriptor.Get());
+        }
+
+        const bool seekable = CanSeek(descriptor.Get());
+        off_t fileOffset = 0;
+        if (append)
+        {
+            if (seekable)
+            {
+                fileOffset = FileLength(descriptor.Get());
+            }
+        }
+        else
+        {
+            TruncateLikeFileModeCreate(descriptor.Get());
+        }
+
+        WriteBytesAtOffset(descriptor.Get(), text, seekable, fileOffset);
+    }
+#else
+    [[noreturn]] void ThrowFileFailure(int error)
+    {
+        switch (error)
+        {
+#ifdef EACCES
+        case EACCES:
+#endif
+#ifdef EBADF
+        case EBADF:
+#endif
+#ifdef EPERM
+        case EPERM:
+#endif
+#ifdef EISDIR
+        case EISDIR:
+#endif
+#ifdef EFBIG
+        case EFBIG:
+#endif
+#ifdef ECANCELED
+        case ECANCELED:
+#endif
+            throw NonIoFileFailure("file access was not permitted");
+        default:
+            throw std::ios_base::failure(
+                "thumbnail log I/O failed",
+                std::error_code(error, std::generic_category()));
+        }
+    }
+
+    void WriteBytes(const std::filesystem::path& path, std::string_view text,
+        std::ios::openmode mode)
+    {
+        errno = 0;
+        std::ofstream stream(path, std::ios::out | std::ios::binary | mode);
+        if (!stream.is_open())
+        {
+            ThrowFileFailure(errno);
+        }
+        stream.exceptions(std::ios::badbit | std::ios::failbit);
+
+        std::size_t offset = 0;
+        constexpr std::size_t MaxChunk = static_cast<std::size_t>(
+            std::numeric_limits<std::streamsize>::max());
+        while (offset < text.size())
+        {
+            const std::size_t count = std::min(MaxChunk, text.size() - offset);
+            stream.write(text.data() + offset, static_cast<std::streamsize>(count));
+            offset += count;
+        }
+        stream.close();
+    }
+#endif
+
+}
+
+namespace MphRead::Mods
+{
+    std::mutex ThumbnailLog::_lock;
+    std::atomic_bool ThumbnailLog::_failed{false};
+
+    std::string ThumbnailLog::Path()
+    {
+        return PathCombine(Launcher::GameFiles::Root(), "thumbnails.log");
+    }
+
+    void ThumbnailLog::Begin(std::int32_t rooms) noexcept
+    {
+        try
+        {
+            // C# evaluates method arguments left-to-right, so the live Path
+            // property is captured before any of the formatted contents.
+            const std::string path = Path();
+
+            std::string contents;
+            contents.reserve(320);
+            contents += "=== ";
+            contents += Branding::Name;
+            contents += " preview generation, ";
+            contents += ::MphRead::NativeRuntime::DateTimeToString(::MphRead::NativeRuntime::DateTimeNow(), "yyyy-MM-dd HH:mm:ss");
+            contents += " ===";
+            contents += NewLine();
+            contents += "build ";
+            contents += Update::BuildVersion::Display();
+            contents += ", assembly ";
+            contents += EntryAssemblyVersion();
+            contents += ", file ";
+            contents += BaseDirectoryLastWriteTime();
+            contents += NewLine();
+            contents += "source ";
+            contents += EntryAssemblyInformationalVersion();
+            contents += "; executable ";
+            if (const std::optional<std::string> processPath = EnvironmentProcessPath())
+            {
+                contents += *processPath;
+            }
+            contents += NewLine();
+            contents += std::to_string(rooms);
+            contents += " room(s) to render";
+            contents += NewLine();
+
+            FileWriteAllText(path, contents);
+            _failed.store(false, std::memory_order_relaxed);
+        }
+        catch (...)
+        {
+            _failed.store(true, std::memory_order_relaxed);
+        }
+    }
+
+    void ThumbnailLog::Write(const std::string& line)
+    {
+        if (_failed.load(std::memory_order_relaxed))
+        {
+            return;
+        }
+
+        const std::lock_guard<std::mutex> guard(_lock);
+        for (std::int32_t attempt = 0; attempt < 5; ++attempt)
+        {
+            try
+            {
+                // Match File.AppendAllText(Path, interpolatedText): Path is
+                // re-evaluated first on every attempt, then DateTime.Now.
+                const std::string path = Path();
+
+                std::string text;
+                text.reserve(line.size() + 13);
+                text.push_back('[');
+                text += ::MphRead::NativeRuntime::DateTimeToString(::MphRead::NativeRuntime::DateTimeNow(), "HH:mm:ss");
+                text += "] ";
+                text += line;
+                text += NewLine();
+                WriteBytes(PathFromUtf8(path), text, std::ios::app);
+                return;
+            }
+            catch (const std::ios_base::failure&)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            }
+            catch (...)
+            {
+                _failed.store(true, std::memory_order_relaxed);
+                return;
+            }
+        }
+    }
+}

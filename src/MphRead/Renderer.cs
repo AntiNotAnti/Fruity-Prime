@@ -163,8 +163,14 @@ namespace MphRead
         private bool _outputCameraPos = false;
 
         // map each model's texture ID/palette ID combinations to the bound OpenGL texture ID and "onlyOpaque" boolean
-        private int _textureCount = 0;
         private readonly Dictionary<int, TextureMap> _texPalMap = new Dictionary<int, TextureMap>();
+        private readonly HashSet<int> _ownedTextures = new HashSet<int>();
+        // Display lists are GL resources owned by this Scene, not by the global
+        // Read cache. A side scene can be kept alive after a later Scene
+        // constructor clears that cache, so cache traversal cannot reliably
+        // find everything this Scene created when it is time to release GL.
+        private readonly HashSet<int> _displayLists = new HashSet<int>();
+        private readonly List<Model> _displayListModels = new List<Model>();
 
         private int _shaderProgramId = 0;
         private int _rttShaderProgramId = 0;
@@ -797,8 +803,7 @@ namespace MphRead
 
             _frameBuffer = GL.GenFramebuffer();
             GL.BindFramebuffer(FramebufferTarget.Framebuffer, _frameBuffer);
-            _screenTexture = GL.GenTexture();
-            _textureCount++;
+            _screenTexture = Mods.Render.GlNames.NextTexture();
             Vector2i renderTarget = RenderSize;
             _targetSize = renderTarget;
             GL.BindTexture(TextureTarget.Texture2D, _screenTexture);
@@ -818,8 +823,7 @@ namespace MphRead
 
             // The ink pass's copy of the scene. Same size and same filtering;
             // it is only ever sampled texel for texel.
-            _celTexture = GL.GenTexture();
-            _textureCount++;
+            _celTexture = Mods.Render.GlNames.NextTexture();
             GL.BindTexture(TextureTarget.Texture2D, _celTexture);
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgb, renderTarget.X, renderTarget.Y, 0,
                 PixelFormat.Rgb, PixelType.UnsignedByte, IntPtr.Zero);
@@ -978,6 +982,11 @@ namespace MphRead
                         textureHeight = texture.Height;
                     }
                     listId = GL.GenLists(1);
+                    _displayLists.Add(listId);
+                    if (!_displayListModels.Any(value => ReferenceEquals(value, model)))
+                    {
+                        _displayListModels.Add(model);
+                    }
                     GL.NewList(listId, ListMode.Compile);
                     bool texgen = material.TexgenMode == TexgenMode.Normal;
                     DoDlist(model, mesh, textureWidth, textureHeight, texgen, isRoom);
@@ -1231,7 +1240,12 @@ namespace MphRead
                     // in order to allow toggling room node transforms, keep the matrix ID at 0
                     if (!isRoom)
                     {
-                        matrixId = instruction.Arguments[0];
+                        // NDS MTX_RESTORE uses only parameter bits 0-4. The
+                        // remaining bits are ignored by the hardware and must
+                        // not become an out-of-range shader array index.
+                        uint requested = instruction.Arguments[0] & 0x1F;
+                        uint matrixCount = (uint)model.NodeMatrixIds.Count;
+                        matrixId = matrixCount == 0 ? 0 : Math.Min(requested, matrixCount - 1);
                     }
                     GL.TexCoord3(texX, texY, matrixId);
                     break;
@@ -1318,8 +1332,8 @@ namespace MphRead
                 var map = new TextureMap();
                 foreach ((int textureId, int paletteId, int recolorId) in combos)
                 {
-                    bool onlyOpaque = BindTexture(model, textureId, paletteId, recolorId);
-                    map.Add(textureId, paletteId, recolorId, _textureCount, onlyOpaque);
+                    (int bindingId, bool onlyOpaque) = BindTexture(model, textureId, paletteId, recolorId);
+                    map.Add(textureId, paletteId, recolorId, bindingId, onlyOpaque);
                 }
                 _texPalMap.Add(model.Id, map);
             }
@@ -1337,13 +1351,14 @@ namespace MphRead
             {
                 return value.Get(textureId, paletteId, recolorId).BindingId;
             }
-            BindTexture(model, textureId, paletteId, recolorId);
-            return _textureCount;
+            (int bindingId, _) = BindTexture(model, textureId, paletteId, recolorId);
+            return bindingId;
         }
 
-        private bool BindTexture(Model model, int textureId, int paletteId, int recolorId)
+        private (int BindingId, bool OnlyOpaque) BindTexture(Model model, int textureId, int paletteId, int recolorId)
         {
-            _textureCount++;
+            int bindingId = Mods.Render.GlNames.NextTexture();
+            _ownedTextures.Add(bindingId);
             bool onlyOpaque = true;
             var pixels = new List<uint>();
             var average = new FlatColor();
@@ -1354,12 +1369,12 @@ namespace MphRead
                 average.Add(pixel);
             }
             Texture texture = model.Recolors[recolorId].Textures[textureId];
-            GL.BindTexture(TextureTarget.Texture2D, _textureCount);
+            GL.BindTexture(TextureTarget.Texture2D, bindingId);
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba, texture.Width, texture.Height, 0,
                 PixelFormat.Rgba, PixelType.UnsignedByte, pixels.ToArray());
             GL.BindTexture(TextureTarget.Texture2D, 0);
-            _flatColors[_textureCount] = average.Result;
-            return onlyOpaque;
+            _flatColors[bindingId] = average.Result;
+            return (bindingId, onlyOpaque);
         }
 
         /// <summary>
@@ -1426,13 +1441,14 @@ namespace MphRead
 
         public int BindGetTexture(IReadOnlyList<ColorRgba> data, int width, int height)
         {
-            _textureCount++;
-            GL.BindTexture(TextureTarget.Texture2D, _textureCount);
+            int bindingId = Mods.Render.GlNames.NextTexture();
+            _ownedTextures.Add(bindingId);
+            GL.BindTexture(TextureTarget.Texture2D, bindingId);
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba, width, height, 0,
                 PixelFormat.Rgba, PixelType.UnsignedByte, data.ToArray());
             GL.BindTexture(TextureTarget.Texture2D, 0);
-            _flatColors[_textureCount] = AverageOf(data);
-            return _textureCount;
+            _flatColors[bindingId] = AverageOf(data);
+            return bindingId;
         }
 
         public void BindTexture(IReadOnlyList<ColorRgba> data, int width, int height, int bindingId)
@@ -2034,12 +2050,10 @@ namespace MphRead
                     FramebufferAttachment.DepthStencilAttachment, RenderbufferTarget.Renderbuffer,
                     _renderBuffer);
                 GL.DeleteTexture(_depthTexture);
-                _textureCount--;
                 _depthTexture = 0;
                 return;
             }
-            _depthTexture = GL.GenTexture();
-            _textureCount++;
+            _depthTexture = Mods.Render.GlNames.NextTexture();
             GL.BindTexture(TextureTarget.Texture2D, _depthTexture);
             GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Depth24Stencil8,
                 target.X, target.Y, 0, PixelFormat.DepthStencil, PixelType.UnsignedInt248, IntPtr.Zero);
@@ -2064,7 +2078,6 @@ namespace MphRead
                     FramebufferAttachment.DepthStencilAttachment, RenderbufferTarget.Renderbuffer,
                     _renderBuffer);
                 GL.DeleteTexture(_depthTexture);
-                _textureCount--;
                 _depthTexture = 0;
             }
         }
@@ -2092,9 +2105,7 @@ namespace MphRead
             bool answered = false;
             try
             {
-                while (GL.GetError() != OpenTK.Graphics.OpenGL.ErrorCode.NoError)
-                {
-                }
+                DrainGlError();
                 GL.GetFramebufferAttachmentParameter(FramebufferTarget.Framebuffer,
                     FramebufferAttachment.DepthAttachment,
                     FramebufferParameterName.FramebufferAttachmentDepthSize, out int answer);
@@ -2751,13 +2762,32 @@ namespace MphRead
                     foreach (KeyValuePair<int, (int BindingId, bool OnlyOpaque)> kvp in map)
                     {
                         GL.DeleteTexture(kvp.Value.BindingId);
+                        _ownedTextures.Remove(kvp.Value.BindingId);
+                        _flatColors.Remove(kvp.Value.BindingId);
                     }
                     _texPalMap.Remove(model.Id);
                 }
+                var ownedLists = new HashSet<int>();
                 foreach (Mesh mesh in model.Meshes)
                 {
-                    GL.DeleteLists(mesh.ListId, 1);
+                    if (mesh.ListId != 0 && _displayLists.Contains(mesh.ListId))
+                    {
+                        ownedLists.Add(mesh.ListId);
+                    }
                 }
+                foreach (int listId in ownedLists)
+                {
+                    GL.DeleteLists(listId, 1);
+                    _displayLists.Remove(listId);
+                }
+                foreach (Mesh mesh in model.Meshes)
+                {
+                    if (ownedLists.Contains(mesh.ListId))
+                    {
+                        mesh.ListId = 0;
+                    }
+                }
+                _displayListModels.RemoveAll(value => ReferenceEquals(value, model));
             }
             Read.RemoveModel(model.Name, model.FirstHunt);
         }
@@ -3255,8 +3285,25 @@ namespace MphRead
             for (int i = 0; i < _activeElements.Count; i++)
             {
                 EffectElementEntry element = _activeElements[i];
+                ReleaseFromOwner(element);
                 UnlinkEffectElement(element);
                 i--;
+            }
+        }
+
+        // A bulk release frees elements whose EffectEntry is still held by its
+        // owner (the player's muzzle and charge effects survive a room reload
+        // after a movie). Left in the entry, the owner's next UnlinkEffectEntry
+        // releases them a second time: the free queue then holds one element
+        // twice, or releases an element already lent to another effect, and
+        // ProcessEffects later spawns from an element whose ParticleDefinitions
+        // were cleared under it.
+        private static void ReleaseFromOwner(EffectElementEntry element)
+        {
+            if (element.EffectEntry != null)
+            {
+                element.EffectEntry.Elements.Remove(element);
+                element.EffectEntry = null;
             }
         }
 
@@ -3268,6 +3315,7 @@ namespace MphRead
                 Effect? effect = Read.GetEffect(element.EffectId);
                 if (effect == null || !effect.Persistent)
                 {
+                    ReleaseFromOwner(element);
                     UnlinkEffectElement(element);
                     i--;
                 }
@@ -4290,35 +4338,75 @@ namespace MphRead
             {
                 return;
             }
+#if MPHREAD_SHELL
+            if (!SideScene)
+            {
+                Mods.Render.LauncherHunter.NoteGlUnloaded();
+            }
+#endif
             foreach (TextureMap map in _texPalMap.Values)
             {
                 foreach (KeyValuePair<int, (int BindingId, bool OnlyOpaque)> kvp in map)
                 {
                     GL.DeleteTexture(kvp.Value.BindingId);
+                    _ownedTextures.Remove(kvp.Value.BindingId);
                 }
             }
             _texPalMap.Clear();
-            foreach (Model model in Read.CachedModels)
+            foreach (int textureId in _ownedTextures)
+            {
+                if (textureId != 0)
+                {
+                    GL.DeleteTexture(textureId);
+                }
+            }
+            _ownedTextures.Clear();
+            _flatColors.Clear();
+            foreach (int listId in _displayLists)
+            {
+                if (listId != 0)
+                {
+                    GL.DeleteLists(listId, 1);
+                }
+            }
+            foreach (Model model in _displayListModels)
             {
                 foreach (Mesh mesh in model.Meshes)
                 {
-                    if (mesh.ListId != 0)
+                    if (_displayLists.Contains(mesh.ListId))
                     {
-                        GL.DeleteLists(mesh.ListId, 1);
                         mesh.ListId = 0;
                     }
                 }
             }
+            _displayLists.Clear();
+            _displayListModels.Clear();
             Read.ClearCache();
             if (_frameBuffer != 0)
             {
                 GL.DeleteFramebuffer(_frameBuffer);
                 _frameBuffer = 0;
             }
+            if (_celFrameBuffer != 0)
+            {
+                GL.DeleteFramebuffer(_celFrameBuffer);
+                _celFrameBuffer = 0;
+                _celFrameBufferColor = 0;
+            }
             if (_renderBuffer != 0)
             {
                 GL.DeleteRenderbuffer(_renderBuffer);
                 _renderBuffer = 0;
+            }
+            if (_topMovieBinding != -1)
+            {
+                GL.DeleteTexture(_topMovieBinding);
+                _topMovieBinding = -1;
+            }
+            if (_botMovieBinding != -1)
+            {
+                GL.DeleteTexture(_botMovieBinding);
+                _botMovieBinding = -1;
             }
             DeleteTexture(ref _screenTexture);
             DeleteTexture(ref _celTexture);
@@ -4401,9 +4489,10 @@ namespace MphRead
             UseLight1(item.LightInfo.Light1Vector, item.LightInfo.Light1Color);
             UseLight2(item.LightInfo.Light2Vector, item.LightInfo.Light2Color);
 
-            if (item.MatrixStackCount > 0)
+            int matrixStackCount = Math.Clamp(item.MatrixStackCount, 0, item.MatrixStack.Length / 16);
+            if (matrixStackCount > 0)
             {
-                GL.UniformMatrix4(_shaderLocations.MatrixStack, item.MatrixStackCount, transpose: false, item.MatrixStack);
+                GL.UniformMatrix4(_shaderLocations.MatrixStack, matrixStackCount, transpose: false, item.MatrixStack);
             }
             else
             {
@@ -5399,8 +5488,10 @@ namespace MphRead
                 }
             }
             model.UpdateMatrixStack();
-            Array.Copy(model.MatrixStackValues.ToArray(), _hudMatrixStack, model.MatrixStackValues.Count);
-            GL.UniformMatrix4(_shaderLocations.MatrixStack, model.NodeMatrixIds.Count, transpose: false, _hudMatrixStack);
+            int copyCount = Math.Min(model.MatrixStackValues.Count, _hudMatrixStack.Length);
+            Array.Copy(model.MatrixStackValues.ToArray(), _hudMatrixStack, copyCount);
+            int matrixCount = Math.Min(model.NodeMatrixIds.Count, _hudMatrixStack.Length / 16);
+            GL.UniformMatrix4(_shaderLocations.MatrixStack, matrixCount, transpose: false, _hudMatrixStack);
             for (int i = 1; i < 9; i++)
             {
                 Node node = inst.Model.Nodes[i];

@@ -1,0 +1,80 @@
+#pragma once
+
+#include "../../NativeRuntime/System/Exceptions.hpp"
+#include <cstdint>
+#include <exception>
+#include <memory>
+#include <stop_token>
+
+namespace MphRead::Mods::Update
+{
+    enum class HttpCompletionOption : std::int32_t
+    {
+        ResponseContentRead = 0,
+        ResponseHeadersRead = 1
+    };
+
+    // Non-owning adapter for System.Threading.CancellationToken. nullptr is
+    // the default, non-cancelable token; adapters that poll a supplied stop
+    // token can interrupt their synchronous request while libcurl is waiting.
+    using CancellationToken = const std::stop_token*;
+
+    class HttpRequestMessage
+    {
+    public:
+        virtual ~HttpRequestMessage() = default;
+    };
+
+    class HttpResponseMessage
+    {
+    public:
+        virtual ~HttpResponseMessage() = default;
+    };
+
+    using NullReferenceException = ::System::NullReferenceException;
+
+    class HttpResponseAwaiter
+    {
+    public:
+        virtual ~HttpResponseAwaiter() = default;
+
+        // TaskAwaiter<HttpResponseMessage>.GetResult(): block until completion,
+        // return the task result, and rethrow the task's stored failure directly.
+        [[nodiscard]] virtual std::unique_ptr<HttpResponseMessage> GetResult() = 0;
+    };
+
+    class HttpResponseTask
+    {
+    public:
+        virtual ~HttpResponseTask() = default;
+
+        // Task<HttpResponseMessage>.GetAwaiter(). The returned awaiter remains
+        // valid for the lifetime of this task adapter.
+        [[nodiscard]] virtual HttpResponseAwaiter& GetAwaiter() = 0;
+    };
+
+    class HttpClient
+    {
+    public:
+        virtual ~HttpClient() = default;
+
+        [[nodiscard]] virtual std::unique_ptr<HttpResponseTask> SendAsync(
+            HttpRequestMessage* request,
+            HttpCompletionOption completion,
+            CancellationToken cancel) = 0;
+    };
+
+    class SyncHttp final
+    {
+    public:
+        [[nodiscard]] static std::unique_ptr<HttpResponseMessage> Send(
+            HttpClient* client,
+            HttpRequestMessage* request,
+            HttpCompletionOption completion = HttpCompletionOption::ResponseContentRead,
+            CancellationToken cancel = nullptr);
+
+        SyncHttp() = delete;
+        SyncHttp(const SyncHttp&) = delete;
+        SyncHttp& operator=(const SyncHttp&) = delete;
+    };
+}

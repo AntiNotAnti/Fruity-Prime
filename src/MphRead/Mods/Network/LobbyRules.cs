@@ -52,6 +52,7 @@ namespace MphRead.Mods.Network
                 return LobbyResultCode.NotEnoughPlayers;
             }
             Span<int> counts = stackalloc int[4];
+            counts.Clear();
             for (int i = 0; i < roster.Count; i++)
             {
                 if (layout.TeamCount > 0)

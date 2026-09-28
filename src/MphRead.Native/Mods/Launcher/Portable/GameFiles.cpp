@@ -1,0 +1,1461 @@
+#include "GameFiles.hpp"
+#include "RomWhitelist.hpp"
+#include "../../Platform/AppPaths.hpp"
+
+#include "../../../Program.hpp"
+#include "../../../Formats/Formats.hpp"
+#include "../../../Utility/Extract.hpp"
+#include "../../../NativeRuntime/System/Encoding.hpp"
+#include "../../../NativeRuntime/System/Globalization.hpp"
+#include "../../../NativeRuntime/System/IO.hpp"
+#include "../../../NativeRuntime/System/Runtime.hpp"
+
+#include <array>
+#include <cerrno>
+#include <chrono>
+#include <condition_variable>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <exception>
+#include <filesystem>
+#include <fstream>
+#include <functional>
+#include <iostream>
+#include <iterator>
+#include <limits>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <stdexcept>
+#include <streambuf>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <thread>
+#include <utility>
+#include <vector>
+
+#if !defined(_WIN32)
+#include <poll.h>
+#include <pthread.h>
+#include <signal.h>
+#include <time.h>
+#endif
+
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <tlhelp32.h>
+#elif defined(__APPLE__)
+#include <fcntl.h>
+#include <mach-o/dyld.h>
+#include <signal.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#elif defined(__FreeBSD__)
+#include <fcntl.h>
+#include <limits.h>
+#include <signal.h>
+#include <sys/param.h>
+#include <sys/stat.h>
+#include <sys/sysctl.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#elif defined(__OpenBSD__)
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#elif defined(__sun)
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#elif defined(__linux__) || defined(__ANDROID__)
+#include <fcntl.h>
+#include <signal.h>
+#if defined(__linux__) && !defined(__ANDROID__)
+#include <sys/auxv.h>
+#endif
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#elif defined(__unix__)
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
+
+using ::MphRead::NativeRuntime::AppContextBaseDirectory;
+using ::MphRead::NativeRuntime::DirectoryExists;
+using ::MphRead::NativeRuntime::EnvironmentProcessPath;
+using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::FileReadAllText;
+using ::MphRead::NativeRuntime::PasteArgument;
+using ::MphRead::NativeRuntime::PathCombine;
+using ::MphRead::NativeRuntime::StringIsNullOrWhiteSpace;
+using ::MphRead::NativeRuntime::StringTrimView;
+using ::MphRead::NativeRuntime::Utf8GetString;
+using ::MphRead::NativeRuntime::WideToWtf8;
+using ::MphRead::NativeRuntime::Wtf8ToWide;
+
+namespace
+{
+    using Report = std::function<void(const std::string&)>;
+
+
+    [[nodiscard]] constexpr bool IsVersionIntegerWhitespace(
+        unsigned char value) noexcept
+    {
+        return value == 0x20U || (value >= 0x09U && value <= 0x0DU);
+    }
+
+    [[nodiscard]] bool TryParseVersionComponent(
+        std::string_view component, std::int32_t& result) noexcept
+    {
+        std::size_t first = 0;
+        while (first < component.size()
+            && IsVersionIntegerWhitespace(
+                static_cast<unsigned char>(component[first])))
+        {
+            ++first;
+        }
+        if (first == component.size())
+        {
+            return false;
+        }
+
+        bool negative = false;
+        if (component[first] == '+' || component[first] == '-')
+        {
+            negative = component[first] == '-';
+            ++first;
+            if (first == component.size())
+            {
+                return false;
+            }
+        }
+        if (component[first] < '0' || component[first] > '9')
+        {
+            return false;
+        }
+
+        const std::uint64_t limit = negative ? 2147483648ULL : 2147483647ULL;
+        std::uint64_t value = 0;
+        std::size_t cursor = first;
+        while (cursor < component.size()
+            && component[cursor] >= '0' && component[cursor] <= '9')
+        {
+            const auto digit = static_cast<unsigned char>(component[cursor] - '0');
+            if (value > limit / 10ULL
+                || (value == limit / 10ULL && digit > limit % 10ULL))
+            {
+                return false;
+            }
+            value = value * 10ULL + digit;
+            ++cursor;
+        }
+
+        while (cursor < component.size()
+            && IsVersionIntegerWhitespace(
+                static_cast<unsigned char>(component[cursor])))
+        {
+            ++cursor;
+        }
+        while (cursor < component.size() && component[cursor] == '\0')
+        {
+            ++cursor;
+        }
+        if (cursor != component.size() || (negative && value != 0))
+        {
+            return false;
+        }
+
+        result = static_cast<std::int32_t>(value);
+        return true;
+    }
+
+    [[nodiscard]] std::optional<MphRead::Mods::Update::Version>
+        TryParseManagedVersion(std::string_view text)
+    {
+        std::array<std::string_view, 4> parts{};
+        std::size_t count = 0;
+        std::size_t start = 0;
+        for (;;)
+        {
+            if (count == parts.size())
+            {
+                return std::nullopt;
+            }
+            const std::size_t dot = text.find('.', start);
+            parts[count++] = dot == std::string_view::npos
+                ? text.substr(start)
+                : text.substr(start, dot - start);
+            if (dot == std::string_view::npos)
+            {
+                break;
+            }
+            start = dot + 1;
+        }
+        if (count < 2)
+        {
+            return std::nullopt;
+        }
+
+        std::array<std::int32_t, 4> values{};
+        for (std::size_t index = 0; index < count; ++index)
+        {
+            if (!TryParseVersionComponent(parts[index], values[index]))
+            {
+                return std::nullopt;
+            }
+        }
+
+        switch (count)
+        {
+        case 2:
+            return MphRead::Mods::Update::Version(values[0], values[1]);
+        case 3:
+            return MphRead::Mods::Update::Version(
+                values[0], values[1], values[2]);
+        case 4:
+            return MphRead::Mods::Update::Version(
+                values[0], values[1], values[2], values[3]);
+        default:
+            return std::nullopt;
+        }
+    }
+
+#if defined(__APPLE__) || defined(__OpenBSD__) || defined(__sun) \
+    || defined(__linux__) || defined(__ANDROID__) \
+    || (defined(__unix__) && !defined(__EMSCRIPTEN__) && !defined(__wasi__))
+#endif
+
+    [[noreturn]] void ThrowReadFailure(std::string_view path, int error)
+    {
+#if defined(_WIN32)
+        if (error == static_cast<int>(ERROR_ACCESS_DENIED)
+            || error == static_cast<int>(ERROR_OPERATION_ABORTED))
+        {
+            throw std::runtime_error(
+                "Could not read file: " + std::string(path) + " (error "
+                + std::to_string(error) + ")");
+        }
+#else
+        if (error == EACCES || error == EBADF || error == EPERM || error == ECANCELED)
+        {
+            throw std::runtime_error(std::system_error(
+                error, std::generic_category()).what());
+        }
+        if (error == EFBIG)
+        {
+            throw std::out_of_range(std::system_error(
+                error, std::generic_category()).what());
+        }
+#endif
+        throw std::ios_base::failure(
+            "Could not read file: " + std::string(path));
+    }
+
+    struct AsyncReportAbort final
+    {
+    };
+
+    void ReportAsyncLine(const Report& report, const std::string& line)
+    {
+        try
+        {
+            report(line);
+        }
+        catch (...)
+        {
+            // .NET 9 AsyncStreamReader captures a user callback exception,
+            // queues a ThreadPool work item that rethrows it unhandled, then
+            // stops that asynchronous reader. A detached C++ thread preserves
+            // the same asynchronous unhandled-exception boundary; the marker
+            // is swallowed by ReaderThread so it never surfaces via RunSetup.
+            const std::exception_ptr failure = std::current_exception();
+            try
+            {
+                std::thread([failure]() { std::rethrow_exception(failure); }).detach();
+            }
+            catch (...)
+            {
+                std::terminate();
+            }
+            throw AsyncReportAbort{};
+        }
+    }
+
+    void EmitManagedLines(std::string& pending, bool endOfStream, const Report& report)
+    {
+        std::size_t start = 0;
+        std::size_t index = 0;
+        while (index < pending.size())
+        {
+            if (pending[index] != '\r' && pending[index] != '\n')
+            {
+                ++index;
+                continue;
+            }
+
+            if (pending[index] == '\r' && index + 1 == pending.size() && !endOfStream)
+            {
+                break;
+            }
+
+            const std::size_t end = index;
+            if (pending[index] == '\r' && index + 1 < pending.size()
+                && pending[index + 1] == '\n')
+            {
+                index += 2;
+            }
+            else
+            {
+                ++index;
+            }
+            ReportAsyncLine(report,
+                Utf8GetString(std::string_view(pending).substr(start, end - start)));
+            start = index;
+        }
+
+        if (endOfStream && start < pending.size())
+        {
+            ReportAsyncLine(report,
+                Utf8GetString(std::string_view(pending).substr(start)));
+            start = pending.size();
+        }
+        if (start != 0)
+        {
+            pending.erase(0, start);
+        }
+    }
+
+#if defined(_WIN32)
+    [[nodiscard]] std::string Win32Message(DWORD error)
+    {
+        wchar_t* buffer = nullptr;
+        const DWORD length = FormatMessageW(
+            FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM
+                | FORMAT_MESSAGE_IGNORE_INSERTS,
+            nullptr, error, 0, reinterpret_cast<wchar_t*>(&buffer), 0, nullptr);
+        if (length == 0 || buffer == nullptr)
+        {
+            return "Win32 error " + std::to_string(error);
+        }
+        std::wstring_view wide(buffer, length);
+        while (!wide.empty() && (wide.back() == L'\r' || wide.back() == L'\n'))
+        {
+            wide.remove_suffix(1);
+        }
+        std::string result = WideToWtf8(wide);
+        LocalFree(buffer);
+        return result;
+    }
+
+    class UniqueHandle final
+    {
+    public:
+        UniqueHandle() noexcept = default;
+        explicit UniqueHandle(HANDLE value) noexcept : _value(value) {}
+        UniqueHandle(const UniqueHandle&) = delete;
+        UniqueHandle& operator=(const UniqueHandle&) = delete;
+        UniqueHandle(UniqueHandle&& other) noexcept
+            : _value(std::exchange(other._value, nullptr)) {}
+        UniqueHandle& operator=(UniqueHandle&& other) noexcept
+        {
+            if (this != &other)
+            {
+                Reset();
+                _value = std::exchange(other._value, nullptr);
+            }
+            return *this;
+        }
+        ~UniqueHandle() { Reset(); }
+        [[nodiscard]] HANDLE Get() const noexcept { return _value; }
+        [[nodiscard]] explicit operator bool() const noexcept
+        {
+            return _value != nullptr && _value != INVALID_HANDLE_VALUE;
+        }
+        HANDLE Release() noexcept { return std::exchange(_value, nullptr); }
+        void Reset(HANDLE value = nullptr) noexcept
+        {
+            if (_value != nullptr && _value != INVALID_HANDLE_VALUE)
+            {
+                CloseHandle(_value);
+            }
+            _value = value;
+        }
+    private:
+        HANDLE _value = nullptr;
+    };
+
+    struct WindowsChild final
+    {
+        UniqueHandle Process;
+        DWORD ProcessId = 0;
+        UniqueHandle Input;
+        UniqueHandle Output;
+        UniqueHandle Error;
+    };
+
+    [[nodiscard]] WindowsChild StartChildWindows(
+        const std::string& executable, const std::string& romPath,
+        const std::string& workingDirectory)
+    {
+        SECURITY_ATTRIBUTES attributes{};
+        attributes.nLength = sizeof(attributes);
+        attributes.bInheritHandle = TRUE;
+
+        HANDLE stdinReadRaw = nullptr;
+        HANDLE stdinWriteRaw = nullptr;
+        HANDLE stdoutReadRaw = nullptr;
+        HANDLE stdoutWriteRaw = nullptr;
+        HANDLE stderrReadRaw = nullptr;
+        HANDLE stderrWriteRaw = nullptr;
+        if (!CreatePipe(&stdinReadRaw, &stdinWriteRaw, &attributes, 0)
+            || !CreatePipe(&stdoutReadRaw, &stdoutWriteRaw, &attributes, 0)
+            || !CreatePipe(&stderrReadRaw, &stderrWriteRaw, &attributes, 0))
+        {
+            const DWORD error = GetLastError();
+            if (stdinReadRaw) CloseHandle(stdinReadRaw);
+            if (stdinWriteRaw) CloseHandle(stdinWriteRaw);
+            if (stdoutReadRaw) CloseHandle(stdoutReadRaw);
+            if (stdoutWriteRaw) CloseHandle(stdoutWriteRaw);
+            if (stderrReadRaw) CloseHandle(stderrReadRaw);
+            if (stderrWriteRaw) CloseHandle(stderrWriteRaw);
+            throw std::runtime_error(Win32Message(error));
+        }
+
+        UniqueHandle stdinRead(stdinReadRaw);
+        UniqueHandle stdinWrite(stdinWriteRaw);
+        UniqueHandle stdoutRead(stdoutReadRaw);
+        UniqueHandle stdoutWrite(stdoutWriteRaw);
+        UniqueHandle stderrRead(stderrReadRaw);
+        UniqueHandle stderrWrite(stderrWriteRaw);
+
+        if (!SetHandleInformation(stdinWrite.Get(), HANDLE_FLAG_INHERIT, 0)
+            || !SetHandleInformation(stdoutRead.Get(), HANDLE_FLAG_INHERIT, 0)
+            || !SetHandleInformation(stderrRead.Get(), HANDLE_FLAG_INHERIT, 0))
+        {
+            throw std::runtime_error(Win32Message(GetLastError()));
+        }
+
+        const std::wstring executableWide = Wtf8ToWide(executable);
+        const std::wstring romWide = Wtf8ToWide(romPath);
+        std::wstring commandLine = PasteArgument(executableWide)
+            + L" " + PasteArgument(romWide);
+        std::vector<wchar_t> mutableCommand(commandLine.begin(), commandLine.end());
+        mutableCommand.push_back(L'\0');
+        const std::wstring directoryWide = Wtf8ToWide(workingDirectory);
+
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        startup.dwFlags = STARTF_USESTDHANDLES;
+        startup.hStdInput = stdinRead.Get();
+        startup.hStdOutput = stdoutWrite.Get();
+        startup.hStdError = stderrWrite.Get();
+        PROCESS_INFORMATION process{};
+
+        if (!CreateProcessW(
+                executableWide.c_str(), mutableCommand.data(), nullptr, nullptr, TRUE,
+                CREATE_NO_WINDOW, nullptr,
+                workingDirectory.empty() ? nullptr : directoryWide.c_str(),
+                &startup, &process))
+        {
+            throw std::runtime_error(Win32Message(GetLastError()));
+        }
+
+        UniqueHandle processHandle(process.hProcess);
+        UniqueHandle threadHandle(process.hThread);
+        stdinRead.Reset();
+        stdoutWrite.Reset();
+        stderrWrite.Reset();
+        return WindowsChild{
+            std::move(processHandle), process.dwProcessId, std::move(stdinWrite),
+            std::move(stdoutRead), std::move(stderrRead)};
+    }
+
+    void ReadWindowsPipe(HANDLE handle, HANDLE cancel, const Report& report)
+    {
+        std::string pending;
+        std::array<char, 4096> buffer{};
+        for (;;)
+        {
+            const DWORD cancelState = WaitForSingleObject(cancel, 0);
+            if (cancelState == WAIT_OBJECT_0)
+            {
+                return;
+            }
+            if (cancelState == WAIT_FAILED)
+            {
+                throw std::runtime_error(Win32Message(GetLastError()));
+            }
+
+            DWORD available = 0;
+            if (!PeekNamedPipe(handle, nullptr, 0, nullptr, &available, nullptr))
+            {
+                const DWORD error = GetLastError();
+                if (error == ERROR_BROKEN_PIPE)
+                {
+                    break;
+                }
+                throw std::runtime_error(Win32Message(error));
+            }
+            if (available == 0)
+            {
+                const DWORD wait = WaitForSingleObject(cancel, 1);
+                if (wait == WAIT_OBJECT_0)
+                {
+                    return;
+                }
+                if (wait == WAIT_FAILED)
+                {
+                    throw std::runtime_error(Win32Message(GetLastError()));
+                }
+                continue;
+            }
+
+            DWORD read = 0;
+            const DWORD requested = std::min<DWORD>(
+                available, static_cast<DWORD>(buffer.size()));
+            if (!ReadFile(handle, buffer.data(), requested, &read, nullptr))
+            {
+                const DWORD error = GetLastError();
+                if (error == ERROR_BROKEN_PIPE)
+                {
+                    break;
+                }
+                throw std::runtime_error(Win32Message(error));
+            }
+            if (read == 0)
+            {
+                break;
+            }
+            pending.append(buffer.data(), read);
+            EmitManagedLines(pending, false, report);
+        }
+        EmitManagedLines(pending, true, report);
+    }
+
+    void WriteWindowsInput(HANDLE handle)
+    {
+        static constexpr std::string_view text = "y\r\n\r\n";
+        std::size_t offset = 0;
+        while (offset < text.size())
+        {
+            DWORD written = 0;
+            if (!WriteFile(handle, text.data() + offset,
+                    static_cast<DWORD>(text.size() - offset), &written, nullptr))
+            {
+                const DWORD error = GetLastError();
+                if (error == ERROR_BROKEN_PIPE || error == ERROR_NO_DATA)
+                {
+                    return;
+                }
+                throw std::ios_base::failure(Win32Message(error));
+            }
+            offset += written;
+        }
+    }
+
+    void KillWindowsTree(DWORD rootProcessId)
+    {
+        std::vector<std::pair<DWORD, DWORD>> processes;
+        UniqueHandle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
+        if (snapshot)
+        {
+            PROCESSENTRY32W entry{};
+            entry.dwSize = sizeof(entry);
+            if (Process32FirstW(snapshot.Get(), &entry))
+            {
+                do
+                {
+                    processes.emplace_back(entry.th32ProcessID, entry.th32ParentProcessID);
+                }
+                while (Process32NextW(snapshot.Get(), &entry));
+            }
+        }
+
+        std::vector<DWORD> ordered;
+        std::function<void(DWORD)> addChildren = [&](DWORD parent)
+        {
+            for (const auto& [pid, ppid] : processes)
+            {
+                if (ppid == parent && pid != parent)
+                {
+                    addChildren(pid);
+                    ordered.push_back(pid);
+                }
+            }
+        };
+        addChildren(rootProcessId);
+        ordered.push_back(rootProcessId);
+        for (DWORD pid : ordered)
+        {
+            UniqueHandle process(OpenProcess(PROCESS_TERMINATE, FALSE, pid));
+            if (process && !TerminateProcess(process.Get(), 1) && pid == rootProcessId)
+            {
+                throw std::runtime_error(Win32Message(GetLastError()));
+            }
+        }
+    }
+#else
+    class UniqueFd final
+    {
+    public:
+        UniqueFd() noexcept = default;
+        explicit UniqueFd(int value) noexcept : _value(value) {}
+        UniqueFd(const UniqueFd&) = delete;
+        UniqueFd& operator=(const UniqueFd&) = delete;
+        UniqueFd(UniqueFd&& other) noexcept : _value(std::exchange(other._value, -1)) {}
+        UniqueFd& operator=(UniqueFd&& other) noexcept
+        {
+            if (this != &other)
+            {
+                Reset();
+                _value = std::exchange(other._value, -1);
+            }
+            return *this;
+        }
+        ~UniqueFd() { Reset(); }
+        [[nodiscard]] int Get() const noexcept { return _value; }
+        [[nodiscard]] explicit operator bool() const noexcept { return _value >= 0; }
+        void Reset(int value = -1) noexcept
+        {
+            if (_value >= 0)
+            {
+                (void)::close(_value);
+            }
+            _value = value;
+        }
+    private:
+        int _value = -1;
+    };
+
+    struct PosixChild final
+    {
+        pid_t Pid = -1;
+        UniqueFd Input;
+        UniqueFd Output;
+        UniqueFd Error;
+    };
+
+    [[nodiscard]] std::string ErrnoMessage(int error)
+    {
+        return std::system_error(error, std::generic_category()).what();
+    }
+
+    [[nodiscard]] PosixChild StartChildPosix(
+        const std::string& executable, const std::string& romPath,
+        const std::string& workingDirectory)
+    {
+        int inputPipe[2] = {-1, -1};
+        int outputPipe[2] = {-1, -1};
+        int errorPipe[2] = {-1, -1};
+        int startupPipe[2] = {-1, -1};
+        if (::pipe(inputPipe) != 0 || ::pipe(outputPipe) != 0
+            || ::pipe(errorPipe) != 0 || ::pipe(startupPipe) != 0)
+        {
+            const int error = errno;
+            for (int fd : inputPipe) if (fd >= 0) (void)::close(fd);
+            for (int fd : outputPipe) if (fd >= 0) (void)::close(fd);
+            for (int fd : errorPipe) if (fd >= 0) (void)::close(fd);
+            for (int fd : startupPipe) if (fd >= 0) (void)::close(fd);
+            throw std::runtime_error(ErrnoMessage(error));
+        }
+        if (::fcntl(startupPipe[1], F_SETFD, FD_CLOEXEC) != 0)
+        {
+            const int error = errno;
+            for (int fd : inputPipe) (void)::close(fd);
+            for (int fd : outputPipe) (void)::close(fd);
+            for (int fd : errorPipe) (void)::close(fd);
+            for (int fd : startupPipe) (void)::close(fd);
+            throw std::runtime_error(ErrnoMessage(error));
+        }
+
+        const pid_t pid = ::fork();
+        if (pid < 0)
+        {
+            const int error = errno;
+            for (int fd : inputPipe) (void)::close(fd);
+            for (int fd : outputPipe) (void)::close(fd);
+            for (int fd : errorPipe) (void)::close(fd);
+            for (int fd : startupPipe) (void)::close(fd);
+            throw std::runtime_error(ErrnoMessage(error));
+        }
+        if (pid == 0)
+        {
+            (void)::close(startupPipe[0]);
+            const auto failStartup = [&](int error) noexcept
+            {
+                const char* data = reinterpret_cast<const char*>(&error);
+                std::size_t offset = 0;
+                while (offset < sizeof(error))
+                {
+                    const ssize_t written = ::write(
+                        startupPipe[1], data + offset, sizeof(error) - offset);
+                    if (written > 0)
+                    {
+                        offset += static_cast<std::size_t>(written);
+                    }
+                    else if (written < 0 && errno == EINTR)
+                    {
+                        continue;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+                _exit(127);
+            };
+
+            // Give the extraction process and anything it starts one group so
+            // the timeout can stop the whole tree like Process.Kill(true).
+            if (::setpgid(0, 0) != 0)
+            {
+                failStartup(errno);
+            }
+            if (!workingDirectory.empty() && ::chdir(workingDirectory.c_str()) != 0)
+            {
+                failStartup(errno);
+            }
+            if (::dup2(inputPipe[0], STDIN_FILENO) < 0
+                || ::dup2(outputPipe[1], STDOUT_FILENO) < 0
+                || ::dup2(errorPipe[1], STDERR_FILENO) < 0)
+            {
+                failStartup(errno);
+            }
+            for (int fd : inputPipe) (void)::close(fd);
+            for (int fd : outputPipe) (void)::close(fd);
+            for (int fd : errorPipe) (void)::close(fd);
+            char* const argv[] = {
+                const_cast<char*>(executable.c_str()),
+                const_cast<char*>(romPath.c_str()),
+                nullptr
+            };
+            ::execv(executable.c_str(), argv);
+            failStartup(errno);
+        }
+
+        (void)::close(startupPipe[1]);
+        (void)::close(inputPipe[0]);
+        (void)::close(outputPipe[1]);
+        (void)::close(errorPipe[1]);
+
+        int startupError = 0;
+        char* startupBytes = reinterpret_cast<char*>(&startupError);
+        std::size_t startupRead = 0;
+        for (;;)
+        {
+            const ssize_t count = ::read(
+                startupPipe[0], startupBytes + startupRead,
+                sizeof(startupError) - startupRead);
+            if (count > 0)
+            {
+                startupRead += static_cast<std::size_t>(count);
+                if (startupRead == sizeof(startupError))
+                {
+                    break;
+                }
+                continue;
+            }
+            if (count == 0)
+            {
+                break;
+            }
+            if (errno == EINTR)
+            {
+                continue;
+            }
+            startupError = errno;
+            startupRead = sizeof(startupError);
+            break;
+        }
+        (void)::close(startupPipe[0]);
+
+        if (startupRead != 0)
+        {
+            int status = 0;
+            while (::waitpid(pid, &status, 0) < 0 && errno == EINTR)
+            {
+            }
+            (void)::close(inputPipe[1]);
+            (void)::close(outputPipe[0]);
+            (void)::close(errorPipe[0]);
+            throw std::runtime_error(ErrnoMessage(startupError));
+        }
+
+        return PosixChild{
+            pid, UniqueFd(inputPipe[1]), UniqueFd(outputPipe[0]), UniqueFd(errorPipe[0])};
+    }
+
+    void ReadPosixPipe(int fd, int cancelFd, const Report& report)
+    {
+        std::string pending;
+        std::array<char, 4096> buffer{};
+        std::array<pollfd, 2> descriptors{{
+            pollfd{fd, POLLIN | POLLHUP | POLLERR, 0},
+            pollfd{cancelFd, POLLIN | POLLHUP | POLLERR, 0}}};
+        for (;;)
+        {
+            const int ready = ::poll(descriptors.data(), descriptors.size(), -1);
+            if (ready < 0)
+            {
+                if (errno == EINTR)
+                {
+                    continue;
+                }
+                throw std::runtime_error(ErrnoMessage(errno));
+            }
+            if (descriptors[1].revents != 0)
+            {
+                return;
+            }
+            if ((descriptors[0].revents & POLLNVAL) != 0)
+            {
+                throw std::runtime_error(ErrnoMessage(EBADF));
+            }
+            if (descriptors[0].revents == 0)
+            {
+                continue;
+            }
+
+            const ssize_t count = ::read(fd, buffer.data(), buffer.size());
+            if (count > 0)
+            {
+                pending.append(buffer.data(), static_cast<std::size_t>(count));
+                EmitManagedLines(pending, false, report);
+                continue;
+            }
+            if (count == 0)
+            {
+                break;
+            }
+            if (errno == EINTR)
+            {
+                continue;
+            }
+            throw std::runtime_error(ErrnoMessage(errno));
+        }
+        EmitManagedLines(pending, true, report);
+    }
+
+    void WritePosixInput(int fd)
+    {
+        static constexpr std::string_view text = "y\n\n";
+        sigset_t sigpipe{};
+        // Darwin exposes these three sigset helpers as macros, so they cannot
+        // be qualified with the global namespace operator.
+        if (sigemptyset(&sigpipe) != 0 || sigaddset(&sigpipe, SIGPIPE) != 0)
+        {
+            throw std::ios_base::failure(ErrnoMessage(errno));
+        }
+        sigset_t previousMask{};
+        const int maskError = ::pthread_sigmask(SIG_BLOCK, &sigpipe, &previousMask);
+        if (maskError != 0)
+        {
+            throw std::ios_base::failure(ErrnoMessage(maskError));
+        }
+        struct RestoreSignalMask final
+        {
+            const sigset_t& Previous;
+            ~RestoreSignalMask() { (void)::pthread_sigmask(SIG_SETMASK, &Previous, nullptr); }
+        } restore{previousMask};
+
+        sigset_t pendingBefore{};
+        if (::sigpending(&pendingBefore) != 0)
+        {
+            throw std::ios_base::failure(ErrnoMessage(errno));
+        }
+        const bool alreadyPending = sigismember(&pendingBefore, SIGPIPE) == 1;
+
+        std::size_t offset = 0;
+        while (offset < text.size())
+        {
+            const ssize_t written = ::write(fd, text.data() + offset, text.size() - offset);
+            if (written > 0)
+            {
+                offset += static_cast<std::size_t>(written);
+                continue;
+            }
+            if (written < 0 && errno == EINTR)
+            {
+                continue;
+            }
+            const int error = errno;
+            if (error == EPIPE)
+            {
+                if (!alreadyPending)
+                {
+                    int receivedSignal = 0;
+                    int waitError = 0;
+                    do
+                    {
+                        waitError = ::sigwait(&sigpipe, &receivedSignal);
+                    }
+                    while (waitError == EINTR);
+                    if (waitError != 0 || receivedSignal != SIGPIPE)
+                    {
+                        throw std::ios_base::failure(ErrnoMessage(
+                            waitError != 0 ? waitError : EIO));
+                    }
+                }
+                return;
+            }
+            throw std::ios_base::failure(ErrnoMessage(error));
+        }
+    }
+#endif
+
+    class ReaderThread final
+    {
+    public:
+        template <typename Reader>
+        explicit ReaderThread(Reader&& reader)
+        {
+#if defined(_WIN32)
+            _cancel.Reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+            if (!_cancel)
+            {
+                throw std::runtime_error(Win32Message(GetLastError()));
+            }
+            const HANDLE cancel = _cancel.Get();
+            _thread = std::thread(
+                [cancel, reader = std::forward<Reader>(reader)]() mutable
+                {
+                    try
+                    {
+                        reader(cancel);
+                    }
+                    catch (...)
+                    {
+                        // Process.BeginOutputReadLine/BeginErrorReadLine do not
+                        // surface asynchronous reader failures through RunSetup.
+                    }
+                });
+#else
+            int cancelPipe[2] = {-1, -1};
+            if (::pipe(cancelPipe) != 0)
+            {
+                throw std::runtime_error(ErrnoMessage(errno));
+            }
+            _cancelRead.Reset(cancelPipe[0]);
+            _cancelWrite.Reset(cancelPipe[1]);
+            const int cancelFd = _cancelRead.Get();
+            _thread = std::thread(
+                [cancelFd, reader = std::forward<Reader>(reader)]() mutable
+                {
+                    try
+                    {
+                        reader(cancelFd);
+                    }
+                    catch (...)
+                    {
+                        // Process.BeginOutputReadLine/BeginErrorReadLine do not
+                        // surface asynchronous reader failures through RunSetup.
+                    }
+                });
+#endif
+        }
+
+        ReaderThread(const ReaderThread&) = delete;
+        ReaderThread& operator=(const ReaderThread&) = delete;
+        ReaderThread(ReaderThread&&) = delete;
+        ReaderThread& operator=(ReaderThread&&) = delete;
+
+        ~ReaderThread()
+        {
+            CancelAndJoin();
+        }
+
+        void Join() noexcept
+        {
+            CancelAndJoin();
+        }
+
+    private:
+        void CancelAndJoin() noexcept
+        {
+            if (!_thread.joinable())
+            {
+                return;
+            }
+#if defined(_WIN32)
+            (void)SetEvent(_cancel.Get());
+#else
+            const char byte = 0;
+            while (::write(_cancelWrite.Get(), &byte, 1) < 0 && errno == EINTR)
+            {
+            }
+#endif
+            _thread.join();
+        }
+
+#if defined(_WIN32)
+        UniqueHandle _cancel;
+#else
+        UniqueFd _cancelRead;
+        UniqueFd _cancelWrite;
+#endif
+        std::thread _thread;
+    };
+
+#if !defined(_WIN32) && !defined(__ANDROID__)
+    class PosixWaitThread final
+    {
+    public:
+        template <typename Action>
+        explicit PosixWaitThread(Action&& action)
+            : _thread(std::forward<Action>(action))
+        {
+        }
+
+        PosixWaitThread(const PosixWaitThread&) = delete;
+        PosixWaitThread& operator=(const PosixWaitThread&) = delete;
+        PosixWaitThread(PosixWaitThread&&) = delete;
+        PosixWaitThread& operator=(PosixWaitThread&&) = delete;
+
+        ~PosixWaitThread()
+        {
+            CancelAndJoin();
+        }
+
+        void Join()
+        {
+            if (_thread.joinable())
+            {
+                _thread.join();
+            }
+        }
+
+        void Detach() noexcept
+        {
+            if (_thread.joinable())
+            {
+                _thread.detach();
+            }
+        }
+
+    private:
+        void CancelAndJoin() noexcept
+        {
+            if (!_thread.joinable())
+            {
+                return;
+            }
+            (void)::pthread_cancel(_thread.native_handle());
+            _thread.join();
+        }
+
+        std::thread _thread;
+    };
+#endif
+
+}
+
+namespace MphRead::Mods::Launcher
+{
+    class GameFiles::ReportWriter final : public std::streambuf
+    {
+    public:
+        explicit ReportWriter(const Report& report) : _report(report) {}
+
+    protected:
+        int_type overflow(int_type value) override
+        {
+            if (traits_type::eq_int_type(value, traits_type::eof()))
+            {
+                return traits_type::not_eof(value);
+            }
+            WriteCharacter(traits_type::to_char_type(value));
+            return value;
+        }
+
+        std::streamsize xsputn(const char* text, std::streamsize count) override
+        {
+            for (std::streamsize index = 0; index < count; ++index)
+            {
+                WriteCharacter(text[index]);
+            }
+            return count;
+        }
+
+        int sync() override
+        {
+            return 0;
+        }
+
+    private:
+        void WriteCharacter(char value)
+        {
+            if (value == '\n')
+            {
+                while (!_line.empty() && _line.back() == '\r')
+                {
+                    _line.pop_back();
+                }
+                _report(_line);
+                _line.clear();
+                return;
+            }
+            _line.push_back(value);
+        }
+
+        const Report& _report;
+        std::string _line;
+    };
+
+    // Application Support on macOS, beside the executable on Windows/Linux.
+    std::string GameFiles::_root = ::MphRead::Mods::Platform::AppPaths::UserDataDirectory();
+    const MphRead::Mods::Update::Version GameFiles::_minExtractVersion(0, 19, 0, 0);
+
+    std::string GameFiles::Root()
+    {
+        return _root;
+    }
+
+    void GameFiles::Root(std::string value)
+    {
+        _root = std::move(value);
+    }
+
+    std::string GameFiles::PathsFile()
+    {
+        return PathCombine(_root, "paths.txt");
+    }
+
+    bool GameFiles::Ready()
+    {
+        return !Problem().has_value();
+    }
+
+    std::optional<std::string> GameFiles::Problem()
+    {
+        const std::string pathsFile = PathsFile();
+        if (!FileExists(pathsFile))
+        {
+            return "No game files yet";
+        }
+
+        try
+        {
+            std::string text = FileReadAllText(pathsFile);
+            const std::size_t newline = text.find('\n');
+            if (newline != std::string::npos)
+            {
+                text.resize(newline);
+            }
+            const std::string_view first = StringTrimView(text);
+            const std::optional<MphRead::Mods::Update::Version> extracted
+                = TryParseManagedVersion(first);
+            if (!extracted.has_value() || !(*extracted >= _minExtractVersion))
+            {
+                return "The extracted files are from an older version -- set up again";
+            }
+        }
+        catch (const System::IO::IOException&)
+        {
+            return "paths.txt could not be read";
+        }
+
+        try
+        {
+            ApplyPaths();
+            const std::string root = Paths::FileSystem();
+            if (StringIsNullOrWhiteSpace(root) || !DirectoryExists(root))
+            {
+                return "The extracted files are missing -- set up again";
+            }
+        }
+        catch (...)
+        {
+            return "No Metroid Prime Hunters files are configured";
+        }
+        return std::nullopt;
+    }
+
+    std::string GameFiles::Describe()
+    {
+        const std::optional<std::string> problem = Problem();
+        if (problem.has_value())
+        {
+            return *problem;
+        }
+        try
+        {
+            return "Ready -- " + Paths::MphKey;
+        }
+        catch (...)
+        {
+            return "Ready";
+        }
+    }
+
+    bool GameFiles::RunSetup(const std::string& romPath, const Report& report)
+    {
+        // Checked here rather than in each caller: every setup path funnels
+        // through this one entry point. A file that isn't one of the seven
+        // known dumps is refused before anything is extracted.
+        std::optional<std::string> label;
+        if (!RomWhitelist::TryIdentify(romPath, label))
+        {
+            report("This .nds file doesn't match a known Metroid Prime Hunters "
+                "dump (checked by MD5) -- nothing was extracted.");
+            return false;
+        }
+        report("Recognised: Metroid Prime Hunters, " + label.value_or(std::string()));
+        if (InProcessSetup())
+        {
+            return RunSetupHere(romPath, report);
+        }
+
+        const std::optional<std::string> executable = EnvironmentProcessPath();
+        if (!executable.has_value())
+        {
+            report("Could not find the MphRead executable.");
+            return false;
+        }
+
+        try
+        {
+#if defined(_WIN32)
+            WindowsChild child = StartChildWindows(*executable, romPath, _root);
+            const HANDLE outputHandle = child.Output.Get();
+            const HANDLE errorHandle = child.Error.Get();
+            ReaderThread outputThread(
+                [outputHandle, &report](HANDLE cancel)
+                {
+                    ReadWindowsPipe(outputHandle, cancel, report);
+                });
+            ReaderThread errorThread(
+                [errorHandle, &report](HANDLE cancel)
+                {
+                    ReadWindowsPipe(errorHandle, cancel, report);
+                });
+
+            try
+            {
+                WriteWindowsInput(child.Input.Get());
+            }
+            catch (const std::ios_base::failure&)
+            {
+            }
+
+            const DWORD wait = WaitForSingleObject(child.Process.Get(), 10U * 60U * 1000U);
+            if (wait == WAIT_TIMEOUT)
+            {
+                KillWindowsTree(child.ProcessId);
+                report("The extraction took too long and was stopped.");
+                outputThread.Join();
+                errorThread.Join();
+                return false;
+            }
+            if (wait == WAIT_FAILED)
+            {
+                const std::string message = Win32Message(GetLastError());
+                child.Output.Reset();
+                child.Error.Reset();
+                outputThread.Join();
+                errorThread.Join();
+                throw std::runtime_error(message);
+            }
+            outputThread.Join();
+            errorThread.Join();
+#elif defined(__ANDROID__)
+            return RunSetupHere(romPath, report);
+#else
+            PosixChild child = StartChildPosix(*executable, romPath, _root);
+            const int outputFd = child.Output.Get();
+            const int errorFd = child.Error.Get();
+            ReaderThread outputThread(
+                [outputFd, &report](int cancelFd)
+                {
+                    ReadPosixPipe(outputFd, cancelFd, report);
+                });
+            ReaderThread errorThread(
+                [errorFd, &report](int cancelFd)
+                {
+                    ReadPosixPipe(errorFd, cancelFd, report);
+                });
+
+            try
+            {
+                WritePosixInput(child.Input.Get());
+            }
+            catch (const std::ios_base::failure&)
+            {
+            }
+
+            struct WaitState final
+            {
+                std::mutex Mutex;
+                std::condition_variable Condition;
+                bool Exited = false;
+                std::optional<int> Error;
+            };
+            const std::shared_ptr<WaitState> waitState = std::make_shared<WaitState>();
+            PosixWaitThread waitThread([pid = child.Pid, waitState]()
+            {
+                int status = 0;
+                for (;;)
+                {
+                    const pid_t waited = ::waitpid(pid, &status, 0);
+                    if (waited == pid)
+                    {
+                        break;
+                    }
+                    if (waited < 0 && errno == EINTR)
+                    {
+                        continue;
+                    }
+                    if (waited < 0)
+                    {
+                        waitState->Error = errno;
+                        break;
+                    }
+                }
+                {
+                    std::lock_guard lock(waitState->Mutex);
+                    waitState->Exited = true;
+                }
+                waitState->Condition.notify_one();
+            });
+
+            bool timedOut = false;
+            {
+                std::unique_lock lock(waitState->Mutex);
+                timedOut = !waitState->Condition.wait_for(
+                    lock, std::chrono::minutes(10),
+                    [&]() { return waitState->Exited; });
+            }
+            if (timedOut)
+            {
+                const int stopResult = ::kill(-child.Pid, SIGSTOP);
+                if (stopResult != 0)
+                {
+                    const int stopError = errno;
+                    if (stopError != ESRCH)
+                    {
+                        throw std::runtime_error(ErrnoMessage(stopError));
+                    }
+                }
+                else if (::kill(-child.Pid, SIGKILL) != 0 && errno != ESRCH)
+                {
+                    throw std::runtime_error(ErrnoMessage(errno));
+                }
+                report("The extraction took too long and was stopped.");
+                outputThread.Join();
+                errorThread.Join();
+                waitThread.Detach();
+                return false;
+            }
+
+            waitThread.Join();
+            outputThread.Join();
+            errorThread.Join();
+            if (waitState->Error.has_value())
+            {
+                throw std::runtime_error(ErrnoMessage(*waitState->Error));
+            }
+#endif
+        }
+        catch (const std::exception& exception)
+        {
+            report("The extraction failed: " + std::string(exception.what()));
+            return false;
+        }
+
+        const std::optional<std::string> problem = Problem();
+        if (problem.has_value())
+        {
+            report(*problem);
+            return false;
+        }
+        return true;
+    }
+
+    void GameFiles::ApplyPaths()
+    {
+        Paths::UpdatePaths();
+        Paths::ChooseMphPath();
+        Paths::ChooseFhPath();
+    }
+
+    bool GameFiles::InProcessSetup() noexcept
+    {
+#if defined(__ANDROID__)
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    bool GameFiles::RunSetupHere(const std::string& romPath, const Report& report)
+    {
+        ReportWriter writer(report);
+        const std::ios::iostate previousState = std::cout.rdstate();
+        const std::ios::iostate previousExceptions = std::cout.exceptions();
+        std::streambuf* const previous = std::cout.rdbuf(&writer);
+        std::cout.clear();
+        std::cout.exceptions(previousExceptions | std::ios::badbit);
+
+        const auto restore = [&]()
+        {
+            std::cout.exceptions(std::ios::goodbit);
+            std::cout.rdbuf(previous);
+            std::cout.clear(previousState);
+            std::cout.exceptions(previousExceptions);
+        };
+
+        try
+        {
+            Extract::Setup(romPath);
+        }
+        catch (const std::exception& exception)
+        {
+            try
+            {
+                report("The extraction failed: " + std::string(exception.what()));
+            }
+            catch (...)
+            {
+                restore();
+                throw;
+            }
+            restore();
+            return false;
+        }
+        catch (...)
+        {
+            restore();
+            throw;
+        }
+        restore();
+
+        const std::optional<std::string> problem = Problem();
+        if (problem.has_value())
+        {
+            report(*problem);
+            return false;
+        }
+        return true;
+    }
+
+}

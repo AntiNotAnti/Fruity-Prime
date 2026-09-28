@@ -1,0 +1,1675 @@
+#include "Memory.hpp"
+#include "NativeRuntime/System/Exceptions.hpp"
+#include "NativeRuntime/System/DateTime.hpp"
+
+#include "MemoryArrays.hpp"
+#include "MemoryClasses.hpp"
+#include "Program.hpp"
+#include "Scene.hpp"
+#include "Formats/Types.hpp"
+#include "NativeRuntime/System/Encoding.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
+#include "NativeRuntime/System/IO.hpp"
+#include "NativeRuntime/System/Managed.hpp"
+#include "NativeRuntime/System/Console.hpp"
+
+#include <algorithm>
+#include <array>
+#include <bit>
+#include <cassert>
+#include <charconv>
+#include <chrono>
+#include <cctype>
+#include <cerrno>
+#include <cstddef>
+#include <cstring>
+#include <ctime>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <limits>
+#include <locale>
+#include <optional>
+#include <sstream>
+#include <stdexcept>
+#include <system_error>
+#include <thread>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+#ifdef _WIN32
+#define NOMINMAX
+#include <Windows.h>
+#include <TlHelp32.h>
+#else
+#include <signal.h>
+#include <unistd.h>
+#if defined(__APPLE__)
+#include <libproc.h>
+#include <sys/proc_info.h>
+#else
+#include <dirent.h>
+#endif
+#endif
+
+using ::MphRead::NativeRuntime::FileReadAllLines;
+using ::MphRead::NativeRuntime::FileWriteAllLines;
+using ::MphRead::NativeRuntime::FileWriteAllText;
+using ::MphRead::NativeRuntime::IsNumberWhiteSpace;
+using ::MphRead::NativeRuntime::ManagedAt;
+using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
+using ::MphRead::NativeRuntime::StringReplace;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
+
+namespace
+{
+    using DllNotFoundException = ::System::DllNotFoundException;
+
+    using IndexOutOfRangeException = ::System::IndexOutOfRangeException;
+
+    using ArgumentOutOfRangeException = ::System::ArgumentOutOfRangeException;
+
+    class ArgumentException final : public std::invalid_argument
+    {
+    public:
+        ArgumentException()
+            : std::invalid_argument(
+                "The array starting from the specified index is not long enough.")
+        {
+        }
+
+        explicit ArgumentException(std::string message)
+            : std::invalid_argument(std::move(message))
+        {
+        }
+    };
+
+    using OverflowException = ::System::OverflowException;
+
+    template <typename T>
+    [[nodiscard]] T& VectorArrayAt(std::vector<T>& array, std::int32_t index)
+    {
+        if (index < 0
+            || static_cast<std::size_t>(index) >= array.size())
+        {
+            throw IndexOutOfRangeException();
+        }
+        return array[static_cast<std::size_t>(index)];
+    }
+
+    template <typename T>
+    [[nodiscard]] const T& VectorArrayAt(
+        const std::vector<T>& array, std::int32_t index)
+    {
+        if (index < 0
+            || static_cast<std::size_t>(index) >= array.size())
+        {
+            throw IndexOutOfRangeException();
+        }
+        return array[static_cast<std::size_t>(index)];
+    }
+
+    [[nodiscard]] std::int32_t IntPtrToInt32(std::intptr_t value)
+    {
+        if (value < static_cast<std::intptr_t>(std::numeric_limits<std::int32_t>::min())
+            || value > static_cast<std::intptr_t>(std::numeric_limits<std::int32_t>::max()))
+        {
+            throw OverflowException();
+        }
+        return static_cast<std::int32_t>(value);
+    }
+
+    [[nodiscard]] std::intptr_t Int64ToIntPtr(std::int64_t value)
+    {
+        if constexpr (sizeof(std::intptr_t) < sizeof(std::int64_t))
+        {
+            if (value < static_cast<std::int64_t>(std::numeric_limits<std::intptr_t>::min())
+                || value > static_cast<std::int64_t>(std::numeric_limits<std::intptr_t>::max()))
+            {
+                throw OverflowException();
+            }
+        }
+        return static_cast<std::intptr_t>(value);
+    }
+
+    [[nodiscard]] std::string FormatWeightLine(
+        std::int32_t weight, float percentage, std::string_view target)
+    {
+        // $"w: {weight,6} / 100000 ({pct,5:f1}%) -> {target}"
+        return "w: " + ::MphRead::NativeRuntime::StringPadLeft(::MphRead::NativeRuntime::ToString(weight), 6)
+            + " / 100000 ("
+            + ::MphRead::NativeRuntime::StringPadLeft(::MphRead::NativeRuntime::ToString(percentage, "f1"), 5)
+            + "%) -> " + std::string(target);
+    }
+    struct ProcessCandidate final
+    {
+        std::int32_t Id = 0;
+        std::int64_t StartTimeComparisonTicks = 0;
+        std::int64_t StartTimeMilliseconds = 0;
+    };
+
+    constexpr std::int64_t TicksPerSecond = INT64_C(10000000);
+    constexpr std::int64_t TicksPerMillisecond = INT64_C(10000);
+    constexpr std::int64_t UnixEpochDateTimeTicks = INT64_C(621355968000000000);
+
+    [[nodiscard]] std::int64_t UnixTicksToMilliseconds(std::int64_t ticks)
+    {
+        if (ticks >= 0)
+        {
+            return ticks / TicksPerMillisecond;
+        }
+        // DateTimeOffset.ToUnixTimeMilliseconds floors toward negative infinity.
+        return -static_cast<std::int64_t>(
+            (static_cast<std::uint64_t>(-(ticks + 1)) + 1U
+                + static_cast<std::uint64_t>(TicksPerMillisecond - 1))
+            / static_cast<std::uint64_t>(TicksPerMillisecond));
+    }
+
+#if !defined(_WIN32)
+    [[nodiscard]] std::int64_t UnixTicksToLocalDateTimeTicks(std::int64_t unixTicks)
+    {
+        ::MphRead::NativeRuntime::ManagedDateTime utc;
+        utc.Ticks = UnixEpochDateTimeTicks + unixTicks;
+        utc.Kind = 1;
+        return ::MphRead::NativeRuntime::DateTimeToLocalTime(utc).Ticks;
+    }
+#endif
+
+#ifdef _WIN32
+    [[nodiscard]] std::int64_t FileTimeToUnixTicks(const FILETIME& time)
+    {
+        ULARGE_INTEGER value{};
+        value.LowPart = time.dwLowDateTime;
+        value.HighPart = time.dwHighDateTime;
+        constexpr std::uint64_t UnixEpochFileTime = UINT64_C(116444736000000000);
+        if (value.QuadPart >= UnixEpochFileTime)
+        {
+            return static_cast<std::int64_t>(value.QuadPart - UnixEpochFileTime);
+        }
+        return -static_cast<std::int64_t>(UnixEpochFileTime - value.QuadPart);
+    }
+
+    [[nodiscard]] std::int64_t FileTimeLocalComparisonTicks(const FILETIME& utcTime)
+    {
+        FILETIME localTime{};
+        if (!::FileTimeToLocalFileTime(&utcTime, &localTime))
+        {
+            throw std::system_error(
+                static_cast<int>(::GetLastError()), std::system_category());
+        }
+        ULARGE_INTEGER value{};
+        value.LowPart = localTime.dwLowDateTime;
+        value.HighPart = localTime.dwHighDateTime;
+        if (value.QuadPart > static_cast<std::uint64_t>(
+                std::numeric_limits<std::int64_t>::max()))
+        {
+            return std::numeric_limits<std::int64_t>::max();
+        }
+        return static_cast<std::int64_t>(value.QuadPart);
+    }
+
+    [[nodiscard]] bool EqualsProcessName(std::wstring_view executable)
+    {
+        std::wstring name(executable);
+        const std::size_t dot = name.find_last_of(L'.');
+        if (dot != std::wstring::npos
+            && _wcsicmp(name.substr(dot).c_str(), L".exe") == 0)
+        {
+            name.resize(dot);
+        }
+        return _wcsicmp(name.c_str(), L"NO$GBA") == 0;
+    }
+
+    [[nodiscard]] std::pair<std::int64_t, std::int64_t>
+        QueryProcessStartTime(std::int32_t processId)
+    {
+        HANDLE handle = ::OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
+            static_cast<DWORD>(processId));
+        if (handle == nullptr)
+        {
+            throw std::system_error(
+                static_cast<int>(::GetLastError()), std::system_category());
+        }
+
+        FILETIME creation{};
+        FILETIME exit{};
+        FILETIME kernel{};
+        FILETIME user{};
+        if (!::GetProcessTimes(handle, &creation, &exit, &kernel, &user))
+        {
+            const DWORD error = ::GetLastError();
+            ::CloseHandle(handle);
+            throw std::system_error(static_cast<int>(error), std::system_category());
+        }
+        ::CloseHandle(handle);
+        const std::int64_t unixTicks = FileTimeToUnixTicks(creation);
+        return {
+            FileTimeLocalComparisonTicks(creation),
+            UnixTicksToMilliseconds(unixTicks)
+        };
+    }
+
+    [[nodiscard]] std::vector<ProcessCandidate> FindProcessesByName()
+    {
+        HANDLE snapshot = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (snapshot == INVALID_HANDLE_VALUE)
+        {
+            throw std::system_error(
+                static_cast<int>(::GetLastError()), std::system_category());
+        }
+
+        std::vector<std::int32_t> matched;
+        PROCESSENTRY32W entry{};
+        entry.dwSize = sizeof(entry);
+        if (::Process32FirstW(snapshot, &entry))
+        {
+            do
+            {
+                if (EqualsProcessName(entry.szExeFile))
+                {
+                    matched.push_back(
+                        static_cast<std::int32_t>(entry.th32ProcessID));
+                }
+            }
+            while (::Process32NextW(snapshot, &entry));
+        }
+        else
+        {
+            const DWORD error = ::GetLastError();
+            if (error != ERROR_NO_MORE_FILES)
+            {
+                ::CloseHandle(snapshot);
+                throw std::system_error(static_cast<int>(error), std::system_category());
+            }
+        }
+        ::CloseHandle(snapshot);
+
+        // Process.GetProcessesByName completes before Memory.Start evaluates
+        // Process.StartTime for any element of the returned array.
+        std::vector<ProcessCandidate> result;
+        result.reserve(matched.size());
+        for (const std::int32_t processId : matched)
+        {
+            const auto [ticks, milliseconds] = QueryProcessStartTime(processId);
+            result.push_back({processId, ticks, milliseconds});
+        }
+        return result;
+    }
+#elif defined(__linux__)
+    struct LinuxProcessStat final
+    {
+        std::string Name;
+        std::uint64_t StartTicks = 0;
+    };
+
+    [[nodiscard]] bool TryParsePid(std::string_view text, std::int32_t& processId)
+    {
+        if (text.empty())
+        {
+            return false;
+        }
+        std::uint32_t parsed = 0;
+        const auto result = std::from_chars(
+            text.data(), text.data() + text.size(), parsed, 10);
+        if (result.ec != std::errc{}
+            || result.ptr != text.data() + text.size()
+            || parsed > static_cast<std::uint32_t>(
+                std::numeric_limits<std::int32_t>::max()))
+        {
+            return false;
+        }
+        processId = static_cast<std::int32_t>(parsed);
+        return true;
+    }
+
+    [[nodiscard]] std::filesystem::path LinuxProcFilePath(
+        std::int32_t processId, std::string_view fileName)
+    {
+        const std::filesystem::path processPath
+            = processId == static_cast<std::int32_t>(::getpid())
+            ? std::filesystem::path("/proc/self")
+            : std::filesystem::path("/proc") / std::to_string(processId);
+        return processPath / std::string(fileName);
+    }
+
+    [[nodiscard]] std::optional<LinuxProcessStat> TryReadLinuxProcessStat(
+        std::int32_t processId)
+    {
+        const std::filesystem::path path
+            = LinuxProcFilePath(processId, "stat");
+        std::ifstream stream(path);
+        if (!stream)
+        {
+            return std::nullopt;
+        }
+        std::string line;
+        if (!std::getline(stream, line))
+        {
+            return std::nullopt;
+        }
+
+        const std::size_t openParen = line.find('(');
+        const std::size_t closeParen = line.rfind(')');
+        if (openParen == std::string::npos
+            || closeParen == std::string::npos
+            || closeParen <= openParen
+            || closeParen + 2 >= line.size())
+        {
+            return std::nullopt;
+        }
+
+        LinuxProcessStat result{};
+        result.Name = line.substr(openParen + 1, closeParen - openParen - 1);
+        std::istringstream fields(line.substr(closeParen + 2));
+        std::string field;
+        for (std::int32_t fieldNumber = 3; fieldNumber <= 22; ++fieldNumber)
+        {
+            if (!(fields >> field))
+            {
+                return std::nullopt;
+            }
+            if (fieldNumber == 22)
+            {
+                const auto parsed = std::from_chars(
+                    field.data(), field.data() + field.size(), result.StartTicks, 10);
+                if (parsed.ec != std::errc{}
+                    || parsed.ptr != field.data() + field.size())
+                {
+                    return std::nullopt;
+                }
+            }
+        }
+        return result;
+    }
+
+    [[nodiscard]] LinuxProcessStat ReadLinuxProcessStat(
+        std::int32_t processId)
+    {
+        const std::optional<LinuxProcessStat> result
+            = TryReadLinuxProcessStat(processId);
+        if (!result)
+        {
+            throw std::ios_base::failure("Process information is unavailable.");
+        }
+        return *result;
+    }
+
+    [[nodiscard]] std::string LinuxProcessName(
+        std::int32_t processId, const LinuxProcessStat& stat)
+    {
+        const std::filesystem::path path
+            = LinuxProcFilePath(processId, "cmdline");
+        std::ifstream stream(path, std::ios::binary);
+        if (!stream)
+        {
+            return stat.Name;
+        }
+
+        std::string commandLine{
+            std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
+        if (!stream.eof() && stream.fail())
+        {
+            return stat.Name;
+        }
+
+        std::size_t begin = 0;
+        for (std::int32_t argument = 0; argument < 2 && begin <= commandLine.size(); ++argument)
+        {
+            const std::size_t end = commandLine.find('\0', begin);
+            if (end == std::string::npos)
+            {
+                break;
+            }
+            const std::string_view arg(commandLine.data() + begin, end - begin);
+            const std::size_t slash = arg.find_last_of('/');
+            const std::string_view name = slash == std::string_view::npos
+                ? arg : arg.substr(slash + 1);
+            if (::MphRead::NativeRuntime::StringStartsWithOrdinalIgnoreCase(name, stat.Name))
+            {
+                return std::string(name);
+            }
+            begin = end + 1;
+        }
+        return stat.Name;
+    }
+
+    [[nodiscard]] bool LinuxProcMatchesPidNamespace()
+    {
+        std::array<char, 64> target{};
+        const ssize_t length = ::readlink(
+            "/proc/self", target.data(), target.size() - 1U);
+        if (length <= 0)
+        {
+            return true;
+        }
+        std::int32_t procSelfPid = 0;
+        if (!TryParsePid(
+                std::string_view(target.data(), static_cast<std::size_t>(length)),
+                procSelfPid))
+        {
+            return true;
+        }
+        return procSelfPid == static_cast<std::int32_t>(::getpid());
+    }
+
+    [[nodiscard]] std::int64_t LinuxBootTimeDateTimeTicks()
+    {
+        timespec boot{};
+        if (::clock_gettime(CLOCK_BOOTTIME, &boot) != 0)
+        {
+            throw std::system_error(errno, std::generic_category());
+        }
+        const std::int64_t sinceBootTicks
+            = static_cast<std::int64_t>(boot.tv_sec) * TicksPerSecond
+            + static_cast<std::int64_t>(boot.tv_nsec) / INT64_C(100);
+
+        timespec realtime{};
+        if (::clock_gettime(CLOCK_REALTIME_COARSE, &realtime) != 0)
+        {
+            throw std::system_error(errno, std::generic_category());
+        }
+        const std::int64_t sinceEpochTicks
+            = static_cast<std::int64_t>(realtime.tv_sec) * TicksPerSecond
+            + static_cast<std::int64_t>(realtime.tv_nsec) / INT64_C(100);
+        return UnixEpochDateTimeTicks + sinceEpochTicks - sinceBootTicks;
+    }
+
+    [[nodiscard]] std::int64_t LinuxJiffiesToTimeSpanTicks(std::uint64_t ticks)
+    {
+        static const long ticksPerSecond = []
+        {
+            const long value = ::sysconf(_SC_CLK_TCK);
+            if (value <= 0)
+            {
+                throw std::system_error(errno == 0 ? EINVAL : errno,
+                    std::generic_category());
+            }
+            return value;
+        }();
+        const double seconds = static_cast<double>(ticks)
+            / static_cast<double>(ticksPerSecond);
+        const double timeSpanTicks = seconds * static_cast<double>(TicksPerSecond);
+        if (timeSpanTicks > static_cast<double>(
+                std::numeric_limits<std::int64_t>::max())
+            || timeSpanTicks < static_cast<double>(
+                std::numeric_limits<std::int64_t>::min()))
+        {
+            throw OverflowException();
+        }
+        return static_cast<std::int64_t>(timeSpanTicks);
+    }
+
+    [[nodiscard]] std::pair<std::int64_t, std::int64_t>
+        LinuxProcessStartTime(
+            std::int32_t processId, std::int64_t bootTimeDateTimeTicks)
+    {
+        // Process.StartTime performs a fresh stat read after GetProcessesByName has
+        // finished constructing its Process array.
+        const LinuxProcessStat stat = ReadLinuxProcessStat(processId);
+        const std::int64_t dateTimeTicks = UncheckedAdd(
+            bootTimeDateTimeTicks, LinuxJiffiesToTimeSpanTicks(stat.StartTicks));
+        const std::int64_t unixTicks = UncheckedSubtract(
+            dateTimeTicks, UnixEpochDateTimeTicks);
+        return {
+            UnixTicksToLocalDateTimeTicks(unixTicks),
+            UnixTicksToMilliseconds(unixTicks)
+        };
+    }
+
+    [[nodiscard]] std::vector<std::int32_t> LinuxProcessIds()
+    {
+        if (!LinuxProcMatchesPidNamespace())
+        {
+            return {static_cast<std::int32_t>(::getpid())};
+        }
+
+        DIR* directory = ::opendir("/proc");
+        if (directory == nullptr)
+        {
+            throw std::system_error(errno, std::generic_category());
+        }
+        std::vector<std::int32_t> result;
+        while (dirent* entry = ::readdir(directory))
+        {
+            std::int32_t processId = 0;
+            if (TryParsePid(entry->d_name, processId))
+            {
+                result.push_back(processId);
+            }
+        }
+        ::closedir(directory);
+        return result;
+    }
+
+    [[nodiscard]] std::vector<ProcessCandidate> FindProcessesByName()
+    {
+        // Process.GetProcessesByName first enumerates/builds the complete Process
+        // array, then Memory.Start reads StartTime for each Process in that array.
+        std::vector<std::int32_t> matched;
+        for (const std::int32_t processId : LinuxProcessIds())
+        {
+            const std::optional<LinuxProcessStat> stat
+                = TryReadLinuxProcessStat(processId);
+            if (!stat)
+            {
+                continue;
+            }
+            const std::string name = LinuxProcessName(processId, *stat);
+            if (!StringEqualsOrdinalIgnoreCase(name, "NO$GBA"))
+            {
+                continue;
+            }
+            matched.push_back(processId);
+        }
+
+        std::vector<ProcessCandidate> result;
+        if (matched.empty())
+        {
+            return result;
+        }
+        const std::int64_t bootTimeDateTimeTicks = LinuxBootTimeDateTimeTicks();
+        for (const std::int32_t processId : matched)
+        {
+            const auto [comparisonTicks, milliseconds]
+                = LinuxProcessStartTime(processId, bootTimeDateTimeTicks);
+            result.push_back({processId, comparisonTicks, milliseconds});
+        }
+        return result;
+    }
+#elif defined(__APPLE__)
+    [[nodiscard]] std::optional<std::string> AppleProcessName(std::int32_t processId)
+    {
+        std::array<char, PROC_PIDPATHINFO_MAXSIZE> path{};
+        const int pathLength = ::proc_pidpath(
+            processId, path.data(), static_cast<std::uint32_t>(path.size()));
+        if (pathLength > 0)
+        {
+            std::filesystem::path executable(std::string(path.data(),
+                static_cast<std::size_t>(pathLength)));
+            const std::string name = executable.filename().string();
+            if (!name.empty())
+            {
+                return name;
+            }
+        }
+
+        proc_taskallinfo info{};
+        const int bytes = ::proc_pidinfo(processId, PROC_PIDTASKALLINFO, 0,
+            &info, static_cast<int>(sizeof(info)));
+        if (bytes == static_cast<int>(sizeof(info)))
+        {
+            return std::string(info.pbsd.pbi_comm);
+        }
+        return std::nullopt;
+    }
+
+    [[nodiscard]] std::pair<std::int64_t, std::int64_t>
+        AppleProcessStartTime(std::int32_t processId)
+    {
+        proc_taskallinfo info{};
+        const int bytes = ::proc_pidinfo(processId, PROC_PIDTASKALLINFO, 0,
+            &info, static_cast<int>(sizeof(info)));
+        if (bytes != static_cast<int>(sizeof(info)))
+        {
+            throw std::system_error(errno == 0 ? EIO : errno, std::generic_category());
+        }
+
+        const double seconds
+            = static_cast<double>(info.pbsd.pbi_start_tvsec)
+            + static_cast<double>(info.pbsd.pbi_start_tvusec) / 1000000.0;
+        const double doubleTicks = seconds * static_cast<double>(TicksPerSecond);
+        if (doubleTicks > static_cast<double>(
+                std::numeric_limits<std::int64_t>::max())
+            || doubleTicks < static_cast<double>(
+                std::numeric_limits<std::int64_t>::min())
+            || std::isnan(doubleTicks))
+        {
+            throw OverflowException();
+        }
+        // TimeSpan.FromSeconds ultimately truncates the scaled double to Int64.
+        const std::int64_t unixTicks = static_cast<std::int64_t>(doubleTicks);
+        return {
+            UnixTicksToLocalDateTimeTicks(unixTicks),
+            UnixTicksToMilliseconds(unixTicks)
+        };
+    }
+
+    [[nodiscard]] std::vector<ProcessCandidate> FindProcessesByName()
+    {
+        int processCount = ::proc_listallpids(nullptr, 0);
+        const bool sandboxFallback = processCount == 0 && errno == EPERM;
+        if (processCount <= 0)
+        {
+            if (sandboxFallback)
+            {
+                processCount = 1;
+            }
+            else
+            {
+                throw std::system_error(errno == 0 ? EIO : errno,
+                    std::generic_category());
+            }
+        }
+
+        std::vector<pid_t> processIds;
+        if (sandboxFallback)
+        {
+            processIds.push_back(::getpid());
+        }
+        else
+        {
+            for (;;)
+            {
+                const auto capacity = static_cast<std::size_t>(
+                    static_cast<double>(processCount) * 1.10);
+                processIds.assign(std::max<std::size_t>(capacity, 1), 0);
+                processCount = ::proc_listallpids(
+                    processIds.data(),
+                    static_cast<int>(processIds.size() * sizeof(pid_t)));
+                if (processCount <= 0)
+                {
+                    throw std::system_error(errno == 0 ? EIO : errno,
+                        std::generic_category());
+                }
+                if (processCount != static_cast<int>(processIds.size()))
+                {
+                    processIds.resize(static_cast<std::size_t>(processCount));
+                    break;
+                }
+            }
+        }
+
+        std::vector<std::int32_t> matched;
+        for (pid_t pid : processIds)
+        {
+            if (pid < 0 || pid > std::numeric_limits<std::int32_t>::max())
+            {
+                continue;
+            }
+            const std::int32_t processId = static_cast<std::int32_t>(pid);
+            const std::optional<std::string> name = AppleProcessName(processId);
+            if (!name || !StringEqualsOrdinalIgnoreCase(*name, "NO$GBA"))
+            {
+                continue;
+            }
+            matched.push_back(processId);
+        }
+
+        // As on the managed side, finish GetProcessesByName before evaluating
+        // the cached StartTime property in Memory.Start's foreach loop.
+        std::vector<ProcessCandidate> result;
+        result.reserve(matched.size());
+        for (const std::int32_t processId : matched)
+        {
+            const auto [ticks, milliseconds] = AppleProcessStartTime(processId);
+            result.push_back({processId, ticks, milliseconds});
+        }
+        return result;
+    }
+#else
+    [[nodiscard]] std::vector<ProcessCandidate> FindProcessesByName()
+    {
+        return {};
+    }
+#endif
+
+}
+
+namespace MphRead::Memory
+{
+    std::shared_ptr<Memory::AddressInfo> Memory::Addresses{};
+
+    const std::array<
+        std::pair<std::string_view, std::shared_ptr<Memory::AddressInfo>>, 2>
+        Memory::AllAddresses = {{
+            {
+                "a76e",
+                std::make_shared<AddressInfo>(
+                    0x020BC420,
+                    0x020B85F8,
+                    0x020AE514,
+                    0x020B00D4,
+                    0x020B00D4,
+                    0x02103760,
+                    0x020B84C4,
+                    0x020E228C,
+                    std::make_shared<AddressInfo::SaveAddressInfo>(
+                        0x020BD798,
+                        0x020D958C,
+                        0x020BC364,
+                        0x020EB948,
+                        0x020ECEE0))
+            },
+            {
+                "amhp1",
+                std::make_shared<AddressInfo>(
+                    0x020E845C,
+                    0x020E3EE0,
+                    0x020D94FC,
+                    0x020DB034,
+                    0x020DB180,
+                    0x021335E0,
+                    0x020B84C4,
+                    0x020E228C,
+                    std::make_shared<AddressInfo::SaveAddressInfo>(
+                        0x020E97B0,
+                        0x020D958C,
+                        0x020E83B8,
+                        0x020EB948,
+                        0x020ECEE0))
+            }
+        }};
+
+    Memory::AddressInfo::SaveAddressInfo::SaveAddressInfo(
+        std::int32_t story,
+        std::int32_t type3,
+        std::int32_t settings,
+        std::int32_t license,
+        std::int32_t friends) noexcept
+        : Story(story),
+          Type3(type3),
+          Settings(settings),
+          License(license),
+          Friends(friends)
+    {
+    }
+
+    Memory::AddressInfo::AddressInfo(
+        std::int32_t gameState,
+        std::int32_t entityListHead,
+        std::int32_t frameCount,
+        std::int32_t players,
+        std::int32_t playerUa,
+        std::int32_t camSeqData,
+        std::int32_t roomDesc,
+        std::int32_t rng2,
+        std::shared_ptr<SaveAddressInfo> save) noexcept
+        : EntityListHead(entityListHead),
+          FrameCount(frameCount),
+          PlayerUA(playerUa),
+          Players(players),
+          CamSeqData(camSeqData),
+          GameState(gameState),
+          RoomDesc(roomDesc),
+          Rng2(rng2),
+          Save(std::move(save))
+    {
+    }
+
+    Memory::Memory(
+        std::int32_t processId,
+        std::int64_t processStartTimeMilliseconds,
+        ::MphRead::Scene* scene)
+        : _aggroItems(
+              std::make_shared<ManagedArray<std::shared_ptr<AIAggro>>>(25)),
+          _scene(scene),
+          _processId(processId),
+          _processStartTimeMilliseconds(processStartTimeMilliseconds),
+          _buffer(std::make_shared<ManagedArray<std::uint8_t>>(
+              static_cast<std::size_t>(_size))),
+          _players(
+              std::make_shared<ManagedArray<std::shared_ptr<CPlayer>>>(4))
+    {
+    }
+
+    Memory::~Memory()
+    {
+#ifdef _WIN32
+        if (_processHandle != 0)
+        {
+            ::CloseHandle(reinterpret_cast<HANDLE>(_processHandle));
+        }
+#endif
+    }
+
+    std::shared_ptr<ManagedArray<std::uint8_t>> Memory::Buffer() const noexcept
+    {
+        return _buffer;
+    }
+
+    std::shared_ptr<std::shared_future<void>> Memory::Task() const noexcept
+    {
+        return _task;
+    }
+
+    std::shared_ptr<Memory> Memory::Start(::MphRead::Scene* scene, bool blocking)
+    {
+        std::optional<ProcessCandidate> foundProcess;
+        // Process.StartTime is compared as a DateTime before the selected value is
+        // later converted to Unix milliseconds for memory.txt.
+        std::int64_t startTimeTicks = std::numeric_limits<std::int64_t>::min();
+        const std::vector<ProcessCandidate> processes = FindProcessesByName();
+        for (const ProcessCandidate& process : processes)
+        {
+            if (process.StartTimeComparisonTicks > startTimeTicks)
+            {
+                foundProcess = process;
+                startTimeTicks = process.StartTimeComparisonTicks;
+            }
+        }
+        if (!foundProcess)
+        {
+            throw ProgramException("Could not find process.");
+        }
+
+        auto memory = std::shared_ptr<Memory>(new Memory(
+            foundProcess->Id, foundProcess->StartTimeMilliseconds, scene));
+        memory->Run(blocking, memory);
+        return memory;
+    }
+
+    void Memory::SetBaseAddress()
+    {
+        const std::filesystem::path path("memory.txt");
+        std::error_code existsError;
+        const bool exists = std::filesystem::is_regular_file(path, existsError);
+        if (!exists || existsError)
+        {
+            FileWriteAllText(PathToUtf8(path), "");
+        }
+
+        const std::int64_t startTime = _processStartTimeMilliseconds;
+        const std::vector<std::string> lines = FileReadAllLines(PathToUtf8(path));
+        std::int64_t timestamp = 0;
+        std::int64_t saved = 0;
+        if (lines.size() >= 2
+            && ::MphRead::NativeRuntime::TryParseInteger(lines[0], ::MphRead::NativeRuntime::NumberStyles::Integer, ::MphRead::NativeRuntime::NumberFormatInfo::CurrentInfo(), timestamp)
+            && startTime == timestamp
+            && ::MphRead::NativeRuntime::TryParseInteger(::MphRead::NativeRuntime::StringReplace(lines[1], "0x", ""), ::MphRead::NativeRuntime::NumberStyles::HexNumber, ::MphRead::NativeRuntime::NumberFormatInfo::CurrentInfo(), saved))
+        {
+            _baseAddress = Int64ToIntPtr(saved);
+            return;
+        }
+
+        std::cout << "Scanning memory..." << std::endl;
+
+        const std::array<std::uint8_t, 12> search{
+            0xFF, 0xDE, 0xFF, 0xE7,
+            0xFF, 0xDE, 0xFF, 0xE7,
+            0xFF, 0xDE, 0xFF, 0xE7
+        };
+
+        SystemInfo systemInfo{};
+        GetSystemInfo(systemInfo);
+        std::intptr_t minAddr = systemInfo.MinimumApplicationAddress;
+        const std::intptr_t maxAddr = systemInfo.MaximumApplicationAddress;
+        const std::intptr_t processHandle = OpenProcess(
+            0x10 | 0x400, false, _processId);
+        MemoryInfo64 memoryInfo{};
+
+        while (static_cast<std::int64_t>(minAddr)
+            < static_cast<std::int64_t>(maxAddr))
+        {
+            static_cast<void>(VirtualQueryEx(
+                processHandle, minAddr, memoryInfo, 48));
+            if (memoryInfo.Protect == 4 && memoryInfo.State == 0x1000)
+            {
+                if (memoryInfo.RegionSize < 0)
+                {
+                    throw std::overflow_error(
+                        "Array dimensions exceeded supported range.");
+                }
+
+                std::vector<std::uint8_t> buffer(
+                    static_cast<std::size_t>(memoryInfo.RegionSize));
+                const std::intptr_t baseAddr = Int64ToIntPtr(memoryInfo.BaseAddress);
+                std::intptr_t count = 0;
+                const bool result = ReadProcessMemory(
+                    processHandle,
+                    baseAddr,
+                    buffer.empty() ? nullptr : buffer.data(),
+                    std::bit_cast<std::int32_t>(
+                        static_cast<std::uint32_t>(memoryInfo.RegionSize)),
+                    count);
+                assert(result);
+                assert(static_cast<std::int64_t>(count) == memoryInfo.RegionSize);
+
+                const std::int64_t lastStart
+                    = memoryInfo.RegionSize - static_cast<std::int64_t>(search.size());
+                for (std::int32_t i = 0;
+                     static_cast<std::int64_t>(i) <= lastStart;
+                     i = UncheckedAdd(i, 1))
+                {
+                    bool equal = true;
+                    for (std::size_t j = 0; j < search.size(); ++j)
+                    {
+                        if (buffer.at(static_cast<std::size_t>(i) + j) != search[j])
+                        {
+                            equal = false;
+                            break;
+                        }
+                    }
+
+                    if (equal)
+                    {
+                        const std::int32_t zeroIndex = UncheckedSubtract(i, 0x4000);
+                        const std::int32_t zeroIndex1 = UncheckedAdd(zeroIndex, 1);
+                        if (VectorArrayAt(buffer, zeroIndex) == 0
+                            && VectorArrayAt(buffer, zeroIndex1) == 0)
+                        {
+                            const std::int64_t found = UncheckedAdd(
+                                memoryInfo.BaseAddress,
+                                static_cast<std::int64_t>(zeroIndex));
+                            _baseAddress = Int64ToIntPtr(found);
+                            FileWriteAllLines(PathToUtf8(path), {
+                                std::to_string(startTime),
+                                "0x" + ::MphRead::NativeRuntime::ToString(_baseAddress, "X2")
+                            });
+                            // The C# source never closes this OpenProcess handle.
+                            static_cast<void>(processHandle);
+                            return;
+                        }
+                    }
+                }
+            }
+
+            if (memoryInfo.RegionSize == 0)
+            {
+                throw ProgramException("Failed to scan memory.");
+            }
+            minAddr = Int64ToIntPtr(UncheckedAdd(
+                static_cast<std::int64_t>(minAddr), memoryInfo.RegionSize));
+        }
+
+        throw ProgramException("Failed to find search sequence.");
+    }
+
+    void Memory::Run(bool blocking, std::shared_ptr<Memory> self)
+    {
+        std::shared_ptr<AddressInfo> addresses;
+        for (const auto& item : AllAddresses)
+        {
+            if (item.first == "amhp1")
+            {
+                addresses = item.second;
+                break;
+            }
+        }
+        if (!addresses)
+        {
+            throw std::out_of_range("The given key was not present in the dictionary.");
+        }
+        Addresses = std::move(addresses);
+
+        SetBaseAddress();
+
+        auto promise = std::make_shared<std::promise<void>>();
+        _task = std::make_shared<std::shared_future<void>>(
+            promise->get_future().share());
+        std::thread([self = std::move(self), promise = std::move(promise)]() mutable
+        {
+            try
+            {
+                self->RunTaskBody();
+                promise->set_value();
+            }
+            catch (...)
+            {
+                promise->set_exception(std::current_exception());
+            }
+        }).detach();
+
+        if (blocking)
+        {
+            _task->get();
+        }
+    }
+
+    void Memory::RunTaskBody()
+    {
+        std::string output;
+        RefreshMemory();
+        (*_players)[0] = std::make_shared<CPlayer>(*this, Addresses->Players);
+        (*_players)[1] = std::make_shared<CPlayer>(
+            *this, UncheckedAdd(Addresses->Players, 0xF30));
+        (*_players)[2] = std::make_shared<CPlayer>(
+            *this, UncheckedAdd(
+                Addresses->Players,
+                static_cast<std::int32_t>(
+                    static_cast<std::uint32_t>(0xF30) * UINT32_C(2))));
+        (*_players)[3] = std::make_shared<CPlayer>(
+            *this, UncheckedAdd(
+                Addresses->Players,
+                static_cast<std::int32_t>(
+                    static_cast<std::uint32_t>(0xF30) * UINT32_C(3))));
+
+        while (_scene == nullptr || !_scene->Exiting())
+        {
+            _sb.clear();
+            RefreshMemory();
+            DoProcess();
+            const std::string newOutput = _sb;
+            if (newOutput != output)
+            {
+                output = newOutput;
+                ::MphRead::NativeRuntime::ConsoleClear();
+                std::cout << output;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(15));
+        }
+    }
+
+    void Memory::RefreshMemory()
+    {
+        const std::intptr_t processHandle = ProcessHandle();
+        std::uint8_t* const buffer = _buffer->Length() == 0
+            ? nullptr
+            : std::addressof((*_buffer)[0]);
+        std::intptr_t count = 0;
+        const bool result = ReadProcessMemory(
+            processHandle,
+            _baseAddress,
+            buffer,
+            _size,
+            count);
+        assert(result);
+        assert(static_cast<std::int64_t>(count) == _size);
+    }
+
+    void Memory::DoProcess()
+    {
+        const std::uint32_t aggroCount
+            = RequireReference((*_players)[1]).AggroCount();
+        static_cast<void>(aggroCount);
+
+        const auto list = RequireReference((*_players)[1]).AIAggro();
+        assert(list != nullptr);
+        if (!list)
+        {
+            throw System::NullReferenceException();
+        }
+
+        for (std::int32_t i = 0; i < list->Length(); ++i)
+        {
+            const std::shared_ptr<AIAggro> item = list->Item(i);
+            RequireReference(item).UpdateSlots(_players);
+            ManagedAt(*_aggroItems, i) = item;
+        }
+
+        static_cast<void>(5);
+    }
+
+    void Memory::PrintAiContext()
+    {
+        const auto context = RequireReference((*_players)[1]).AIContext();
+        assert(context != nullptr);
+        if (!context)
+        {
+            throw System::NullReferenceException();
+        }
+
+        std::string tree;
+        for (std::int32_t i = 1; i < 20; ++i)
+        {
+            const std::shared_ptr<AIContext> item = context->Item(i);
+            const std::shared_ptr<AIData1> firstItemData1
+                = RequireReference(item).AIData1();
+            if (!firstItemData1)
+            {
+                break;
+            }
+
+            const std::shared_ptr<AIContext> parent
+                = context->Item(UncheckedSubtract(i, 1));
+            std::int32_t childIndex = -1;
+
+            for (std::int32_t j = 0;
+                 j < RequireReference(
+                     RequireReference(parent).AIData1()).Data1Count();
+                 ++j)
+            {
+                const auto parentData1ForArray
+                    = RequireReference(parent).AIData1();
+                const auto parentData1Array
+                    = RequireReference(parentData1ForArray).Data1();
+                const std::shared_ptr<AIData1> parentChild
+                    = RequireReference(parentData1Array).Item(j);
+
+                const auto itemData1ForAddress
+                    = RequireReference(item).AIData1();
+                if (RequireReference(parentChild).Address()
+                    == RequireReference(itemData1ForAddress).Address())
+                {
+                    childIndex = j;
+                    break;
+                }
+            }
+
+            if (!tree.empty())
+            {
+                tree += " -> ";
+            }
+            tree += ::MphRead::NativeRuntime::ToString(childIndex);
+            _sb += "d";
+            _sb += ::MphRead::NativeRuntime::ToString(i);
+            _sb += ": ";
+            _sb += ::MphRead::NativeRuntime::ToString(childIndex);
+            _sb += ::MphRead::NativeRuntime::EnvironmentNewLine();
+
+            const auto parentData1ForOptional
+                = RequireReference(parent).AIData1();
+            if (parentData1ForOptional
+                && parentData1ForOptional->Data1Count() > 1)
+            {
+                for (std::int32_t k = 0;
+                     k < RequireReference(
+                         RequireReference(item).AIData1()).Data2Count();
+                     ++k)
+                {
+                    const auto itemData1ForData2
+                        = RequireReference(item).AIData1();
+                    const auto data2
+                        = RequireReference(itemData1ForData2).Data2();
+                    std::int32_t index
+                        = RequireReference(
+                            RequireReference(data2).Item(k)).Data1SelectIdx();
+
+                    std::string target;
+                    if (index >= 20)
+                    {
+                        index = RequireReference(
+                            RequireReference(parent).AIData1()).Data1Count();
+                        target = "reset";
+                    }
+                    else
+                    {
+                        target = ::MphRead::NativeRuntime::ToString(index);
+                    }
+
+                    const std::int32_t weight
+                        = RequireReference(RequireReference(parent).Weights()).Item(index);
+                    const float percentage
+                        = static_cast<float>(weight) / 100000.0F * 100.0F;
+                    _sb += FormatWeightLine(weight, percentage, target);
+                    _sb += ::MphRead::NativeRuntime::EnvironmentNewLine();
+                }
+            }
+
+            if (RequireReference(
+                    RequireReference(item).AIData1()).Data1Count() == 0)
+            {
+                break;
+            }
+
+            _sb += ::MphRead::NativeRuntime::EnvironmentNewLine();
+            static_cast<void>(5);
+        }
+
+        const std::int32_t frameCount = ReadInt32FromBuffer(
+            UncheckedSubtract(Addresses->FrameCount, 0x02000000));
+        bool add = _mem.empty();
+        if (!add)
+        {
+            const std::string& last = _mem.back();
+            const std::size_t separator = last.find(": ");
+            const std::string previousTree = separator == std::string::npos
+                ? std::string()
+                : last.substr(separator + 2);
+            add = previousTree != tree;
+        }
+        if (add)
+        {
+            _mem.push_back(
+                ::MphRead::NativeRuntime::ToString(frameCount) + ": " + tree);
+        }
+
+        _sb += ::MphRead::NativeRuntime::EnvironmentNewLine();
+        for (const std::string& line : _mem)
+        {
+            _sb += line;
+            _sb += ::MphRead::NativeRuntime::EnvironmentNewLine();
+        }
+    }
+
+    void Memory::GetEntities()
+    {
+        _temp.clear();
+        for (const std::shared_ptr<CEntity>& entity : _entities)
+        {
+            CEntity& value = RequireReference(entity);
+            const std::intptr_t address = value.Address();
+            const auto [iterator, inserted] = _temp.emplace(address, entity);
+            static_cast<void>(iterator);
+            if (!inserted)
+            {
+                throw ArgumentException(
+                    "An item with the same key has already been added. Key: "
+                    + ::MphRead::NativeRuntime::ToString(address));
+            }
+        }
+
+        _entities.clear();
+        const std::shared_ptr<CEntity> head = GetEntity(Addresses->EntityListHead);
+        assert(RequireReference(head).EntityType() == MphRead::EntityType::ListHead);
+        _entities.push_back(head);
+
+        std::intptr_t nextAddr = RequireReference(head).Next();
+        while (nextAddr != RequireReference(head).Address())
+        {
+            std::shared_ptr<CEntity> entity;
+            const auto cached = _temp.find(nextAddr);
+            if (cached != _temp.end())
+            {
+                entity = cached->second;
+            }
+
+            if (entity
+                && RequireReference(entity).EntityType()
+                    == static_cast<MphRead::EntityType>(
+                        ReadUInt16FromBuffer(UncheckedSubtract(
+                            IntPtrToInt32(nextAddr), Offset))))
+            {
+                _entities.push_back(entity);
+            }
+            else
+            {
+                entity = GetEntity(nextAddr);
+                _entities.push_back(entity);
+            }
+
+            nextAddr = RequireReference(entity).Next();
+        }
+    }
+
+    void Memory::WriteMemory(
+        std::intptr_t address,
+        std::shared_ptr<ManagedArray<std::uint8_t>> value,
+        std::int32_t size)
+    {
+        WriteMemory(IntPtrToInt32(address), std::move(value), size);
+    }
+
+    void Memory::WriteMemory(
+        std::int32_t address,
+        std::shared_ptr<ManagedArray<std::uint8_t>> value,
+        std::int32_t size)
+    {
+        const std::int32_t offset = UncheckedSubtract(address, Offset);
+        const std::int32_t pointerValue
+            = UncheckedAdd(IntPtrToInt32(_baseAddress), offset);
+        const std::intptr_t pointer = static_cast<std::intptr_t>(pointerValue);
+        const std::intptr_t processHandle = ProcessHandle();
+
+        const std::uint8_t* source = nullptr;
+        if (value && value->Length() != 0)
+        {
+            source = std::addressof((*value)[0]);
+        }
+
+        std::intptr_t count = 0;
+        const bool result = WriteProcessMemory(
+            processHandle, pointer, source, size, count);
+        assert(result);
+        assert(IntPtrToInt32(count) == size);
+
+        for (std::int32_t i = 0; i < size; ++i)
+        {
+            const std::int32_t destinationIndex = UncheckedAdd(offset, i);
+            std::uint8_t& destination
+                = ManagedAt(*_buffer, destinationIndex);
+            if (!value)
+            {
+                throw System::NullReferenceException();
+            }
+            destination = ManagedAt(*value, i);
+        }
+    }
+
+    std::shared_ptr<CEntity> Memory::GetEntity(std::intptr_t address)
+    {
+        return GetEntity(IntPtrToInt32(address));
+    }
+
+    std::shared_ptr<CEntity> Memory::GetEntity(std::int32_t address)
+    {
+        const std::int32_t offset = UncheckedSubtract(address, Offset);
+        const auto type = static_cast<MphRead::EntityType>(
+            ReadUInt16FromBuffer(offset));
+
+        if (type == MphRead::EntityType::Platform)
+        {
+            return std::make_shared<CPlatform>(*this, address);
+        }
+        if (type == MphRead::EntityType::Object)
+        {
+            return std::make_shared<CObject>(*this, address);
+        }
+        if (type == MphRead::EntityType::PlayerSpawn)
+        {
+            return std::make_shared<CPlayerSpawn>(*this, address);
+        }
+        if (type == MphRead::EntityType::Door)
+        {
+            return std::make_shared<CDoor>(*this, address);
+        }
+        if (type == MphRead::EntityType::ItemSpawn)
+        {
+            return std::make_shared<CItemSpawn>(*this, address);
+        }
+        if (type == MphRead::EntityType::ItemInstance)
+        {
+            return std::make_shared<CItemInstance>(*this, address);
+        }
+        if (type == MphRead::EntityType::EnemySpawn)
+        {
+            return std::make_shared<CEnemySpawn>(*this, address);
+        }
+        if (type == MphRead::EntityType::TriggerVolume)
+        {
+            return std::make_shared<CTriggerVolume>(*this, address);
+        }
+        if (type == MphRead::EntityType::AreaVolume)
+        {
+            return std::make_shared<CAreaVolume>(*this, address);
+        }
+        if (type == MphRead::EntityType::JumpPad)
+        {
+            return std::make_shared<CJumpPad>(*this, address);
+        }
+        if (type == MphRead::EntityType::PointModule)
+        {
+            return std::make_shared<CPointModule>(*this, address);
+        }
+        if (type == MphRead::EntityType::MorphCamera)
+        {
+            return std::make_shared<CMorphCamera>(*this, address);
+        }
+        if (type == MphRead::EntityType::OctolithFlag)
+        {
+            return std::make_shared<COctolithFlag>(*this, address);
+        }
+        if (type == MphRead::EntityType::FlagBase)
+        {
+            return std::make_shared<CFlagBase>(*this, address);
+        }
+        if (type == MphRead::EntityType::Teleporter)
+        {
+            return std::make_shared<CTeleporter>(*this, address);
+        }
+        if (type == MphRead::EntityType::NodeDefense)
+        {
+            return std::make_shared<CNodeDefense>(*this, address);
+        }
+        if (type == MphRead::EntityType::LightSource)
+        {
+            return std::make_shared<CLightSource>(*this, address);
+        }
+        if (type == MphRead::EntityType::Artifact)
+        {
+            return std::make_shared<CArtifact>(*this, address);
+        }
+        if (type == MphRead::EntityType::CameraSequence)
+        {
+            return std::make_shared<CCameraSequence>(*this, address);
+        }
+        if (type == MphRead::EntityType::ForceField)
+        {
+            return std::make_shared<CForceField>(*this, address);
+        }
+        if (type == MphRead::EntityType::BeamEffect)
+        {
+            return std::make_shared<CBeamEffect>(*this, address);
+        }
+        if (type == MphRead::EntityType::Bomb)
+        {
+            return std::make_shared<CBomb>(*this, address);
+        }
+        if (type == MphRead::EntityType::EnemyInstance)
+        {
+            const std::shared_ptr<CEnemyBase> enemy
+                = std::make_shared<CEnemyBase>(*this, address);
+            switch (RequireReference(enemy).Type())
+            {
+            case MphRead::EnemyType::Gorea1A:
+                return std::make_shared<CEnemy24>(*this, address);
+            case MphRead::EnemyType::GoreaHead:
+                return std::make_shared<CEnemy25>(*this, address);
+            case MphRead::EnemyType::GoreaArm:
+                return std::make_shared<CEnemy26>(*this, address);
+            case MphRead::EnemyType::GoreaLeg:
+                return std::make_shared<CEnemy27>(*this, address);
+            case MphRead::EnemyType::Gorea1B:
+                return std::make_shared<CEnemy28>(*this, address);
+            case MphRead::EnemyType::GoreaSealSphere1:
+                return std::make_shared<CEnemy29>(*this, address);
+            case MphRead::EnemyType::Trocra:
+                return std::make_shared<CEnemy30>(*this, address);
+            default:
+                return enemy;
+            }
+        }
+        if (type == MphRead::EntityType::Halfturret)
+        {
+            return std::make_shared<CHalfturret>(*this, address);
+        }
+        if (type == MphRead::EntityType::Player)
+        {
+            return std::make_shared<CPlayer>(*this, address);
+        }
+        if (type == MphRead::EntityType::BeamProjectile)
+        {
+            return std::make_shared<CBeamProjectile>(*this, address);
+        }
+        return std::make_shared<CEntity>(*this, address);
+    }
+
+    std::intptr_t Memory::ProcessHandle()
+    {
+#ifdef _WIN32
+        if (_processHandle == 0)
+        {
+            HANDLE handle = ::OpenProcess(
+                PROCESS_ALL_ACCESS, FALSE, static_cast<DWORD>(_processId));
+            if (handle == nullptr)
+            {
+                throw std::system_error(
+                    static_cast<int>(::GetLastError()), std::system_category());
+            }
+            _processHandle = reinterpret_cast<std::intptr_t>(handle);
+        }
+        return _processHandle;
+#else
+        // System.Diagnostics.Process.Handle on Unix is a manufactured wait handle.
+        // Preserve its pre-P/Invoke process-exit check; if the process is still
+        // present, the exact handle bits are immaterial because the immediately
+        // following kernel32.dll P/Invoke is the observable failure boundary.
+        if (::kill(static_cast<pid_t>(_processId), 0) != 0 && errno == ESRCH)
+        {
+            throw std::runtime_error("Process has exited.");
+        }
+        return static_cast<std::intptr_t>(_processId == 0 ? 1 : _processId);
+#endif
+    }
+
+    std::uint16_t Memory::ReadUInt16FromBuffer(std::int32_t offset) const
+    {
+        const std::int32_t length = static_cast<std::int32_t>(_buffer->Length());
+        if (offset < 0 || offset >= length)
+        {
+            throw ArgumentOutOfRangeException("startIndex");
+        }
+        if (offset > length - 2)
+        {
+            throw ArgumentException();
+        }
+
+        const std::uint8_t b0 = (*_buffer)[static_cast<std::size_t>(offset)];
+        const std::uint8_t b1
+            = (*_buffer)[static_cast<std::size_t>(offset + 1)];
+        return static_cast<std::uint16_t>(
+            static_cast<std::uint16_t>(b0)
+            | (static_cast<std::uint16_t>(b1) << 8U));
+    }
+
+    std::int32_t Memory::ReadInt32FromBuffer(std::int32_t offset) const
+    {
+        const std::int32_t length = static_cast<std::int32_t>(_buffer->Length());
+        if (offset < 0 || offset >= length)
+        {
+            throw ArgumentOutOfRangeException("startIndex");
+        }
+        if (offset > length - 4)
+        {
+            throw ArgumentException();
+        }
+
+        const std::uint32_t b0 = (*_buffer)[static_cast<std::size_t>(offset)];
+        const std::uint32_t b1 = (*_buffer)[static_cast<std::size_t>(offset + 1)];
+        const std::uint32_t b2 = (*_buffer)[static_cast<std::size_t>(offset + 2)];
+        const std::uint32_t b3 = (*_buffer)[static_cast<std::size_t>(offset + 3)];
+        const std::uint32_t bits
+            = b0 | (b1 << 8U) | (b2 << 16U) | (b3 << 24U);
+        return std::bit_cast<std::int32_t>(bits);
+    }
+
+    void Memory::GetSystemInfo(SystemInfo& lpSystemInfo)
+    {
+#ifdef _WIN32
+        SYSTEM_INFO info{};
+        ::GetSystemInfo(&info);
+        lpSystemInfo.ProcessorArchitecture = info.wProcessorArchitecture;
+        lpSystemInfo.Reserved = info.wReserved;
+        lpSystemInfo.PageSize = info.dwPageSize;
+        lpSystemInfo.MinimumApplicationAddress
+            = reinterpret_cast<std::intptr_t>(info.lpMinimumApplicationAddress);
+        lpSystemInfo.MaximumApplicationAddress
+            = reinterpret_cast<std::intptr_t>(info.lpMaximumApplicationAddress);
+        lpSystemInfo.ActiveProcessorMask
+            = static_cast<std::intptr_t>(info.dwActiveProcessorMask);
+        lpSystemInfo.NumberOfProcessors = info.dwNumberOfProcessors;
+        lpSystemInfo.ProcessorType = info.dwProcessorType;
+        lpSystemInfo.AllocationGranularity = info.dwAllocationGranularity;
+        lpSystemInfo.ProcessorLevel = info.wProcessorLevel;
+        lpSystemInfo.ProcessorRevision = info.wProcessorRevision;
+#else
+        static_cast<void>(lpSystemInfo);
+        throw DllNotFoundException("Unable to load shared library 'kernel32.dll'.");
+#endif
+    }
+
+    std::intptr_t Memory::OpenProcess(
+        std::int32_t dwDesiredAccess,
+        bool bInheritHandle,
+        std::int32_t dwProcessId)
+    {
+#ifdef _WIN32
+        HANDLE handle = ::OpenProcess(
+            static_cast<DWORD>(dwDesiredAccess),
+            bInheritHandle ? TRUE : FALSE,
+            static_cast<DWORD>(dwProcessId));
+        return reinterpret_cast<std::intptr_t>(handle);
+#else
+        static_cast<void>(dwDesiredAccess);
+        static_cast<void>(bInheritHandle);
+        static_cast<void>(dwProcessId);
+        throw DllNotFoundException("Unable to load shared library 'kernel32.dll'.");
+#endif
+    }
+
+    std::int32_t Memory::VirtualQueryEx(
+        std::intptr_t hProcess,
+        std::intptr_t lpAddress,
+        MemoryInfo64& lpBuffer,
+        std::uint32_t dwLength)
+    {
+#ifdef _WIN32
+        MEMORY_BASIC_INFORMATION info{};
+        const SIZE_T result = ::VirtualQueryEx(
+            reinterpret_cast<HANDLE>(hProcess),
+            reinterpret_cast<LPCVOID>(lpAddress),
+            &info,
+            static_cast<SIZE_T>(dwLength));
+        if (result != 0)
+        {
+            lpBuffer.BaseAddress = static_cast<std::int64_t>(
+                reinterpret_cast<std::intptr_t>(info.BaseAddress));
+            lpBuffer.AllocationBase = static_cast<std::int64_t>(
+                reinterpret_cast<std::intptr_t>(info.AllocationBase));
+            lpBuffer.AllocationProtect
+                = static_cast<std::int32_t>(info.AllocationProtect);
+            lpBuffer.Padding1 = 0;
+            lpBuffer.RegionSize = static_cast<std::int64_t>(info.RegionSize);
+            lpBuffer.State = static_cast<std::int32_t>(info.State);
+            lpBuffer.Protect = static_cast<std::int32_t>(info.Protect);
+            lpBuffer.lType = static_cast<std::int32_t>(info.Type);
+            lpBuffer.Padding2 = 0;
+        }
+        return static_cast<std::int32_t>(result);
+#else
+        static_cast<void>(hProcess);
+        static_cast<void>(lpAddress);
+        static_cast<void>(lpBuffer);
+        static_cast<void>(dwLength);
+        throw DllNotFoundException("Unable to load shared library 'kernel32.dll'.");
+#endif
+    }
+
+    bool Memory::ReadProcessMemory(
+        std::intptr_t hProcess,
+        std::intptr_t lpBaseAddress,
+        std::uint8_t* lpBuffer,
+        std::int32_t nSize,
+        std::intptr_t& lpNumberOfBytesRead)
+    {
+#ifdef _WIN32
+        SIZE_T count = 0;
+        const BOOL result = ::ReadProcessMemory(
+            reinterpret_cast<HANDLE>(hProcess),
+            reinterpret_cast<LPCVOID>(lpBaseAddress),
+            lpBuffer,
+            static_cast<SIZE_T>(static_cast<std::uint32_t>(nSize)),
+            &count);
+        lpNumberOfBytesRead = static_cast<std::intptr_t>(count);
+        return result != FALSE;
+#else
+        static_cast<void>(hProcess);
+        static_cast<void>(lpBaseAddress);
+        static_cast<void>(lpBuffer);
+        static_cast<void>(nSize);
+        static_cast<void>(lpNumberOfBytesRead);
+        throw DllNotFoundException("Unable to load shared library 'kernel32.dll'.");
+#endif
+    }
+
+    bool Memory::WriteProcessMemory(
+        std::intptr_t hProcess,
+        std::intptr_t lpBaseAddress,
+        const std::uint8_t* lpBuffer,
+        std::int32_t nSize,
+        std::intptr_t& lpNumberOfBytesRead)
+    {
+#ifdef _WIN32
+        SIZE_T count = 0;
+        const BOOL result = ::WriteProcessMemory(
+            reinterpret_cast<HANDLE>(hProcess),
+            reinterpret_cast<LPVOID>(lpBaseAddress),
+            lpBuffer,
+            static_cast<SIZE_T>(static_cast<std::uint32_t>(nSize)),
+            &count);
+        lpNumberOfBytesRead = static_cast<std::intptr_t>(count);
+        return result != FALSE;
+#else
+        static_cast<void>(hProcess);
+        static_cast<void>(lpBaseAddress);
+        static_cast<void>(lpBuffer);
+        static_cast<void>(nSize);
+        static_cast<void>(lpNumberOfBytesRead);
+        throw DllNotFoundException("Unable to load shared library 'kernel32.dll'.");
+#endif
+    }
+
+    std::uint32_t Memory::GetLastError()
+    {
+#ifdef _WIN32
+        return static_cast<std::uint32_t>(::GetLastError());
+#else
+        throw DllNotFoundException("Unable to load shared library 'kernel32.dll'.");
+#endif
+    }
+}

@@ -1,0 +1,244 @@
+name: Native C++ Android
+
+on:
+  push:
+    branches: [develop2]
+    paths:
+      - "CMakeLists.txt"
+      - "cmake/**"
+      - "src/MphRead.Native.Android/**"
+      - "src/MphRead.Native/**"
+      - "src/NcsfPlay.Native/**"
+      - "src/MphRead.Android/MphRead.Android.csproj"
+      - ".github/workflows/native-cpp-android.yml"
+  pull_request:
+    branches: [develop2]
+    paths:
+      - "CMakeLists.txt"
+      - "cmake/**"
+      - "src/MphRead.Native.Android/**"
+      - "src/MphRead.Native/**"
+      - "src/NcsfPlay.Native/**"
+      - "src/MphRead.Android/MphRead.Android.csproj"
+      - ".github/workflows/native-cpp-android.yml"
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  ANDROID_SDK_ROOT: ${{ github.workspace }}/.cache/android-sdk
+  APT_CACHE_DIR: ${{ github.workspace }}/.cache/apt/archives
+
+jobs:
+  android_contract:
+    name: Android native build contract
+    runs-on: ubuntu-24.04
+    outputs:
+      abis: ${{ steps.contract.outputs.abis }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Export repository Android build contract
+        id: contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          contract_file="$RUNNER_TEMP/fruity-native-android.env"
+          rm -f "$contract_file"
+          cmake -DOUTPUT_FILE="$contract_file" -P cmake/ExportAndroidConfig.cmake
+          cat "$contract_file"
+          abis_text="$(sed -n 's/^FRUITY_ANDROID_ABIS=//p' "$contract_file")"
+          test -n "$abis_text"
+          abis_json="$(python3 -c 'import json, sys; print(json.dumps(sys.argv[1].split(), separators=(",", ":")))' "$abis_text")"
+          test "$abis_json" != "[]"
+          echo "abis=$abis_json" >> "$GITHUB_OUTPUT"
+
+  android-native:
+    name: Android NDK / ${{ matrix.abi }}
+    needs: android_contract
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: ${{ fromJSON(needs.android_contract.outputs.abis) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Load repository Android build contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -DOUTPUT_FILE="$GITHUB_ENV" -P cmake/ExportAndroidConfig.cmake
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Restore pinned Android SDK and NDK cache
+        id: android-sdk-cache
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.ANDROID_SDK_ROOT }}
+          key: native-android-sdk-v1-${{ runner.os }}-${{ runner.arch }}-cmdline-12266719-${{ hashFiles('cmake/FruityNativeConfig.cmake', '.github/workflows/native-cpp-android.yml') }}
+          restore-keys: |
+            native-android-sdk-v1-${{ runner.os }}-${{ runner.arch }}-cmdline-12266719-
+            native-android-sdk-v1-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Report Android SDK cache result
+        shell: bash
+        env:
+          CACHE_HIT: ${{ steps.android-sdk-cache.outputs.cache-hit }}
+        run: |
+          printf "Android SDK/NDK cache exact hit: %s\n" "${CACHE_HIT:-false}"
+
+      - name: Set up Android SDK command-line tools
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: "12266719"
+          packages: "platform-tools"
+          log-accepted-android-sdk-licenses: "false"
+
+      - name: Install pinned Android SDK and NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +o pipefail
+          yes | sdkmanager --licenses >/dev/null
+          set -o pipefail
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-${ANDROID_COMPILE_SDK}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}" \
+            "ndk;${ANDROID_NDK_VERSION}"
+
+          ndk_home="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
+          test -f "${ndk_home}/build/cmake/android.toolchain.cmake"
+          echo "ANDROID_NDK_HOME=${ndk_home}" >> "$GITHUB_ENV"
+
+      - name: Save pinned Android SDK and NDK cache
+        if: steps.android-sdk-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.ANDROID_SDK_ROOT }}
+          key: native-android-sdk-v1-${{ runner.os }}-${{ runner.arch }}-cmdline-12266719-${{ hashFiles('cmake/FruityNativeConfig.cmake', '.github/workflows/native-cpp-android.yml') }}
+
+      - name: Resolve apt header cache key
+        id: apt-deps
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          versions="$(apt-cache policy libarchive-dev libcurl4-openssl-dev)"
+          printf "%s\n" "$versions"
+          digest="$(printf "%s" "$versions" | sha256sum | cut -d" " -f1)"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Android header apt cache
+        id: apt-cache
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.APT_CACHE_DIR }}
+          key: native-android-apt-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.apt-deps.outputs.digest }}-${{ hashFiles('.github/workflows/native-cpp-android.yml') }}
+          restore-keys: |
+            native-android-apt-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.apt-deps.outputs.digest }}-
+            native-android-apt-v1-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Report Android header cache result
+        shell: bash
+        env:
+          CACHE_HIT: ${{ steps.apt-cache.outputs.cache-hit }}
+        run: |
+          printf "Android header apt cache exact hit: %s\n" "${CACHE_HIT:-false}"
+
+      - name: Install shared-source header dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$APT_CACHE_DIR/partial"
+          sudo apt-get -o Dir::Cache::archives="$APT_CACHE_DIR" install -y --no-install-recommends libarchive-dev libcurl4-openssl-dev
+          sudo rm -f "$APT_CACHE_DIR/lock"
+          sudo rm -rf "$APT_CACHE_DIR/partial"
+          sudo chown -R "$(id -u):$(id -g)" "$APT_CACHE_DIR"
+
+          include_root="$GITHUB_WORKSPACE/.native-deps/include"
+          mkdir -p "$include_root"
+
+          archive_h="$(dpkg -L libarchive-dev | awk '/\/archive\.h$/ { print; exit }')"
+          archive_entry_h="$(dpkg -L libarchive-dev | awk '/\/archive_entry\.h$/ { print; exit }')"
+          curl_h="$(dpkg -L libcurl4-openssl-dev | awk '/\/curl\/curl\.h$/ { print; exit }')"
+          test -f "$archive_h"
+          test -f "$archive_entry_h"
+          test -f "$curl_h"
+
+          cp "$archive_h" "$include_root/archive.h"
+          cp "$archive_entry_h" "$include_root/archive_entry.h"
+          cp -a "$(dirname "$curl_h")" "$include_root/curl"
+          echo "FRUITY_NATIVE_DEPENDENCY_INCLUDE_DIR=${include_root}" >> "$GITHUB_ENV"
+
+      - name: Save Android header apt cache
+        if: steps.apt-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.APT_CACHE_DIR }}
+          key: native-android-apt-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.apt-deps.outputs.digest }}-${{ hashFiles('.github/workflows/native-cpp-android.yml') }}
+
+      - name: Verify pinned NDK toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          toolchain="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          test -x "${toolchain}/clang++"
+          "${toolchain}/clang++" --version
+          printf 'compile SDK: android-%s\n' "$ANDROID_COMPILE_SDK"
+          printf 'minimum API: %s\n' "$ANDROID_MIN_API"
+          printf 'NDK: %s\n' "$ANDROID_NDK_VERSION"
+          printf 'repository ABIs: %s\n' "$FRUITY_ANDROID_ABIS"
+          printf 'matrix ABI: %s\n' "${{ matrix.abi }}"
+
+      - name: Configure and build repository ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+          abi="${{ matrix.abi }}"
+          build_dir="build/native-android-${abi}"
+          mkdir -p "$build_dir"
+
+          cmake -S . -B "$build_dir" \
+            -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI="$abi" \
+            -DANDROID_PLATFORM="android-${ANDROID_MIN_API}" \
+            -DANDROID_STL=c++_static \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DFRUITY_NATIVE_DEPENDENCY_INCLUDE_DIR="$FRUITY_NATIVE_DEPENDENCY_INCLUDE_DIR" 2>&1 | tee "$build_dir/configure.log"
+
+          cmake --build "$build_dir" \
+            --config RelWithDebInfo \
+            --parallel 2 \
+            --verbose \
+            --target fruity_mphread_native_android 2>&1 | tee "$build_dir/build.log"
+
+      - name: Upload Android native build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-cpp-android-${{ matrix.abi }}-${{ github.sha }}
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            build/native-android-${{ matrix.abi }}/CMakeCache.txt
+            build/native-android-${{ matrix.abi }}/CMakeFiles/CMakeConfigureLog.yaml
+            build/native-android-${{ matrix.abi }}/configure.log
+            build/native-android-${{ matrix.abi }}/build.log
+            build/native-android-${{ matrix.abi }}/**/*.a

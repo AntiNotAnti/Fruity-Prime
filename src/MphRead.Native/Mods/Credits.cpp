@@ -1,0 +1,198 @@
+#include "Credits.hpp"
+#include "Branding.hpp"
+#include "../NativeRuntime/System/Console.hpp"
+
+#include <array>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
+
+namespace
+{
+    void WriteLine(std::string_view value = {})
+    {
+        ::MphRead::NativeRuntime::ConsoleWriteLine(value);
+    }
+
+    [[nodiscard]] std::string_view ValueOrEmpty(const std::optional<std::string>& value) noexcept
+    {
+        return value.has_value() ? std::string_view(*value) : std::string_view{};
+    }
+}
+
+namespace MphRead
+{
+    namespace Mods
+    {
+        Credits::Entry::Entry(std::optional<std::string> who, std::optional<std::string> what,
+            std::optional<std::string> where)
+            : _who(std::move(who)), _what(std::move(what)), _where(std::move(where))
+        {
+        }
+
+        const std::optional<std::string>& Credits::Entry::Who() const noexcept
+        {
+            return _who;
+        }
+
+        const std::optional<std::string>& Credits::Entry::What() const noexcept
+        {
+            return _what;
+        }
+
+        const std::optional<std::string>& Credits::Entry::Where() const noexcept
+        {
+            return _where;
+        }
+
+        std::string Credits::Summary()
+        {
+            std::string result;
+            result.reserve(
+                Branding::Name.size() + Author.size() + Branding::Upstream.size() + 34U);
+            result.append(Branding::Name);
+            result.append(" is ");
+            result.append(Author);
+            result.append("'s fork of ");
+            result.append(Branding::Upstream);
+            result.append(" by NoneGiven.");
+            return result;
+        }
+
+        std::string Credits::Compact()
+        {
+            std::string result;
+            result.reserve(Branding::Upstream.size() + 31U);
+            result.append("A fork of ");
+            result.append(Branding::Upstream);
+            result.append(" by NoneGiven\n");
+            result.append(Names());
+            return result;
+        }
+
+        std::string Credits::Names()
+        {
+            std::string result;
+            bool first = true;
+            for (Entry entry : Entries())
+            {
+                const std::optional<std::string>& who = entry.Who();
+                if (who.has_value() && *who == "NoneGiven")
+                {
+                    continue;
+                }
+
+                if (!first)
+                {
+                    result.append(" · ");
+                }
+                if (who.has_value())
+                {
+                    result.append(*who);
+                }
+                first = false;
+            }
+            return result;
+        }
+
+        const std::array<Credits::Entry, 13>& Credits::Entries()
+        {
+            static std::array<Entry, 13> entries
+            {{
+                Entry(
+                    "NoneGiven",
+                    "MphRead: the model viewer, scene renderer, "
+                    "format parsers and gameplay recreation this is built on",
+                    "https://github.com/NoneGiven/MphRead"),
+                Entry(
+                    "dsgraph",
+                    "the original MPH model viewer, on which all "
+                    "other projects are built",
+                    ""),
+                Entry(
+                    "chmcl95",
+                    "documentation of the model format",
+                    "https://gitlab.com/ch-mcl/metroid-prime-hunters-file-document"),
+                Entry(
+                    "McKay42",
+                    "COLLADA export method (mph-model-viewer) and "
+                    "ARC file format information (mph-arc-extractor)",
+                    "https://github.com/McKay42"),
+                Entry(
+                    "Barubary",
+                    "LZ10 compression routines (dsdecmp)",
+                    "https://github.com/Barubary/dsdecmp"),
+                Entry(
+                    "loveemu",
+                    "SWAV conversion function (swav2wav)",
+                    "https://github.com/loveemu/loveemu-lab"),
+                Entry(
+                    "Gericom",
+                    "ActImagine VX movie file format information, "
+                    "via an ffmpeg patch",
+                    ""),
+                Entry(
+                    "CharlesVanEeckhout",
+                    "further understanding of VX video "
+                    "decoding",
+                    "https://github.com/CharlesVanEeckhout/actimagine"),
+                Entry(
+                    "CyberBotX",
+                    "NCSF converter and player for Nintendo DS "
+                    "sequenced music",
+                    "https://github.com/CyberBotX/NCSF"),
+                Entry(
+                    "hackyourlife",
+                    "mph-viewer, developed in parallel; the "
+                    "transparency rendering was derived from its source",
+                    "https://github.com/hackyourlife/mph-viewer"),
+                Entry(
+                    "OpenTK",
+                    "the OpenGL bindings the renderer uses",
+                    "https://github.com/opentk/opentk"),
+                Entry(
+                    "OpenAL Soft and SoundFlow",
+                    "audio",
+                    "https://github.com/LSXPrime/SoundFlow"),
+                // CC BY 4.0 asks for this by name, so it is an entry rather
+                // than a line in a file beside the data.
+                Entry(
+                    "DB-IP",
+                    "IP geolocation, for the flags in the server "
+                    "browser (DB-IP Lite, CC BY 4.0)",
+                    "https://db-ip.com")
+            }};
+            return entries;
+        }
+
+        void Credits::Print()
+        {
+            WriteLine();
+            WriteLine(std::string("  ") + Branding::NameAndVersion());
+            WriteLine(std::string("  ") + Summary());
+            WriteLine();
+            WriteLine(std::string("  ") + std::string(Author));
+            WriteLine(std::string("      ") + std::string(ForkWork));
+            WriteLine(std::string("      support this project: ") + std::string(SupportUrl));
+            WriteLine();
+            WriteLine("  A significant portion of this project's code is based on the");
+            WriteLine("  file format information or source code of these projects:");
+            WriteLine();
+            for (Entry entry : Entries())
+            {
+                WriteLine(std::string("  ") + std::string(ValueOrEmpty(entry.Who())));
+                WriteLine(std::string("      ") + std::string(ValueOrEmpty(entry.What())));
+                const std::string& where = entry.Where().value();
+                if (where.length() > 0)
+                {
+                    WriteLine(std::string("      ") + where);
+                }
+            }
+            WriteLine();
+            WriteLine("  Metroid Prime Hunters is Nintendo's. No game data is included");
+            WriteLine("  with this program: it is unpacked from your own cartridge dump.");
+            WriteLine();
+        }
+    }
+}

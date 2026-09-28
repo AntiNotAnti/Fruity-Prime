@@ -84,6 +84,23 @@ namespace MphRead.Mods.Render
         private static Scene? _scene;
 
         /// <summary>
+        /// A match's scene has let go of its GL objects.
+        ///
+        /// Every scene numbers its own textures from one (the engine does not
+        /// call glGenTextures), so a match loaded after this scene was made
+        /// wrote its own textures over this scene's names -- the toon table
+        /// and the hunter's skin included -- and its UnloadGl then deleted
+        /// them. The launcher's hunter came back a black silhouette. The side
+        /// scene is therefore thrown away and stood up again after a match.
+        /// </summary>
+        public static void NoteGlUnloaded()
+        {
+            _glStale = true;
+        }
+
+        private static bool _glStale;
+
+        /// <summary>
         /// Forget everything: a match is starting or has ended, and the scene
         /// this was using is about to be replaced or has been.
         /// </summary>
@@ -122,6 +139,13 @@ namespace MphRead.Mods.Render
                 // rather than under: the panel it sits in is opaque, so a
                 // model beneath the texture is a model behind a card. That
                 // held on the launcher and it holds here.
+                if (_glStale && !window.HasScene)
+                {
+                    _glStale = false;
+                    // Its render targets are its own and would be left behind.
+                    _scene?.UnloadGl();
+                    _scene = null;
+                }
                 Scene? scene = window.HasScene ? window.Scene : _scene;
                 if (scene == null)
                 {

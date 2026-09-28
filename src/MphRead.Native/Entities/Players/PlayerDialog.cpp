@@ -1,0 +1,834 @@
+#include "PlayerDialog.hpp"
+
+#include "../../GameState.hpp"
+#include "../../Metadata/SoundMeta.hpp"
+#include "../../Formats/Formats.hpp"
+#include "../../Program.hpp"
+#include "../../Scene.hpp"
+#include "../../Sound/Music.hpp"
+#include "../../Strings.hpp"
+#include "PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Formats/Types.hpp"
+
+#include <algorithm>
+#include <array>
+#include <bit>
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <limits>
+#include <memory>
+#include <optional>
+#include <span>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <type_traits>
+#include <utility>
+
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::DecodeUtf8Scalar;
+using ::MphRead::NativeRuntime::ManagedAt;
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::StringReplace;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedDecrement;
+using ::MphRead::NativeRuntime::UncheckedIncrement;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
+using ::MphRead::NativeRuntime::Utf8Scalar;
+using ::MphRead::TestFlag;
+
+namespace
+{
+    template <typename T>
+    [[nodiscard]] T& RequireOptional(std::optional<T>& value)
+    {
+        if (!value)
+        {
+            throw System::NullReferenceException();
+        }
+        return *value;
+    }
+
+    template <typename T>
+    [[nodiscard]] const T& RequireOptional(const std::optional<T>& value)
+    {
+        if (!value)
+        {
+            throw System::NullReferenceException();
+        }
+        return *value;
+    }
+
+    template <typename T, std::size_t N>
+    [[nodiscard]] std::span<const T> ManagedSpan(
+        const std::array<T, N>& values, std::int32_t start, std::int32_t length)
+    {
+        if (start < 0 || length < 0
+            || static_cast<std::size_t>(start) > values.size()
+            || static_cast<std::size_t>(length)
+                > values.size() - static_cast<std::size_t>(start))
+        {
+            throw std::out_of_range("Specified argument was out of the range of valid values.");
+        }
+        return std::span<const T>(values.data() + start, static_cast<std::size_t>(length));
+    }
+
+
+    [[nodiscard]] std::int32_t ManagedStringLength(const std::string& text) noexcept
+    {
+        std::int32_t length = 0;
+        std::size_t offset = 0;
+        while (offset < text.size())
+        {
+            const Utf8Scalar character = DecodeUtf8Scalar(text, offset);
+            length = UncheckedAdd(length, character.Value > 0xFFFF ? 2 : 1);
+            offset += character.Length;
+        }
+        return length;
+    }
+
+}
+
+
+
+namespace MphRead::Entities
+{
+    void PlayerEntity::ShowDialog(::MphRead::Entities::DialogType type,
+        std::int32_t messageId, std::int32_t param1, std::int32_t param2,
+        std::optional<std::string> value1, std::optional<std::string> value2)
+    {
+        if (!TestFlag(LoadFlags(), ::MphRead::Entities::LoadFlags::Initial)
+            || GameState::Mode() != GameMode::SinglePlayer || !IsMainPlayer())
+        {
+            return;
+        }
+
+        _dialogType = type;
+        _silentVisorSwitch = false;
+        _dialogValue1 = std::move(value1);
+        _dialogValue2 = std::move(value2);
+
+        const auto checkPrompt = [this]()
+        {
+            if (!IsMainPlayer())
+            {
+                CloseDialogs();
+                return false;
+            }
+            if (ScanVisor() && _dialogType != ::MphRead::Entities::DialogType::Scan)
+            {
+                _silentVisorSwitch = true;
+                SwitchVisors(false);
+            }
+            return true;
+        };
+
+        if (type == ::MphRead::Entities::DialogType::Overlay)
+        {
+            ShowDialogOverlay(messageId, param1, param2 != 0);
+        }
+        else if (type == ::MphRead::Entities::DialogType::Hud)
+        {
+            ShowDialogHud(messageId, param1, param2 != 0);
+        }
+        else if (type == ::MphRead::Entities::DialogType::Okay
+            || type == ::MphRead::Entities::DialogType::YesNo)
+        {
+            if (checkPrompt())
+            {
+                ShowDialogPrompt(messageId);
+            }
+        }
+        else if (type == ::MphRead::Entities::DialogType::Scan)
+        {
+            if (checkPrompt())
+            {
+                ShowDialogScan();
+            }
+        }
+        else if (type == ::MphRead::Entities::DialogType::Event)
+        {
+            if (checkPrompt())
+            {
+                ShowDialogEvent(messageId, static_cast<::MphRead::Entities::EventType>(param1));
+            }
+        }
+        else
+        {
+            CloseDialogs();
+        }
+    }
+
+    void PlayerEntity::BufferDialogPages()
+    {
+        assert(_overlayMessage2.has_value() && !_overlayMessage2->empty());
+        std::int32_t maxWidth = 200;
+        if (Paths::IsMphJapan() || Paths::IsMphKorea())
+        {
+            maxWidth = 160;
+        }
+        WrapText(RequireOptional(_overlayMessage2), maxWidth, _overlayBuffer2, 90);
+        std::int32_t index = 0;
+        std::int32_t line = 1;
+        std::int32_t page = 0;
+        std::int32_t length = 0;
+        char16_t ch = ManagedAt(_overlayBuffer2, index);
+        while (ch != u'\0')
+        {
+            if (ch == u'\n')
+            {
+                line = UncheckedIncrement(line);
+                if (line == 4)
+                {
+                    ManagedAt(_dialogPageLengths, page) = length;
+                    page = UncheckedIncrement(page);
+                    length = 0;
+                    line = 1;
+                }
+                else
+                {
+                    length = UncheckedIncrement(length);
+                }
+            }
+            else
+            {
+                length = UncheckedIncrement(length);
+            }
+            index = UncheckedIncrement(index);
+            if (index == static_cast<std::int32_t>(_overlayBuffer2.size()))
+            {
+                break;
+            }
+            ch = ManagedAt(_overlayBuffer2, index);
+        }
+        ManagedAt(_dialogPageLengths, page) = length;
+        _dialogPageCount = UncheckedAdd(page, 1);
+    }
+
+    void PlayerEntity::ShowDialogOverlay(std::int32_t messageId,
+        std::int32_t duration, bool warning)
+    {
+        if (ScanVisor())
+        {
+            CloseDialogs();
+            return;
+        }
+        auto entry = Text::Strings::GetEntry('M', messageId, Text::StringTables::GameMessages);
+        if (!entry)
+        {
+            CloseDialogs();
+            return;
+        }
+        if (_overlayMessage1)
+        {
+            if (RequireOptional(_overlayMessage1) == entry->Value1)
+            {
+                _overlayTimer = duration / 30.0F;
+            }
+            return;
+        }
+        assert(!_overlayMessage2.has_value());
+        _overlayMessage1 = entry->Value1;
+        _overlayMessage2.reset();
+        _dialogValue1.reset();
+        _dialogValue2.reset();
+        _overlayBuffer1.fill(u'\0');
+        const std::int32_t lineCount = WrapText(RequireOptional(_overlayMessage1), 142, _overlayBuffer1);
+        _overlayTextOffsetY = static_cast<float>(UncheckedMultiply(lineCount, 5));
+        _overlayTimer = duration / 30.0F;
+        _dialogCharTimer = 0.0F;
+        _dialogPalette = warning ? 3 : 0;
+        RequireReference(_messageBoxInst).SetPalette(_dialogPalette, RequireReference(_scene));
+        RequireReference(_messageSpacerInst).SetPalette(_dialogPalette, RequireReference(_scene));
+        RequireReference(_messageBoxInst).SetAnimation(0, 65, 66, 65);
+    }
+
+    void PlayerEntity::ShowDialogHud(std::int32_t messageId,
+        std::int32_t duration, bool unpause)
+    {
+        auto message = Text::Strings::GetHudMessage(messageId);
+        if (_overlayMessage1)
+        {
+            if (RequireOptional(_overlayMessage1) == message)
+            {
+                _overlayTimer = duration / 30.0F;
+            }
+            return;
+        }
+        _overlayMessage1 = message;
+        _overlayMessage2.reset();
+        _dialogValue1.reset();
+        _dialogValue2.reset();
+        if (unpause)
+        {
+            GameState::UnpauseDialog();
+        }
+        _overlayBuffer1.fill(u'\0');
+        const std::int32_t lineCount = WrapText(RequireOptional(_overlayMessage1), 142, _overlayBuffer1);
+        _overlayTextOffsetY = static_cast<float>(UncheckedMultiply(lineCount, 5));
+        _overlayTimer = duration / 30.0F;
+        _dialogCharTimer = 9999.0F;
+        _prevScrollingChars = 9999;
+        _dialogPalette = 2;
+        RequireReference(_messageBoxInst).SetPalette(_dialogPalette, RequireReference(_scene));
+        RequireReference(_messageSpacerInst).SetPalette(_dialogPalette, RequireReference(_scene));
+        RequireReference(_messageBoxInst).SetAnimation(0, 65, 66, 65);
+    }
+
+    void PlayerEntity::ShowDialogPrompt(std::int32_t messageId)
+    {
+        auto entry = Text::Strings::GetEntry('M', messageId, Text::StringTables::GameMessages);
+        if (!entry)
+        {
+            CloseDialogs();
+            return;
+        }
+        StopLongSfx();
+        EndWeaponMenu();
+        if (entry->Prefix == 'G')
+        {
+            _soundSource.PlayFreeSfx(SfxId::GUNSHIP_TRANSMISSION);
+        }
+        else if (entry->Prefix == 'H')
+        {
+            _soundSource.PlayFreeSfx(SfxId::GAME_HINT);
+        }
+        else if (entry->Prefix == 'T')
+        {
+            _soundSource.StopFreeSfxScripts();
+            _soundSource.PlayFreeSfx(SfxId::TELEPATHIC_MESSAGE);
+        }
+        else if (entry->Prefix == 'B')
+        {
+            _soundSource.PlayFreeSfx(SfxId::GUNSHIP_TRANSMISSION);
+            _soundSource.StopFreeSfxScripts();
+            _soundSource.PlayFreeSfx(SfxId::TELEPATHIC_MESSAGE);
+        }
+        GameState::PauseDialog();
+        _overlayMessage1 = entry->Value1;
+        _overlayMessage2 = entry->Value2;
+        _overlayBuffer1.fill(u'\0');
+        _overlayBuffer2.fill(u'\0');
+        const std::int32_t lineCount = WrapText(RequireOptional(_overlayMessage1), 142, _overlayBuffer1);
+        _overlayTextOffsetY = static_cast<float>(UncheckedMultiply(lineCount, 5));
+        BufferDialogPages();
+        _dialogCharTimer = 0.0F;
+        _dialogPalette = 0;
+        RequireReference(_messageBoxInst).SetPalette(_dialogPalette, RequireReference(_scene));
+        RequireReference(_messageSpacerInst).SetPalette(_dialogPalette, RequireReference(_scene));
+        RequireReference(_messageBoxInst).SetAnimation(0, 65, 66, 65);
+    }
+
+    void PlayerEntity::ShowDialogScan()
+    {
+        StopLongSfx();
+        EndWeaponMenu();
+        GameState::PauseDialog();
+        _dialogCharTimer = 0.0F;
+        _dialogPalette = 0;
+        RequireReference(_messageBoxInst).SetPalette(_dialogPalette, RequireReference(_scene));
+        RequireReference(_messageSpacerInst).SetPalette(_dialogPalette, RequireReference(_scene));
+        RequireReference(_messageBoxInst).SetAnimation(0, 65, 66, 65);
+    }
+
+    void PlayerEntity::ShowDialogEvent(std::int32_t messageId,
+        ::MphRead::Entities::EventType eventType)
+    {
+        auto entry = Text::Strings::GetEntry('M', messageId, Text::StringTables::GameMessages);
+        if (!entry)
+        {
+            CloseDialogs();
+            return;
+        }
+        StopLongSfx();
+        EndWeaponMenu();
+        GameState::PausePrevented(true);
+        GameState::PauseDialog();
+        _eventType = eventType;
+        _overlayMessage1 = entry->Value1;
+        _overlayMessage2 = entry->Value2;
+        if (_dialogValue1)
+        {
+            RequireOptional(_overlayMessage1) = StringReplace(std::move(RequireOptional(_overlayMessage1)), "&tab0", RequireOptional(_dialogValue1));
+            RequireOptional(_overlayMessage2) = StringReplace(std::move(RequireOptional(_overlayMessage2)), "&tab0", RequireOptional(_dialogValue1));
+        }
+        if (_dialogValue2)
+        {
+            RequireOptional(_overlayMessage1) = StringReplace(std::move(RequireOptional(_overlayMessage1)), "&tab1", RequireOptional(_dialogValue2));
+            RequireOptional(_overlayMessage2) = StringReplace(std::move(RequireOptional(_overlayMessage2)), "&tab1", RequireOptional(_dialogValue2));
+        }
+        _overlayBuffer1.fill(u'\0');
+        _overlayBuffer2.fill(u'\0');
+        const std::int32_t lineCount = WrapText(RequireOptional(_overlayMessage1), 142, _overlayBuffer1);
+        _overlayTextOffsetY = static_cast<float>(UncheckedMultiply(lineCount, 5));
+        BufferDialogPages();
+        _dialogCharTimer = 0.0F;
+        _dialogPalette = 0;
+        RequireReference(_messageBoxInst).SetPalette(_dialogPalette, RequireReference(_scene));
+        RequireReference(_messageSpacerInst).SetPalette(_dialogPalette, RequireReference(_scene));
+        RequireReference(_messageBoxInst).SetAnimation(0, 65, 66, 65);
+
+        if (_eventType == ::MphRead::Entities::EventType::EnergyTank
+            || _eventType == ::MphRead::Entities::EventType::MissileTank
+            || _eventType == ::MphRead::Entities::EventType::UATank)
+        {
+            Music::FadeVolume(50.0F / 127.0F, 5.0F / 30.0F);
+            _soundSource.PlayFreeSfx(SfxId::GET_ITEM);
+            _dialogConfirmTimer = 60.0F / 30.0F;
+            if (_eventType != ::MphRead::Entities::EventType::UATank)
+            {
+                RequireReference(_dialogPickupInst).SetIndex(
+                    static_cast<std::int32_t>(_eventType), RequireReference(_scene));
+            }
+        }
+        else if (_eventType >= ::MphRead::Entities::EventType::VoltDriver
+            && _eventType <= ::MphRead::Entities::EventType::ShockCoil)
+        {
+            Music::Pause();
+            Music::PlaySeq(SeqId::GET_WEAPON);
+            _soundSource.PlayFreeSfx(SfxId::WEAPON_POWER_UP);
+            _dialogConfirmTimer = 150.0F / 30.0F;
+            RequireReference(_dialogPickupInst).SetIndex(
+                static_cast<std::int32_t>(_eventType), RequireReference(_scene));
+        }
+        else if (_eventType == ::MphRead::Entities::EventType::OmegaCannon
+            || _eventType == ::MphRead::Entities::EventType::Artifact)
+        {
+            Music::FadeVolume(50.0F / 127.0F, 5.0F / 30.0F);
+            _soundSource.PlayFreeSfx(SfxId::GET_ITEM2);
+            _dialogConfirmTimer = 60.0F / 30.0F;
+            if (_eventType == ::MphRead::Entities::EventType::OmegaCannon)
+            {
+                RequireReference(_dialogPickupInst).SetIndex(
+                    static_cast<std::int32_t>(_eventType), RequireReference(_scene));
+            }
+        }
+        else if (_eventType == ::MphRead::Entities::EventType::Octolith)
+        {
+            Music::Pause();
+            Music::PlaySeq(SeqId::GET_OCTOLITH);
+            RequireReference(_dialogCrystalInst).SetAnimation(0, 35, 36, true);
+            _dialogConfirmTimer = 150.0F / 30.0F;
+        }
+    }
+
+    void PlayerEntity::CloseDialogs()
+    {
+        if (!TestFlag(LoadFlags(), ::MphRead::Entities::LoadFlags::Initial)
+            || GameState::Mode() != GameMode::SinglePlayer || !IsMainPlayer())
+        {
+            return;
+        }
+
+        _dialogType = ::MphRead::Entities::DialogType::None;
+        _overlayTimer = 0.0F;
+        _dialogCharTimer = 0.0F;
+        _dialogValue1.reset();
+        _dialogValue2.reset();
+        _overlayMessage1.reset();
+        _overlayMessage2.reset();
+        _overlayTextOffsetY = 0.0F;
+        _prevOverlayCharacters = 0;
+        _showDialogConfirm = false;
+        _dialogConfirmTimer = 0.0F;
+        _lastDialogPageSeen = false;
+        _dialogPageCount = 0;
+        _dialogPageIndex = 0;
+        _dialogPageLengths.fill(0);
+        if (_silentVisorSwitch)
+        {
+            SwitchVisors(false);
+        }
+        _silentVisorSwitch = false;
+        RequireReference(_messageBoxInst).SetIndex(0, RequireReference(_scene));
+        RequireReference(_dialogButtonInst).SetIndex(0, RequireReference(_scene));
+        RequireReference(_dialogArrowInst).SetIndex(0, RequireReference(_scene));
+        RequireReference(_dialogCrystalInst).SetIndex(0, RequireReference(_scene));
+        RequireReference(RequireReference(_scene).Layer5Info()).BindingId = -1;
+    }
+
+    void PlayerEntity::UpdateDialogs()
+    {
+        auto& scene = RequireReference(_scene);
+        auto& messageBox = RequireReference(_messageBoxInst);
+        if (!ScanVisor() || _dialogType == ::MphRead::Entities::DialogType::Scan)
+        {
+            if (_dialogType == ::MphRead::Entities::DialogType::Overlay
+                || _dialogType == ::MphRead::Entities::DialogType::Hud)
+            {
+                _overlayTimer -= scene.FrameTime();
+                if (_overlayTimer <= 0.0F)
+                {
+                    CloseDialogs();
+                    return;
+                }
+            }
+            messageBox.ProcessAnimation(scene);
+            if (messageBox.Time - messageBox.Timer >= 16.0F / 30.0F)
+            {
+                _dialogCharTimer += scene.FrameTime();
+            }
+            if (messageBox.CurrentFrame >= 5)
+            {
+                const std::int32_t spacerIndex = (messageBox.CurrentFrame & 1) != 0 ? 0 : 1;
+                RequireReference(_messageSpacerInst).SetIndex(spacerIndex, scene);
+            }
+        }
+        if (GameState::DialogPause()
+            && (_dialogType == ::MphRead::Entities::DialogType::Scan
+                || messageBox.Time - messageBox.Timer >= 16.0F / 30.0F))
+        {
+            bool closed = false;
+            if (_showDialogConfirm)
+            {
+                if (_dialogType == ::MphRead::Entities::DialogType::YesNo)
+                {
+                    if (CheckButtonPressed(DialogButton::Yes))
+                    {
+                        closed = true;
+                        _dialogConfirmState = ::MphRead::Entities::ConfirmState::Yes;
+                        if (_dialogPromptType != ::MphRead::Entities::PromptType::ShipHatch
+                            && _dialogPromptType != ::MphRead::Entities::PromptType::GameOver)
+                        {
+                            CloseDialogs();
+                        }
+                    }
+                    else if (CheckButtonPressed(DialogButton::No))
+                    {
+                        closed = true;
+                        _dialogConfirmState = ::MphRead::Entities::ConfirmState::No;
+                        if (_dialogPromptType != ::MphRead::Entities::PromptType::GameOver)
+                        {
+                            CloseDialogs();
+                        }
+                    }
+                }
+                else if (CheckButtonPressed(DialogButton::Okay))
+                {
+                    closed = true;
+                    if (_dialogType == ::MphRead::Entities::DialogType::Event)
+                    {
+                        if (Music::IsPaused())
+                        {
+                            Music::PlayPausedMusic();
+                        }
+                        else
+                        {
+                            Music::FadeVolume(1.0F, 5.0F / 30.0F);
+                        }
+                        RestartLongSfx();
+                        GameState::PausePrevented(false);
+                    }
+                    else if (GameState::DialogPause())
+                    {
+                        RestartLongSfx();
+                    }
+                    const bool scan = _dialogType == ::MphRead::Entities::DialogType::Scan;
+                    _soundSource.PlayFreeSfx(SfxId::SCAN_OK);
+                    CloseDialogs();
+                    _dialogConfirmState = ::MphRead::Entities::ConfirmState::Okay;
+                    GameState::UnpauseDialog();
+                    if (scan)
+                    {
+                        AfterScan();
+                    }
+                }
+            }
+            if (closed)
+            {
+                _ignoreClick = true;
+            }
+            else
+            {
+                if (CheckButtonPressed(DialogButton::Right))
+                {
+                    if (_dialogPageIndex != UncheckedSubtract(_dialogPageCount, 1))
+                    {
+                        _soundSource.PlayFreeSfx(SfxId::SCAN_SCROLL_BUTTONS);
+                        _dialogPageIndex = UncheckedIncrement(_dialogPageIndex);
+                    }
+                }
+                else if (CheckButtonPressed(DialogButton::Left))
+                {
+                    if (_dialogPageIndex != 0)
+                    {
+                        _soundSource.PlayFreeSfx(SfxId::SCAN_SCROLL_BUTTONS);
+                        _dialogPageIndex = UncheckedDecrement(_dialogPageIndex);
+                    }
+                }
+                if (_dialogConfirmTimer > 0.0F)
+                {
+                    _dialogConfirmTimer -= scene.FrameTime();
+                }
+                if (_dialogPageIndex == UncheckedSubtract(_dialogPageCount, 1))
+                {
+                    _lastDialogPageSeen = true;
+                }
+                if (_dialogConfirmTimer <= 0.0F && _lastDialogPageSeen)
+                {
+                    if (!_showDialogConfirm)
+                    {
+                        RequireReference(_dialogButtonInst).SetAnimation(0, 2, 3, 2);
+                        RequireReference(_dialogArrowInst).SetIndex(0, scene);
+                    }
+                    _showDialogConfirm = true;
+                }
+                if (!_showDialogConfirm && RequireReference(_dialogArrowInst).Timer <= 0.0F)
+                {
+                    RequireReference(_dialogArrowInst).SetAnimation(0, 29, 30, 29, true);
+                }
+                RequireReference(_dialogButtonInst).ProcessAnimation(scene);
+                RequireReference(_dialogArrowInst).ProcessAnimation(scene);
+            }
+            if (_dialogType == ::MphRead::Entities::DialogType::Event
+                && messageBox.Timer <= 0.0F)
+            {
+                RequireReference(_dialogCrystalInst).ProcessAnimation(scene);
+            }
+        }
+    }
+
+    void PlayerEntity::DrawDialogs()
+    {
+        auto& scene = RequireReference(_scene);
+        const float baseY = _dialogType == ::MphRead::Entities::DialogType::Event
+            ? 27.0F : 47.0F;
+        // The message box is only made for a single-player HUD, so it is read
+        // where the C# reads it and nowhere else: hoisting it to the top of
+        // the method turned every multiplayer frame into a null reference.
+        if (!ScanVisor() && _overlayMessage1)
+        {
+            auto& messageBox = RequireReference(_messageBoxInst);
+            const float posX = 64.0F / 256.0F;
+            const float posY = baseY / 192.0F;
+            const float width = static_cast<float>(messageBox.Width) / 256.0F;
+            const float height = static_cast<float>(messageBox.Height) / 192.0F;
+            float spacerOffset = 0.0F;
+            if (messageBox.CurrentFrame >= 5)
+            {
+                spacerOffset = 16.0F / 256.0F;
+                auto& spacer = RequireReference(_messageSpacerInst);
+                spacer.Alpha = 0.5F;
+                spacer.PositionX = posX + width - spacerOffset;
+                spacer.PositionY = posY;
+                spacer.FlipVertical = false;
+                scene.DrawHudObject(_messageSpacerInst, 1);
+                spacer.PositionY = posY + height;
+                spacer.FlipVertical = true;
+                scene.DrawHudObject(_messageSpacerInst, 1);
+            }
+            const float leftPos = posX - spacerOffset;
+            const float rightPos = posX + spacerOffset + width;
+            const float topPos = posY;
+            const float bottomPos = posY + height;
+            messageBox.Alpha = 0.5F;
+            messageBox.PositionX = leftPos;
+            messageBox.PositionY = topPos;
+            messageBox.FlipHorizontal = false;
+            messageBox.FlipVertical = false;
+            scene.DrawHudObject(_messageBoxInst, 1);
+            messageBox.PositionX = rightPos;
+            messageBox.PositionY = topPos;
+            messageBox.FlipHorizontal = true;
+            messageBox.FlipVertical = false;
+            scene.DrawHudObject(_messageBoxInst, 1);
+            messageBox.PositionX = leftPos;
+            messageBox.PositionY = bottomPos;
+            messageBox.FlipHorizontal = false;
+            messageBox.FlipVertical = true;
+            scene.DrawHudObject(_messageBoxInst, 1);
+            messageBox.PositionX = rightPos;
+            messageBox.PositionY = bottomPos;
+            messageBox.FlipHorizontal = true;
+            messageBox.FlipVertical = true;
+            scene.DrawHudObject(_messageBoxInst, 1);
+            if (messageBox.Time - messageBox.Timer >= 16.0F / 30.0F)
+            {
+                _textSpacingY = 10;
+                RequireReference(_textInst).SetPaletteData(_dialogPaletteData, scene);
+                const std::int32_t characters
+                    = ConvertToInt32Net9(_dialogCharTimer / (1.0F / 30.0F));
+                const std::int32_t offset = 17
+                    + (Paths::IsMphJapan() || Paths::IsMphKorea() ? 8 : 17);
+                DrawText2D(128.0F, baseY + static_cast<float>(offset) - _overlayTextOffsetY,
+                    Hud::Align::PadCenter, _dialogPalette, _overlayBuffer1, characters);
+                RequireReference(_textInst).SetPaletteData(_textPaletteData, scene);
+                _textSpacingY = 0;
+                if (characters > _prevOverlayCharacters
+                    && characters <= ManagedStringLength(RequireOptional(_overlayMessage1)))
+                {
+                    _soundSource.StopFreeSfx(SfxId::LETTER_BLIP);
+                    _soundSource.PlayFreeSfx(SfxId::LETTER_BLIP);
+                    _prevOverlayCharacters = characters;
+                }
+            }
+        }
+        if (_dialogType == ::MphRead::Entities::DialogType::Event
+            && RequireReference(_messageBoxInst).Timer <= 0.0F
+            && RequireReference(_messageBoxInst).Time
+                - RequireReference(_messageBoxInst).Timer >= 16.0F / 30.0F)
+        {
+            auto& messageBox = RequireReference(_messageBoxInst);
+            if (_eventType <= ::MphRead::Entities::EventType::OmegaCannon
+                || _eventType == ::MphRead::Entities::EventType::Octolith
+                || _eventType == ::MphRead::Entities::EventType::UATank)
+            {
+                auto& frame = RequireReference(_dialogFrameInst);
+                const std::int32_t posXInt = UncheckedSubtract(
+                    UncheckedAdd(64, messageBox.Width), frame.Width / 2);
+                const float posX = static_cast<float>(posXInt);
+                const float posY = baseY
+                    + static_cast<float>(UncheckedMultiply(2, messageBox.Height)) - 12.0F;
+                frame.Alpha = 0.5F;
+                frame.PositionX = posX / 256.0F;
+                frame.PositionY = posY / 192.0F;
+                if (_eventType == ::MphRead::Entities::EventType::Octolith)
+                {
+                    scene.DrawHudObject(_dialogFrameInst);
+                    auto& crystal = RequireReference(_dialogCrystalInst);
+                    crystal.PositionX = (posX + 16.0F) / 256.0F;
+                    crystal.PositionY = posY / 192.0F;
+                    scene.DrawHudObject(_dialogCrystalInst);
+                }
+                else if (_eventType != ::MphRead::Entities::EventType::UATank)
+                {
+                    scene.DrawHudObject(_dialogFrameInst);
+                    auto& pickup = RequireReference(_dialogPickupInst);
+                    pickup.PositionX = (posX + 16.0F) / 256.0F;
+                    pickup.PositionY = (posY + 16.0F) / 192.0F;
+                    scene.DrawHudObject(_dialogPickupInst);
+                }
+            }
+        }
+
+        std::int32_t layerIndex = 4;
+        std::int32_t scanYOffset = 0;
+        if (Paths::IsMphJapan())
+        {
+            scanYOffset = -4;
+        }
+        else if (Paths::IsMphKorea())
+        {
+            scanYOffset = -6;
+        }
+        if (_dialogType == ::MphRead::Entities::DialogType::Scan)
+        {
+            assert(_overlayMessage1.has_value());
+            auto text = Text::Strings::GetHudMessage(102);
+            DrawText2D(128.0F + _objShiftX, 58.0F + _objShiftY,
+                Hud::Align::Center, 0, text);
+            auto iconInst = ManagedAt(_scanIconInsts, UncheckedMultiply(_scanCategoryIndex, 2));
+            auto& icon = RequireReference(iconInst);
+            icon.PositionX = 20.0F / 256.0F;
+            icon.PositionY = 96.0F / 192.0F;
+            icon.Center = false;
+            icon.Alpha = 1.0F;
+            icon.UseMask = false;
+            scene.DrawHudObject(iconInst);
+            assert(icon.PaletteData != nullptr);
+            RequireReference(_textInst).SetPaletteData(icon.PaletteData, scene);
+            DrawText2D(58.0F, 116.0F + static_cast<float>(scanYOffset),
+                Hud::Align::Left, 0, RequireOptional(_overlayMessage1));
+            RequireReference(_textInst).SetPaletteData(_textPaletteData, scene);
+            layerIndex = ManagedAt(_scanCategoryLayers, _scanCategoryIndex);
+        }
+        if (((_dialogType == ::MphRead::Entities::DialogType::Okay
+                || _dialogType == ::MphRead::Entities::DialogType::Event
+                || _dialogType == ::MphRead::Entities::DialogType::YesNo)
+                && RequireReference(_messageBoxInst).Time
+                    - RequireReference(_messageBoxInst).Timer >= 16.0F / 30.0F)
+            || _dialogType == ::MphRead::Entities::DialogType::Scan)
+        {
+            std::int32_t start = 0;
+            for (std::int32_t i = 1; i <= _dialogPageIndex; ++i)
+            {
+                start = UncheckedAdd(start, ManagedAt(_dialogPageLengths, UncheckedSubtract(i, 1)));
+            }
+            start = UncheckedAdd(start, _dialogPageIndex);
+            const auto text = ManagedSpan(_overlayBuffer2, start,
+                ManagedAt(_dialogPageLengths, _dialogPageIndex));
+            RequireReference(_textInst).SetPaletteData(_dialogPaletteData, scene);
+            DrawText2D(128.0F, 134.0F + static_cast<float>(scanYOffset),
+                Hud::Align::Center, 0, text);
+            RequireReference(_textInst).SetPaletteData(_textPaletteData, scene);
+            RequireReference(scene.Layer5Info()).BindingId = ManagedAt(_dialogBindingIds, layerIndex);
+            RequireReference(scene.Layer5Info()).Alpha = 1.0F;
+            RequireReference(scene.Layer5Info()).ScaleX = 1.0F;
+            RequireReference(scene.Layer5Info()).ScaleY = 1.0F;
+            if (_dialogPageIndex != UncheckedSubtract(_dialogPageCount, 1))
+            {
+                auto& arrow = RequireReference(_dialogArrowInst);
+                arrow.PositionX = 169.0F / 256.0F;
+                arrow.PositionY = 173.0F / 192.0F;
+                arrow.FlipHorizontal = false;
+                scene.DrawHudObject(_dialogArrowInst);
+            }
+            if (_dialogPageIndex != 0)
+            {
+                auto& arrow = RequireReference(_dialogArrowInst);
+                arrow.PositionX = 55.0F / 256.0F;
+                arrow.PositionY = 173.0F / 192.0F;
+                arrow.FlipHorizontal = true;
+                scene.DrawHudObject(_dialogArrowInst);
+            }
+            if (_showDialogConfirm)
+            {
+                DrawDialogConfirmButtons(_dialogType);
+            }
+        }
+    }
+
+    void PlayerEntity::DrawDialogConfirmButtons(::MphRead::Entities::DialogType dialogType)
+    {
+        auto& scene = RequireReference(_scene);
+        auto& button = RequireReference(_dialogButtonInst);
+        const float posX = 112.0F;
+        const float posY = 174.0F;
+        if (dialogType == ::MphRead::Entities::DialogType::YesNo)
+        {
+            button.PositionX = (posX - static_cast<float>(button.Width)) / 256.0F;
+            button.PositionY = posY / 192.0F;
+            scene.DrawHudObject(_dialogButtonInst);
+            button.PositionX = (posX + static_cast<float>(button.Width)) / 256.0F;
+            button.PositionY = posY / 192.0F;
+            scene.DrawHudObject(_dialogButtonInst);
+            auto text = Text::Strings::GetHudMessage(105);
+            float textPosX = posX - static_cast<float>(button.Width / 2);
+            DrawText2D(textPosX, posY + 5.0F, Hud::Align::Center, 0, text);
+            text = Text::Strings::GetHudMessage(106);
+            textPosX = posX + static_cast<float>(button.Width) * 1.5F + 1.0F;
+            DrawText2D(textPosX, posY + 5.0F, Hud::Align::Center, 0, text);
+        }
+        else
+        {
+            button.PositionX = posX / 256.0F;
+            button.PositionY = posY / 192.0F;
+            scene.DrawHudObject(_dialogButtonInst);
+            auto text = Text::Strings::GetHudMessage(104);
+            DrawText2D(posX + static_cast<float>(button.Width / 2) + 1.0F,
+                posY + 5.0F, Hud::Align::Center, 0, text);
+        }
+    }
+
+    bool PlayerEntity::CheckButtonPressed(DialogButton type)
+    {
+        if (_input.ClickX >= 0.0F && _input.ClickY >= 0.0F)
+        {
+            const auto& scene = RequireReference(_scene);
+            const float clickX = _input.ClickX / scene.Size().X;
+            const float clickY = _input.ClickY / scene.Size().Y;
+            const ButtonInfo info = ManagedAt(_buttonInfo, static_cast<std::int32_t>(type));
+            if (clickX >= info.Left && clickX < info.Right
+                && clickY >= info.Top && clickY < info.Bottom)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+}

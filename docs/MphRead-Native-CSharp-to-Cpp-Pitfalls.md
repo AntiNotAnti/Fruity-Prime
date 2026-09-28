@@ -1,0 +1,518 @@
+# C# → C++ 移植の落とし穴（実例集）
+
+`MphRead-Native-CSharp-to-Cpp-Basic-Policy.md` の「観測可能な意味を変えない」を、
+実際に破った例から逆引きできるようにまとめたもの。どれも「ビルドは通る」「C# と
+1行ずつ突き合わせても同じに見える」のに挙動が変わったもので、原因は C# と C++ の
+言語・ランタイムの差にある。
+
+各項目は **症状 → 原因 → 修正 → 見つけ方** の順。修正コミットは develop2 のもの。
+
+機械的に探せるものは `tools/native-audit/` にスキャナを置いてある（末尾参照）。
+新しい型のバグを見つけたら、この文書に項目を足し、可能ならスキャナも足すこと。
+
+---
+
+## 1. 引数・オペランドの評価順
+
+**症状**: ドアを抜けて次のエリアを読み込む瞬間にクラッシュ（`reading 0x8`）。
+
+**原因**: `Scene::InsertEntity` の
+
+```cpp
+_entityMap.Add(entity->Id, std::move(entity));
+```
+
+C# は引数を必ず左から評価する。C++ では順序が未規定で、MinGW の GCC (x64) は
+**右から**作る。値渡しの第2引数へ `entity` が先に move され、空になった後で
+`entity->Id` を読んでいた（`Id` はオフセット 8）。
+
+**修正** (`c17373d`): 先にローカルへ取り出す。
+
+```cpp
+const std::int32_t id = entity->Id;
+_entityMap.Add(id, std::move(entity));
+```
+
+**注意点**
+
+- 同じ呼び出しの中で、ある変数を `std::move` しつつ別の引数で読まない。
+- 乱数 (`Rng::GetRandomInt2`)、ストリーム読み込み (`reader.ReadInt32()`)、
+  `Next*` / `Pop*` / `Take*` など副作用のある呼び出しを、**丸括弧**の引数や
+  `+ - * /` の両辺に2つ以上並べない。C# と呼ぶ順が逆になり、乱数列やバイト列が
+  入れ替わる。
+- 順序が保証されるのは `{ }` の初期化子（左から）、`&&` `||` `?:` `,`、
+  C++17 以降の `a.f(b)` の `a`（引数より先）、代入の右辺→左辺など。迷ったら
+  ローカル変数に分ける。
+
+**見つけ方**: `tools/native-audit/eval_order.py`
+
+---
+
+## 2. ヘルパー関数名とクラス名の衝突（名前探索）
+
+**症状**: アーティファクトを取っても記録されない。入り直すと復活し、ボス部屋への
+テレポーターが起動しない。ただし取得で解除された扉のロックは残っている。
+
+**原因**: `ArtifactEntity.cpp` にファイルスコープのヘルパー
+
+```cpp
+MphRead::StorySave& StorySave() { return *GameState::StorySave; }
+```
+
+があったが、呼び出し側は `namespace MphRead::Entities` の中にある。非修飾名の探索は
+`MphRead::Entities` → `MphRead` → グローバルの順に進むので、グローバルのヘルパーより
+先に **クラス `MphRead::StorySave`** が見つかる。`StorySave().UpdateFoundArtifact(...)`
+は空の一時オブジェクトを作ってそれを更新し、すぐ捨てていた。コンパイルエラーには
+ならない。
+
+**修正** (`06eec2c`): クラス名と重ならない名前 `RequireStorySave()` にした。
+
+**注意点**
+
+- ファイルスコープの補助関数に、`MphRead` 以下の型と同じ名前を付けない。
+  `C#` のプロパティ名（`StorySave`、`Main` など）をそのまま関数名にすると起きやすい。
+- 「書いたのに反映されない」「読むといつも初期値」は、まずこれを疑う。
+
+**見つけ方**: `tools/native-audit/name_shadow.py`。調べた範囲では他に実害のある箇所はない
+（`Utility/Compress.cpp` の `Read()` は一致するコンストラクタがないのでクラスには解決できず、無害）。
+
+---
+
+## 3. コンテナ要素への参照（「その場所」を渡してしまう）
+
+**症状**: クレタフィッド戦・ボス後の脱出・チャージ中などでランダムに
+`vector::_M_range_check: __n (which is 0) >= this->size() (which is 0)`。
+投げ元は `Scene::ProcessEffects`。
+
+**原因**: 部屋を出るたびに呼ばれる `Scene::ClearEffects` が
+
+```cpp
+UnlinkEffectElement(_activeElements[i]);   // 引数は const shared_ptr&
+```
+
+としていた。関数内の `RemoveFirst(_activeElements, element)` で要素が消えて後ろが
+詰まると、参照 `element` は**次の（まだ使用中の）要素**を指す。関数の残りはその要素の
+`ParticleDefinitions` などを空にして空き要素プールへ戻した。プールに同じ要素が2回入り、
+あとで2つのエフェクトが1つの要素を共有し、片方の解放でもう片方の粒子定義が空になった。
+C# はオブジェクト参照を渡すので `List.Remove` の後も同じ要素を指し続ける。
+
+**修正** (`b7e8981`): `UnlinkEffectElement` / `UnlinkBeamEffect` / `UnlinkBomb` の
+引数を `shared_ptr` の**値渡し**にした。
+
+**注意点**
+
+- C# の「参照型の引数」は `const std::shared_ptr<T>&` に機械的に置き換えない。受け取った
+  関数が、渡元のコンテナを変更しうるなら値渡しにする。
+- `auto& x = v[i];` のあと `v.push_back(...)` / `erase` してから `x` を使わない
+  （再確保で `x` が宙に浮く）。C# では `List` を伸ばしても要素オブジェクトは動かない。
+
+**見つけ方**: `tools/native-audit/slot_alias.py`
+
+---
+
+## 4. デストラクタを持つ `thread_local`（MinGW）
+
+**症状**: スレッド終了時（ムービー・音楽・ボス部屋ロード後など）に、TLS コールバックの中の
+`~shared_ptr<...>()` で `0xC0000005`。読んだアドレスが `0x74696E6967`（ASCII の
+"ginit"）など、他人のデータ。
+
+**原因**: MinGW の `thread_local` はエミュレーション（emutls）で、スレッド終了時に
+格納領域の解放が、そこに置かれたオブジェクトのデストラクタより先に走ることがある。
+C# の `[ThreadStatic]` にはこの問題がない。
+
+**修正** (`80a79bf`): デストラクタを持つ `thread_local` をなくした。
+
+- `NativeRuntime/System/ThreadStatic.hpp` の `ThreadStatic<T>`: Windows では値を
+  ヒープに置き、Fiber Local Storage のコールバックでスレッド終了時に破棄する
+  （他のプラットフォームでは普通の `thread_local`）。
+- 不変値（`std::locale::classic()` など）は `static const` にする。
+- 別ライブラリ（`NcsfPlay.Native`）では生ポインタの `thread_local` にする。
+
+**注意点**: 新しく `thread_local` を書くときは、整数・生ポインタ・それらの
+`std::array`・`std::mt19937` のような**自明に破棄できる型**だけにする。
+`shared_ptr` / `std::string` / `std::locale` / `std::optional<非自明>` /
+コンテナは `ThreadStatic<T>` を使う。
+
+**見つけ方**: `tools/native-audit/thread_local_dtor.py`（全 `thread_local` を列挙するので、型を見て判断）
+
+---
+
+## 5. GC がある前提の寿命（イベント処理中の自己解放）
+
+**症状**: ESC メニューの SPECTATE（やクリックで閉じる項目全般）を押した瞬間に
+落ちることがある。落ちなくてもヒープが壊れ、後で固まる・落ちる。
+
+**原因**: `PauseMenuWindow::OnClosed` が最後の `shared_ptr` を手放し、ボタンの
+クリック処理の**途中で**ウィンドウ・ビュー・ボタン自体が解放された。C# では GC が
+スタック上の参照を見て、処理が終わるまで生かしておく。
+
+**修正** (`cf140ee`): 最後の参照の解放を `Dispatcher` の次の周回へ回す
+（`ReleaseAfterDispatch`）。
+
+**注意点**: 「自分を閉じる」「自分を一覧から消す」処理を、自分のイベントハンドラの中から
+呼ぶ場合、その呼び出しが最後の所有者を消さないか確認する。消すなら解放を遅延させる。
+
+---
+
+## 6. 終了時の static 破棄順
+
+**症状**: 異常終了のログ出力中に、ログ処理自身が `0xC0000005` を繰り返す。
+
+**原因**: 関数内 `static std::vector` のシンボル表キャッシュが exit 時に破棄された後、
+`abort()` ハンドラがそれを読んだ。C# の static はプロセス終了まで生きている。
+
+**修正** (`ffe74d2`): 終了後にも呼ばれうるキャッシュは `*new T()` で確保し、破棄しない。
+障害ハンドラ内での障害は再ログしない（再入ガード）。
+
+**注意点**: `atexit` / シグナル / 例外フィルタ / TLS コールバックから触る static は、
+破棄されない形にしておく。
+
+---
+
+## 7. C# では無害な呼び出しが C++ では終了する
+
+**症状**: bot がいる試合やスペクテイト中に、何の記録も残さずアプリが消える。
+イベントビューアの例外コードは `0x40000015`（`STATUS_FATAL_APP_EXIT` = `abort()`）。
+
+**原因**: bot のモーフボール照準処理にある `Debugger.Break()`。.NET ではデバッガが
+付いていなければ何もしないが、C++ 版のローカル実装は MinGW に `SIGTRAP` がないため
+`std::abort()` に落ちていた。
+
+**修正** (`728aeb0`): `NativeRuntime::DebuggerBreak()` を「デバッガが付いているときだけ
+止まる」にし、各ファイルの独自実装をそれに寄せた。
+
+**注意点**: `Debugger.Break` / `Debug.Assert` / `Environment.FailFast` のような
+.NET の診断 API は、リリース実行時の .NET の挙動（多くは何もしない）に合わせる。
+「念のため abort」は C++ 独自の挙動になる。
+
+---
+
+## 8. スレッドをまたぐ共有状態（GC とアトミックな参照がない）
+
+**症状**: アドベンチャーのドア遷移中、ワーカースレッドで `shared_ptr` 解放中に落ちる。
+
+**原因**: `RoomEntity.StartTransition` は C# で `Task.Run` し、ワーカーが次の部屋を
+組み立てる間もメインスレッドはフレームを回す。C# では参照の読み書きがアトミックで、
+GC が解放済みオブジェクトを生かすので壊れない。C++ の `shared_ptr` /
+`unordered_map` / `vector` を同時に触ると未定義動作。
+
+**修正** (`c31e638`): `NativeRuntime/System/SceneGate` の `recursive_mutex` を、
+メインスレッドのステップ・描画とワーカーの処理で保持する。ワーカーがメインスレッドの
+初期化を待つ間だけ手放す。
+
+**注意点**: C# で別スレッドから触っている参照フィールドは、`AtomicSharedPtr`
+（`NativeRuntime/System/AtomicSharedPtr.hpp`）かロックで守る。
+
+---
+
+## 9. 行列の掛け順・OpenTK の規約
+
+**症状**: マルチプレイで、自分がいるエリア以外の部屋パーツが描画されない。
+
+**原因**: C# は `OpenTK.Mathematics.Matrix4` の `operator*`（行ベクトル規約）を使うが、
+C++ 側で `Matrix::Multiply44` を使っていて、掛ける順序・転置が違った。ポータルの
+可視判定がずれ、隣の部屋が常にカリングされていた。
+
+**修正** (`cc1f2af`): `Matrix4` に OpenTK と同じ `operator*` を定義し、C# が
+`a * b` と書いている所はすべてそれにした（C# は `Multiply44` を使っていない）。
+
+**注意点**: 行列・ベクトル演算は、C# が呼んでいる OpenTK の演算子・関数と同じ定義の
+ものを使う。似た名前の別ヘルパーで代用しない。
+
+---
+
+## 10. OpenTK / GL のオーバーロード（int と float）
+
+**症状**: アドベンチャー開始時のムービーが再生されない。
+
+**原因**: C# は `GL.Uniform4(location, 0, 0, 0, 1)` と **int** で呼んでいて、OpenTK は
+`glUniform4i` を選ぶ（vec4 のユニフォームに対してはエラーになり、何もしない）。C++ 側が
+float 版を呼んでいたため、C# では起きない値の書き換えが起きていた。あわせて、C# では
+ポーズ中も進む時間・ムービー更新が、C++ では止まっていた。
+
+**修正** (`4be30e5`): int 版 `GL::Uniform4` を追加し、C# と同じオーバーロードを呼ぶ。
+`UpdateTime` / `UpdateMovie` をポーズ判定の外に出した。
+
+**注意点**: C# のリテラルの型（`0` と `0f`）でどのオーバーロードが選ばれているかまで
+合わせる。OpenTK では int 版と float 版で別の GL 関数になることがある。
+
+---
+
+## 11. `AppContext.BaseDirectory` とカレントディレクトリ
+
+**症状**: ランチャーのウィンドウアイコンとロゴが出ない。
+
+**原因**: C# の `avares://` は埋め込みリソース。C++ 版は実行ファイルの横のファイルとして
+読む設計だったが、探す場所がカレントディレクトリになっており、ビルドもファイルを
+コピーしていなかった。
+
+**修正** (`136b74d`): `NativeRuntime::AppContextBaseDirectory()`（実行ファイルのある
+ディレクトリ）から読み、CMake でアセットを実行ファイルの横へコピーする。
+
+**注意点**: C# の `AppContext.BaseDirectory` は `current_path()` ではない。
+パス文字列は UTF-8 のまま `std::filesystem::path(std::u8string)` で渡す。
+
+---
+
+## 12. 標準ライブラリ実装の差（libc++）
+
+**症状**: macOS / Android の CI だけビルドが通らない。
+
+**原因**: libc++ に `std::atomic<std::shared_ptr>`、浮動小数の `std::from_chars`、
+（フラグなしでは）`std::stop_token` / `std::jthread` がない。
+
+**修正**: `NativeRuntime/System/AtomicSharedPtr.hpp`（なければ mutex 実装）、
+`NativeRuntime/System/Charconv.hpp`（C ロケールの `strtod_l` で同じ受理範囲を再現）、
+CMake の `-fexperimental-library`。
+
+**注意点**: 新しい標準ライブラリ機能を使うときは、MSVC STL / libstdc++ / libc++ の
+3つで使えるか確認する。
+
+---
+
+## 12a. C# のゼロ初期化を「未規定」と読み替える
+
+**症状**: ムービーの音声が「ザー」という雑音になる。
+
+**原因**: 音声デコーダの `Span<int> pulseBuffer = stackalloc int[128];`。条件によって
+一部が書かれないまま足し込まれるが、C# の `stackalloc` は（アセンブリが
+`SkipLocalsInit` で外していない限り）**ゼロ初期化**される。C++ 側はこれを「未規定の
+スタック内容」と解釈し、疑似乱数で埋めていた。その乱数が音声に混ざっていた。
+
+**修正**: `std::array<...> pulseBuffer{};` でゼロ初期化し、乱数で埋める補助関数を削除した。
+同じ関数の `level` / `dct` も `{}` にした。
+
+**注意点**: C# の `new T[n]`・`stackalloc T[n]`・フィールド・`default` は常にゼロ。
+C++ で対応する配列・メンバは `{}` で初期化する。「C# は未規定だから」と独自の値を
+作らない（プロジェクトに `SkipLocalsInit` がないことは `grep -rn SkipLocalsInit src/MphRead` で確認できる）。
+
+---
+
+## 12b. C# 側にもある潜在バグ（仕様ごと直す）
+
+**症状**: ボス戦・脱出・オクトリス取得などで、エフェクト処理が `vector::_M_range_check` で落ちる。
+
+**原因**: ムービー終了 → `RoomEntity.LoadRoom` → `Scene.ClearEffects` が全エフェクト要素を
+解放するが、要素は持ち主の `EffectEntry.Elements` に残り、プレイヤーのマズル・チャージの
+エントリーは部屋の再読み込みを越えて保持される。次の `UnlinkEffectEntry` が同じ要素を
+もう一度解放し、空きキューに同じ要素が2つ入る（または他のエフェクトに貸し出し済みの要素を
+解放する）。**C# にも同じ流れがある**ので、突き合わせでは見つからない。
+
+**修正** (`a7191c2`): C# を先に直し、C++ に同じ変更を入れた。`ClearEffects` /
+`ClearNonPersistentEffects` は解放する要素を持ち主のエントリーから外す（`ReleaseFromOwner`）。
+
+**注意点**: C# と完全に同じなのに C++ で落ちる場合、C# 側も同じ条件で壊れている可能性がある。
+その場合は C# を仕様として直し、同じ変更を C++ に入れる（C++ だけを直さない）。
+デバッグログの `[effects]` 行（プールの二重解放・使用中の貸し出しと、最初に解放した場所）で
+この種の破損は特定できる。
+
+---
+
+## 12c. 生ポインタ → `shared_ptr` の「シーンから探す」変換
+
+**症状**: 対戦中、ボットにジュディケーターのチャージ（アイスウェーブ）が当たった瞬間に
+`NullReferenceException`。スタックは `TryFireWeapon` → `BeamProjectileEntity::Spawn` →
+`SpawnIceWave` → `PlayerEntity::TakeDamage` → `ResolveSceneEntity`。
+
+**原因**: C# は `EntityBase` 参照をそのまま渡すが、C++ で `shared_ptr` を要求する関数に
+渡すため、`scene.Entities()` を走査して同じアドレスを探し、見つからなければ throw する
+ヘルパーが各所にある。`Spawn` は `SpawnIceWave`（→ `TakeDamage(source = ビーム)`）を
+**`AddEntity` の前に**呼ぶ（C# も同じ順序）ので、ビームはまだシーンにいない。
+
+**根本原因**: ファイル単位で移植したため、`shared_ptr` が必要になった場所ごとに
+「シーンから探して `shared_ptr` を取り戻す」ヘルパーが作られた（`ResolveSceneEntity`・
+`SharedEntity`・`FindDoorShared`・`FindRoomShared`・`GetManagedReference`・Quadtroid の
+インラインループ、計 18 箇所）。見つからないときの挙動も throw・null 返し・
+非所有ポインタとばらばらだった。
+
+**修正（構造）**:
+- `EntityBase` が `std::enable_shared_from_this<EntityBase>` を継承する。エンティティは
+  必ず `shared_ptr` で所有されている（`make_shared` のみ。値・`unique_ptr` で持つ場所はない）
+  ので、どのエンティティも自分の所有ポインタを返せる。`SharedFrom(p)`（`EntityBase.hpp`）が
+  型付きで返す。null は null のまま。
+- 呼び出し中しか使わない引数は生ポインタか参照で受ける（C++ Core Guidelines F.7）。
+  `PlayerAiData::OnTakeDamage` の `source` は `EntityBase&`（C# の非 null 参照そのもの）。
+- 保持する場所（ターゲット・`SetAttachedEnemy`・`_lastJumpPad`・ビームの所有者など）は
+  `SharedFrom` を使う。シーンを走査して探すヘルパーはすべて削除した。
+
+**注意点**:
+- 派生クラスで `enable_shared_from_this` を**もう一度継承しない**。基底が2つになると
+  `shared_ptr` の構築時にどちらも有効にならず、`shared_from_this` が実行時に
+  `bad_weak_ptr` を投げる（コンパイルは通る）。以前は Player・Halfturret・OctolithFlag が
+  個別に継承していたが、`EntityBase` 1つにまとめた。
+- `EntityBase` は `public` で継承する（非公開継承でも有効にならない）。
+- エンティティを `shared_ptr` 以外で作らない。
+- `tools/native-audit/scene_lookup.py` がこの形（`.get() == ポインタ` で一致した要素を
+  返す・保持する）を検出する。残る 2 件（`RoomEntity` のドアのループ内 keep-alive、
+  GUI のハンドル表）は C# のループそのもので、対象外。
+
+---
+
+## 12d. ファイルごとに書き直された共通ヘルパー
+
+**症状**: 個別には目立たない差。Windows で日本語を含むパスのファイルが開けない、
+角度・正規化・丸めが C# と最下位ビットで違う、NaN を整数にしたときの値が違う、など。
+
+**原因**: 移植を1ファイルずつ行ったため、パス変換・`File.Exists`・`Path.Combine`・
+フラグ判定・ベクトル長・`MathHelper`・`Math.Round`・`(int)float` のような共通処理を、
+使うファイルがそれぞれ自前で書いた（同じ名前で数十個）。コピーは少しずつずれていた。
+
+| ずれ | 例 |
+|---|---|
+| UTF-8 の `std::string` をそのまま `std::filesystem::path`・`ifstream` に渡す（Windows では ANSI コードページとして読まれる） | `Sound`・`FhSound` の効果音読み込み、`ServerSim` のゲームファイル確認、`Q3Bsp`、`DemoInfo`、`MapAudit`、`NetCheckClient` |
+| `RadiansToDegrees` を `57.2957795F` で計算（OpenTK の `180f / MathF.PI` と 1 ULP 違う） | `PlayerInput`・`PlayerPause`・`PlayerCamera`・`PlayerEntityNetAim`・敵数体 |
+| `Normalize`・`ClearScale` を「長さで割る」（OpenTK は `1 / Length` を掛ける） | `EnemyInstanceEntity`・`BeamProjectileEntity`・`BeamEffectEntity`・`WeaponDps`・`PlatformEntity`・`CollisionDetection` |
+| `TestFlag` が 26 ファイルで「全ビット」（C# の拡張メソッド）、15 ファイルで「どれか1ビット」 | 呼び出しは全て1ビットなので結果は同じだったが、同名で意味が2つ |
+| `Math.Round` の自作版が `-0.4` を `+0` にする | 10 ファイル |
+| `(int)float` が NaN・範囲外で `int.MinValue`（.NET 9 は NaN→0、範囲外は飽和） | `Petrasyl1`・`GoreaMeteor`・`BarbedWarWasp`・`Shriekbat`・`HudInfo` |
+
+**修正**: 共通の定義を1か所に置き、コピーを削除して呼び出しをそちらに向けた。
+置き場所の規則は「C# がライブラリ（.NET・OpenTK）から得ているものは `NativeRuntime`、
+C# のソース（`Formats/Types.cs` など）が宣言しているものは対応する C++ ファイル」。
+
+| 置き場所 | 中身（C# の対応） |
+|---|---|
+| `NativeRuntime/System/IO.hpp` | `PathFromUtf8`/`PathToUtf8`（Windows では WTF-8）、`Path.*`（`Combine` 2〜4引数と `params`、`GetFileName`、`GetFileNameWithoutExtension`、`GetExtension`、`GetDirectoryName`（null は `nullopt`）、`GetFullPath`、`IsPathRooted`）、`File.*`（`Exists`（null 可）、`ReadAllBytes/Text/Lines`、`WriteAllBytes/Text/Lines`、`AppendAllText`、`Delete`）、`Directory.Exists/CreateDirectory`、`FileInfo`・`FileInfoLength` |
+| `NativeRuntime/System/Encoding.hpp` | `Rune.DecodeFromUtf8`・`DecodeUtf8Scalar`・`AppendUtf8`・`Encoding.UTF8/Unicode/UTF32.GetString`・`StreamReaderDecode`（BOM 判定）・UTF-8/16/32 相互変換・`Utf16Length`（`string.Length`）・`WideToUtf8`/`Utf8ToWide`・WTF-8（`WideToWtf8`/`Wtf8ToWide`） |
+| `NativeRuntime/System/Globalization.hpp` | `char.IsWhiteSpace`・`char.IsLetterOrDigit`・`string.Trim`/`IsNullOrWhiteSpace`/`Replace`・大文字小文字（インバリアント／現在カルチャ）・`OrdinalIgnoreCase` の比較・ハッシュ・`StringComparer`・現在カルチャの `StartsWith`/`EndsWith`/`Compare` |
+| `NativeRuntime/System/Number.hpp`・`Icu.hpp` | `NumberFormatInfo`（現在カルチャは ICU/NLS から）、数値型・`decimal` の `ToString`/`TryParse`/`Parse` |
+| `NativeRuntime/System/Decimal.hpp` | `System.Decimal`（96ビット、演算・丸め・`(float)`・`(int)`） |
+| `NativeRuntime/System/Sort.hpp` | `Array.Sort`/`List.Sort`/`Span.Sort` の introsort（同値の並びが .NET と同じ。`float`/`double` は NaN を先頭へ） |
+| `NativeRuntime/System/Random.hpp` | `new Random()`（xoshiro）・`new Random(seed)`（Knuth）・`Random.Shared`・`RandomNumberGenerator.Fill` |
+| `NativeRuntime/System/DateTime.hpp` | `DateTime.Now/UtcNow`・`ToLocalTime`・カスタム書式（`:` は現在カルチャの時刻区切り） |
+| `NativeRuntime/System/Stopwatch.hpp`・`Tasks.hpp` | `Stopwatch.GetTimestamp/Frequency`・`Thread.Name`・`Thread.Sleep` |
+| `NativeRuntime/System/Streams.hpp`・`ZipArchive.hpp` | `Stream`・`FileStream`・`MemoryStream`・`DeflateStream`・`ZipArchive`（Deflate64・ZIP64 を含む） |
+| `NativeRuntime/System/Net.hpp` | `IPAddress`・`Dns`・`UdpClient`・ネットワーク転送が使う `UdpSocket`・`SocketException` |
+| `NativeRuntime/System/Exceptions.hpp` | `System` の例外。ファイル内の例外クラスは作らず、必要なら別名（`using X = ::System::...`）にする |
+| `NativeRuntime/System/Enum.hpp` | `Enum.ToString`/`TryParse` のアルゴリズム（名前の表は列挙型を宣言しているファイルの側） |
+| `NativeRuntime/System/Managed.hpp` | `RequireReference`（ポインタ・`shared_ptr`・`optional`）・`ManagedAs`（`as`）・`ManagedCast`（`(T)x`）・`CSharpTryFinally`・`AssignReadonly`・`RoundToEven`・`ConvertToInt32Net9`・`Math.Max/Min/Clamp`・`unchecked` 演算・`ManagedAt`/`ManagedListAt`・`HasFlag` |
+| `NativeRuntime/System/HashCode.hpp` | `HashCode.Combine`（プロセスで種は1つ） |
+| `NativeRuntime/System/Runtime.hpp` | `Environment.ProcessPath`・`AppContext.BaseDirectory`・`OperatingSystem.IsAndroid/IsMacOS/IsLinux/IsWindows`・`PasteArguments`（`PasteArgument`） |
+| `NativeRuntime/System/Console.hpp` | `Console.Write/WriteLine`・`Environment.NewLine`・`Environment.GetEnvironmentVariable` |
+| `NativeRuntime/System/ExceptionText.hpp` | `GetType().Name`・`Exception.ToString()`・`Message` |
+| `NativeRuntime/OpenTK/Mathematics.hpp` | OpenTK の型と演算（`Vector3.Dot/Cross/UnitY`、`Vector4.Dot`、`Matrix4.LookAt/Transpose/CreatePerspectiveFieldOfView/CreateOrthographic/ClearTranslation/ExtractScale/Invert`、`MathHelper.Clamp` など） |
+| `NativeRuntime/OpenTK/GLFW.hpp` | OpenTK の `GLFW`（ジョイスティック・ゲームパッド） |
+| `Formats/Types.hpp` | `TestFlag`・`TestAny`・`WithX/Y/Z`・`AddX/Y/Z`・`MarshalExtensions`（固定長フィールド用の `MarshalUtf8` を含む） |
+| `Formats/Enums.hpp`・`Formats.hpp` | `Enums.cs`・`Formats.cs` の列挙型の `ToString()`（`Hunter`・`BeamType`・`ItemType`・`EntityType`・`Message`・`Terrain`・モデル/テクスチャ系など）と `TryParse` |
+| 列挙型を宣言している各ファイル | その型の名前の表（`TriggerVolumeEntity`・`NetTestScript`・`Crosshair`・`NetSession`、OpenTK の `GL`） |
+| `Messaging.hpp` | `BoxInt32`/`UnboxInt32`（`(object)i`・`(int)o`） |
+
+**注意点**:
+- 共通処理が欲しくなったら、まず上の表の場所を探す。無ければそこに足す（ファイル内に書かない）。
+- パスは必ず `PathFromUtf8`/`PathToUtf8` を通す。`std::filesystem::path(str)`・`path.string()`・
+  `std::ifstream(str)` は禁止（Linux では動くので気づけない）。`std::getenv` も Windows では ANSI なので
+  `EnvironmentGetVariable` を使う。
+- 共通関数を `MphRead` 名前空間に置くと、グローバル無名名前空間にある同名のファイル内関数を
+  `MphRead::...` の中から**隠す**（項目2と同じ名前探索）。`ModEntry` の `HasFlag(args, name)` と
+  `PlayerEntityNetAim` の `HasFlag(uint32, uint32)` は `::HasFlag` で呼ぶようにした。
+- メンバー（例: `EntityBase::Scale`、`ToString`）と同名の共通関数は、メンバー関数の中からは
+  修飾して呼ぶ（`::OpenTK::Mathematics::Scale(...)`、`::MphRead::ToString(...)`）。
+- `std::string` 引数は `string_view` と `optional<string>` の両方に変換できるので、`optional` を
+  受ける多重定義を足すときは `const std::string&`・`const char*` の多重定義も足す（曖昧になる）。
+- `std::filesystem::path` は Linux では `std::string` に暗黙変換されるが Windows ではされない。
+  MinGW での構文チェックを必ず通す。
+- `tools/native-audit/helper_copies.py` が、共通化済みの名前をファイル内で再定義している箇所を出す。
+
+**共通化の際に見つけた C# とのずれ（修正済み）**: 不正な UTF-8 を1バイトごとに U+FFFD にしていた
+（.NET は最大部分列ごと）、`File.ReadAllText` が UTF-16/32 の BOM を見ていなかった、`File.Delete` が
+すべてのエラーを握りつぶしていた、`Path.GetDirectoryName` がルートで null を返さなかった、
+`HashCode.Combine` の種がファイルごとに別だった、`Matrix4.LookAt` の一つが上方向を正規化していなかった、
+例外の型名が GCC のマングル名のまま出ていた、ランチャーの `Path.Combine` が .NET Framework の規則
+（ドライブ文字の後に区切りを入れない）だった、`CustomRooms` のマップフォルダが macOS のバンドルを
+見ていなかった、など（コミットメッセージに個別の記録）。
+
+**その後の共通化で見つけたずれ（修正済み）**: `decimal` の `F2` が偶数丸めだった（.NET は四捨五入）、
+`(float)decimal` が文字列経由だった（.NET は `VarR8FromDec`）、`FhTriggerFlags` を `[Flags]` として
+表示していた（C# では違う）、`GameMode` の数値解析が byte の範囲を見ていなかった、`Math.Clamp` の
+例外文が `float` を `1.000000` と書いていた、サムネイルのログがビルド日時の前に余分な `:` を付けていた、など。
+
+**`std::cout` と `Console`**: この移植では `std::cout` が `Console.Out` そのもの（`Console.SetOut`・
+デバッグログのティー・セットアップの報告はどれも `rdbuf` の差し替え）。`ConsoleWrite` は差し替えが
+あれば `std::cout` を通り、無ければハンドルに直接（Windows コンソールでは UTF-16）書く。どちらで
+書いても同じ行き先に届くので、`std::cout << ...` を書き換える必要はない。
+- `List.Sort`/`Array.Sort` のイントロソートが2ファイルにあり、`std::sort` の25か所は未監査。
+- `MapGen` の数値解析（`TryParseSingleInvariant`・Unicode 空白の切り詰め）が `Q3Convert`・`Q3Import`・
+  `MapBuilder`・`Features`・`SettingsView` に重複。
+
+---
+
+## 12e. C# のリフレクションで private を触るテスト
+
+`NetCombatCheck.cs` のような検査コードは `GetField("_spawnInvulnTimer", NonPublic)`、
+`GetMethod("Judge", NonPublic)` で private なメンバーを直接読み書きする。C++ では
+これを **公開アクセサを足して** 移すと、C# にない公開 API が増えてしまう。
+
+- 対象クラスに `friend class <検査クラス>;` を1行足し、検査側から直接触る
+  （例: `PlayerEntity`・`ServerSim`・`NetHitClaims` の `friend class NetCombatCheck;`）。
+- friend 宣言の横に「C# ではリフレクションで読んでいる」と一言残す。
+- `SetValue(obj, (ushort)1000)` のような型指定はそのまま代入で済むが、
+  フィールドの型が C# と違っていないか（`ushort` → `std::uint16_t`）は確認する。
+
+## 13. 調べたが問題がなかった項目（再調査の手間を省くため）
+
+2026-09-24 に機械的に全体を調べ、実害のある箇所がなかったもの。
+
+| 項目 | 方法 |
+|---|---|
+| C# の参照型をコピーして変更し、元に届かない | clang-query で「C# の class 型のローカル変数・値渡し引数がコピー構築されている」箇所を列挙。すべて C# でも struct の型だった |
+| C# の struct を `shared_ptr` で共有してしまう | C# の struct 名 227 個について `shared_ptr<T>` を検索。0 件 |
+| 基底クラスのコンストラクタから派生のオーバーライドを呼ぶ（C# は派生、C++ は基底が呼ばれる） | C# 側を走査。0 件 |
+| `Dictionary` の列挙順（C# は追加順、`unordered_map` は不定） | C# で foreach している辞書5つの C++ 側はすべて順序付きコンテナ |
+| ソートの安定性 | ゲーム処理のソートは整数のみ |
+| ループ中に同じコンテナへ追加・削除 | 該当なし |
+| 初期化されないフィールド（C# は 0 初期化） | clang-tidy `cppcoreguidelines-pro-type-member-init`。実害なし（`CollisionVolume` は memset 済み、バッファは使用前に埋まる） |
+| move 済み変数の使用 | clang-tidy `bugprone-use-after-move`。`Movie.cpp` の1件は C++17 の評価順で安全 |
+
+clang-tidy の実行例（コンパイルデータベースは clang で別途構成する）:
+
+```bash
+CC=clang CXX=clang++ cmake -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -S . -B /tmp/tidy
+run-clang-tidy -p /tmp/tidy -quiet -header-filter='.*/src/MphRead.Native/.*' \
+  -checks='-*,bugprone-use-after-move,bugprone-dangling-handle,cppcoreguidelines-pro-type-member-init,clang-diagnostic-unsequenced' \
+  'src/MphRead.Native/'
+```
+
+---
+
+## 14. 調査の手がかり（デバッグログ）
+
+ランチャー右下の「デバッグログ」をオンにすると、実行ファイルの横の
+`logs/FruityPrime-<日時>.log` と `-native.txt` に次が残る（Windows）。
+
+| 行 | 意味 |
+|---|---|
+| `[crash] first chance 0xC0000005 ... at FruityPrime.exe+0x... 関数名+0x..` | 不正アクセスが起きた場所と呼び出し履歴。ヒープ破損などで Windows が即終了させる場合も、`-native.txt` にヒープを使わない1行が残る |
+| `[crash] std::out_of_range ...` の下の `(thrown from)` | C++ 例外が**投げられた**場所（ログを書いた場所ではない） |
+| `[crash] the process is going down through abort()` | `abort()` で終了した場所 |
+| `[freeze] the window thread ... has not come back` | 描画ループが5秒以上止まった時のスタック。10秒ごとに再取得（場所が毎回違えばループ、同じなら待ち） |
+| `[save] read / wrote / artifact ... picked up` | ストーリーセーブの読み書きとアーティファクトの記録 |
+
+`addr2line 0x...` の値は MSYS2 で `addr2line -f -C -e FruityPrime.exe 0x...` に渡せば
+ファイルと行が出る。何も残らずに消えた場合は、Windows の「信頼性モニター」で例外コードと
+オフセットを見る（`0x40000015` は `abort()`、`0xC0000374` はヒープ破損、
+`0xC0000409` はスタック破損）。
+
+---
+
+## スキャナ（`tools/native-audit/`）
+
+```bash
+tools/native-audit/run_all.sh
+```
+
+| スクリプト | 対象 |
+|---|---|
+| `eval_order.py` | 項目1: 評価順が未規定の場所に副作用のある呼び出しが2つ以上 |
+| `name_shadow.py` | 項目2: ヘルパー関数の呼び出しがクラスに解決される |
+| `slot_alias.py` | 項目3: コンテナ要素の参照を渡した先・保持中にそのコンテナを変更 |
+| `thread_local_dtor.py` | 項目4: `thread_local` の一覧（型を見て判断） |
+| `scene_lookup.py` | 項目12c: シーンを走査して `.get() == ポインタ` の要素を返す・保持する |
+| `helper_copies.py` | 項目12d: 共通化済みのヘルパーをファイル内で再定義している |
+
+どれも文字列ベースの近似で、ヒットは「読むべき場所」、ゼロは「知っている形はない」
+という意味でしかない。2026-09-24 時点の既知の無害なヒット:
+
+- `eval_order.py`: `Q3Bsp.cpp` の `r.ReadSingle()` 群（`{}` 初期化なので左から）、
+  `Archive.cpp` の固定オフセット読み、`Menu.cpp` の `ReadX(ReadLine())`（入れ子）
+- `name_shadow.py`: `Utility/Compress.cpp` の `Read()`（クラス側に一致するコンストラクタがない）
+- `thread_local_dtor.py`: 列挙される9件はすべて自明に破棄できる型か、対策済み

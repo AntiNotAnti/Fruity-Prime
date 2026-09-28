@@ -1,0 +1,473 @@
+#include "36_Voldrum.hpp"
+
+#include "../../Metadata/Enemies.hpp"
+#include "../../Metadata/Weapons.hpp"
+#include "../../Scene.hpp"
+#include "../../Utility/Rng.hpp"
+#include "../BeamProjectileEntity.hpp"
+#include "../EnemySpawnEntity.hpp"
+#include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
+#include "../../Formats/Types.hpp"
+
+#include <array>
+#include <bit>
+#include <cassert>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <optional>
+#include <utility>
+#include <vector>
+
+using ::MphRead::NativeRuntime::ManagedAt;
+using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UInt32ToInt32;
+using ::OpenTK::Mathematics::AddX;
+using ::OpenTK::Mathematics::Equal;
+using ::OpenTK::Mathematics::Length;
+using ::OpenTK::Mathematics::LengthSquared;
+using ::OpenTK::Mathematics::MathHelper::RadiansToDegrees;
+using ::OpenTK::Mathematics::ScaleVector;
+using ::OpenTK::Mathematics::WithY;
+
+namespace MphRead::Entities::Enemies
+{
+    namespace
+    {
+        using OpenTK::Mathematics::Vector3;
+
+        [[nodiscard]] std::uint16_t TimesTwo(std::uint16_t value) noexcept
+        {
+            return static_cast<std::uint16_t>(
+                static_cast<std::uint32_t>(value) * 2U);
+        }
+
+        [[nodiscard]] std::uint16_t GetShotCount(const Enemy36Values& values)
+        {
+            const std::int32_t range
+                = static_cast<std::int32_t>(values.MaxShots)
+                + 1
+                - static_cast<std::int32_t>(values.MinShots);
+            const std::uint32_t random = Rng::GetRandomInt2(range);
+            return static_cast<std::uint16_t>(
+                static_cast<std::uint32_t>(values.MinShots) + random);
+        }
+
+    }
+
+    const std::array<std::int32_t, 11> Enemy36Entity::_recolors{
+        0, 1, 0, 4, 0, 3, 2, 0, 0, 0, 0
+    };
+
+    Enemy36Entity::Enemy36Entity(EnemyInstanceEntityData data,
+        Formats::Culling::NodeRef nodeRef, Scene* scene)
+        : Enemy35Entity(data, nodeRef, scene)
+    {
+        auto processes = std::make_shared<ManagedArray<std::function<void()>>>(6);
+        (*processes)[0] = [this]() { State0(); };
+        (*processes)[1] = [this]() { State1(); };
+        (*processes)[2] = [this]() { State2(); };
+        (*processes)[3] = [this]() { State3(); };
+        (*processes)[4] = [this]() { State4(); };
+        (*processes)[5] = [this]() { State5(); };
+        _stateProcesses = std::move(processes);
+    }
+
+    void Enemy36Entity::Setup()
+    {
+        EnemySpawnEntity& spawner = RequireReference(_spawner);
+
+        const std::int32_t version = UInt32ToInt32(
+            static_cast<std::uint32_t>(spawner.Data.Fields.S06().EnemyVersion));
+        if (version < 0 || static_cast<std::size_t>(version) >= _recolors.size())
+        {
+            throw SceneDetail::IndexOutOfRangeException();
+        }
+        SetRecolor(_recolors[static_cast<std::size_t>(version)]);
+
+        const std::int32_t subtype = UInt32ToInt32(
+            static_cast<std::uint32_t>(spawner.Data.Fields.S06().EnemySubtype));
+        _values = ManagedAt(Metadata::Enemy36Values, subtype);
+
+        Vector3 facing = spawner.Data.Header.FacingVector.ToFloatVector().Normalized();
+        Vector3 up = FixParallelVectors(facing, Vector3(0.0F, 1.0F, 0.0F));
+        if (Equal(facing, Vector3(0.0F, 1.0F, 0.0F)))
+        {
+            Vector3 swap = facing;
+            facing = up;
+            up = swap;
+        }
+        SetTransform(
+            facing, up, spawner.Data.Header.Position.ToFloatVector());
+        Flags |= EnemyFlags::Visible;
+        Flags |= EnemyFlags::OnRadar;
+        _boundingRadius = 0.5F;
+        _hurtVolumeInit = CollisionVolume(spawner.Data.Fields.S06().Volume0);
+        _homeVolume = CollisionVolume::Move(
+            spawner.Data.Fields.S06().Volume1, Position);
+        assert(_homeVolume.Type == VolumeType::Cylinder);
+        _health = _healthMax = _values.HealthMax;
+        Metadata::LoadEffectiveness(_values.Effectiveness, BeamEffectiveness);
+        _scanId = _values.ScanId;
+
+        const Weapons::WeaponList& enemyWeapons
+            = RequireReference(Weapons::EnemyWeapons);
+        if (version < 0
+            || static_cast<std::size_t>(version) >= enemyWeapons.size())
+        {
+            throw SceneDetail::IndexOutOfRangeException();
+        }
+        const std::shared_ptr<WeaponInfo> weapon
+            = enemyWeapons[static_cast<std::size_t>(version)];
+        _equipInfo1 = std::make_shared<EquipInfo>(weapon, _beams);
+        _equipInfo2 = std::make_shared<EquipInfo>(weapon, _beams);
+
+        _equipInfo1->SetGetAmmo([this]() { return _ammo1; });
+        _equipInfo1->SetSetAmmo(
+            [this](std::int32_t newAmmo) { _ammo1 = newAmmo; });
+        _equipInfo1->SetGetAmmo([this]() { return _ammo2; });
+        _equipInfo1->SetSetAmmo(
+            [this](std::int32_t newAmmo) { _ammo2 = newAmmo; });
+        _equipInfo1->UnchargedDamage(_values.BeamDamage);
+        _equipInfo1->SplashDamage(_values.SplashDamage);
+        _equipInfo2->UnchargedDamage(_values.BeamDamage);
+        _equipInfo2->SplashDamage(_values.SplashDamage);
+
+        const float minFactor = Fixed::ToFloat(_values.MinSpeedFactor);
+        const float maxFactor = Fixed::ToFloat(_values.MaxSpeedFactor);
+        _minSpeedFactor = minFactor / 2.0F;
+        _maxSpeedFactor = maxFactor / 2.0F;
+        _speedFactor = minFactor / 2.0F;
+        _speedInc = (maxFactor - minFactor)
+            * (1.0F / static_cast<float>(_values.SpeedSteps));
+        _speedInc /= 2.0F;
+        _speedIncAmount = _speedInc;
+        _delayTimer = TimesTwo(_values.DelayTime);
+        _shotTimer = TimesTwo(_values.ShotTime);
+        _shotCount = GetShotCount(_values);
+        _aimStepCount = TimesTwo(_values.AimSteps);
+
+        if (spawner.Data.SpawnerHealth == 0
+            || (std::fabs(Position.X - _homeVolume.CylinderPosition.X)
+                    < 1.0F / 4096.0F
+                && std::fabs(Position.Z - _homeVolume.CylinderPosition.Z)
+                    < 1.0F / 4096.0F))
+        {
+            PickRoamTarget();
+        }
+        else
+        {
+            UpdateMoveTarget(WithY(_homeVolume.CylinderPosition, Position.Y));
+        }
+        _state1 = _state2 = 1;
+        _subId = _state1;
+
+        if (36 >= static_cast<std::int32_t>(Metadata::EnemyModelNames.size()))
+        {
+            throw SceneDetail::IndexOutOfRangeException();
+        }
+        ModelInstance& inst = SetUpModel(Metadata::EnemyModelNames[36], 5);
+        (void)inst;
+    }
+
+    void Enemy36Entity::EnemyProcess()
+    {
+        bool sfxGrounded = true;
+        if (!_grounded)
+        {
+            _speed.Y -= Fixed::ToFloat(110) / 4.0F;
+        }
+        if (_state1 == 2 || _state1 == 3)
+        {
+            bool discard = false;
+            if (!HandleBlockingCollision(
+                    Position, _hurtVolume, true, _grounded, discard))
+            {
+                sfxGrounded = false;
+            }
+        }
+        else if (_state1 != 1 && _state1 != 4)
+        {
+            if (!HandleCollision())
+            {
+                sfxGrounded = false;
+            }
+        }
+        if (_state1 != 0 && _state1 != 5)
+        {
+            (void)ContactDamagePlayer(_values.ContactDamage, true);
+        }
+        CallStateProcess();
+        if (_state1 != 0)
+        {
+            sfxGrounded = false;
+        }
+        const float amount
+            = 0xFFFF * _speedFactor * 2.0F / (_maxSpeedFactor * 2.0F);
+        UpdateRollSfx(amount, sfxGrounded);
+    }
+
+    bool Enemy36Entity::HandleCollision()
+    {
+        return Enemy35Entity::HandleCollision(4, 5);
+    }
+
+    void Enemy36Entity::State0()
+    {
+        UpdateSpeed();
+        (void)CallSubroutine<Enemy36Entity>(Metadata::Enemy36Subroutines, this);
+    }
+
+    void Enemy36Entity::State1()
+    {
+        (void)CallSubroutine<Enemy36Entity>(Metadata::Enemy36Subroutines, this);
+    }
+
+    void Enemy36Entity::UpdateFacing()
+    {
+        _speed = Vector3::Zero;
+        Vector3 facing = (
+            static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
+            - static_cast<Vector3>(Position)).Normalized();
+        if (facing.Y > 0.5F)
+        {
+            facing = WithY(facing, 0.5F).Normalized();
+        }
+        else if (facing.Y < -0.5F)
+        {
+            facing = WithY(facing, -0.5F).Normalized();
+        }
+        SetTransform(facing, UpVector(), Position);
+    }
+
+    void Enemy36Entity::State2()
+    {
+        UpdateFacing();
+        (void)CallSubroutine<Enemy36Entity>(Metadata::Enemy36Subroutines, this);
+    }
+
+    void Enemy36Entity::State3()
+    {
+        UpdateFacing();
+        if (_shotCount > 0 && _shotTimer > 0)
+        {
+            --_shotTimer;
+        }
+        else
+        {
+            const Vector3 facing = FacingVector();
+            const Vector3 spawnPos1 = AddX(
+                static_cast<Vector3>(Position), -0.43F);
+            const Vector3 spawnPos2 = AddX(
+                static_cast<Vector3>(Position), 0.43F);
+
+            EquipInfo& equip1 = RequireReference(_equipInfo1);
+            equip1.UnchargedDamage(_values.BeamDamage);
+            equip1.SplashDamage(_values.SplashDamage);
+            equip1.HeadshotDamage(_values.BeamDamage);
+            EquipInfo& equip2 = RequireReference(_equipInfo2);
+            equip2.UnchargedDamage(_values.BeamDamage);
+            equip2.SplashDamage(_values.SplashDamage);
+            equip2.HeadshotDamage(_values.BeamDamage);
+
+            const std::shared_ptr<EntityBase> source = SharedFrom<EntityBase>(this);
+            (void)BeamProjectileEntity::Spawn(
+                source,
+                _equipInfo1,
+                spawnPos1,
+                facing,
+                BeamSpawnFlags::None,
+                NodeRef,
+                _scene);
+            (void)BeamProjectileEntity::Spawn(
+                source,
+                _equipInfo2,
+                spawnPos2,
+                facing,
+                BeamSpawnFlags::None,
+                NodeRef,
+                _scene);
+
+            --_shotCount;
+            _delayTimer = TimesTwo(_values.DelayTime);
+            _shotTimer = TimesTwo(_values.ShotTime);
+            _models[0].SetAnimation(0);
+            _soundSource.PlaySfx(SfxId::GUARD_BOT_ATTACK2);
+        }
+        (void)CallSubroutine<Enemy36Entity>(Metadata::Enemy36Subroutines, this);
+    }
+
+    void Enemy36Entity::State4()
+    {
+        (void)CallSubroutine<Enemy36Entity>(Metadata::Enemy36Subroutines, this);
+    }
+
+    void Enemy36Entity::State5()
+    {
+        State0();
+    }
+
+    bool Enemy36Entity::Behavior00()
+    {
+        const bool collided = HandleCollision();
+        if (!SeekTargetFacing(_targetVec, UpVector(), _aimSteps, _aimAngleStep)
+            || !collided)
+        {
+            return false;
+        }
+        _speedInc = _speedIncAmount;
+        _speedFactor = _minSpeedFactor;
+        _speed = WithY(ScaleVector(FacingVector(), _speedFactor), 0.0F);
+        _airborne = false;
+        _timeInAir = 0;
+        return true;
+    }
+
+    bool Enemy36Entity::Behavior01()
+    {
+        if (_delayTimer > 0)
+        {
+            --_delayTimer;
+            return false;
+        }
+        _delayTimer = TimesTwo(_values.DelayTime);
+        return true;
+    }
+
+    bool Enemy36Entity::Behavior02()
+    {
+        if (_shotCount > 0)
+        {
+            return false;
+        }
+        PickRoamTarget();
+        _delayTimer = TimesTwo(_values.DelayTime);
+        _shotTimer = TimesTwo(_values.ShotTime);
+        _shotCount = GetShotCount(_values);
+        _models[0].SetAnimation(5);
+        return true;
+    }
+
+    bool Enemy36Entity::Behavior03()
+    {
+        const Vector3 between
+            = static_cast<Vector3>(Position) - _moveStart;
+        if (LengthSquared(between) <= _moveDistSqr
+            && (!_airborne || _timeInAir <= 5 * 2))
+        {
+            return false;
+        }
+        PickRoamTarget();
+        if (_state1 == 5)
+        {
+            _targetVec = WithY(
+                static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
+                    - static_cast<Vector3>(Position),
+                0.0F).Normalized();
+            const float angle = RadiansToDegrees(
+                std::acos(Vector3::Dot(FacingVector(), _targetVec)));
+            _aimSteps = _aimStepCount;
+            _aimAngleStep = angle / static_cast<float>(_aimSteps);
+        }
+        _speed = Vector3(
+            0.0F, Fixed::ToFloat(_values.JumpSpeed) / 2.0F, 0.0F);
+        _timeInAir = 0;
+        _airborne = false;
+        return true;
+    }
+
+    bool Enemy36Entity::Behavior04()
+    {
+        const std::int32_t slotIndex = RequireReference(PlayerEntity::Main()).SlotIndex();
+        if (slotIndex < 0
+            || static_cast<std::size_t>(slotIndex) >= HitPlayers.size())
+        {
+            throw SceneDetail::IndexOutOfRangeException();
+        }
+        if (!HitPlayers[static_cast<std::size_t>(slotIndex)])
+        {
+            return false;
+        }
+
+        const Vector3 between
+            = RequireReference(PlayerEntity::Main()).Volume().SpherePosition - static_cast<Vector3>(Position);
+        const float mag = Length(between) * 5.0F;
+        PlayerEntity& speedTarget = RequireReference(PlayerEntity::Main());
+        const float speedX = RequireReference(PlayerEntity::Main()).Speed().X + between.X / mag;
+        const float speedY = RequireReference(PlayerEntity::Main()).Speed().Y;
+        const float speedZ = RequireReference(PlayerEntity::Main()).Speed().Z + between.Z / mag;
+        speedTarget.SetSpeed(Vector3(speedX, speedY, speedZ));
+        RequireReference(PlayerEntity::Main()).TakeDamage(
+            _values.ContactDamage, DamageFlags::NoDmgInvuln, std::nullopt, this);
+
+        PickRoamTarget();
+        if (_state1 == 5)
+        {
+            _targetVec = WithY(
+                static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
+                    - static_cast<Vector3>(Position),
+                0.0F).Normalized();
+            const float angle = RadiansToDegrees(
+                std::acos(Vector3::Dot(FacingVector(), _targetVec)));
+            _aimSteps = _aimStepCount;
+            _aimAngleStep = angle / static_cast<float>(_aimSteps);
+        }
+        _speed = Vector3(
+            0.0F, Fixed::ToFloat(_values.JumpSpeed) / 2.0F, 0.0F);
+        _timeInAir = 0;
+        _airborne = false;
+        return true;
+    }
+
+    bool Enemy36Entity::Behavior05()
+    {
+        if (RequireReference(PlayerEntity::Main()).Health() == 0)
+        {
+            return false;
+        }
+        const Vector3 between = (
+            static_cast<Vector3>(RequireReference(PlayerEntity::Main()).Position)
+            - static_cast<Vector3>(Position)).Normalized();
+        if (Vector3::Dot(FacingVector(), between)
+            <= Fixed::ToFloat(_values.RangeMaxCosine))
+        {
+            return false;
+        }
+        _speed = Vector3::Zero;
+        return true;
+    }
+
+    bool Enemy36Entity::Behavior00(Enemy36Entity* enemy)
+    {
+        return RequireReference(enemy).Behavior00();
+    }
+
+    bool Enemy36Entity::Behavior01(Enemy36Entity* enemy)
+    {
+        return RequireReference(enemy).Behavior01();
+    }
+
+    bool Enemy36Entity::Behavior02(Enemy36Entity* enemy)
+    {
+        return RequireReference(enemy).Behavior02();
+    }
+
+    bool Enemy36Entity::Behavior03(Enemy36Entity* enemy)
+    {
+        return RequireReference(enemy).Behavior03();
+    }
+
+    bool Enemy36Entity::Behavior04(Enemy36Entity* enemy)
+    {
+        return RequireReference(enemy).Behavior04();
+    }
+
+    bool Enemy36Entity::Behavior05(Enemy36Entity* enemy)
+    {
+        return RequireReference(enemy).Behavior05();
+    }
+}
