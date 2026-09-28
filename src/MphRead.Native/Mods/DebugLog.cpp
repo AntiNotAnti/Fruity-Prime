@@ -27,6 +27,7 @@
 #include <chrono>
 #include <climits>
 #include <csignal>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -71,7 +72,10 @@
 #include <sys/utsname.h>
 #include <unistd.h>
 #else
-#if !defined(__ANDROID__)
+#if defined(__ANDROID__)
+#include <dlfcn.h>
+#include <unwind.h>
+#else
 #include <execinfo.h>
 #endif
 #include <fcntl.h>
@@ -789,6 +793,89 @@ namespace
     thread_local bool InFaultHandler = false;
 #endif
 
+#if defined(__ANDROID__)
+    struct AndroidStackCapture final
+    {
+        std::array<void*, 64> Frames{};
+        std::size_t Count = 0;
+    };
+
+    [[nodiscard]] _Unwind_Reason_Code CaptureAndroidFrame(struct _Unwind_Context* context,
+        void* state) noexcept
+    {
+        auto& capture = *static_cast<AndroidStackCapture*>(state);
+        if (capture.Count == capture.Frames.size())
+        {
+            return _URC_END_OF_STACK;
+        }
+        const _Unwind_Word instruction = _Unwind_GetIP(context);
+        if (instruction != 0)
+        {
+            capture.Frames[capture.Count++] = reinterpret_cast<void*>(
+                static_cast<std::uintptr_t>(instruction));
+        }
+        return _URC_NO_REASON;
+    }
+
+    [[nodiscard]] std::vector<void*> CaptureAndroidStack(std::size_t skip)
+    {
+        // _Unwind_Backtrace includes this helper as its first frame. The
+        // callers also skip the same wrapper frames as their POSIX paths.
+        AndroidStackCapture capture{};
+        (void)_Unwind_Backtrace(CaptureAndroidFrame, &capture);
+        const std::size_t first = std::min(skip, capture.Count);
+        return std::vector<void*>(capture.Frames.begin() + static_cast<std::ptrdiff_t>(first),
+            capture.Frames.begin() + static_cast<std::ptrdiff_t>(capture.Count));
+    }
+
+    [[nodiscard]] std::string DescribeAndroidAddress(const void* address)
+    {
+        Dl_info info{};
+        if (::dladdr(address, &info) != 0)
+        {
+            if (info.dli_sname != nullptr && *info.dli_sname != '\0')
+            {
+                std::string name(info.dli_sname);
+#if defined(__GNUG__)
+                int status = -1;
+                std::unique_ptr<char, decltype(&std::free)> demangled(
+                    abi::__cxa_demangle(info.dli_sname, nullptr, nullptr, &status), &std::free);
+                if (demangled != nullptr)
+                {
+                    name = demangled.get();
+                }
+#endif
+                if (info.dli_saddr != nullptr)
+                {
+                    const auto frame = reinterpret_cast<std::uintptr_t>(address);
+                    const auto symbol = reinterpret_cast<std::uintptr_t>(info.dli_saddr);
+                    if (frame > symbol)
+                    {
+                        std::ostringstream suffix;
+                        suffix.imbue(std::locale::classic());
+                        suffix << "+0x" << std::hex << (frame - symbol);
+                        name.append(suffix.str());
+                    }
+                }
+                return name;
+            }
+            if (info.dli_fname != nullptr && info.dli_fbase != nullptr)
+            {
+                std::ostringstream module;
+                module.imbue(std::locale::classic());
+                module << info.dli_fname << "+0x" << std::hex
+                    << (reinterpret_cast<std::uintptr_t>(address)
+                        - reinterpret_cast<std::uintptr_t>(info.dli_fbase));
+                return module.str();
+            }
+        }
+        std::ostringstream fallback;
+        fallback.imbue(std::locale::classic());
+        fallback << "0x" << std::hex << reinterpret_cast<std::uintptr_t>(address);
+        return fallback.str();
+    }
+#endif
+
     [[nodiscard]] std::optional<std::string> NativeStackTrace()
     {
 #if defined(_WIN32)
@@ -831,7 +918,20 @@ namespace
         return text.empty() ? std::nullopt
             : std::optional<std::string>(text);
 #elif defined(__ANDROID__)
-        return std::nullopt;
+        std::string result;
+        // Skip this helper, NativeStackTrace, and ExceptionStackTrace, as
+        // the POSIX backtrace path skips its first two frames.
+        for (const void* frame : CaptureAndroidStack(3))
+        {
+            if (!result.empty())
+            {
+                result.append(::MphRead::NativeRuntime::EnvironmentNewLine());
+            }
+            result.append("   at ");
+            result.append(DescribeAndroidAddress(frame));
+        }
+        return result.empty() ? std::nullopt
+            : std::optional<std::string>(std::move(result));
 #else
         std::array<void*, 64> frames{};
         const int count = ::backtrace(frames.data(),
@@ -1649,7 +1749,8 @@ namespace MphRead::Mods
             frames.erase(frames.begin());
         }
 #else
-        frames.clear();
+        // Skip this helper and CaptureStack itself, as the POSIX path does.
+        frames = CaptureAndroidStack(2);
 #endif
         return frames;
     }
@@ -1676,6 +1777,11 @@ namespace MphRead::Mods
             {
                 Line(category, std::string("   at ") + (symbols.get()[index] ? symbols.get()[index] : "?"));
             }
+        }
+#else
+        for (const void* frame : frames)
+        {
+            Line(category, std::string("   at ") + DescribeAndroidAddress(frame));
         }
 #endif
         FlushWriterNoThrow();
@@ -1707,6 +1813,12 @@ namespace MphRead::Mods
             {
                 Line(category, std::string("   at ") + (symbols.get()[index] ? symbols.get()[index] : "?"));
             }
+        }
+#else
+        // Skip this helper and Stack itself, as the POSIX path does.
+        for (const void* frame : CaptureAndroidStack(2))
+        {
+            Line(category, std::string("   at ") + DescribeAndroidAddress(frame));
         }
 #endif
         FlushWriterNoThrow();
