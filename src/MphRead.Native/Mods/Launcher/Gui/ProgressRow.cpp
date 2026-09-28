@@ -1,11 +1,14 @@
 #include "ProgressRow.hpp"
 
+#include "../../../NativeRuntime/System/Managed.hpp"
+
 #include <algorithm>
 #include <cmath>
 
 namespace MphRead::Mods::Launcher::Gui
 {
     using namespace ::MphRead::NativeRuntime::Avalonia;
+    using ::MphRead::NativeRuntime::RoundToEven;
 
     ProgressRow::ProgressRow()
     {
@@ -31,7 +34,7 @@ namespace MphRead::Mods::Launcher::Gui
             GuiTheme::Face(false), 12, GuiTheme::TextDimBrush);
         context.DrawText(stage, Point{0, 2});
 
-        const std::string percent = std::to_string(static_cast<std::int32_t>(std::round(_fraction * 100))) + "%";
+        const std::string percent = std::to_string(static_cast<std::int32_t>(RoundToEven(_fraction * 100))) + "%";
         const Media::FormattedText number(percent, Media::InvariantCulture, Media::FlowDirection::LeftToRight,
             GuiTheme::Face(true), 12, GuiTheme::TextBrush);
         context.DrawText(number, Point{width - number.Width(), 2});
