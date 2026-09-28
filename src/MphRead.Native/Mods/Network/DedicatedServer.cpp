@@ -1386,7 +1386,7 @@ namespace MphRead::Mods::Network
         }
         peer->PingPending = false;
         peer->LastSeen = now;
-        std::int32_t rtt = static_cast<std::int32_t>(Runtime::RoundToEven((now - peer->PingSentAt) * 1000));
+        std::int32_t rtt = Runtime::ConvertToInt32Net9(Runtime::RoundToEven((now - peer->PingSentAt) * 1000));
         rtt = std::clamp(rtt, 0, 9999);
         peer->Ping = peer->Ping == 0 ? rtt : (peer->Ping * 2 + rtt) / 3;
     }
