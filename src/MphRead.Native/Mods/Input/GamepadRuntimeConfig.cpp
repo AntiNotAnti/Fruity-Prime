@@ -3,6 +3,7 @@
 #include "ControllerLayoutState.hpp"
 #include "GamepadOptionState.hpp"
 #include "PadBindingState.hpp"
+#include "../../NativeRuntime/System/ThreadStatic.hpp"
 
 namespace MphRead::Mods::Input
 {
@@ -32,8 +33,8 @@ namespace MphRead::Mods::Input
 
     std::shared_ptr<GamepadRuntimeConfig>& GamepadRuntimeConfig::Frame()
     {
-        thread_local std::shared_ptr<GamepadRuntimeConfig> frame{};
-        return frame;
+        static ::MphRead::NativeRuntime::ThreadStatic<std::shared_ptr<GamepadRuntimeConfig>> frame;
+        return frame.Value();
     }
 
     std::shared_ptr<GamepadRuntimeConfig> GamepadRuntimeConfig::Current()
