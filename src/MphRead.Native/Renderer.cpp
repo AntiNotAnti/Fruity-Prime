@@ -1042,7 +1042,6 @@ namespace MphRead
                     textureHeight = texture.Height;
                 }
                 listId = GL::GenLists(1);
-                tempListIds.emplace(mesh->DlistId, listId);
                 _displayLists.insert(listId);
                 if (std::find(_displayListModels.begin(), _displayListModels.end(), model)
                     == _displayListModels.end())
