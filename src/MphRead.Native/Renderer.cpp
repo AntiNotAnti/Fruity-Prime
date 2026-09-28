@@ -6050,9 +6050,11 @@ namespace MphRead
 #if defined(MPHREAD_SHELL)
         Mods::Launcher::Gui::Shell::BeforeFrame(*this);
         Mods::Launcher::Gui::Shell::TickEndPanel();
-        Mods::Launcher::Gui::Shell::TickUi(*this);
         if (_scene == nullptr)
         {
+            // With no game scene the launcher owns the whole frame, so its
+            // Ganesh pass may run before the launcher background/composite.
+            Mods::Launcher::Gui::Shell::TickUi(*this);
             _window->Cursor(RendererPlatform::CursorState::Normal);
             Mods::Input::PointerDevice::Reset();
             const Vector2i framebuffer = FramebufferSize();
@@ -6147,6 +6149,11 @@ namespace MphRead
             return;
         }
 #if defined(MPHREAD_SHELL)
+        // Never let Skia/Ganesh run before the game's OpenGL scene. The UI
+        // shares the window context only as a compositor backend; map/model/
+        // HUD rendering above remains entirely on the existing OpenGL path.
+        // When the UI is hidden TickUi performs no Ganesh render at all.
+        Mods::Launcher::Gui::Shell::TickUi(*this);
         const Vector2i framebuffer = FramebufferSize();
         Mods::Render::UiOverlay::Draw(framebuffer.X, framebuffer.Y);
         Mods::Render::LauncherHunter::Draw(*this, framebuffer.X, framebuffer.Y);
