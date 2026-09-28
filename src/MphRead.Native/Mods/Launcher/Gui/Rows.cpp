@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 
 namespace MphRead::Mods::Launcher::Gui
 {
@@ -34,17 +35,23 @@ namespace MphRead::Mods::Launcher::Gui
         return {std::min(Label().Width() + 8, availableSize.Width), size.Height};
     }
 
-    Media::FormattedText Caption::Label() const
+    const Media::FormattedText& Caption::Label() const
     {
-        return Text(::MphRead::NativeRuntime::ToUpperInvariant(_text), true, 11, GuiTheme::TextDimBrush);
+        if (!_labelLayout)
+        {
+            _labelLayout.emplace(Text(::MphRead::NativeRuntime::ToUpperInvariant(_text),
+                true, 11, GuiTheme::TextDimBrush));
+        }
+        return *_labelLayout;
     }
 
     void Caption::Render(Media::DrawingContext& context)
     {
-        const Media::FormattedText text = Label();
+        const Media::FormattedText& text = Label();
         context.DrawText(text, Point{0, Bounds().Height - text.Height() - 4});
         const double y = Bounds().Height - 2;
-        context.DrawLine(std::make_shared<Media::Pen>(GuiTheme::EdgeBrush, 1), Point{0, y}, Point{Bounds().Width, y});
+        context.DrawLine(std::make_shared<Media::Pen>(GuiTheme::EdgeBrush, 1),
+            Point{0, y}, Point{Bounds().Width, y});
     }
 
     // ---------------------------------------------------------- ChoiceRow
@@ -64,6 +71,7 @@ namespace MphRead::Mods::Launcher::Gui
         if (clamped != _index)
         {
             _index = clamped;
+            ClearValueLayout();
             InvalidateVisual();
             Changed(*this);
         }
@@ -73,6 +81,7 @@ namespace MphRead::Mods::Launcher::Gui
     {
         _options = std::move(options);
         _index = _options.empty() ? 0 : std::clamp(index, 0, static_cast<std::int32_t>(_options.size()) - 1);
+        ClearValueLayout();
         InvalidateVisual();
     }
 
@@ -95,6 +104,38 @@ namespace MphRead::Mods::Launcher::Gui
     Rect ChoiceRow::RightArrow() const
     {
         return Rect(Bounds().Width - PreviewRoom() - ArrowWidth, 0, ArrowWidth, Bounds().Height);
+    }
+
+    const Media::FormattedText& ChoiceRow::LabelLayout() const
+    {
+        if (!_labelLayout)
+        {
+            _labelLayout.emplace(Text(_label, false, 13, GuiTheme::TextDimBrush));
+        }
+        return *_labelLayout;
+    }
+
+    const Media::FormattedText& ChoiceRow::ValueLayout(double room) const
+    {
+        if (!_valueLayout || !_valueLayoutRoom || *_valueLayoutRoom != room)
+        {
+            _valueLayout.emplace(Text(Value(), true, 13, GuiTheme::TextBrush));
+            if (_valueLayout->Width() > room)
+            {
+                _valueLayout->MaxTextWidth(std::max(20.0, room));
+                // One line, whatever the trimming decides.
+                _valueLayout->MaxTextHeight(13 * 1.9);
+                _valueLayout->Trimming(Media::TextTrimming::CharacterEllipsis);
+            }
+            _valueLayoutRoom = room;
+        }
+        return *_valueLayout;
+    }
+
+    void ChoiceRow::ClearValueLayout() noexcept
+    {
+        _valueLayout.reset();
+        _valueLayoutRoom.reset();
     }
 
     void ChoiceRow::OnPointerMoved(Input::PointerEventArgs& e)
@@ -172,6 +213,7 @@ namespace MphRead::Mods::Launcher::Gui
         // Wrapping, because the lists are short.
         const auto count = static_cast<std::int32_t>(_options.size());
         _index = (_index + direction + count) % count;
+        ClearValueLayout();
         InvalidateVisual();
         Changed(*this);
     }
@@ -184,20 +226,13 @@ namespace MphRead::Mods::Launcher::Gui
         {
             context.FillRectangle(GuiTheme::PanelLightBrush, Rect(0, 0, Bounds().Width, Bounds().Height), 4);
         }
-        const Media::FormattedText label = Text(_label, false, 13, GuiTheme::TextDimBrush);
+        const Media::FormattedText& label = LabelLayout();
         context.DrawText(label, Point{4, (Bounds().Height - label.Height()) / 2});
 
         // The value lives in the fixed column between the arrows.
-        Media::FormattedText value = Text(Value(), true, 13, GuiTheme::TextBrush);
         const Rect left = LeftArrow();
         const double room = RightArrow().X - left.Right() - 8;
-        if (value.Width() > room)
-        {
-            value.MaxTextWidth(std::max(20.0, room));
-            // One line, whatever the trimming decides.
-            value.MaxTextHeight(13 * 1.9);
-            value.Trimming(Media::TextTrimming::CharacterEllipsis);
-        }
+        const Media::FormattedText& value = ValueLayout(room);
         const double centre = (left.Right() + RightArrow().X) / 2;
         context.DrawText(value, Point{centre - value.Width() / 2, (Bounds().Height - value.Height()) / 2});
 
@@ -312,7 +347,11 @@ namespace MphRead::Mods::Launcher::Gui
         {
             context.FillRectangle(GuiTheme::PanelLightBrush, Rect(0, 0, Bounds().Width, Bounds().Height), 4);
         }
-        const Media::FormattedText label = Text(_label, false, 13, GuiTheme::TextDimBrush);
+        if (!_labelLayout)
+        {
+            _labelLayout.emplace(Text(_label, false, 13, GuiTheme::TextDimBrush));
+        }
+        const Media::FormattedText& label = *_labelLayout;
         context.DrawText(label, Point{4, (Bounds().Height - label.Height()) / 2});
 
         constexpr double w = 40;

@@ -24,8 +24,9 @@ namespace MphRead::Mods::Launcher::Gui
         Av::Size MeasureOverride(Av::Size availableSize) override;
 
     private:
-        [[nodiscard]] Av::Media::FormattedText Label() const;
+        [[nodiscard]] const Av::Media::FormattedText& Label() const;
         const std::string _text;
+        mutable std::optional<Av::Media::FormattedText> _labelLayout{};
     };
 
     // One setting with a fixed set of answers: a label, the current answer,
@@ -67,12 +68,18 @@ namespace MphRead::Mods::Launcher::Gui
         [[nodiscard]] double PreviewRoom() const { return _preview ? PreviewWidth : 0; }
         [[nodiscard]] Av::Rect LeftArrow() const;
         [[nodiscard]] Av::Rect RightArrow() const;
+        [[nodiscard]] const Av::Media::FormattedText& LabelLayout() const;
+        [[nodiscard]] const Av::Media::FormattedText& ValueLayout(double room) const;
+        void ClearValueLayout() noexcept;
         void Step(std::int32_t direction);
         static void Arrow(Av::Media::DrawingContext& context, Av::Rect area, bool pointsLeft, bool hot);
 
         const std::string _label;
         std::vector<std::string> _options;
         std::int32_t _index = 0;
+        mutable std::optional<Av::Media::FormattedText> _labelLayout{};
+        mutable std::optional<Av::Media::FormattedText> _valueLayout{};
+        mutable std::optional<double> _valueLayoutRoom{};
         bool _leftHot = false;
         bool _rightHot = false;
         Tap _tap;
@@ -103,6 +110,7 @@ namespace MphRead::Mods::Launcher::Gui
     private:
         const std::string _label;
         bool _on = false;
+        mutable std::optional<Av::Media::FormattedText> _labelLayout{};
         Tap _tap;
     };
 
