@@ -8,6 +8,7 @@
 #include "../OpenTK/GLFW.hpp"
 
 #include <include/core/SkBlendMode.h>
+#include <include/core/SkBlurTypes.h>
 #include <include/core/SkCanvas.h>
 #include <include/core/SkColor.h>
 #include <include/core/SkData.h>
@@ -20,6 +21,7 @@
 #include <include/core/SkMatrix.h>
 #include <include/core/SkPaint.h>
 #include <include/core/SkPath.h>
+#include <include/core/SkPathBuilder.h>
 #include <include/core/SkPathEffect.h>
 #include <include/core/SkPixmap.h>
 #include <include/core/SkSamplingOptions.h>
@@ -330,32 +332,33 @@ namespace MphRead::NativeRuntime::Skia
     {
         [[nodiscard]] static ::SkPath Path(const Skia::Path& source)
         {
-            ::SkPath path;
-            path.setFillType(source.Rule == FillRule::EvenOdd ? ::SkPathFillType::kEvenOdd : ::SkPathFillType::kWinding);
+            ::SkPathBuilder builder;
+            builder.setFillType(source.Rule == FillRule::EvenOdd
+                ? ::SkPathFillType::kEvenOdd : ::SkPathFillType::kWinding);
             std::size_t point = 0;
             for (const Skia::Path::Verb verb : source._verbs)
             {
                 switch (verb)
                 {
                 case Skia::Path::Verb::Move:
-                    path.moveTo(static_cast<float>(source._points[point].X),
+                    builder.moveTo(static_cast<float>(source._points[point].X),
                         static_cast<float>(source._points[point].Y));
                     ++point;
                     break;
                 case Skia::Path::Verb::Line:
-                    path.lineTo(static_cast<float>(source._points[point].X),
+                    builder.lineTo(static_cast<float>(source._points[point].X),
                         static_cast<float>(source._points[point].Y));
                     ++point;
                     break;
                 case Skia::Path::Verb::Quad:
-                    path.quadTo(static_cast<float>(source._points[point].X),
+                    builder.quadTo(static_cast<float>(source._points[point].X),
                         static_cast<float>(source._points[point].Y),
                         static_cast<float>(source._points[point + 1].X),
                         static_cast<float>(source._points[point + 1].Y));
                     point += 2;
                     break;
                 case Skia::Path::Verb::Cubic:
-                    path.cubicTo(static_cast<float>(source._points[point].X),
+                    builder.cubicTo(static_cast<float>(source._points[point].X),
                         static_cast<float>(source._points[point].Y),
                         static_cast<float>(source._points[point + 1].X),
                         static_cast<float>(source._points[point + 1].Y),
@@ -364,11 +367,11 @@ namespace MphRead::NativeRuntime::Skia
                     point += 3;
                     break;
                 case Skia::Path::Verb::Close:
-                    path.close();
+                    builder.close();
                     break;
                 }
             }
-            return path;
+            return builder.detach();
         }
     };
 
@@ -1080,14 +1083,14 @@ namespace MphRead::NativeRuntime::Skia
         else
         {
             canvas.clipPath(nativeShape, ::SkClipOp::kIntersect, true);
-            ::SkPath inverse;
+            ::SkPathBuilder inverse;
             inverse.setFillType(::SkPathFillType::kEvenOdd);
             const double reach = std::ceil(std::max(1.0,
                 shadow.Blur * 2.0 + std::abs(shadow.Spread) + 4.0));
             inverse.addRect(::SkRect::MakeLTRB(static_cast<float>(-reach), static_cast<float>(-reach),
                 static_cast<float>(Width() + reach), static_cast<float>(Height() + reach)));
             inverse.addPath(GpuAccess::Path(spread));
-            canvas.drawPath(inverse, paint);
+            canvas.drawPath(inverse.detach(), paint);
         }
         canvas.restoreToCount(saved);
     }
