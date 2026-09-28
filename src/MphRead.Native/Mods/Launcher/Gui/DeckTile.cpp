@@ -13,6 +13,7 @@
 #include <cmath>
 #include <limits>
 #include <numbers>
+#include <optional>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -31,6 +32,104 @@ namespace MphRead::Mods::Launcher::Gui
     namespace
     {
         using Cut = std::tuple<std::int32_t, std::int32_t, std::int32_t, std::uint32_t, bool>;
+
+        struct TileRenderKey final
+        {
+            std::string RoomKey{};
+            std::string Code{};
+            std::string Blurb{};
+            std::string Verb{};
+            std::string ChosenVerb{};
+            const Media::Imaging::Bitmap* Ground = nullptr;
+            std::int32_t PixelWidth = 0;
+            std::int32_t PixelHeight = 0;
+            std::int32_t Tally = -1;
+            double Width = 0;
+            double Height = 0;
+            double Em = 0;
+            double BakeScale = 1;
+            double ScaleX = 1;
+            double ScaleY = 1;
+            double Pop = 1;
+            double Tilt = 0;
+            double TiltX = 0;
+            Media::BitmapInterpolationMode Interpolation = Media::BitmapInterpolationMode::Unspecified;
+            Media::EdgeMode Edge = Media::EdgeMode::Unspecified;
+            Media::TextRenderingMode Text = Media::TextRenderingMode::Unspecified;
+            Media::BitmapBlendingMode Blending = Media::BitmapBlendingMode::Unspecified;
+            std::optional<bool> RequiresFullOpacityHandling{};
+            bool Chosen = false;
+            bool Leader = false;
+            bool Hovered = false;
+            bool Focused = false;
+            bool KeyboardDriving = false;
+            bool CacheChrome = true;
+
+            bool operator==(const TileRenderKey&) const = default;
+        };
+
+        struct TileRenderCacheEntry final
+        {
+            TileRenderKey Key{};
+            std::shared_ptr<Media::Imaging::RenderTargetBitmap> Image{};
+            std::size_t Bytes = 0;
+        };
+
+        constexpr std::size_t TileRenderCacheBudget = 16 * 1024 * 1024;
+
+        [[nodiscard]] std::vector<TileRenderCacheEntry>& TileRenderCache()
+        {
+            static std::vector<TileRenderCacheEntry> cache;
+            return cache;
+        }
+
+        std::size_t& TileRenderCacheBytes()
+        {
+            static std::size_t bytes = 0;
+            return bytes;
+        }
+
+        [[nodiscard]] std::shared_ptr<Media::Imaging::RenderTargetBitmap> FindTileRender(
+            const TileRenderKey& key)
+        {
+            auto& cache = TileRenderCache();
+            for (std::size_t i = 0; i < cache.size(); i++)
+            {
+                if (cache[i].Key == key)
+                {
+                    std::shared_ptr<Media::Imaging::RenderTargetBitmap> image = cache[i].Image;
+                    std::rotate(cache.begin() + static_cast<std::ptrdiff_t>(i),
+                        cache.begin() + static_cast<std::ptrdiff_t>(i + 1), cache.end());
+                    return image;
+                }
+            }
+            return nullptr;
+        }
+
+        void StoreTileRender(TileRenderKey key,
+            const std::shared_ptr<Media::Imaging::RenderTargetBitmap>& image, std::size_t bytes)
+        {
+            if (image == nullptr || bytes == 0 || bytes > TileRenderCacheBudget)
+            {
+                return;
+            }
+            const std::size_t keyBytes = key.RoomKey.size() + key.Code.size() + key.Blurb.size()
+                + key.Verb.size() + key.ChosenVerb.size();
+            if (keyBytes > TileRenderCacheBudget - bytes)
+            {
+                return;
+            }
+            bytes += keyBytes;
+            auto& cache = TileRenderCache();
+            std::size_t& cachedBytes = TileRenderCacheBytes();
+            while (!cache.empty() && bytes > TileRenderCacheBudget - cachedBytes)
+            {
+                cachedBytes -= cache.front().Bytes;
+                cache.erase(cache.begin());
+            }
+            cache.push_back(TileRenderCacheEntry{std::move(key), image, bytes});
+            cachedBytes += bytes;
+        }
 
         // Two sizes' worth of the four states a card can be in.
         [[nodiscard]] std::vector<std::pair<Cut, std::shared_ptr<Media::Imaging::RenderTargetBitmap>>>& ChromeCache()
@@ -184,37 +283,131 @@ namespace MphRead::Mods::Launcher::Gui
         const double em = Em();
         const double radius = em * 0.55;
         const bool hot = _over || (IsFocused() && Deck::KeyboardDriving());
+        const Matrix& parentTransform = context.CurrentTransform();
+        const bool axisAligned = parentTransform.M12 == 0 && parentTransform.M21 == 0;
+        const double scaleX = std::abs(parentTransform.M11);
+        const double scaleY = std::abs(parentTransform.M22);
+        const bool canCache = !moving && CacheChrome && axisAligned
+            && std::isfinite(scaleX) && std::isfinite(scaleY) && scaleX > 0 && scaleY > 0;
+
+        const auto drawContent = [this, w, h, em, radius, hot](Media::DrawingContext& target)
         {
             // A rotation about the card's middle stands in for the reference's
             // two-axis 3D lean.
-            auto transform = context.PushTransform(Matrix::CreateTranslation(-w / 2, -h / 2)
-                * Matrix::CreateScale(_pop, _pop) * Matrix::CreateRotation((_tilt + _tiltX) * std::numbers::pi / 180 * 0.12)
+            auto transform = target.PushTransform(Matrix::CreateTranslation(-w / 2, -h / 2)
+                * Matrix::CreateScale(_pop, _pop)
+                * Matrix::CreateRotation((_tilt + _tiltX) * std::numbers::pi / 180 * 0.12)
                 * Matrix::CreateTranslation(w / 2, h / 2));
             const RoundedRect face(Rect(0, 0, w, h), radius);
             const Media::Color ring = _chosen || Leader ? GuiTheme::Accent
                 : hot ? Media::Color::FromRgb(0x4a, 0x6f, 0x8c) : GuiTheme::Edge;
             const bool raised = hot || _chosen;
-            // The shadow, out of the shared cut rather than blurred again.
             const std::shared_ptr<Media::Imaging::Bitmap> chrome = Chrome(w, h, radius, ring, raised);
             if (chrome != nullptr)
             {
-                context.DrawImage(*chrome, Rect(-Bleed, -Bleed, w + Bleed * 2, h + Bleed * 2));
+                target.DrawImage(*chrome, Rect(-Bleed, -Bleed, w + Bleed * 2, h + Bleed * 2));
             }
             else
             {
-                context.DrawRectangle(Solid(GuiTheme::PanelDeep), nullptr, face, Shadows(ring, raised));
+                target.DrawRectangle(Solid(GuiTheme::PanelDeep), nullptr, face, Shadows(ring, raised));
             }
             {
-                auto clip = context.PushClip(face);
-                // The three layers under the type are baked.
+                auto clip = target.PushClip(face);
                 if (_ground != nullptr)
                 {
-                    context.DrawImage(*_ground, Rect(0, 0, w, h));
+                    target.DrawImage(*_ground, Rect(0, 0, w, h));
                 }
-                Info(context, w, h, em);
-                Badge(context, w, em);
+                Info(target, w, h, em);
+                Badge(target, w, em);
+            }
+        };
+
+        if (canCache)
+        {
+            const Media::RenderOptions& options = context.CurrentRenderOptions();
+            const double pixelsWide = (w + Bleed * 2) * scaleX;
+            const double pixelsHigh = (h + Bleed * 2) * scaleY;
+            if (std::isfinite(pixelsWide) && std::isfinite(pixelsHigh)
+                && pixelsWide >= 1 && pixelsHigh >= 1
+                && pixelsWide <= 4096 && pixelsHigh <= 4096)
+            {
+                const std::int32_t pixelWidth = static_cast<std::int32_t>(std::ceil(pixelsWide));
+                const std::int32_t pixelHeight = static_cast<std::int32_t>(std::ceil(pixelsHigh));
+                const std::size_t pixelCount = static_cast<std::size_t>(pixelWidth)
+                    * static_cast<std::size_t>(pixelHeight);
+                if (pixelCount <= TileRenderCacheBudget / 4)
+                {
+                    TileRenderKey key;
+                    key.RoomKey = RoomKey;
+                    key.Code = Code;
+                    key.Blurb = Blurb;
+                    key.Verb = Verb;
+                    key.ChosenVerb = ChosenVerb;
+                    key.Ground = _ground.get();
+                    key.PixelWidth = pixelWidth;
+                    key.PixelHeight = pixelHeight;
+                    key.Tally = Tally;
+                    key.Width = w;
+                    key.Height = h;
+                    key.Em = em;
+                    key.BakeScale = UiLayout::BakeScale;
+                    key.ScaleX = scaleX;
+                    key.ScaleY = scaleY;
+                    key.Pop = _pop;
+                    key.Tilt = _tilt;
+                    key.TiltX = _tiltX;
+                    key.Interpolation = options.BitmapInterpolationMode;
+                    key.Edge = options.EdgeMode;
+                    key.Text = options.TextRenderingMode;
+                    key.Blending = options.BitmapBlendingMode;
+                    key.RequiresFullOpacityHandling = options.RequiresFullOpacityHandling;
+                    key.Chosen = _chosen;
+                    key.Leader = Leader;
+                    key.Hovered = _over;
+                    key.Focused = IsFocused();
+                    key.KeyboardDriving = Deck::KeyboardDriving();
+                    key.CacheChrome = CacheChrome;
+
+                    if (const std::shared_ptr<Media::Imaging::RenderTargetBitmap> cached = FindTileRender(key))
+                    {
+                        context.DrawImage(*cached, Rect(-Bleed, -Bleed, w + Bleed * 2, h + Bleed * 2));
+                        return;
+                    }
+
+                    std::shared_ptr<Media::Imaging::RenderTargetBitmap> image;
+                    try
+                    {
+                        image = std::make_shared<Media::Imaging::RenderTargetBitmap>(
+                            PixelSize{pixelWidth, pixelHeight}, Vector{96, 96});
+                        auto into = image->CreateDrawingContext();
+                        auto optionsState = into->PushRenderOptions(options);
+                        auto scale = into->PushTransform(Matrix::CreateScale(scaleX, scaleY));
+                        auto translate = into->PushTransform(Matrix::CreateTranslation(Bleed, Bleed));
+                        drawContent(*into);
+                    }
+                    catch (...)
+                    {
+                        image.reset();
+                    }
+                    if (image != nullptr)
+                    {
+                        try
+                        {
+                            StoreTileRender(std::move(key), image, pixelCount * 4);
+                        }
+                        catch (...)
+                        {
+                            // Keep the local image for this draw if the bounded
+                            // cache could not grow; the next draw can retry.
+                        }
+                        context.DrawImage(*image, Rect(-Bleed, -Bleed, w + Bleed * 2, h + Bleed * 2));
+                        return;
+                    }
+                }
             }
         }
+
+        drawContent(context);
         if (moving)
         {
             Ask();
