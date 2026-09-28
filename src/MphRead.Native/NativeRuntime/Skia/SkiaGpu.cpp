@@ -18,6 +18,7 @@
 #include <include/core/SkImage.h>
 #include <include/core/SkImageInfo.h>
 #include <include/core/SkMaskFilter.h>
+#include <include/core/SkRRect.h>
 #include <include/core/SkMatrix.h>
 #include <include/core/SkPaint.h>
 #include <include/core/SkPath.h>
@@ -1077,8 +1078,35 @@ namespace MphRead::NativeRuntime::Skia
         const ::SkPath nativeShape = GpuAccess::Path(shape);
         if (!shadow.Inset)
         {
-            canvas.clipPath(nativeShape, ::SkClipOp::kDifference, true);
-            canvas.drawPath(GpuAccess::Path(spread), paint);
+            // Round rects go through clipRRect/drawRRect so Ganesh uses its
+            // analytic blur and clip instead of a CPU-rasterised mask.
+            ::SkRRect shapeRRect;
+            ::SkRRect spreadRRect;
+            const ::SkPath nativeSpread = GpuAccess::Path(spread);
+            if (nativeShape.isRRect(&shapeRRect) || nativeShape.isRect(nullptr))
+            {
+                if (!nativeShape.isRRect(&shapeRRect))
+                {
+                    shapeRRect.setRect(nativeShape.getBounds());
+                }
+                canvas.clipRRect(shapeRRect, ::SkClipOp::kDifference, true);
+            }
+            else
+            {
+                canvas.clipPath(nativeShape, ::SkClipOp::kDifference, true);
+            }
+            if (nativeSpread.isRRect(&spreadRRect))
+            {
+                canvas.drawRRect(spreadRRect, paint);
+            }
+            else if (nativeSpread.isRect(nullptr))
+            {
+                canvas.drawRect(nativeSpread.getBounds(), paint);
+            }
+            else
+            {
+                canvas.drawPath(nativeSpread, paint);
+            }
         }
         else
         {

@@ -891,7 +891,6 @@ namespace
             using namespace MphRead::Mods::Launcher::Gui;
             UiBench::Slow = HasFlag(args, "uibenchslow");
             UiBench::AsAndroid = HasFlag(args, "uibenchandroid");
-            DeckTile::CacheChrome = !HasFlag(args, "uibenchnochrome");
             UiBench::FreeFrames = HasFlag(args, "uibenchfree");
             UiBench::OnlySize = ValueAfter(args, "uibenchsize");
             UiBench::OnlyMove = ValueAfter(args, "uibenchonly");

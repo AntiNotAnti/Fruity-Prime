@@ -66,19 +66,18 @@ namespace MphRead::Mods::Launcher::Gui
 
     void DeckTile::Hover(bool over, Point at)
     {
+        const bool wasOver = _over;
+        const double wasPop = _popTarget;
         _over = over;
         _popTarget = over || (IsFocused() && Deck::KeyboardDriving()) ? 1.03 : 1;
-        if (over && Bounds().Width > 0 && Bounds().Height > 0)
+        // No tilt: it followed the pointer, so hovering redrew every frame, and
+        // the rotation it drew with is what Ganesh cannot blur analytically.
+        (void)at;
+        _tiltTarget = 0;
+        _tiltXTarget = 0;
+        if (_over == wasOver && _popTarget == wasPop)
         {
-            const double halfW = Bounds().Width / 2;
-            const double halfH = Bounds().Height / 2;
-            _tiltTarget = MathClamp((at.X - halfW) / halfW, -1.0, 1.0) * MaxTilt;
-            _tiltXTarget = -MathClamp((at.Y - halfH) / halfH, -1.0, 1.0) * MaxTilt;
-        }
-        else
-        {
-            _tiltTarget = 0;
-            _tiltXTarget = 0;
+            return;
         }
         InvalidateVisual();
     }
@@ -161,6 +160,13 @@ namespace MphRead::Mods::Launcher::Gui
         });
     }
 
+    Media::BoxShadows DeckTile::Shadows(Media::Color ring, bool raised)
+    {
+        return Media::BoxShadows(Deck::Shadow(0, 0, 0, 2, ring),
+            {Deck::Shadow(0, raised ? 7 : 5, 0, 0, Deck::Fade(0, 0.45)),
+                Deck::Shadow(0, raised ? 16 : 10, raised ? 26 : 18, 0, Deck::Fade(0, 0.5))});
+    }
+
     void DeckTile::Render(Media::DrawingContext& context)
     {
         const bool moving = Settle();
@@ -176,9 +182,11 @@ namespace MphRead::Mods::Launcher::Gui
 
         // Live cards draw directly into the current Ganesh/OpenGL surface.
         // Never bake the card, chrome, or map ground into a CPU bitmap.
+        // Scale and translate only: any rotation knocks Ganesh off its analytic
+        // round-rect blur and clip, so every redraw rasterised the shadow masks
+        // on the CPU and uploaded them, stalling the match drawn underneath.
         auto transform = context.PushTransform(Matrix::CreateTranslation(-w / 2, -h / 2)
             * Matrix::CreateScale(_pop, _pop)
-            * Matrix::CreateRotation((_tilt + _tiltX) * std::numbers::pi / 180 * 0.12)
             * Matrix::CreateTranslation(w / 2, h / 2));
         const RoundedRect face(Rect(0, 0, w, h), radius);
         const Media::Color ring = _chosen || Leader ? GuiTheme::Accent

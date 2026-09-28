@@ -6315,13 +6315,9 @@ namespace MphRead
 
     void RenderWindow::OnMouseWheel(const RendererPlatform::MouseWheelEventArgs& e)
     {
-        if (Mods::MapPick::Available() && e.OffsetY != 0)
-        {
-            Mods::MapPick::Wheel(e.OffsetY > 0 ? -1 : 1);
-            _window->BaseOnMouseWheel(e);
-            return;
-        }
 #if defined(MPHREAD_SHELL)
+        // First: the results screen's ballot is a Skia panel now, and handing
+        // the wheel to the HUD picker left its ScrollViewer unreachable.
         if (Mods::Launcher::Gui::Shell::UiVisible())
         {
             Mods::Launcher::Gui::Shell::PointerWheel(e.OffsetX, e.OffsetY);
@@ -6329,6 +6325,12 @@ namespace MphRead
             return;
         }
 #endif
+        if (Mods::MapPick::Available() && e.OffsetY != 0)
+        {
+            Mods::MapPick::Wheel(e.OffsetY > 0 ? -1 : 1);
+            _window->BaseOnMouseWheel(e);
+            return;
+        }
         _scene->OnMouseWheel(e.OffsetY);
         _window->BaseOnMouseWheel(e);
     }
