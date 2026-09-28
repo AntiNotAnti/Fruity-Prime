@@ -116,6 +116,7 @@
 
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::RoundToEven;
 using ::OpenTK::Mathematics::CreateRotationX;
 using ::OpenTK::Mathematics::CreateRotationY;
 using ::OpenTK::Mathematics::CreateRotationZ;
@@ -2243,9 +2244,9 @@ namespace MphRead
             }
             const float theta = DegreesToRadians(angleY);
             const float phi = DegreesToRadians(angleX);
-            const float x = std::round(_pivotDistance * std::cos(theta) * 10000.0F) / 10000.0F;
-            const float y = -std::round(_pivotDistance * std::sin(theta) * std::cos(phi) * 10000.0F) / 10000.0F;
-            const float z = std::round(_pivotDistance * std::sin(theta) * std::sin(phi) * 10000.0F) / 10000.0F;
+            const float x = RoundToEven(_pivotDistance * std::cos(theta) * 10000.0F) / 10000.0F;
+            const float y = -RoundToEven(_pivotDistance * std::sin(theta) * std::cos(phi) * 10000.0F) / 10000.0F;
+            const float z = RoundToEven(_pivotDistance * std::sin(theta) * std::sin(phi) * 10000.0F) / 10000.0F;
             _cameraPosition = Vector3(x, y, z);
         }
         else if (_cameraMode == MphRead::CameraMode::Player)
