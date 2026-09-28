@@ -156,11 +156,15 @@ if(NOT ANDROID)
     else()
         find_package(PkgConfig REQUIRED)
         pkg_check_modules(FRUITY_SKIA QUIET IMPORTED_TARGET skia)
+        set(FRUITY_SKIA_TARGET "")
+        if(TARGET PkgConfig::FRUITY_SKIA)
+            set(FRUITY_SKIA_TARGET PkgConfig::FRUITY_SKIA)
+        endif()
 
         # build-cpp.bat is intentionally local/untracked in some developer
         # checkouts. Make a fresh MSYS2 checkout self-healing instead of
         # requiring that helper to know every new native dependency.
-        if(MINGW AND NOT TARGET PkgConfig::FRUITY_SKIA)
+        if(MINGW AND NOT FRUITY_SKIA_TARGET)
             get_filename_component(_fruity_mingw_bin "${CMAKE_COMMAND}" DIRECTORY)
             get_filename_component(_fruity_mingw_prefix "${_fruity_mingw_bin}" DIRECTORY)
             get_filename_component(_fruity_msys_root "${_fruity_mingw_prefix}" DIRECTORY)
@@ -173,19 +177,20 @@ if(NOT ANDROID)
                     COMMAND "${FRUITY_PACMAN_EXECUTABLE}" -S --needed --noconfirm mingw-w64-x86_64-skia
                     RESULT_VARIABLE FRUITY_SKIA_INSTALL_RESULT)
                 if(FRUITY_SKIA_INSTALL_RESULT EQUAL 0)
-                    # pkg-config caches variables, but a second module query
-                    # after package installation creates the imported target.
-                    pkg_check_modules(FRUITY_SKIA REQUIRED IMPORTED_TARGET skia)
+                    # Use a fresh prefix so FindPkgConfig cannot reuse the
+                    # negative result from before pacman installed Skia.
+                    pkg_check_modules(FRUITY_SKIA_INSTALLED REQUIRED IMPORTED_TARGET skia)
+                    set(FRUITY_SKIA_TARGET PkgConfig::FRUITY_SKIA_INSTALLED)
                 endif()
             endif()
         endif()
 
-        if(NOT TARGET PkgConfig::FRUITY_SKIA)
+        if(NOT FRUITY_SKIA_TARGET)
             message(FATAL_ERROR
                 "Skia Ganesh was not found. With MSYS2 install "
                 "mingw-w64-x86_64-skia; with vcpkg install skia[gl,freetype].")
         endif()
-        target_link_libraries(fruity_mphread_native PUBLIC PkgConfig::FRUITY_SKIA)
+        target_link_libraries(fruity_mphread_native PUBLIC ${FRUITY_SKIA_TARGET})
     endif()
 
     find_package(glfw3 CONFIG REQUIRED)

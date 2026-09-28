@@ -21,7 +21,13 @@
 #include <include/core/SkSurface.h>
 #include <include/core/SkTypeface.h>
 #include <include/effects/SkDashPathEffect.h>
+#if __has_include(<include/effects/SkGradient.h>)
+#define FRUITY_SKIA_GRADIENT_V2 1
+#include <include/effects/SkGradient.h>
+#else
+#define FRUITY_SKIA_GRADIENT_V2 0
 #include <include/effects/SkGradientShader.h>
+#endif
 #include <include/gpu/ganesh/GrBackendSurface.h>
 #include <include/gpu/ganesh/GrDirectContext.h>
 #include <include/gpu/ganesh/GrTypes.h>
@@ -134,8 +140,17 @@ namespace MphRead::NativeRuntime::Skia
             }
 
             const ::SkTileMode tile = NativeTileMode(description.Spread);
+#if FRUITY_SKIA_GRADIENT_V2
+            ::SkGradient::Colors colorSet(
+                ::SkSpan<const ::SkColor4f>(colors.data(), colors.size()),
+                ::SkSpan<const float>(positions.data(), positions.size()), tile);
+            ::SkGradient::Interpolation interpolation;
+            interpolation.fInPremul = ::SkGradient::Interpolation::InPremul::kYes;
+            const ::SkGradient gradient(colorSet, interpolation);
+#else
             ::SkGradientShader::Interpolation interpolation;
             interpolation.fInPremul = ::SkGradientShader::Interpolation::InPremul::kYes;
+#endif
 
             if (description.Kind == GradientKind::Linear)
             {
@@ -143,8 +158,12 @@ namespace MphRead::NativeRuntime::Skia
                     {static_cast<float>(description.Start.X), static_cast<float>(description.Start.Y)},
                     {static_cast<float>(description.End.X), static_cast<float>(description.End.Y)}
                 };
+#if FRUITY_SKIA_GRADIENT_V2
+                return ::SkShaders::LinearGradient(points, gradient);
+#else
                 return ::SkGradientShader::MakeLinear(points, colors.data(), nullptr, positions.data(),
                     static_cast<int>(colors.size()), tile, interpolation, nullptr);
+#endif
             }
 
             const float rx = static_cast<float>(std::max(std::abs(description.RadiusX), 1e-6));
@@ -157,12 +176,21 @@ namespace MphRead::NativeRuntime::Skia
                 0.0F, ry, static_cast<float>(description.Centre.Y), 0.0F, 0.0F, 1.0F);
             if (std::abs(focus.x()) < 1e-6F && std::abs(focus.y()) < 1e-6F)
             {
+#if FRUITY_SKIA_GRADIENT_V2
+                return ::SkShaders::RadialGradient({0.0F, 0.0F}, 1.0F, gradient, &ellipse);
+#else
                 return ::SkGradientShader::MakeRadial({0.0F, 0.0F}, 1.0F, colors.data(), nullptr,
                     positions.data(), static_cast<int>(colors.size()), tile, interpolation, &ellipse);
+#endif
             }
+#if FRUITY_SKIA_GRADIENT_V2
+            return ::SkShaders::TwoPointConicalGradient(
+                focus, 0.0F, {0.0F, 0.0F}, 1.0F, gradient, &ellipse);
+#else
             return ::SkGradientShader::MakeTwoPointConical(focus, 0.0F, {0.0F, 0.0F}, 1.0F,
                 colors.data(), nullptr, positions.data(), static_cast<int>(colors.size()),
                 tile, interpolation, &ellipse);
+#endif
         }
 
         [[nodiscard]] ::SkPaint NativePaint(const Paint& paint, BlendMode blend = BlendMode::SrcOver)
