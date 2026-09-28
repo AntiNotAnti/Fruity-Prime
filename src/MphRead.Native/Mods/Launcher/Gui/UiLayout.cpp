@@ -1,6 +1,5 @@
 #include "UiLayout.hpp"
 
-#include "BakedBackdrop.hpp"
 #include "ControllerNav.hpp"
 #include "DeckCard.hpp"
 #include "DeckSheet.hpp"
@@ -317,16 +316,19 @@ namespace MphRead::Mods::Launcher::Gui
         }
         if (PhotoDrawnBelow())
         {
-            // GL has the photograph and the moving layer over it.
-            root->Children.Add(std::make_shared<BakedBackdrop>(wash));
+            // The photograph and moving layer are already drawn below the UI.
+            // With the native Ganesh backend these gradients are cheaper and
+            // safer to keep live on the GPU than to allocate a full-window
+            // CPU RenderTargetBitmap and upload it again.
+            root->Children.Add(BackdropLayers(wash));
         }
         else
         {
-            // Three pieces, so the moving layer lands between the photograph
-            // and the washes.
-            root->Children.Add(std::make_shared<BakedBackdrop>(wash, BackdropPart::Photo));
+            // Keep the reference ordering, but draw both static pieces through
+            // Ganesh instead of the old CPU bake.
+            root->Children.Add(BackdropLayers(wash, BackdropPart::Photo));
             root->Children.Add(std::make_shared<MovingBackdrop>());
-            root->Children.Add(std::make_shared<BakedBackdrop>(wash, BackdropPart::Washes));
+            root->Children.Add(BackdropLayers(wash, BackdropPart::Washes));
         }
         // One stamp at the root of every screen.
         GuiTheme::PixelPerfect(*root);

@@ -103,7 +103,8 @@ namespace MphRead::Mods::Launcher::Gui
         // What every screen is painted on.
         [[nodiscard]] static std::shared_ptr<Av::Controls::Panel> Backdrop(bool overGame = false,
             BackdropWash wash = BackdropWash::None);
-        // The layers themselves, for BakedBackdrop to render once.
+        // The backdrop layers themselves. The native Ganesh head keeps them
+        // live on the GPU; off-screen software rendering can draw them directly too.
         [[nodiscard]] static std::shared_ptr<Av::Controls::Panel> BackdropLayers(BackdropWash wash,
             BackdropPart part = BackdropPart::All);
 

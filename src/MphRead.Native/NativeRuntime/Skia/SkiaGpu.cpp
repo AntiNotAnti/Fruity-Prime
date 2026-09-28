@@ -270,6 +270,8 @@ namespace MphRead::NativeRuntime::Skia
         struct ImageEntry final
         {
             std::uint64_t Revision = 0;
+            std::uint64_t LastUse = 0;
+            std::size_t Bytes = 0;
             sk_sp<::SkImage> Image;
         };
 
@@ -282,7 +284,11 @@ namespace MphRead::NativeRuntime::Skia
 
         sk_sp<::GrDirectContext> Context;
         sk_sp<::SkSurface> Surface;
-        std::unordered_map<const Bitmap*, ImageEntry> Images;
+        static constexpr std::size_t ImageCacheBudget = 64 * 1024 * 1024;
+
+        std::unordered_map<std::uint64_t, ImageEntry> Images;
+        std::size_t ImageBytes = 0;
+        std::uint64_t ImageClock = 0;
         std::unordered_map<const Skia::Typeface*, FontEntry> Fonts;
         std::int32_t Width = 0;
         std::int32_t Height = 0;
@@ -347,6 +353,8 @@ namespace MphRead::NativeRuntime::Skia
             Height = height;
             Texture = 0;
             Images.clear();
+            ImageBytes = 0;
+            ImageClock = 0;
             Surface->getCanvas()->clear(SK_ColorTRANSPARENT);
         }
 
@@ -361,22 +369,67 @@ namespace MphRead::NativeRuntime::Skia
 
         [[nodiscard]] sk_sp<::SkImage> ImageFor(const Bitmap& bitmap, std::uint64_t revision)
         {
-            ImageEntry& entry = Images[&bitmap];
-            if (entry.Image != nullptr && entry.Revision == revision)
+            const std::uint64_t identity = bitmap.Identity();
+            auto found = Images.find(identity);
+            if (found != Images.end() && found->second.Image != nullptr
+                && found->second.Revision == revision)
             {
-                return entry.Image;
+                found->second.LastUse = ++ImageClock;
+                return found->second.Image;
             }
+
+            if (found != Images.end())
+            {
+                ImageBytes -= std::min(ImageBytes, found->second.Bytes);
+                Images.erase(found);
+            }
+
             if (bitmap.Width() <= 0 || bitmap.Height() <= 0 || bitmap.Pixels() == nullptr)
             {
-                entry = {};
                 return nullptr;
             }
             const ::SkImageInfo info = ::SkImageInfo::Make(bitmap.Width(), bitmap.Height(),
                 kRGBA_8888_SkColorType, kPremul_SkAlphaType);
             const ::SkPixmap pixmap(info, bitmap.Pixels(), static_cast<std::size_t>(bitmap.Width()) * 4);
-            entry.Image = ::SkImages::RasterFromPixmapCopy(pixmap);
+            sk_sp<::SkImage> image = ::SkImages::RasterFromPixmapCopy(pixmap);
+            if (image == nullptr)
+            {
+                return nullptr;
+            }
+
+            const std::size_t width = static_cast<std::size_t>(bitmap.Width());
+            const std::size_t height = static_cast<std::size_t>(bitmap.Height());
+            const std::size_t bytes = width > ImageCacheBudget / 4 / std::max<std::size_t>(height, 1)
+                ? ImageCacheBudget + 1
+                : width * height * 4;
+            if (bytes > ImageCacheBudget)
+            {
+                return image;
+            }
+
+            while (!Images.empty() && bytes > ImageCacheBudget - ImageBytes)
+            {
+                auto victim = std::min_element(Images.begin(), Images.end(),
+                    [](const auto& left, const auto& right)
+                    {
+                        return left.second.LastUse < right.second.LastUse;
+                    });
+                if (victim == Images.end())
+                {
+                    break;
+                }
+                ImageBytes -= std::min(ImageBytes, victim->second.Bytes);
+                Images.erase(victim);
+            }
+
+            ImageEntry entry;
             entry.Revision = revision;
-            return entry.Image;
+            entry.LastUse = ++ImageClock;
+            entry.Bytes = bytes;
+            entry.Image = image;
+            Images.emplace(identity, std::move(entry));
+            ImageBytes += bytes;
+            return image;
         }
 
         [[nodiscard]] sk_sp<::SkTypeface> FontFor(const Skia::Typeface& typeface,

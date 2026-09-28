@@ -180,8 +180,12 @@ namespace MphRead::NativeRuntime::Skia
     class Bitmap final
     {
     public:
-        Bitmap() = default;
+        Bitmap();
         Bitmap(std::int32_t width, std::int32_t height);
+        Bitmap(const Bitmap& other);
+        Bitmap& operator=(const Bitmap& other);
+        Bitmap(Bitmap&& other) noexcept;
+        Bitmap& operator=(Bitmap&& other) noexcept;
 
         [[nodiscard]] std::int32_t Width() const noexcept { return _width; }
         [[nodiscard]] std::int32_t Height() const noexcept { return _height; }
@@ -203,11 +207,13 @@ namespace MphRead::NativeRuntime::Skia
     private:
         friend class GpuSurface;
         [[nodiscard]] std::uint64_t Revision() const noexcept { return _revision; }
+        [[nodiscard]] std::uint64_t Identity() const noexcept { return _identity; }
 
         std::int32_t _width = 0;
         std::int32_t _height = 0;
         std::vector<std::uint8_t> _pixels;
         std::uint64_t _revision = 1;
+        std::uint64_t _identity = 0;
     };
 
     enum class FilterQuality : std::uint8_t { None, Low, Medium, High };

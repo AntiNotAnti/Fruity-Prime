@@ -3,6 +3,7 @@
 #include "../Stb/Image.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <list>
 #include <string>
 #include <cmath>
@@ -456,9 +457,66 @@ namespace MphRead::NativeRuntime::Skia
 
     // -------------------------------------------------------------- bitmap
 
+    namespace
+    {
+        [[nodiscard]] std::uint64_t NextBitmapIdentity() noexcept
+        {
+            static std::atomic<std::uint64_t> next{1};
+            return next.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+
+    Bitmap::Bitmap()
+        : _identity(NextBitmapIdentity())
+    {
+    }
+
     Bitmap::Bitmap(std::int32_t width, std::int32_t height)
+        : Bitmap()
     {
         Resize(width, height);
+    }
+
+    Bitmap::Bitmap(const Bitmap& other)
+        : _width(other._width), _height(other._height), _pixels(other._pixels),
+          _revision(other._revision), _identity(NextBitmapIdentity())
+    {
+    }
+
+    Bitmap& Bitmap::operator=(const Bitmap& other)
+    {
+        if (this != &other)
+        {
+            _width = other._width;
+            _height = other._height;
+            _pixels = other._pixels;
+            ++_revision;
+        }
+        return *this;
+    }
+
+    Bitmap::Bitmap(Bitmap&& other) noexcept
+        : _width(other._width), _height(other._height), _pixels(std::move(other._pixels)),
+          _revision(other._revision), _identity(NextBitmapIdentity())
+    {
+        other._width = 0;
+        other._height = 0;
+        ++other._revision;
+    }
+
+    Bitmap& Bitmap::operator=(Bitmap&& other) noexcept
+    {
+        if (this != &other)
+        {
+            _width = other._width;
+            _height = other._height;
+            _pixels = std::move(other._pixels);
+            ++_revision;
+            other._width = 0;
+            other._height = 0;
+            ++other._revision;
+        }
+        return *this;
     }
 
     void Bitmap::Resize(std::int32_t width, std::int32_t height)
