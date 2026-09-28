@@ -49,8 +49,7 @@
 - 同じ `-uibench` 条件（2560x1440ウィンドウ、1920x1080描画面）のOffline mapsで、C++ Scrollは修正前71.40 ms/描画から21.67 ms（約46 fps）へ、Repaintは39.33 msから22.66 ms（約44 fps）へ短縮。C#の同条件はScroll 8.42 ms、Repaint 14.46 ms。描画差は大きく縮んだがまだ残り、これだけでユーザー報告のPC全体フリーズが解決したとは判定しない。
 - C++/C#双方で `-uishot` を実行し各26画面を生成。`play-offline` を目視比較し、修正によるclip境界の破綻は見られなかった。Onlineの `-uibench play ... -uibenchonly Scroll` は非同期サーバー一覧が揃わず描画0件のため、Online行の測定には使えない。
 - 同じOffline maps Scrollベンチを20 ms間隔でプロセス採取したピークは、C++ Working Set 95.3 MB / Private 87.4 MB、C# 159.1 MB / 108.5 MB。`-uishot` の26画面を一プロセスで描画したピークも、C++ 99.9 MB / 89.0 MB、C# 199.0 MB / 141.4 MBだった。これら短時間の標準画面測定ではC++の使用量が多いとは言えないが、長時間の増加・実プレイ中のPC全体フリーズは再現も判定もしていない。
-- 次のメモリ監査候補として `NativeRuntime/Skia/SkiaText.cpp` を確認中。`Typeface` ごとのFreeType glyph画像とadvance値をmapに保持し、現在の実装には上限・evictionがない。C# `DeckText` のFormattedText cacheは1024件超でclearされる一方、SkiaSharp内部cacheとは別物なので、ここだけでC#との差や実害を断定しない。長時間・複数画面での増加を調べ、保持寿命と並行利用を確認してから修正要否を決める。
-- `SkiaText.cpp` のcacheは`Typeface` lifetime中に残り、キーはglyphと26.6 pixel size。短時間のOffline scrollおよび26画面`-uishot`採取ではC++のWorking Set/PrivateがC#より低く、実害のある増加は未確認。C#側のSkiaSharp内部cacheとの仕様差も確定できていないため、pointer寿命・並行利用を壊すevictionは追加せず、長時間・動的Unicode入力の増加確認を保留する。
+- `NativeRuntime/Skia/SkiaText.cpp` の静的監査を完了。`Typeface::Impl` はglyph coverage画像とadvanceを`(codepoint, 26.6 pixel size)`の`std::map`に保持し、上限・evictionはない。`Typeface::Default`のfaceはstatic cacheがprocess lifetime保持する。FaceMutexがFreeTypeとmapアクセスを直列化し、map挿入は既存要素の参照を無効化せず、現行コードは消去しないため、`Rasterize`の返すglyph pointerに現在のrace/UAF経路は見つからない。一方で動的Unicodeや多数のサイズを長時間使えばメモリが増える余地はある。C# `DeckText` のFormattedText cacheは1024件超でclearされるがSkiaSharp内部cacheは別物で、短時間のOffline scroll/26画面`-uishot`採取ではC++ Working Set/Privateの方が低かった。メモリ増加の実測・実害は未確認で、pointer寿命を壊すevictionや所有方式変更は根拠なしに行わず、長時間/動的Unicode入力の確認を保留。
 
 ### 2026-09-28 C++固有のフリーズ対策
 
