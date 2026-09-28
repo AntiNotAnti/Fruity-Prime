@@ -30,8 +30,8 @@
 
 - 表の302項目はすべてC#対比監査済み。`GameFiles.cs`もC#全文・直接呼出し監査済みで、POSIX修正のmacOS/Clang・Linux/GCC CIとWindows Release buildを確認済み。個別監査の詳細は末尾ログを参照。最新Native C++ CI run `36348842034`（source `8c67ca37`）はWindows/MSVC・Android・Linux/GCC・macOS/Clangすべて成功。Windows Release `ninja -k 0`も成功。総合build run `36350578764`（source `6bfac073`）も全job成功。先行run `36348842072` で一度失敗したdedicated-server startup contractとbounded thumbnail worker regressionは再実行で成功し、失敗は再現しなかった。
 - Section 14 のAndroid 17ファイルは監査完了。`NativeRuntime/Avalonia/Base.hpp` のMSVC対応後、Android arm64-v8a・x86_64をそれぞれ最新ソースで最終buildし、両方とも成功（各75段階、静的ライブラリをリンク）。runtime/device確認は未実施。
-- 上記の `完了` はPR #1由来の302項目の移植差分監査を指す。別件のプレイ中不具合監査まで完了した意味ではない。C#版にはないとユーザーから報告された症状について、以前の「C#も同じ」とする9月27日の記録は結論として扱わず、現行ソースで再監査する。
-- 別件の不具合監査は継続中: 試合中のカーソル表示・画面端でエイムが止まる問題を最初に監査中。次に Online の `did not answer`、続いて Online/Offline 等のメニューの重さ・メモリ使用を確認する。9月27日のカーソル/サーバー記録は当時の調査メモとして残し、今回の再監査で再確認する。
+- 上記の `完了` はPR #1由来の302項目の移植差分監査を指す。別件のプレイ中不具合監査まで完了した意味ではない。C#版にはないとユーザーから報告された症状について、以前の「C#も同じ」とする9月27日の記録は結論として扱わず、現行ソースで確認した。現在の継続対象はメニュー性能と長時間メモリ挙動。
+- 別件の不具合監査は継続中。カーソル表示・画面端エイムはユーザーより解消済みとの訂正があり、追加runtime調査の対象から外す。Online の `did not answer` は原因特定済みとの指定により再調査しない。残る優先対象は Online/Offline 等のメニュー描画性能と長時間メモリ挙動。既存の短時間測定ではC++のメモリ使用量がC#より低く、スクロール性能差は残る。これらの測定は通常プレイ時のPC全体フリーズを再現・解決確認したものではない。以下のカーソル/Online項目は当時の観測記録で、現在の作業予定ではない。
 - `InputSettings.cs` と `.cpp/.hpp` を一ファイル単位で再照合。現行C#・C++とも `stylus_mode` の明示値だけでStylusModeを有効にし、`pointer_jump_guard` は独立設定として扱う。読み込み・保存に差異なし。
 - `Renderer.cs` と `Renderer.cpp` のカーソル取得条件、PlayerInputへのpointer sample・acceptsInput引数を照合。条件と順序は一致し、C++ `CursorState::Grabbed` も OpenTK と同じ `GLFW_CURSOR_DISABLED` に対応する。コード上は同じ入力状態なら両版ともカーソルを隠し、画面端に制限されない。
 - `NativeRuntime/OpenTK/RendererPlatform.cpp` をOpenTK 4.9.4の `NativeWindow` / `MouseState` と照合。C#はcallback差分用 `_lastReportedMousePos` と `MouseState.NewFrame` のポーリング位置を分けるが、nativeは `_mouse.X/Y` を両方に使い、`glfwGetCursorPos` を呼んでいなかった。nativeに別々の差分基準と、window作成時・event pump前の位置取得を追加。C#と同じくcallback差分と現在位置を別管理する。Windows Release `ninja -k 0` 成功（既存 `offsetof` 警告のみ）。
@@ -109,12 +109,12 @@
 - 10: Q3Import（三角形法線・Clip クランプ・Weld 許容誤差・Pickups）・Q3Convert（-noitems・AddItems）・
   MapReport.ListItems。MapCheck（-mapcheck）・AltFormProbe（-altprobe）・MapReport.ListItems（-mapitems）は
   ModEntryから配線・監査済み。セクション10 完了。
-- 11 Launcher portable: 移植済み。C#原本との再監査は移植状況と別に一ファイルずつ実施中。
+- 11 Launcher portable: 移植済み。C#原本との再監査も完了。
   NativeFilePicker・LauncherPrefs・MatchStart・RomWhitelist・TextLauncher・LaunchPlan・GameFiles はC#全文監査完了。GameFilesはPOSIX修正のmacOS/Clang・Linux/GCC CI、Windows Release build済み。POSIX runtime・抽出runtime未実施。
   LaunchPlan（LobbyContext）、GameFiles（Root=AppPaths、RomWhitelist 照合）、TextLauncher（InputEnded・insane・StartupForced）、
   NativeFilePicker（NativeRuntime に ProcessRunCaptureOutput）は移植時の確認を完了。MatchStart は RenderWindow の1ウィンドウ API を使う形へ移植し、
   C#原本との静的監査とWindows Release buildを完了。
-- 12 移植差分・C#対比監査は完了（移植作業の判定）。別件の不具合監査は現在「監査中」で、順序はカーソル → Online → メニュー性能/メモリ。カーソルruntime再現は保留、OnlineのC#との差は未解決、メニュー描画の性能差は残存、長時間メモリは未確認。詳細は上記進捗ログを参照。C# は Avalonia headless + Skia CPU ラスタ → GL 転送（UiTopLevel/UiSurface/UiOverlay）。
+- 12 移植差分・C#対比監査は完了（移植作業の判定）。別件ではカーソル問題はユーザー報告で解消済み、Online `did not answer` は原因特定済みで再調査対象外。現在はメニュー性能差と長時間メモリ挙動の確認が残る。詳細は上記進捗ログを参照。C# は Avalonia headless + Skia CPU ラスタ → GL 転送（UiTopLevel/UiSurface/UiOverlay）。
   旧 NativeRuntime/Gui（Element ツリー + GL 直描画、グラデーション・楕円・パス・影なし）では足りないので、
   C# と同じ形で NativeRuntime に再現する:
   (A) NativeRuntime/Skia: CPU RGBA premul キャンバス（AA パス塗り、ストローク、線形/放射グラデーション、
@@ -136,7 +136,7 @@
 - Section 12 の NetLaunch 統合確認: `NetLaunch::TickTerminalLobby` を Renderer の全ビルド共通フレーム入口から呼び、
   HasScene/EndScene、persistent lobby の state reset、MatchStart::Begin、通信失敗時の終了を
   C# 原本の順序で接続。C# 原本・直接呼出し元との静的監査とWindows Release buildを完了。
-  これは移植・統合の完了記録であり、現在進行中のカーソル/Online/メニュー性能・メモリ不具合監査の完了を示さない。
+  これは移植・統合の完了記録であり、別件として残るメニュー性能・長時間メモリ挙動の確認完了を示さない。
 
 ### 2026-09-26 進捗監査
 
