@@ -2,6 +2,7 @@
 
 #include "TrackedText.hpp"
 #include "../../../NativeRuntime/System/Globalization.hpp"
+#include "../../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -9,6 +10,7 @@
 namespace MphRead::Mods::Launcher::Gui
 {
     using namespace ::MphRead::NativeRuntime::Avalonia;
+    using ::MphRead::NativeRuntime::RoundToEven;
 
     SliderRow::SliderRow(std::string label, std::int32_t value, std::function<std::string(std::int32_t)> format,
         double labelWidth, std::int32_t min, std::int32_t max, std::int32_t keyStep)
@@ -42,7 +44,7 @@ namespace MphRead::Mods::Launcher::Gui
     {
         const Rect track = Track();
         const double fraction = (x - track.X) / std::max(1.0, track.Width);
-        Value(_min + static_cast<std::int32_t>(std::round(std::clamp(fraction, 0.0, 1.0) * (_max - _min))));
+        Value(_min + static_cast<std::int32_t>(RoundToEven(std::clamp(fraction, 0.0, 1.0) * (_max - _min))));
     }
 
     void SliderRow::BeginDrag(Input::PointerEventArgs& e, Point p)
