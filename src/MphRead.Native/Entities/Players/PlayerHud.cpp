@@ -2091,7 +2091,7 @@ namespace MphRead::Entities
                     _nodesHudState = 1;
                 }
                 else if (_nodesHudState == 1)
-                    _nodesProgressAmount = static_cast<std::int32_t>(std::round(Lerp(0, 40, defense->Progress() / (300.0F / 30.0F))));
+                    _nodesProgressAmount = static_cast<std::int32_t>(RoundToEven(Lerp(0, 40, defense->Progress() / (300.0F / 30.0F))));
             }
         }
         if (!showBar && _nodesHudState != 0)
