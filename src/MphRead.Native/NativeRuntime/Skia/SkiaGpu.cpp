@@ -49,6 +49,14 @@ namespace MphRead::NativeRuntime::Skia
         constexpr std::int32_t GlFramebufferBinding = 0x8CA6;
         constexpr std::int32_t GlViewport = 0x0BA2;
         constexpr std::int32_t GlScissorBox = 0x0C10;
+        constexpr std::int32_t GlCurrentProgram = 0x8B8D;
+        constexpr std::int32_t GlActiveTexture = 0x84E0;
+        constexpr std::int32_t GlTextureBinding2D = 0x8069;
+        constexpr std::int32_t GlBlendSrcRgb = 0x80C9;
+        constexpr std::int32_t GlBlendDstRgb = 0x80C8;
+        constexpr std::int32_t GlDepthFunc = 0x0B74;
+        constexpr std::int32_t GlDepthWriteMask = 0x0B72;
+        constexpr std::int32_t GlColorWriteMask = 0x0C23;
 
         [[nodiscard]] ::SkRect NativeRect(const Rect& r)
         {
@@ -249,6 +257,21 @@ namespace MphRead::NativeRuntime::Skia
         std::array<std::int32_t, 4> PreviousViewport{};
         std::array<std::int32_t, 4> PreviousScissor{};
         bool PreviousScissorEnabled = false;
+        std::int32_t PreviousProgram = 0;
+        std::int32_t PreviousActiveTexture = static_cast<std::int32_t>(GL::TextureUnit::Texture0);
+        std::array<std::int32_t, 2> PreviousTexture2D{};
+        std::array<bool, 2> PreviousTexture2DEnabled{};
+        std::int32_t PreviousBlendSrc = static_cast<std::int32_t>(GL::BlendingFactor::One);
+        std::int32_t PreviousBlendDst = static_cast<std::int32_t>(GL::BlendingFactor::OneMinusSrcAlpha);
+        std::int32_t PreviousDepthFunction = static_cast<std::int32_t>(GL::DepthFunction::Less);
+        bool PreviousDepthWrite = true;
+        std::array<std::int32_t, 4> PreviousColorWrite{1, 1, 1, 1};
+        bool PreviousBlendEnabled = false;
+        bool PreviousDepthEnabled = false;
+        bool PreviousCullEnabled = false;
+        bool PreviousStencilEnabled = false;
+        bool PreviousAlphaEnabled = false;
+        bool PreviousPolygonOffsetEnabled = false;
 
         void EnsureContext()
         {
@@ -347,19 +370,45 @@ namespace MphRead::NativeRuntime::Skia
             return result;
         }
 
+        static void RestoreEnabled(GL::EnableCap cap, bool enabled) noexcept
+        {
+            if (enabled)
+            {
+                GL::Enable(cap);
+            }
+            else
+            {
+                GL::Disable(cap);
+            }
+        }
+
         void RestoreGlState() noexcept
         {
             GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, PreviousFramebuffer);
             GL::Viewport(PreviousViewport[0], PreviousViewport[1], PreviousViewport[2], PreviousViewport[3]);
             GL::Scissor(PreviousScissor[0], PreviousScissor[1], PreviousScissor[2], PreviousScissor[3]);
-            if (PreviousScissorEnabled)
+            RestoreEnabled(GL::EnableCap::ScissorTest, PreviousScissorEnabled);
+            RestoreEnabled(GL::EnableCap::Blend, PreviousBlendEnabled);
+            RestoreEnabled(GL::EnableCap::DepthTest, PreviousDepthEnabled);
+            RestoreEnabled(GL::EnableCap::CullFace, PreviousCullEnabled);
+            RestoreEnabled(GL::EnableCap::StencilTest, PreviousStencilEnabled);
+            RestoreEnabled(GL::EnableCap::AlphaTest, PreviousAlphaEnabled);
+            RestoreEnabled(GL::EnableCap::PolygonOffsetFill, PreviousPolygonOffsetEnabled);
+            GL::BlendFunc(static_cast<GL::BlendingFactor>(PreviousBlendSrc),
+                static_cast<GL::BlendingFactor>(PreviousBlendDst));
+            GL::DepthFunc(static_cast<GL::DepthFunction>(PreviousDepthFunction));
+            GL::DepthMask(PreviousDepthWrite);
+            GL::ColorMask(PreviousColorWrite[0] != 0, PreviousColorWrite[1] != 0,
+                PreviousColorWrite[2] != 0, PreviousColorWrite[3] != 0);
+            GL::UseProgram(PreviousProgram);
+            for (std::size_t i = 0; i < PreviousTexture2D.size(); ++i)
             {
-                GL::Enable(GL::EnableCap::ScissorTest);
+                GL::ActiveTexture(static_cast<GL::TextureUnit>(
+                    static_cast<std::int32_t>(GL::TextureUnit::Texture0) + static_cast<std::int32_t>(i)));
+                GL::BindTexture(GL::TextureTarget::Texture2D, PreviousTexture2D[i]);
+                RestoreEnabled(GL::EnableCap::Texture2D, PreviousTexture2DEnabled[i]);
             }
-            else
-            {
-                GL::Disable(GL::EnableCap::ScissorTest);
-            }
+            GL::ActiveTexture(static_cast<GL::TextureUnit>(PreviousActiveTexture));
         }
     };
 
@@ -406,11 +455,38 @@ namespace MphRead::NativeRuntime::Skia
         GL::GetIntegers(GlViewport, _impl->PreviousViewport.data());
         GL::GetIntegers(GlScissorBox, _impl->PreviousScissor.data());
         _impl->PreviousScissorEnabled = GL::IsEnabled(GL::EnableCap::ScissorTest);
+        _impl->PreviousProgram = GL::GetInteger(GlCurrentProgram);
+        _impl->PreviousActiveTexture = GL::GetInteger(GlActiveTexture);
+        for (std::size_t i = 0; i < _impl->PreviousTexture2D.size(); ++i)
+        {
+            GL::ActiveTexture(static_cast<GL::TextureUnit>(
+                static_cast<std::int32_t>(GL::TextureUnit::Texture0) + static_cast<std::int32_t>(i)));
+            _impl->PreviousTexture2D[i] = GL::GetInteger(GlTextureBinding2D);
+            _impl->PreviousTexture2DEnabled[i] = GL::IsEnabled(GL::EnableCap::Texture2D);
+        }
+        GL::ActiveTexture(static_cast<GL::TextureUnit>(_impl->PreviousActiveTexture));
+        _impl->PreviousBlendSrc = GL::GetInteger(GlBlendSrcRgb);
+        _impl->PreviousBlendDst = GL::GetInteger(GlBlendDstRgb);
+        _impl->PreviousDepthFunction = GL::GetInteger(GlDepthFunc);
+        _impl->PreviousDepthWrite = GL::GetInteger(GlDepthWriteMask) != 0;
+        GL::GetIntegers(GlColorWriteMask, _impl->PreviousColorWrite.data());
+        _impl->PreviousBlendEnabled = GL::IsEnabled(GL::EnableCap::Blend);
+        _impl->PreviousDepthEnabled = GL::IsEnabled(GL::EnableCap::DepthTest);
+        _impl->PreviousCullEnabled = GL::IsEnabled(GL::EnableCap::CullFace);
+        _impl->PreviousStencilEnabled = GL::IsEnabled(GL::EnableCap::StencilTest);
+        _impl->PreviousAlphaEnabled = GL::IsEnabled(GL::EnableCap::AlphaTest);
+        _impl->PreviousPolygonOffsetEnabled = GL::IsEnabled(GL::EnableCap::PolygonOffsetFill);
         _impl->InFrame = true;
         try
         {
             _impl->EnsureContext();
             _impl->Context->resetContext();
+            if (_impl->Surface != nullptr)
+            {
+                ::SkCanvas* canvas = _impl->Surface->getCanvas();
+                canvas->restoreToCount(1);
+                canvas->resetMatrix();
+            }
         }
         catch (...)
         {
@@ -558,6 +634,11 @@ namespace MphRead::NativeRuntime::Skia
             for (const double dash : stroke.Dashes)
             {
                 intervals.push_back(static_cast<::SkScalar>(dash * stroke.Width));
+            }
+            if ((intervals.size() & 1U) != 0U)
+            {
+                const std::vector<::SkScalar> copy = intervals;
+                intervals.insert(intervals.end(), copy.begin(), copy.end());
             }
             native.setPathEffect(::SkDashPathEffect::Make(
                 ::SkSpan<const ::SkScalar>(intervals.data(), intervals.size()),

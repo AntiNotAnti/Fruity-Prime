@@ -9,6 +9,7 @@
 // CPU rendering does not leak into individual controls.
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>

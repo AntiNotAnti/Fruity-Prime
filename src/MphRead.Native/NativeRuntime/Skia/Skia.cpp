@@ -739,6 +739,8 @@ namespace MphRead::NativeRuntime::Skia
                 _descriptor.Start = start;
                 _descriptor.End = end;
                 _descriptor.Stops = std::move(stops);
+                std::stable_sort(_descriptor.Stops.begin(), _descriptor.Stops.end(),
+                    [](const GradientStop& a, const GradientStop& b) { return a.Offset < b.Offset; });
                 _descriptor.Spread = spread;
                 _descriptor.LocalToDevice = m;
                 _dx = end.X - start.X;
@@ -780,6 +782,8 @@ namespace MphRead::NativeRuntime::Skia
                 _descriptor.RadiusX = rx;
                 _descriptor.RadiusY = ry;
                 _descriptor.Stops = std::move(stops);
+                std::stable_sort(_descriptor.Stops.begin(), _descriptor.Stops.end(),
+                    [](const GradientStop& a, const GradientStop& b) { return a.Offset < b.Offset; });
                 _descriptor.Spread = spread;
                 _descriptor.LocalToDevice = m;
             }
