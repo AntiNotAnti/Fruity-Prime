@@ -1844,7 +1844,7 @@ namespace MphRead::Entities
             for (std::int32_t i = 3; i > 0; --i)
             {
                 _bombInst->SetIndex(_bombAmmo < i ? 1 : 0, RequireReference(_scene));
-                _bombInst->PositionX = (posX - _bombInst->Width / 2.0F) / 256.0F;
+                _bombInst->PositionX = (posX - static_cast<float>(_bombInst->Width / 2)) / 256.0F;
                 _bombInst->PositionY = posY / 192.0F;
                 RequireReference(_scene).DrawHudObject(_bombInst, 2);
                 posX -= 14.0F;
@@ -1855,7 +1855,7 @@ namespace MphRead::Entities
         {
             if (_altAttackCooldown == 0) _boostInst->SetIndex(0, RequireReference(_scene));
             else if (_boostInst->Timer <= 1.0F / 30.0F) _boostInst->SetIndex(1, RequireReference(_scene));
-            _boostInst->PositionX = (29.0F - _boostInst->Width / 2.0F) / 256.0F;
+            _boostInst->PositionX = (29.0F - static_cast<float>(_boostInst->Width / 2)) / 256.0F;
             _boostInst->PositionY = (posY - 16.0F) / 192.0F;
             RequireReference(_scene).DrawHudObject(_boostInst, 2);
             DrawText2D(29, posY + 18, Hud::Align::Center, 0, Text::Strings::GetHudMessage(2));
