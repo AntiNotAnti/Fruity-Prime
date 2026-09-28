@@ -62,6 +62,7 @@
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::ManagedCast;
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::RoundToEven;
 using ::MphRead::TestFlag;
 
 namespace
@@ -1181,8 +1182,8 @@ namespace MphRead::Entities
             OpenTK::Mathematics::Vector2 pos{};
             Matrix::ProjectPosition(_aimPosition, RequireReference(_scene).ViewMatrix(),
                 RequireReference(_scene).PerspectiveMatrix(), pos);
-            RequireReference(_targetCircleInst).PositionX = std::round(pos.X * 100000.0F) / 100000.0F;
-            RequireReference(_targetCircleInst).PositionY = std::round(pos.Y * 100000.0F) / 100000.0F;
+            RequireReference(_targetCircleInst).PositionX = RoundToEven(pos.X * 100000.0F) / 100000.0F;
+            RequireReference(_targetCircleInst).PositionY = RoundToEven(pos.Y * 100000.0F) / 100000.0F;
         }
         RequireReference(_targetCircleInst).Enabled = true;
         RequireReference(_targetCircleInst).ProcessAnimation(RequireReference(_scene));
