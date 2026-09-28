@@ -2019,7 +2019,7 @@ namespace MphRead
         if (main->HudDisruptedState() != 0 || main->HudWhiteoutState() != -1)
         {
             const float div = _elapsedTime / (1.0F / 30.0F);
-            const auto index = static_cast<std::int32_t>(div);
+            const std::int32_t index = ::MphRead::NativeRuntime::ConvertToInt32Net9(div);
             const float factor = std::fmod(div, 1.0F);
             GL::UseProgram(_shiftShaderProgramId);
             GL::Uniform1(_shaderLocations->ShiftFactor, main->HudDisruptionFactor());
@@ -2823,7 +2823,8 @@ namespace MphRead
                 {
                     element->ParticleAmount += element->InvokeFloatFunc(action->second, times);
                 }
-                const std::int32_t spawnCount = static_cast<std::int32_t>(std::floor(element->ParticleAmount));
+                const std::int32_t spawnCount = ::MphRead::NativeRuntime::ConvertToInt32Net9(
+                    std::floor(element->ParticleAmount));
                 element->ParticleAmount -= static_cast<float>(spawnCount);
                 float portionTotal = 0.0F;
                 for (std::int32_t j = 0; j < spawnCount; ++j)
@@ -2968,7 +2969,8 @@ namespace MphRead
                     auto info = element->Actions()->find(FuncAction::SetParticleId);
                     if (info != element->Actions()->end())
                     {
-                        particle->ParticleId = static_cast<std::int32_t>(particle->InvokeFloatFunc(info->second, times));
+                        particle->ParticleId = ::MphRead::NativeRuntime::ConvertToInt32Net9(
+                            particle->InvokeFloatFunc(info->second, times));
                         if (particle->ParticleId >= static_cast<std::int32_t>(element->ParticleDefinitions->size()))
                         {
                             particle->ParticleId = static_cast<std::int32_t>(element->ParticleDefinitions->size()) - 1;
