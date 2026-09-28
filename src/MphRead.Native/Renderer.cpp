@@ -4410,9 +4410,9 @@ namespace MphRead
     }
 
     void Scene::DrawIconModel(Vector2 position, float angle, const std::shared_ptr<ModelInstance>& inst,
-        ColorRgb color, float alpha)
+        ColorRgb color, float alpha, float scaleMult)
     {
-        const float scale = _rendererSize.Y / 192.0F;
+        const float scale = _rendererSize.Y / 192.0F * scaleMult;
         const Vector3 position3d(position.X * _rendererSize.X - _rendererSize.X / 2.0F,
             (1.0F - position.Y) * _rendererSize.Y - _rendererSize.Y / 2.0F, -1.0F);
         Matrix4 transform = CreateRotationZ(DegreesToRadians(angle))
