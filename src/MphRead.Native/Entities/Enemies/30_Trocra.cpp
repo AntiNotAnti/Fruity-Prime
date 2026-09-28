@@ -19,7 +19,9 @@
 #include <memory>
 #include <optional>
 
+using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::ManagedAs;
+using ::MphRead::NativeRuntime::RoundToEven;
 using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::Length;
@@ -49,38 +51,7 @@ namespace MphRead::Entities::Enemies
             return enemy.HitPlayers[static_cast<std::size_t>(slotIndex)];
         }
 
-        [[nodiscard]] std::int32_t RoundToInt32ToEven(float value) noexcept
-        {
-            if (!std::isfinite(value))
-            {
-                return value > 0.0F
-                    ? std::numeric_limits<std::int32_t>::max()
-                    : std::numeric_limits<std::int32_t>::min();
-            }
-            const float floorValue = std::floor(value);
-            const float fraction = value - floorValue;
-            double rounded = floorValue;
-            if (fraction > 0.5F)
-            {
-                rounded = static_cast<double>(floorValue) + 1.0;
-            }
-            else if (fraction == 0.5F)
-            {
-                const auto floorInteger = static_cast<std::int64_t>(floorValue);
-                rounded = (floorInteger & 1LL) == 0
-                    ? floorValue
-                    : static_cast<double>(floorValue) + 1.0;
-            }
-            if (rounded >= static_cast<double>(std::numeric_limits<std::int32_t>::max()))
-            {
-                return std::numeric_limits<std::int32_t>::max();
-            }
-            if (rounded <= static_cast<double>(std::numeric_limits<std::int32_t>::min()))
-            {
-                return std::numeric_limits<std::int32_t>::min();
-            }
-            return static_cast<std::int32_t>(rounded);
-        }
+
     }
 
     Enemy30Entity::Enemy30Entity(EnemyInstanceEntityData data,
@@ -151,8 +122,8 @@ namespace MphRead::Entities::Enemies
                 if (!HitMainPlayer(*this))
                 {
                     const float factor = MathClamp(distance / 2.0F, 0.0F, 1.0F);
-                    damage -= RoundToInt32ToEven(
-                        static_cast<float>(damage) - 15.0F * factor);
+                    damage -= ConvertToInt32Net9(RoundToEven(
+                        static_cast<float>(damage) - 15.0F * factor));
                     force -= factor;
                 }
                 if (distance > 1.0F / 128.0F)
