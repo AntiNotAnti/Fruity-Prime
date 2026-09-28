@@ -298,11 +298,13 @@ namespace MphRead::Entities
             }
             if (_cooldownFactor < 1.5F)
             {
-                _cooldownFactor = std::min(_cooldownFactor + 0.015F / 2.0F, 1.5F);
+                _cooldownFactor = ::MphRead::NativeRuntime::MathMin(
+                    _cooldownFactor + 0.015F / 2.0F, 1.5F);
             }
             else if (_cooldownFactor > 1.5F)
             {
-                _cooldownFactor = std::max(_cooldownFactor - 0.015F / 2.0F, 1.5F);
+                _cooldownFactor = ::MphRead::NativeRuntime::MathMax(
+                    _cooldownFactor - 0.015F / 2.0F, 1.5F);
             }
             if (_target == nullptr)
             {
