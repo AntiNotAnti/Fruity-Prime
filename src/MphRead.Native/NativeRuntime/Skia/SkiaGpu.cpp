@@ -253,6 +253,77 @@ namespace MphRead::NativeRuntime::Skia
             const auto proc = ::OpenTK::Windowing::GraphicsLibraryFramework::GLFW::GetProcAddress(name);
             return reinterpret_cast<GrGLFuncPtr>(proc);
         }
+
+        // State Ganesh binds and never unbinds that the game's fixed-function
+        // renderer has no wrapper for. A sampler object left on a unit
+        // overrides the game's per-texture wrap/filter (REPEAT becomes
+        // CLAMP_TO_EDGE, so textures smear sideways), and a leaked VAO,
+        // buffer or enabled generic attribute array breaks immediate mode.
+        constexpr unsigned GlMaxCombinedTextureUnits = 0x8B4D;
+        constexpr unsigned GlMaxVertexAttribs = 0x8869;
+        constexpr unsigned GlTexture0 = 0x84C0;
+        constexpr unsigned GlTexture2D = 0x0DE1;
+        constexpr unsigned GlTextureRectangle = 0x84F5;
+        constexpr unsigned GlTextureBindingRectangle = 0x84F6;
+        constexpr unsigned GlTextureBinding2DRaw = 0x8069;
+        constexpr unsigned GlArrayBuffer = 0x8892;
+        constexpr unsigned GlArrayBufferBinding = 0x8894;
+        constexpr unsigned GlElementArrayBuffer = 0x8893;
+        constexpr unsigned GlFrontFace = 0x0B46;
+        constexpr unsigned GlBlendEquationRgb = 0x8009;
+        constexpr unsigned GlBlendEquationAlpha = 0x883D;
+
+        struct ExtraGl
+        {
+            using U1 = void (GR_GL_FUNCTION_TYPE*)(unsigned);
+            using U2 = void (GR_GL_FUNCTION_TYPE*)(unsigned, unsigned);
+            using GetIntegervFn = void (GR_GL_FUNCTION_TYPE*)(unsigned, int*);
+
+            U2 BindSampler = nullptr;
+            U1 BindVertexArray = nullptr;
+            U2 BindBuffer = nullptr;
+            U1 DisableVertexAttribArray = nullptr;
+            U1 ActiveTexture = nullptr;
+            U2 BindTexture = nullptr;
+            GetIntegervFn GetIntegerv = nullptr;
+            U1 FrontFace = nullptr;
+            U2 BlendEquationSeparate = nullptr;
+            bool Loaded = false;
+
+            template <typename T>
+            static T Resolve(const char* name) noexcept
+            {
+                return reinterpret_cast<T>(ResolveSkiaGl(nullptr, name));
+            }
+
+            void Load() noexcept
+            {
+                if (Loaded)
+                {
+                    return;
+                }
+                BindSampler = Resolve<U2>("glBindSampler");
+                BindVertexArray = Resolve<U1>("glBindVertexArray");
+                BindBuffer = Resolve<U2>("glBindBuffer");
+                DisableVertexAttribArray = Resolve<U1>("glDisableVertexAttribArray");
+                ActiveTexture = Resolve<U1>("glActiveTexture");
+                BindTexture = Resolve<U2>("glBindTexture");
+                GetIntegerv = Resolve<GetIntegervFn>("glGetIntegerv");
+                FrontFace = Resolve<U1>("glFrontFace");
+                BlendEquationSeparate = Resolve<U2>("glBlendEquationSeparate");
+                Loaded = true;
+            }
+
+            [[nodiscard]] int Get(unsigned name, int fallback) const noexcept
+            {
+                int value = fallback;
+                if (GetIntegerv != nullptr)
+                {
+                    GetIntegerv(name, &value);
+                }
+                return value;
+            }
+        };
     }
 
     struct GpuAccess final
@@ -365,6 +436,88 @@ namespace MphRead::NativeRuntime::Skia
         std::int32_t PreviousUnpackImageHeight = 0;
         std::int32_t PreviousPixelPackBuffer = 0;
         std::int32_t PreviousPixelUnpackBuffer = 0;
+        int PreviousArrayBuffer = 0;
+        int PreviousFrontFace = 0x0901;
+        int PreviousBlendEquationRgb = 0x8006;
+        int PreviousBlendEquationAlpha = 0x8006;
+        std::vector<int> PreviousUnitTextures;
+        std::vector<int> PreviousUnitRectangles;
+        ExtraGl Extra;
+
+        void CaptureExtraState() noexcept
+        {
+            Extra.Load();
+            PreviousArrayBuffer = Extra.Get(GlArrayBufferBinding, 0);
+            PreviousFrontFace = Extra.Get(GlFrontFace, 0x0901);
+            PreviousBlendEquationRgb = Extra.Get(GlBlendEquationRgb, 0x8006);
+            PreviousBlendEquationAlpha = Extra.Get(GlBlendEquationAlpha, 0x8006);
+            const int units = std::clamp(Extra.Get(GlMaxCombinedTextureUnits, 8), 1, 32);
+            PreviousUnitTextures.assign(static_cast<std::size_t>(units), 0);
+            PreviousUnitRectangles.assign(static_cast<std::size_t>(units), 0);
+            if (Extra.ActiveTexture == nullptr)
+            {
+                return;
+            }
+            for (int i = 0; i < units; ++i)
+            {
+                Extra.ActiveTexture(GlTexture0 + static_cast<unsigned>(i));
+                PreviousUnitTextures[static_cast<std::size_t>(i)] = Extra.Get(GlTextureBinding2DRaw, 0);
+                PreviousUnitRectangles[static_cast<std::size_t>(i)] = Extra.Get(GlTextureBindingRectangle, 0);
+            }
+            Extra.ActiveTexture(static_cast<unsigned>(PreviousActiveTexture));
+        }
+
+        void RestoreExtraState() noexcept
+        {
+            Extra.Load();
+            // The game draws with VAO 0, client memory and immediate mode.
+            if (Extra.BindVertexArray != nullptr)
+            {
+                Extra.BindVertexArray(0);
+            }
+            if (Extra.BindBuffer != nullptr)
+            {
+                Extra.BindBuffer(GlElementArrayBuffer, 0);
+                Extra.BindBuffer(GlArrayBuffer, static_cast<unsigned>(PreviousArrayBuffer));
+            }
+            if (Extra.DisableVertexAttribArray != nullptr)
+            {
+                // Attribute 0 aliases gl_Vertex in the compatibility profile,
+                // and the game never enables a generic array itself.
+                const int attribs = std::clamp(Extra.Get(GlMaxVertexAttribs, 16), 1, 32);
+                for (int i = 0; i < attribs; ++i)
+                {
+                    Extra.DisableVertexAttribArray(static_cast<unsigned>(i));
+                }
+            }
+            if (Extra.FrontFace != nullptr)
+            {
+                Extra.FrontFace(static_cast<unsigned>(PreviousFrontFace));
+            }
+            if (Extra.BlendEquationSeparate != nullptr)
+            {
+                Extra.BlendEquationSeparate(static_cast<unsigned>(PreviousBlendEquationRgb),
+                    static_cast<unsigned>(PreviousBlendEquationAlpha));
+            }
+            if (Extra.ActiveTexture == nullptr)
+            {
+                return;
+            }
+            for (std::size_t i = 0; i < PreviousUnitTextures.size(); ++i)
+            {
+                Extra.ActiveTexture(GlTexture0 + static_cast<unsigned>(i));
+                if (Extra.BindSampler != nullptr)
+                {
+                    Extra.BindSampler(static_cast<unsigned>(i), 0);
+                }
+                if (Extra.BindTexture != nullptr)
+                {
+                    Extra.BindTexture(GlTextureRectangle, static_cast<unsigned>(PreviousUnitRectangles[i]));
+                    Extra.BindTexture(GlTexture2D, static_cast<unsigned>(PreviousUnitTextures[i]));
+                }
+            }
+            Extra.ActiveTexture(static_cast<unsigned>(PreviousActiveTexture));
+        }
 
         void EnsureContext()
         {
@@ -541,6 +694,7 @@ namespace MphRead::NativeRuntime::Skia
 
         void RestoreGlState() noexcept
         {
+            RestoreExtraState();
             GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, PreviousFramebuffer);
             GL::Viewport(PreviousViewport[0], PreviousViewport[1], PreviousViewport[2], PreviousViewport[3]);
             GL::Scissor(PreviousScissor[0], PreviousScissor[1], PreviousScissor[2], PreviousScissor[3]);
@@ -672,6 +826,7 @@ namespace MphRead::NativeRuntime::Skia
         _impl->PreviousUnpackImageHeight = GL::GetInteger(GlUnpackImageHeight);
         _impl->PreviousPixelPackBuffer = GL::GetInteger(GlPixelPackBufferBinding);
         _impl->PreviousPixelUnpackBuffer = GL::GetInteger(GlPixelUnpackBufferBinding);
+        _impl->CaptureExtraState();
         _impl->InFrame = true;
         try
         {
