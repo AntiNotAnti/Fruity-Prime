@@ -1,6 +1,7 @@
 #include "Controls.hpp"
 
 #include "TopLevel.hpp"
+#include "../System/Managed.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -8,6 +9,8 @@
 
 namespace MphRead::NativeRuntime::Avalonia
 {
+    using ::MphRead::NativeRuntime::RoundToEven;
+
     namespace
     {
         constexpr double Infinity = std::numeric_limits<double>::infinity();
@@ -387,9 +390,9 @@ namespace MphRead::NativeRuntime::Avalonia
             }
             if (scale == 1.0)
             {
-                return std::round(value);
+                return RoundToEven(value);
             }
-            const double rounded = std::round(value * scale) / scale;
+            const double rounded = RoundToEven(value * scale) / scale;
             return std::isnan(rounded) || std::isinf(rounded) ? value : rounded;
         }
 
