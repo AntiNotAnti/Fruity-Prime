@@ -1096,14 +1096,23 @@ namespace MphRead::NativeRuntime::Skia
         _states.push_back(std::move(state));
     }
 
-    Bitmap& Canvas::Target() noexcept
+    const Canvas::State* Canvas::ActiveLayer() const noexcept
     {
         for (auto it = _states.rbegin(); it != _states.rend(); ++it)
         {
             if (it->Layer != nullptr)
             {
-                return *it->Layer;
+                return &*it;
             }
+        }
+        return nullptr;
+    }
+
+    Bitmap& Canvas::Target() noexcept
+    {
+        if (const State* layer = ActiveLayer())
+        {
+            return *layer->Layer;
         }
         return _base;
     }
@@ -1117,6 +1126,8 @@ namespace MphRead::NativeRuntime::Skia
     {
         State copy = Current();
         copy.Layer = nullptr;
+        copy.LayerLeft = 0;
+        copy.LayerTop = 0;
         copy.LayerOpacity = 1.0;
         _states.push_back(std::move(copy));
     }
@@ -1124,8 +1135,15 @@ namespace MphRead::NativeRuntime::Skia
     void Canvas::SaveLayerAlpha(double opacity)
     {
         Save();
-        Current().Layer = std::make_shared<Bitmap>(_base.Width(), _base.Height());
-        Current().LayerOpacity = std::clamp(opacity, 0.0, 1.0);
+        State& layer = Current();
+        layer.LayerOpacity = std::clamp(opacity, 0.0, 1.0);
+        const std::int32_t left = std::clamp(layer.ClipLeft, 0, _base.Width());
+        const std::int32_t top = std::clamp(layer.ClipTop, 0, _base.Height());
+        const std::int32_t right = std::clamp(layer.ClipRight, left, _base.Width());
+        const std::int32_t bottom = std::clamp(layer.ClipBottom, top, _base.Height());
+        layer.LayerLeft = left;
+        layer.LayerTop = top;
+        layer.Layer = std::make_shared<Bitmap>(right - left, bottom - top);
     }
 
     void Canvas::Restore()
@@ -1142,20 +1160,32 @@ namespace MphRead::NativeRuntime::Skia
         }
         // Composite the layer, through the clip it was opened under.
         Bitmap& target = Target();
+        const State* targetLayer = ActiveLayer();
+        const std::int32_t targetLeft = targetLayer == nullptr ? 0 : targetLayer->LayerLeft;
+        const std::int32_t targetTop = targetLayer == nullptr ? 0 : targetLayer->LayerTop;
         const float opacity = static_cast<float>(top.LayerOpacity);
-        const std::int32_t width = target.Width();
-        for (std::int32_t y = top.ClipTop; y < top.ClipBottom; y++)
+        const std::int32_t sourceWidth = top.Layer->Width();
+        const std::int32_t targetWidth = target.Width();
+        const std::int32_t left = std::max({top.ClipLeft, top.LayerLeft, targetLeft});
+        const std::int32_t topY = std::max({top.ClipTop, top.LayerTop, targetTop});
+        const std::int32_t right = std::min({top.ClipRight, top.LayerLeft + top.Layer->Width(),
+            targetLeft + target.Width()});
+        const std::int32_t bottom = std::min({top.ClipBottom, top.LayerTop + top.Layer->Height(),
+            targetTop + target.Height()});
+        for (std::int32_t y = topY; y < bottom; y++)
         {
-            for (std::int32_t x = top.ClipLeft; x < top.ClipRight; x++)
+            for (std::int32_t x = left; x < right; x++)
             {
-                const std::size_t i = (static_cast<std::size_t>(y) * static_cast<std::size_t>(width)
-                    + static_cast<std::size_t>(x)) * 4;
-                const std::uint8_t* s = top.Layer->Pixels() + i;
+                const std::size_t source = (static_cast<std::size_t>(y - top.LayerTop)
+                    * static_cast<std::size_t>(sourceWidth) + static_cast<std::size_t>(x - top.LayerLeft)) * 4;
+                const std::size_t destination = (static_cast<std::size_t>(y - targetTop)
+                    * static_cast<std::size_t>(targetWidth) + static_cast<std::size_t>(x - targetLeft)) * 4;
+                const std::uint8_t* s = top.Layer->Pixels() + source;
                 if (s[3] == 0)
                 {
                     continue;
                 }
-                std::uint8_t* d = target.Pixels() + i;
+                std::uint8_t* d = target.Pixels() + destination;
                 const float sa = s[3] / 255.0F * opacity;
                 const float inv = 1 - sa;
                 for (int k = 0; k < 4; k++)
@@ -1436,8 +1466,12 @@ namespace MphRead::NativeRuntime::Skia
         float solid[4])
     {
         Bitmap& target = Target();
+        const State* targetLayer = ActiveLayer();
+        const std::int32_t targetLeft = targetLayer == nullptr ? 0 : targetLayer->LayerLeft;
+        const std::int32_t targetTop = targetLayer == nullptr ? 0 : targetLayer->LayerTop;
         const std::int32_t width = target.Width();
-        std::uint8_t* row = target.Pixels() + static_cast<std::size_t>(y) * static_cast<std::size_t>(width) * 4;
+        std::uint8_t* row = target.Pixels() + static_cast<std::size_t>(y - targetTop)
+            * static_cast<std::size_t>(width) * 4;
         const float opacity = static_cast<float>(paint.Opacity);
         const bool hasClip = Current().ClipMask != nullptr;
         const bool opaqueSolid = paint.Gradient == nullptr && opacity == 1.0F && paint.Solid.A == 255;
@@ -1454,7 +1488,7 @@ namespace MphRead::NativeRuntime::Skia
             {
                 continue;
             }
-            std::uint8_t* d = row + static_cast<std::size_t>(x) * 4;
+            std::uint8_t* d = row + static_cast<std::size_t>(x - targetLeft) * 4;
             if (opaqueSolid && cov >= 1.0F)
             {
                 d[0] = paint.Solid.R;
@@ -1615,6 +1649,9 @@ namespace MphRead::NativeRuntime::Skia
             return;
         }
         Bitmap& target = Target();
+        const State* targetLayer = ActiveLayer();
+        const std::int32_t targetLeft = targetLayer == nullptr ? 0 : targetLayer->LayerLeft;
+        const std::int32_t targetTop = targetLayer == nullptr ? 0 : targetLayer->LayerTop;
         const std::int32_t width = target.Width();
         const float alpha = static_cast<float>(opacity);
         const double sx = source.Width() / destination.Width();
@@ -1728,8 +1765,8 @@ namespace MphRead::NativeRuntime::Skia
                     }
                     const std::uint8_t* r0 = px + static_cast<std::size_t>(y0) * static_cast<std::size_t>(bw) * 4;
                     const std::uint8_t* r1 = px + static_cast<std::size_t>(y1) * static_cast<std::size_t>(bw) * 4;
-                    std::uint8_t* out = target.Pixels() + (static_cast<std::size_t>(dy) * static_cast<std::size_t>(width)
-                        + static_cast<std::size_t>(left)) * 4;
+                    std::uint8_t* out = target.Pixels() + (static_cast<std::size_t>(dy - targetTop)
+                        * static_cast<std::size_t>(width) + static_cast<std::size_t>(left - targetLeft)) * 4;
                     for (std::int32_t i = 0; i < cols; i++, out += 4)
                     {
                         const std::int32_t baseCov = ccov[static_cast<std::size_t>(i)] * rowCov >> 8;
@@ -1920,7 +1957,8 @@ namespace MphRead::NativeRuntime::Skia
         const int boxV = quality == FilterQuality::None ? 1 : std::clamp(static_cast<int>(std::floor(stepV)), 1, 16);
         for (std::int32_t dy = top; dy < bottom; dy++)
         {
-            std::uint8_t* row = target.Pixels() + static_cast<std::size_t>(dy) * static_cast<std::size_t>(width) * 4;
+            std::uint8_t* row = target.Pixels() + static_cast<std::size_t>(dy - targetTop)
+                * static_cast<std::size_t>(width) * 4;
             const float coverageY = axisAligned
                 ? static_cast<float>(std::clamp(std::min(static_cast<double>(dy + 1), deviceBounds.Bottom)
                     - std::max(static_cast<double>(dy), deviceBounds.Top), 0.0, 1.0))
@@ -1944,7 +1982,7 @@ namespace MphRead::NativeRuntime::Skia
                 const Point p = inverse->Map({dx + 0.5, dy + 0.5});
                 const double u = source.Left + (p.X - destination.Left) * sx;
                 const double v = source.Top + (p.Y - destination.Top) * sy;
-                std::uint8_t* d = row + static_cast<std::size_t>(dx) * 4;
+                std::uint8_t* d = row + static_cast<std::size_t>(dx - targetLeft) * 4;
                 if (blend == BlendMode::SrcOver && alpha == 1.0F && cov >= 1.0F)
                 {
                     if (const std::uint8_t* pixel = alignedOpaque(u, v); pixel != nullptr)

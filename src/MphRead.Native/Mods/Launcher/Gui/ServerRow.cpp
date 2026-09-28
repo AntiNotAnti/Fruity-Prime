@@ -272,7 +272,11 @@ namespace MphRead::Mods::Launcher::Gui
             * Av::Matrix::CreateScale(scale, scale)
             * Av::Matrix::CreateRotation(_lean * std::numbers::pi / 180 * 0.06)
             * Av::Matrix::CreateTranslation(width / 2, SlabHeight / 2));
-        auto wait = context.PushOpacity(_asking ? 0.72 : 1);
+        std::optional<Media::DrawingContext::PushedState> wait;
+        if (_asking)
+        {
+            wait.emplace(context.PushOpacity(0.72));
+        }
 
         const Media::Color ring = _selected ? GuiTheme::Accent
             : live ? Deck::Rgb(0x4a6f8c) : GuiTheme::Edge;
@@ -312,8 +316,12 @@ namespace MphRead::Mods::Launcher::Gui
             return;
         }
         {
-            auto opacity = context.PushOpacity(live ? 0.72 : 0.5);
             auto clip = context.PushClip(round);
+            // The group opacity only affects this image, so establish its
+            // rounded bounds before opening the layer. The CPU renderer can
+            // then allocate and composite the row-sized clip instead of the
+            // whole launcher surface for every server row.
+            auto opacity = context.PushOpacity(live ? 0.72 : 0.5);
             const double scale = slab.Width / shot->Size().Width;
             const double height = shot->Size().Height * scale;
             context.DrawImage(*shot, Rect(slab.X, slab.Y + (slab.Height - height) / 2,

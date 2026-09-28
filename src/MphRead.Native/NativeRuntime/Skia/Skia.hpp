@@ -299,9 +299,14 @@ namespace MphRead::NativeRuntime::Skia
             std::shared_ptr<const Mask> ClipMask{};
             // Set when this save opened a layer.
             std::shared_ptr<Bitmap> Layer{};
+            // Layers use only the active device-space clip rectangle, while
+            // draw coordinates remain relative to the base surface.
+            std::int32_t LayerLeft = 0;
+            std::int32_t LayerTop = 0;
             double LayerOpacity = 1.0;
         };
 
+        [[nodiscard]] const State* ActiveLayer() const noexcept;
         [[nodiscard]] Bitmap& Target() noexcept;
         [[nodiscard]] State& Current() noexcept { return _states.back(); }
         [[nodiscard]] const State& Current() const noexcept { return _states.back(); }
