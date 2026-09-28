@@ -19,9 +19,5 @@ namespace MphRead::Mods::Launcher::Gui
             const std::optional<std::string>& roomKey);
         // Drop the lot: the thumbnail pass has rewritten them.
         static void Forget();
-
-    private:
-        // How wide these are decoded, against the 1600x900 the thumbnail pass writes.
-        static constexpr std::int32_t DecodeWidth = 512;
     };
 }

@@ -1,7 +1,6 @@
 #include "UiBench.hpp"
 
 #include "Deck.hpp"
-#include "DeckTile.hpp"
 #include "GuiLauncher.hpp"
 #include "PauseMenuView.hpp"
 #include "PlayScreen.hpp"
@@ -493,12 +492,6 @@ namespace MphRead::Mods::Launcher::Gui
                 << std::setw(4) << layouts << " layouts";
             Runtime::ConsoleWriteLine(line.str());
             layoutTarget.LayoutUpdated.Remove(layoutToken);
-            if (DeckTile::ChromeAsks() > 0)
-            {
-                Runtime::ConsoleWriteLine("            card chrome: "
-                    + std::to_string(DeckTile::ChromeBakes()) + " cut, "
-                    + std::to_string(DeckTile::ChromeAsks()) + " asked for");
-            }
         }
 
         [[nodiscard]] double Raster(std::int32_t width, std::int32_t height)
@@ -612,7 +605,6 @@ namespace MphRead::Mods::Launcher::Gui
             std::string heading = "[uibench] screen=" + screen + "  surface "
                 + (Slow ? "native headless frame-copy rig" : "UiTopLevelImpl")
                 + (AsAndroid ? "  backdrop as Android (animated layer in the tree)" : "")
-                + (DeckTile::CacheChrome ? "" : "  card shadows blurred every frame")
                 + (Slow ? (FreeFrames ? "  frames freed by RAII" : "  one frame retained by RAII") : "")
                 + "  raster cap " + (UiSurface::NativeRaster() ? "off" : "on")
                 + "  " + std::to_string(Runtime::EnvironmentProcessorCount()) + " cores";

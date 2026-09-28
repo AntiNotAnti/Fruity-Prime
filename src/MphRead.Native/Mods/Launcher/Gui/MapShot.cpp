@@ -44,7 +44,7 @@ namespace MphRead::Mods::Launcher::Gui
             {
                 // Read whole, so the file is not held open while the preview
                 // generator rewrites it.
-                shot = Bitmap::DecodeToWidth(Runtime::FileReadAllBytes(path), DecodeWidth);
+                shot = Bitmap::FromBytes(Runtime::FileReadAllBytes(path));
             }
         }
         catch (const std::exception&)

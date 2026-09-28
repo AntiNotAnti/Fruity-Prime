@@ -39,31 +39,19 @@ namespace MphRead::Mods::Launcher::Gui
         // The grid decided this card was tapped.
         void Fire() { Click(*this); }
 
-        // How many cuts have been taken and asked for, for -uibench.
-        [[nodiscard]] static std::int32_t ChromeBakes() noexcept { return _chromeBakes; }
-        [[nodiscard]] static std::int32_t ChromeAsks() noexcept { return _chromeAsks; }
-        // Off puts the blur back on every card on every frame.
-        static inline bool CacheChrome = true;
-
         void Render(Av::Media::DrawingContext& context) override;
 
     protected:
         Av::Size MeasureOverride(Av::Size availableSize) override;
-        Av::Size ArrangeOverride(Av::Size finalSize) override;
         void OnKeyDown(Av::Input::KeyEventArgs& e) override;
         void OnGotFocus(Av::Input::GotFocusEventArgs& e) override;
         void OnLostFocus(Av::Input::FocusChangedEventArgs& e) override;
-        void OnDetachedFromVisualTree() override;
 
     private:
         [[nodiscard]] double Em() const { return Deck::GetEm(*this); }
         bool Settle();
         void Ask();
         [[nodiscard]] static Av::Media::BoxShadows Shadows(Av::Media::Color ring, bool raised);
-        static void PrimeChrome(double w, double h, double radius);
-        [[nodiscard]] static std::shared_ptr<Av::Media::Imaging::Bitmap> Chrome(double w, double h, double radius,
-            Av::Media::Color ring, bool raised);
-        std::shared_ptr<Av::Media::Imaging::Bitmap> Bake(double w, double h);
         void Badge(Av::Media::DrawingContext& context, double w, double em) const;
         void Drift(Av::Media::DrawingContext& context, double w, double h) const;
         static void Scrim(Av::Media::DrawingContext& context, double w, double h);
@@ -72,10 +60,6 @@ namespace MphRead::Mods::Launcher::Gui
         static constexpr double MaxTilt = 3.5;
         static constexpr double Stiffness = 220;
         static constexpr double Damping = 18;
-        // How far past the card the shadows reach, in points.
-        static constexpr double Bleed = 48;
-        static constexpr std::size_t ChromeKept = 8;
-
         ::MphRead::NativeRuntime::Stopwatch _clock = ::MphRead::NativeRuntime::Stopwatch::StartNew();
         ::MphRead::NativeRuntime::TimeSpan _last{};
         bool _over = false;
@@ -88,12 +72,6 @@ namespace MphRead::Mods::Launcher::Gui
         double _tiltX = 0;
         double _tiltXTarget = 0;
         bool _framePending = false;
-        std::shared_ptr<Av::Media::Imaging::RenderTargetBitmap> _ground;
-        std::int32_t _groundWidth = 0;
-        std::int32_t _groundHeight = 0;
-
-        static inline std::int32_t _chromeBakes = 0;
-        static inline std::int32_t _chromeAsks = 0;
     };
 
     // The reference's .grid: three cards across, two on a phone, half an em
