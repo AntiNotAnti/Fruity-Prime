@@ -1,3 +1,7 @@
+#ifndef SK_GL
+#define SK_GL
+#endif
+
 #include "Skia.hpp"
 
 #include "../OpenTK/GL.hpp"
@@ -16,6 +20,7 @@
 #include <include/core/SkMatrix.h>
 #include <include/core/SkPaint.h>
 #include <include/core/SkPath.h>
+#include <include/core/SkPathEffect.h>
 #include <include/core/SkPixmap.h>
 #include <include/core/SkSamplingOptions.h>
 #include <include/core/SkSurface.h>
@@ -28,6 +33,8 @@
 #define FRUITY_SKIA_GRADIENT_V2 0
 #include <include/effects/SkGradientShader.h>
 #endif
+#if __has_include(<include/gpu/ganesh/GrBackendSurface.h>)
+#define FRUITY_SKIA_GANESH_V2 1
 #include <include/gpu/ganesh/GrBackendSurface.h>
 #include <include/gpu/ganesh/GrDirectContext.h>
 #include <include/gpu/ganesh/GrTypes.h>
@@ -35,7 +42,20 @@
 #include <include/gpu/ganesh/gl/GrGLAssembleInterface.h>
 #include <include/gpu/ganesh/gl/GrGLBackendSurface.h>
 #include <include/gpu/ganesh/gl/GrGLDirectContext.h>
+#else
+#define FRUITY_SKIA_GANESH_V2 0
+#include <include/gpu/GrBackendSurface.h>
+#include <include/gpu/GrDirectContext.h>
+#include <include/gpu/GrTypes.h>
+#include <include/gpu/gl/GrGLAssembleInterface.h>
+#include <include/gpu/gl/GrGLTypes.h>
+#endif
+#if __has_include(<include/ports/SkFontMgr_data.h>)
+#define FRUITY_SKIA_FONTMGR_DATA 1
 #include <include/ports/SkFontMgr_data.h>
+#else
+#define FRUITY_SKIA_FONTMGR_DATA 0
+#endif
 
 #include <algorithm>
 #include <array>
@@ -325,7 +345,11 @@ namespace MphRead::NativeRuntime::Skia
             {
                 throw std::runtime_error("Skia could not assemble the current OpenGL interface.");
             }
+#if FRUITY_SKIA_GANESH_V2
             Context = ::GrDirectContexts::MakeGL(std::move(interface));
+#else
+            Context = ::GrDirectContext::MakeGL(std::move(interface));
+#endif
             if (Context == nullptr)
             {
                 throw std::runtime_error("Skia could not create a Ganesh OpenGL context.");
@@ -343,8 +367,13 @@ namespace MphRead::NativeRuntime::Skia
                 throw std::logic_error("Skia GPU surface resized outside a render frame.");
             }
             const ::SkImageInfo info = ::SkImageInfo::Make(width, height, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
+#if FRUITY_SKIA_GANESH_V2
             Surface = ::SkSurfaces::RenderTarget(Context.get(), skgpu::Budgeted::kYes, info, 0,
                 kBottomLeft_GrSurfaceOrigin, nullptr);
+#else
+            Surface = ::SkSurface::MakeRenderTarget(Context.get(), SkBudgeted::kYes, info, 0,
+                kBottomLeft_GrSurfaceOrigin, nullptr);
+#endif
             if (Surface == nullptr)
             {
                 throw std::runtime_error("Skia could not allocate the launcher Ganesh surface.");
@@ -391,7 +420,11 @@ namespace MphRead::NativeRuntime::Skia
             const ::SkImageInfo info = ::SkImageInfo::Make(bitmap.Width(), bitmap.Height(),
                 kRGBA_8888_SkColorType, kPremul_SkAlphaType);
             const ::SkPixmap pixmap(info, bitmap.Pixels(), static_cast<std::size_t>(bitmap.Width()) * 4);
+#if FRUITY_SKIA_GANESH_V2
             sk_sp<::SkImage> image = ::SkImages::RasterFromPixmapCopy(pixmap);
+#else
+            sk_sp<::SkImage> image = ::SkImage::MakeRasterCopy(pixmap);
+#endif
             if (image == nullptr)
             {
                 return nullptr;
@@ -446,6 +479,7 @@ namespace MphRead::NativeRuntime::Skia
             }
             FontEntry entry;
             entry.Data = ::SkData::MakeWithCopy(data, size);
+#if FRUITY_SKIA_FONTMGR_DATA
             std::array<sk_sp<::SkData>, 1> fontData{entry.Data};
             entry.Manager = ::SkFontMgr_New_Custom_Data(
                 ::SkSpan<sk_sp<::SkData>>(fontData.data(), fontData.size()));
@@ -453,6 +487,9 @@ namespace MphRead::NativeRuntime::Skia
             {
                 entry.Typeface = entry.Manager->makeFromData(entry.Data);
             }
+#else
+            entry.Typeface = ::SkTypeface::MakeFromData(entry.Data);
+#endif
             sk_sp<::SkTypeface> result = entry.Typeface;
             Fonts.emplace(&typeface, std::move(entry));
             return result;
@@ -595,10 +632,16 @@ namespace MphRead::NativeRuntime::Skia
             if (_impl->Surface != nullptr && _impl->Context != nullptr)
             {
                 _impl->Context->flushAndSubmit(_impl->Surface.get());
+                ::GrGLTextureInfo info{};
+#if FRUITY_SKIA_GANESH_V2
                 const ::GrBackendTexture backend = ::SkSurfaces::GetBackendTexture(
                     _impl->Surface.get(), ::SkSurface::BackendHandleAccess::kFlushRead);
-                ::GrGLTextureInfo info{};
                 if (backend.isValid() && ::GrBackendTextures::GetGLTextureInfo(backend, &info))
+#else
+                const ::GrBackendTexture backend = _impl->Surface->getBackendTexture(
+                    ::SkSurface::kFlushRead_BackendHandleAccess);
+                if (backend.isValid() && backend.getGLTextureInfo(&info))
+#endif
                 {
                     _impl->Texture = static_cast<std::int32_t>(info.fID);
                 }
@@ -651,7 +694,13 @@ namespace MphRead::NativeRuntime::Skia
 
     void GpuSurface::SaveLayerAlpha(double opacity)
     {
+#if FRUITY_SKIA_GANESH_V2
         (void)_impl->Canvas().saveLayerAlphaf(nullptr, static_cast<float>(std::clamp(opacity, 0.0, 1.0)));
+#else
+        const double clamped = std::clamp(opacity, 0.0, 1.0);
+        (void)_impl->Canvas().saveLayerAlpha(nullptr,
+            static_cast<U8CPU>(clamped * 255.0 + 0.5));
+#endif
     }
 
     void GpuSurface::Restore()
@@ -728,9 +777,15 @@ namespace MphRead::NativeRuntime::Skia
                 const std::vector<::SkScalar> copy = intervals;
                 intervals.insert(intervals.end(), copy.begin(), copy.end());
             }
+#if FRUITY_SKIA_GANESH_V2
             native.setPathEffect(::SkDashPathEffect::Make(
                 ::SkSpan<const ::SkScalar>(intervals.data(), intervals.size()),
                 static_cast<::SkScalar>(stroke.DashOffset * stroke.Width)));
+#else
+            native.setPathEffect(::SkDashPathEffect::Make(intervals.data(),
+                static_cast<int>(intervals.size()),
+                static_cast<::SkScalar>(stroke.DashOffset * stroke.Width)));
+#endif
         }
         _impl->Canvas().drawPath(GpuAccess::Path(path), native);
     }
