@@ -448,18 +448,18 @@ namespace MphRead::Entities
                         }
                         Hud::HudObjectInstance& octolith = RequireReference(octoInst);
                         octolith.PositionX
-                            = (static_cast<float>(posX + offsetX) - octolith.Width / 2.0F) / 256.0F;
+                            = (static_cast<float>(posX + offsetX - octolith.Width / 2)) / 256.0F;
                         octolith.PositionY
-                            = (static_cast<float>(posY) - octolith.Height / 2.0F) / 192.0F;
+                            = (static_cast<float>(posY - octolith.Height / 2)) / 192.0F;
                         scene.DrawHudObject(octoInst);
                     }
                     else
                     {
                         Hud::HudObjectInstance& teleporter = RequireReference(_mapTeleporterInst);
                         teleporter.PositionX
-                            = (static_cast<float>(posX) - teleporter.Width / 2.0F) / 256.0F;
+                            = (static_cast<float>(posX - teleporter.Width / 2)) / 256.0F;
                         teleporter.PositionY
-                            = (static_cast<float>(posY) - teleporter.Height / 2.0F) / 192.0F;
+                            = (static_cast<float>(posY - teleporter.Height / 2)) / 192.0F;
                         const std::int32_t teleporterIndex
                             = ((RequireReference(::MphRead::GameState::StorySave).Artifacts & (7U << artifactIndex)) >> artifactIndex) == 7U ? 1 : 0;
                         teleporter.SetIndex(teleporterIndex, scene);
@@ -471,8 +471,8 @@ namespace MphRead::Entities
                             {
                                 const auto [offsetX, offsetY] = ManagedAt(_mapDotOffsets, j);
                                 Hud::HudObjectInstance& dot = RequireReference(dotInst);
-                                dot.PositionX = (static_cast<float>(posX + offsetX) - dot.Width / 2.0F) / 256.0F;
-                                dot.PositionY = (static_cast<float>(posY + offsetY) - dot.Height / 2.0F) / 192.0F;
+                                dot.PositionX = (static_cast<float>(posX + offsetX - dot.Width / 2)) / 256.0F;
+                                dot.PositionY = (static_cast<float>(posY + offsetY - dot.Height / 2)) / 192.0F;
                                 scene.DrawHudObject(dotInst);
                             }
                         }
@@ -608,8 +608,8 @@ namespace MphRead::Entities
         {
             const std::int32_t posX = 26;
             Hud::HudObjectInstance& quit = RequireReference(_mapQuitInst);
-            quit.PositionX = (static_cast<float>(posX) - quit.Width / 2.0F) / 256.0F;
-            quit.PositionY = (173.0F - quit.Height / 2.0F) / 192.0F;
+            quit.PositionX = (static_cast<float>(posX - quit.Width / 2)) / 256.0F;
+            quit.PositionY = (static_cast<float>(173 - quit.Height / 2)) / 192.0F;
             RequireReference(_scene).DrawHudObject(_mapQuitInst);
             const std::string text = Text::Strings::GetHudMessage(119);
             DrawText2D(static_cast<float>(posX), 181.0F, Align::Center, 0, text);
