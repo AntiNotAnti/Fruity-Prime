@@ -133,16 +133,7 @@ namespace MphRead::Mods::Launcher::Gui
         {
             InvalidateVisual();
         }
-        if (IsPointerOver())
-        {
-            const double half = Bounds().Width / 2;
-            if (half > 0)
-            {
-                const double dx = (e.GetPosition(this).X - half) / half;
-                _tiltTarget = ::MphRead::NativeRuntime::MathClamp(dx, -1.0, 1.0) * MaxTilt;
-                InvalidateVisual();
-            }
-        }
+        // No pointer-following tilt: it is not drawn, and it redrew every move.
         Control::OnPointerMoved(e);
     }
 
@@ -344,8 +335,10 @@ namespace MphRead::Mods::Launcher::Gui
         }
 
         {
+            // Scale and translate only: a rotation sends the blurred shadow and
+            // the round-rect clip down Ganesh's CPU mask path.
             auto transform = context.PushTransform(Matrix::CreateTranslation(-w / 2, -h / 2)
-                * Matrix::CreateScale(scale, scale) * Matrix::CreateRotation(_tilt * std::numbers::pi / 180 * 0.06)
+                * Matrix::CreateScale(scale, scale)
                 * Matrix::CreateTranslation(w / 2, h / 2 + drop));
             const RoundedRect faceRect(Rect(0, 0, w, h), radius);
 

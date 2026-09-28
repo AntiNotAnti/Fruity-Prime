@@ -18,6 +18,7 @@
 > - desktop launcherの30Hz `NoiseField`生成・noise texture uploadを撤去し、`BackdropFragmentShader` 内のprocedural noiseへ移行。
 > - `MovingBackdrop` のCPU RGBA bitmap生成を撤去し、GPU-backed vector gradient animationへ変更。
 > - `UiCapture` / `UiBench` / `GamepadUiChecks` のsoftware TopLevelは診断・検証専用として残存し、通常ライブ経路からは到達しない。
+> - `DeckTile` / `DeckButton` / `ServerRow` のpointer追従回転（tilt/lean）を撤去。回転変換下では Ganesh が blur 影と角丸 clip を解析的に描けず CPU mask rasterize + upload に落ちるため、live UI の変換は scale + translate のみとした。`GpuSurface::DrawBoxShadow` は角丸矩形を `clipRRect`/`drawRRect` で描き、解析的 blur に乗せる。
 > - JPEG/PNG decodeや `glReadPixels()` はCPU rasterizerではないため対象外。
 >
 > **結論: 通常のC++ライブ経路（試合中Map Voteを含む）から、監査で確認されたCPU rasterization / procedural pixel generationは撤去済み。**

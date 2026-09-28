@@ -197,16 +197,6 @@ namespace MphRead::Mods::Launcher::Gui
         {
             InvalidateVisual();
         }
-        if (IsPointerOver() && SlabHeight > 0)
-        {
-            const double dy = (e.GetPosition(this).Y - SlabHeight / 2) / (SlabHeight / 2);
-            const double want = -std::clamp(dy, -1.0, 1.0) * 2.2;
-            if (std::abs(want - _lean) > 0.05)
-            {
-                _lean = want;
-                InvalidateVisual();
-            }
-        }
         Control::OnPointerMoved(e);
     }
 
@@ -270,7 +260,6 @@ namespace MphRead::Mods::Launcher::Gui
         const double scale = _hot && !_tap.Down() && IsLive() ? 1.012 : 1;
         auto pose = context.PushTransform(Av::Matrix::CreateTranslation(-width / 2, -SlabHeight / 2)
             * Av::Matrix::CreateScale(scale, scale)
-            * Av::Matrix::CreateRotation(_lean * std::numbers::pi / 180 * 0.06)
             * Av::Matrix::CreateTranslation(width / 2, SlabHeight / 2));
         std::optional<Media::DrawingContext::PushedState> wait;
         if (_asking)
