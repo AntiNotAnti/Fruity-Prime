@@ -63,7 +63,6 @@ namespace
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector2;
     using OpenTK::Mathematics::Vector3;
-    using OpenTK::Mathematics::Vector4;
 
     [[noreturn]] void ThrowNullReference()
     {
@@ -79,24 +78,6 @@ namespace
             result.push_back(values[i]);
         }
         return result;
-    }
-
-    [[nodiscard]] constexpr Vector4 Transform(Vector4 value, Matrix4 matrix) noexcept
-    {
-        return Vector4(
-            value.X * matrix.M11 + value.Y * matrix.M21 + value.Z * matrix.M31 + value.W * matrix.M41,
-            value.X * matrix.M12 + value.Y * matrix.M22 + value.Z * matrix.M32 + value.W * matrix.M42,
-            value.X * matrix.M13 + value.Y * matrix.M23 + value.Z * matrix.M33 + value.W * matrix.M43,
-            value.X * matrix.M14 + value.Y * matrix.M24 + value.Z * matrix.M34 + value.W * matrix.M44);
-    }
-
-    [[nodiscard]] float ProjectPosition(
-        Vector3 position, Matrix4 viewMatrix, Matrix4 projectionMatrix, Vector2& projected) noexcept
-    {
-        const Vector4 view = Transform(Vector4(position, 1.0F), viewMatrix);
-        const Vector4 clip = Transform(view, projectionMatrix);
-        projected = Vector2(clip.X / clip.W, clip.Y / clip.W);
-        return -view.Z;
     }
 
     [[nodiscard]] constexpr Vector3 Column0(Matrix4 matrix) noexcept
@@ -390,7 +371,7 @@ namespace MphRead::Entities
                         const Vector3 teleporterPos
                             = entitySymbol.Position + AddY(roomNode.Animation.Row3().Xyz(), 1.0F);
                         Vector2 distPos{};
-                        if (ProjectPosition(teleporterPos, viewMtx, orthoMtx, distPos) > 0.0F)
+                        if (Matrix::ProjectPosition(teleporterPos, viewMtx, orthoMtx, distPos) > 0.0F)
                         {
                             const Vector2 screenPos((distPos.X + 1.0F) / 2.0F, (1.0F - distPos.Y) / 2.0F);
                             if (screenPos.X > 0.0F && screenPos.X < 1.0F
@@ -838,7 +819,7 @@ namespace MphRead::Entities
                             const Vector3 nodePos = node.Animation.Row3().Xyz();
                             Vector2 distPos{};
                             if (StartsWith(node.Name, "cent")
-                                && ProjectPosition(nodePos, viewMtx, orthoMtx, distPos) > 0.0F)
+                                && Matrix::ProjectPosition(nodePos, viewMtx, orthoMtx, distPos) > 0.0F)
                             {
                                 const Vector2 screenPos(
                                     (distPos.X + 1.0F) / 2.0F, (1.0F - distPos.Y) / 2.0F);
