@@ -1330,7 +1330,8 @@ namespace MphRead::Entities
         {
             _hudWhiteoutFactor = -1.0F;
             const float time = RequireReference(_scene).GlobalElapsedTime() - _whiteoutTime;
-            const float value = 1.0F - std::min(time / (16.0F / 30.0F), 1.0F);
+            const float value = 1.0F - ::MphRead::NativeRuntime::MathMin(
+                time / (16.0F / 30.0F), 1.0F);
             HudWhiteoutTable.fill(value);
         }
     }
@@ -1822,7 +1823,8 @@ namespace MphRead::Entities
             Mods::Render::SmoothHudIcon::Tint(icon, _weaponListSheetData, i, tint, RequireReference(_scene));
             const IconBounds bounds = _weaponListIconBounds[static_cast<std::size_t>(i)];
             const float iconFit = iconBox - 1.0F * scale;
-            const float iconScale = iconFit / std::max(bounds.Width(), bounds.Height());
+            const float iconScale = iconFit
+                / ::MphRead::NativeRuntime::MathMax(bounds.Width(), bounds.Height());
             RequireReference(icon).PositionX = (panelX + iconBoxX / 2.0F - bounds.CentreX() * iconScale * aspectFix) / 256.0F;
             RequireReference(icon).PositionY = (y + iconBox / 2.0F - bounds.CentreY() * iconScale) / 192.0F;
             RequireReference(icon).Alpha = Features::HudOpacity();
