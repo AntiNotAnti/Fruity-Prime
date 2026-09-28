@@ -147,6 +147,8 @@ namespace MphRead::Mods::Launcher::Gui
             FastRig(const Av::Controls::ControlPtr& content, std::int32_t width, std::int32_t height)
             : _root(_impl.Root())
             {
+                // UiBench measures CPU frame copies by design.
+                _impl.GpuRendering(false);
                 _impl.SetClientSize(Av::Size{static_cast<double>(width), static_cast<double>(height)});
                 _root.Content(content);
                 _impl.Prepare();
@@ -211,6 +213,9 @@ namespace MphRead::Mods::Launcher::Gui
             SlowRig(const Av::Controls::ControlPtr& content, std::int32_t width, std::int32_t height)
             : _root(_impl.Root())
             {
+                // The slow rig also benchmarks copied software frames, not
+                // the interactive Ganesh compositor.
+                _impl.GpuRendering(false);
                 _impl.SetClientSize(Av::Size{static_cast<double>(width), static_cast<double>(height)});
                 _root.Content(content);
                 _impl.Prepare();

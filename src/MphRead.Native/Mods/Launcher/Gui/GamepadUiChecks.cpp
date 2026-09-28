@@ -70,6 +70,9 @@ namespace MphRead::Mods::Launcher::Gui
 
         void Pump(UiTopLevelImpl& topLevel)
         {
+            // These checks inspect raw pixels; keep their off-screen root on
+            // the software path. The interactive launcher remains Ganesh-backed.
+            topLevel.GpuRendering(false);
             topLevel.Root().UpdateLayout();
             Av::Threading::Dispatcher::UIThread().RunJobs();
             topLevel.Prepare();
