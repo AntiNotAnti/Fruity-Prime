@@ -1515,7 +1515,14 @@ namespace
             state.PreviousTerminate = std::set_terminate(&TerminateHandler);
 #if defined(_WIN32)
             PreviousFaultFilter = ::SetUnhandledExceptionFilter(&NativeFaultFilter);
-            ::AddVectoredExceptionHandler(1, &FirstChanceFaultHandler);
+            // Do not install a vectored first-chance handler here. It runs
+            // before a driver/CRT/OS component gets a chance to handle its own
+            // exception. Logging an otherwise recoverable probe while that
+            // component holds internal locks can allocate, resolve modules and
+            // perform file I/O inside the exception path, turning a harmless
+            // first-chance exception into a process or system-wide deadlock.
+            // The unhandled-exception filter above still records faults that
+            // actually escape their owner, which is the safe point to log them.
             std::signal(SIGABRT, &AbortSignalHandler);
             std::thread(&RunFreezeWatchdog).detach();
 #endif
