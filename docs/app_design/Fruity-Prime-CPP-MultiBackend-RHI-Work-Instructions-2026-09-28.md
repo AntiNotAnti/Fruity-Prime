@@ -1,5 +1,5 @@
 # Fruity-Prime C++版 マルチレンダリングバックエンド化 作業指示書
-## OpenGL / Vulkan / Direct3D 12 RHI移行
+## OpenGL / Vulkan / Direct3D 12 / Metal RHI移行
 
 - 対象リポジトリ: `Zection6V/Fruity-Prime`
 - 対象ブランチ: `develop2`
@@ -8,7 +8,7 @@
 - 対象: **C++版のみ**
 - 主対象: `src/MphRead.Native`
 - 既定の現行レンダラー: OpenGL
-- 追加対象: Vulkan / Direct3D 12
+- 追加対象: Vulkan / Direct3D 12 / Metal / Android Vulkan
 - C#版: **変更禁止**
 
 ---
@@ -33,23 +33,25 @@ Game / Scene / HUD / Launcher
               ▼
               RHI
       Render Hardware Interface
-       ┌──────┼───────┐
-       ▼      ▼       ▼
-    OpenGL  Vulkan   D3D12
-       │      │       │
-       └──────┴───────┘
-              │
-              ▼
-             GPU
+    ┌────────┬────────┬────────┬────────┬────────┐
+    ▼        ▼        ▼        ▼        ▼
+ OpenGL   OpenGLES  Vulkan   D3D12    Metal
+ Desktop   Android  Desktop/ Windows   macOS
+                    Android
+    │        │        │        │        │
+    └────────┴────────┴────────┴────────┴────────┘
+                         │
+                         ▼
+                        GPU
 ```
 
 最重要方針:
 
-> **OpenGLへVulkan/DX12を足すのではなく、OpenGLを含む3バックエンドが同じRHI契約を実装する構造へ移行する。**
+> **OpenGLへVulkan/DX12を足すのではなく、OpenGLを含む4バックエンドが同じRHI契約を実装する構造へ移行する。**
 
 OpenGLをRHIの仕様にしてはならない。
 
-Vulkan / D3D12側でOpenGLの状態変更APIをエミュレートしてはならない。
+Vulkan / D3D12 / Metal側でOpenGLの状態変更APIをエミュレートしてはならない。
 
 ---
 
@@ -107,13 +109,66 @@ src/NcsfPlay/**/*.cs
 - Desktop C++ OpenGLを維持
 - Desktop C++ Vulkanを追加
 - Windows C++ D3D12を追加
+- macOS C++ Metalを追加
 - Android GLESを壊さない
 
 Android Vulkanは、この作業完了後の独立タスクとして扱ってよい。
 
+## 1.4 macOS / Metal方針
+
+AppleプラットフォームではMetalをnative backendとして扱う。
+
+設計上の優先順位:
+
+```text
+macOS native: Metal
+cross-platform experimental/optional: Vulkan via MoltenVK
+legacy/reference: OpenGL
+```
+
+OpenGL版は既存描画のparity referenceとして維持してよいが、新しいmacOS固有最適化はMetalへ実装する。
+
+Metal 4の新APIは有用だが、この移行作業ではRHIをMetal 4専用に設計しない。従来MetalとMetal 4の差はbackend内部のCapabilitiesと実装選択へ閉じ込める。
+
+
+macOSについては、OpenGLを永続的な主力backendとして扱わず、**MetalをmacOSの第一級native backend** とする。Vulkan on macOSを提供する場合はMoltenVK等による追加経路として扱ってよいが、Metal backend自体の代替とみなさない。
+
 ---
 
 # 2. 現行C++版で確認済みの重要事項
+
+## 2.7 Androidは現在EGL/GLES専用
+
+現行 `CMakeLists.txt` はAndroidで、
+
+```text
+EGL
+GLESv3
+```
+
+を解決し、`MphRead.Native.Android/OffscreenGl.*` を含むGLES系統を使用している。
+
+現時点でAndroid Vulkan経路は存在しない。
+
+したがってAndroid Vulkanは、
+
+```text
+既存GLESへVulkan分岐を直書き
+```
+
+ではなく、
+
+```text
+共通RHI
+↓
+Vulkan backend
+↓
+Android surface/lifecycle adapter
+```
+
+として追加する。
+
+
 
 現行 `develop2` には以下のOpenGL密結合がある。
 
@@ -269,7 +324,7 @@ renderer.End();
 
 これはOpenGL APIを名前だけ変えたものであり、禁止。
 
-RHIはVulkan / D3D12の明示的モデルへ寄せる。
+RHIはVulkan / D3D12 / Metalの明示的command submissionモデルへ寄せる。
 
 推奨する基本概念:
 
@@ -426,17 +481,29 @@ src/MphRead.Native/
       │  ├─ VkSwapchain.hpp
       │  └─ VkSwapchain.cpp
       │
-      └─ D3D12/
-         ├─ D3D12Device.hpp
-         ├─ D3D12Device.cpp
-         ├─ D3D12CommandList.hpp
-         ├─ D3D12CommandList.cpp
-         ├─ D3D12Resources.hpp
-         ├─ D3D12Resources.cpp
-         ├─ D3D12Pipeline.hpp
-         ├─ D3D12Pipeline.cpp
-         ├─ D3D12Swapchain.hpp
-         └─ D3D12Swapchain.cpp
+      ├─ D3D12/
+      │  ├─ D3D12Device.hpp
+      │  ├─ D3D12Device.cpp
+      │  ├─ D3D12CommandList.hpp
+      │  ├─ D3D12CommandList.cpp
+      │  ├─ D3D12Resources.hpp
+      │  ├─ D3D12Resources.cpp
+      │  ├─ D3D12Pipeline.hpp
+      │  ├─ D3D12Pipeline.cpp
+      │  ├─ D3D12Swapchain.hpp
+      │  └─ D3D12Swapchain.cpp
+      │
+      └─ Metal/
+         ├─ MetalDevice.hpp
+         ├─ MetalDevice.mm
+         ├─ MetalCommandList.hpp
+         ├─ MetalCommandList.mm
+         ├─ MetalResources.hpp
+         ├─ MetalResources.mm
+         ├─ MetalPipeline.hpp
+         ├─ MetalPipeline.mm
+         ├─ MetalSwapchain.hpp
+         └─ MetalSwapchain.mm
 ```
 
 既存プロジェクト方針に合わせ、`.hpp` は対応 `.cpp` と同じ機能ディレクトリへ置く。
@@ -566,6 +633,18 @@ ResourceState
 ↓
 D3D12_RESOURCE_STATES
 ```
+
+Metal backend:
+
+```text
+ResourceState
+↓
+MTLResourceUsage
+render/blit/compute encoder境界
+必要なbarrier / fence / event
+```
+
+MetalではVulkan/D3D12と同じ形の公開resource-state enumをそのままnative APIへ1対1対応させようとしない。RHI側でhazard intentを表現し、Metal backendがencoder境界・resource usage・barrier/eventへ適切に変換する。
 
 OpenGL backend:
 
@@ -954,7 +1033,7 @@ PolygonOffset
 
 を単純化しない。
 
-OpenGL/Vulkan/D3D12間で同一アルゴリズムを使用する。
+OpenGL/Vulkan/D3D12/Metal間で同一アルゴリズムを使用する。
 
 Vulkan/D3D12で実現しにくいからという理由で描画順を変えない。
 
@@ -1026,11 +1105,18 @@ BindingSet
 推奨最終形:
 
 ```text
-HLSL source
-   ├─ DXC → DXIL → D3D12
-   ├─ DXC -spirv → SPIR-V → Vulkan
-   └─ SPIR-V / shared semantics → generated GLSL → OpenGL
+Canonical Shader Source
+   ├─ → DXIL → D3D12
+   ├─ → SPIR-V → Vulkan
+   ├─ → MSL / metallib → Metal
+   └─ → GLSL → OpenGL
 ```
+
+実装手段は固定しないが、HLSL + DXCをcanonical sourceにする場合は、Vulkan向けSPIR-Vを生成し、Metal向けにはSPIR-V Cross等によるMSL生成または同等のtoolchainを採用できる。
+
+Metal shaderは最終的に `MTLLibrary` / `MTLFunction` からpipelineを構築する。runtimeで毎回source compileする構造を常用しない。可能ならbuild時に `metal` / `metallib` toolchainで事前コンパイルし、runtimeはprecompiled libraryをロードする。
+
+Apple Silicon / Intel Mac間でshader semanticsを分岐させない。
 
 ただしshader source一本化そのものをVulkan/D3D12初期bring-upのブロッカーにしない。
 
@@ -1039,6 +1125,7 @@ HLSL source
 ```text
 GLSL: OpenGL
 HLSL: Vulkan/D3D12
+MSL: Metal
 ```
 
 を一時併存させてもよい。
@@ -1104,6 +1191,15 @@ DescriptorHeap
 DescriptorTable
 ```
 
+Metal:
+
+```text
+buffer / texture / sampler binding
+argument buffer / argument table（採用する場合）
+```
+
+初期実装では単純な明示bindingでよい。Metal固有のargument buffer最適化をRHI必須仕様にしない。
+
 OpenGL:
 
 ```text
@@ -1155,6 +1251,8 @@ backendごとに対応formatを選択する。
 OpenGL: DEPTH24_STENCIL8
 Vulkan: D24_UNORM_S8_UINT が利用可能なら使用
 D3D12: DXGI_FORMAT_D24_UNORM_S8_UINT
+Metal: MTLPixelFormatDepth24Unorm_Stencil8 が利用可能なら使用、
+       非対応環境では Depth32Float_Stencil8 等へCapabilities経由で切替
 ```
 
 利用不可の場合はCapabilitiesで明示し、互換formatへ切り替える。
@@ -1202,7 +1300,7 @@ CPU
 
 # 14. FrameContext / GPU同期
 
-Vulkan/D3D12ではGPU完了を前提に即時resource破棄してはならない。
+Vulkan/D3D12/MetalではGPU完了を前提に即時resource破棄してはならない。
 
 `FrameContext` を導入する。
 
@@ -1319,6 +1417,22 @@ HWND
 ↓
 DXGI SwapChain
 ```
+
+Metal macOS:
+
+```text
+NSWindow / NSView
+↓
+CAMetalLayer
+↓
+CAMetalDrawable
+↓
+drawable.texture
+↓
+command bufferでpresent
+```
+
+GLFWを継続利用する場合、Cocoa native window/viewをplatform adapterから取得し、`CAMetalLayer` をattachする。Metal backendのためだけにGame/Scene側へObjective-C型を漏らさない。
 
 ## 15.4 resize
 
@@ -1480,13 +1594,564 @@ device removed
 
 ---
 
-# 19. Skia / Launcher / Map Vote / UI
+# 19. Android Vulkan backend
+
+## 19.1 対象
+
+`src/MphRead.Native.Android` を対象に、既存EGL/GLES rendererと並列でVulkan rendererを追加する。
+
+Android VulkanはDesktop Vulkanの別実装ではなく、**同じRHI Vulkan backendをAndroid platform surfaceへ接続する構成**を優先する。
+
+理想形:
+
+```text
+Renderer Frontend
+      │
+      ▼
+      RHI
+      │
+      ▼
+Vulkan Backend
+   ├─ Desktop Surface Adapter
+   └─ Android Surface Adapter
+```
+
+Vulkan resource / pipeline / descriptor / command buffer実装をDesktop用とAndroid用に複製しない。
+
+## 19.2 Android platform surface
+
+Androidでは、
+
+```text
+ANativeWindow
+↓
+VkAndroidSurfaceCreateInfoKHR
+↓
+vkCreateAndroidSurfaceKHR
+↓
+VkSurfaceKHR
+```
+
+でpresentation surfaceを作る。
+
+`ANativeWindow*` はAndroid platform adapter内に閉じ込める。
+
+Scene、Renderer Frontend、RHI共通headerへAndroid NDK型を漏らさない。
+
+## 19.3 Vulkan loader
+
+AndroidではシステムVulkan loaderを使用する。
+
+CMakeではAndroid Vulkan libraryを明示的に解決する。
+
+例:
+
+```cmake
+find_library(FRUITY_ANDROID_VULKAN_LIBRARY vulkan REQUIRED)
+```
+
+またはNDKのVulkan package/import targetを利用してよい。
+
+Vulkan backendを有効化していないAndroid buildへ不要なVulkan link依存を強制しない。
+
+## 19.4 Device / queue selection
+
+最低限以下を確認する。
+
+```text
+graphics queue
+present support
+required surface extensions
+swapchain support
+required image formats
+required synchronization features
+```
+
+Android端末ではqueue familyやsurface capabilityがDesktopと異なる場合があるため、Desktopのdevice selection結果を仮定しない。
+
+## 19.5 Swapchain
+
+AndroidではActivity / Surface lifecycleに合わせてswapchainを管理する。
+
+特に以下を正しく処理する。
+
+```text
+surface created
+surface changed
+surface destroyed
+app pause/resume
+orientation change
+window size change
+VK_ERROR_OUT_OF_DATE_KHR
+VK_SUBOPTIMAL_KHR
+```
+
+Surface消失時にdevice全体を必ず破棄する設計にしない。
+
+可能ならdevice/resourceを維持し、surface/swapchainだけ再生成する。
+
+## 19.6 App lifecycle
+
+Androidでは描画可能状態とActivity状態が一致しない場合がある。
+
+以下を分離する。
+
+```text
+App alive
+Game state alive
+Device alive
+Surface alive
+Swapchain alive
+```
+
+Surfaceがない間はpresentしない。
+
+Surface復帰時に、
+
+```text
+VkSurfaceKHR
+Swapchain
+backbuffer views
+dependent render targets
+```
+
+を再構築する。
+
+network/game stateを不要にリセットしない。
+
+## 19.7 Orientation / resolution / density
+
+Androidでは、
+
+```text
+logical UI size
+surface pixel size
+display density
+orientation
+safe inset
+```
+
+を混同しない。
+
+Swapchain extentは実surface pixel寸法を使用する。
+
+UI座標系は既存Android入力/UI契約を維持する。
+
+縦横切替でscene projection、HUD、UI、touch mappingがずれないこと。
+
+## 19.8 Frames in flight
+
+Android VulkanもDesktop Vulkanと同じFrameContext契約を使用する。
+
+端末メモリとlatencyを考慮し、初期値は2 frames in flightを推奨する。
+
+以下を端末ごとに無制限増加させない。
+
+```text
+command pools
+command buffers
+descriptor pools
+staging buffers
+temporary textures
+fences/semaphores
+```
+
+## 19.9 Memory
+
+Android GPUはdiscrete desktop GPUと異なるmemory architectureを持つことが多い。
+
+memory type選択をDesktop前提で固定しない。
+
+少なくとも用途を分離する。
+
+```text
+GPU-only resource
+CPU upload resource
+readback resource
+transient resource
+```
+
+memory budgetが厳しい端末で、
+
+```text
+scene texture duplicate
+staging buffer常駐
+swapchain依存resource過剰保持
+```
+
+を避ける。
+
+## 19.10 Texture format
+
+Android端末のformat supportを必ずCapabilitiesで確認する。
+
+特に:
+
+```text
+depth/stencil
+sampled depth
+render target
+sRGB
+compressed texture
+```
+
+をDesktopと同一と仮定しない。
+
+Cel outline用depth samplingが必要な場合、sampleableなdepth formatを選択する。
+
+利用不可なら同等の別formatへ切り替える。
+
+## 19.11 Pipeline cache
+
+Androidではpipeline compilation costが大きくなり得る。
+
+`VkPipelineCache` を利用可能な構造にする。
+
+ただし初期bring-upではcorrectnessを優先し、cache persistenceを完成条件の必須にしなくてよい。
+
+runtime中にdrawごとpipeline生成することは禁止。
+
+## 19.12 Validation
+
+Android debug buildでValidation Layerを利用可能にする。
+
+ただしshipping buildへvalidationを必須依存させない。
+
+最低限以下を検出・解消する。
+
+```text
+invalid descriptor
+layout mismatch
+resource lifetime violation
+bad synchronization
+use-after-free
+swapchain misuse
+surface misuse
+```
+
+## 19.13 RenderDoc / GPU capture
+
+対応端末ではRenderDoc等でcapture可能な構成を維持する。
+
+debug name / debug labelを付け、
+
+```text
+Scene
+Cel
+HUD
+UI
+Present
+```
+
+が追跡できるようにする。
+
+## 19.14 GLESとの併存
+
+Android Vulkan追加のためにGLESを撤去しない。
+
+backend選択は少なくとも以下を許可する。
+
+```text
+OpenGLES
+Vulkan
+Auto
+```
+
+`Auto` の選択方針は明文化する。
+
+推奨:
+
+```text
+Vulkan利用可能かつ必要機能あり
+    ↓ yes
+Vulkan
+    ↓ no
+OpenGLES
+```
+
+ただしユーザーが明示的に `Vulkan` を選択した場合、失敗時に黙ってGLESへfallbackしない。
+
+明示的なエラーを返す。
+
+## 19.15 Android UI / Skia
+
+Android Vulkan時もUIをCPU full-surface rendererへ戻さない。
+
+既存Android UIがGLES surfaceへ依存している箇所を監査する。
+
+最終的には、
+
+```text
+Game Vulkan
+UI Vulkan-compatible GPU path
+Present Vulkan
+```
+
+を同一frame ownershipの下で実現する。
+
+OpenGL ES sidecar contextをVulkanモードでhidden生成しない。
+
+---
+
+# 20. Metal backend
+
+## 20.1 対象
+
+macOS C++を主対象とする。
+
+MetalはmacOSでの第一級native backendとして実装する。
+
+初期実装のbaselineは、広いmacOS互換性を確保できる従来のMetal command queue / command buffer / encoderモデルでよい。
+
+Appleの新しいMetal 4 APIを利用可能な環境で追加採用してもよいが、Metal 4専用実装にして古い対応Macを不要に切り捨てない。
+
+Metal 4を利用する場合も、RHI契約は変えずCapabilitiesで選択する。
+
+## 20.2 初期構成
+
+最低限:
+
+```text
+MTLDevice
+MTLCommandQueue
+MTLCommandBuffer
+MTLRenderCommandEncoder
+MTLBlitCommandEncoder
+
+CAMetalLayer
+CAMetalDrawable
+
+MTLBuffer
+MTLTexture
+MTLSamplerState
+
+MTLLibrary
+MTLFunction
+MTLRenderPipelineState
+MTLDepthStencilState
+```
+
+Objective-C++実装は `.mm` に閉じ込める。
+
+通常のC++ frontend/headerへ、
+
+```text
+id<MTLDevice>
+id<MTLTexture>
+CAMetalLayer*
+```
+
+等を公開しない。
+
+## 20.3 Presentation
+
+MetalのSwapchain相当はRHI上では `Swapchain` として扱うが、native実装は `CAMetalLayer` / `CAMetalDrawable` で行う。
+
+フレームごとに:
+
+```text
+drawable取得
+↓
+drawable.textureをrender targetとして使用
+↓
+command encoding
+↓
+present drawable
+↓
+commit
+```
+
+drawableをフレーム開始時から長時間保持しない。
+
+必要になる直前に取得し、present登録後は不要なstrong referenceを速やかに解放する。
+
+window resize / backing scale変更時は、
+
+```text
+CAMetalLayer.drawableSize
+```
+
+を物理pixel寸法へ正しく更新する。
+
+Retina scaleをlogical pointと混同しない。
+
+## 20.4 Command encoding
+
+RHIの:
+
+```text
+BeginRendering
+SetPipeline
+SetVertexBuffer
+SetIndexBuffer
+SetBindingSet
+Draw
+DrawIndexed
+EndRendering
+Copy*
+```
+
+を、
+
+```text
+MTLRenderCommandEncoder
+MTLBlitCommandEncoder
+```
+
+へ変換する。
+
+OpenGLのようにフレーム全体で暗黙のglobal stateを保持しない。
+
+render pass境界を明示する。
+
+## 20.5 Pipeline
+
+`GraphicsPipelineDesc` から、
+
+```text
+MTLRenderPipelineDescriptor
+MTLRenderPipelineState
+MTLDepthStencilDescriptor
+MTLDepthStencilState
+```
+
+を生成する。
+
+以下をpipeline keyへ含める。
+
+```text
+vertex layout
+shader functions
+color format
+depth/stencil format
+blend state
+raster state
+sample count
+```
+
+pipeline stateをdrawごとに生成しない。
+
+## 20.6 Resource binding
+
+初期版では単純なindex-based bindingでよい。
+
+RHI BindingLayoutから、
+
+```text
+setVertexBuffer
+setFragmentBuffer
+setVertexTexture
+setFragmentTexture
+setVertexSamplerState
+setFragmentSamplerState
+```
+
+へbackend内部で変換する。
+
+将来argument buffers / Metal 4 argument tablesを利用してもよいが、他backendへMetal固有概念を強制しない。
+
+## 20.7 Resource synchronization
+
+MetalはVulkan/D3D12とresource transition表現が異なる。
+
+そのため、
+
+```text
+RHI ResourceState
+```
+
+を無理に `MTLResource` の単一stateへ変換しない。
+
+backendは以下を追跡する。
+
+```text
+resource usage
+encoder ownership
+render/blit/compute dependency
+CPU/GPU visibility
+frame retirement
+```
+
+必要に応じて、
+
+```text
+memory barrier
+MTLFence
+MTLEvent / MTLSharedEvent
+```
+
+等を使用する。
+
+同一queue・順序保証だけで安全なケースへ不要な同期を乱発しない。
+
+## 20.8 Storage mode
+
+resource用途に応じて適切に選択する。
+
+例:
+
+```text
+CPU upload:
+    Shared または Managed相当
+
+GPU-only:
+    Private
+
+Readback:
+    CPU-visible storage
+```
+
+Apple Siliconのunified memoryを理由に、全resourceをShared固定にしない。
+
+Intel MacとApple Siliconの差はbackend内部のmemory policyへ閉じ込める。
+
+## 20.9 Frames in flight
+
+他backendと同じFrameContext契約を使う。
+
+Metalのみ別のゲームフレーム管理方式を作らない。
+
+最低限:
+
+```text
+FrameContext
+command buffer
+transient upload area
+retire/completion value
+deferred destruction
+```
+
+を対応させる。
+
+`MTLCommandBuffer` completion handler等を利用してretirementを処理してよい。
+
+## 20.10 Capture / Validation
+
+Debug buildではMetal API Validationを利用可能にする。
+
+Xcode GPU Frame Captureで、
+
+```text
+Scene pass
+Cel pass
+HUD pass
+UI pass
+Present
+```
+
+を追跡できるようdebug labels / groupsを付ける。
+
+Shader Validation / resource hazard / invalid encoder usageを残したまま完成扱いしない。
+
+---
+
+# 21. Skia / Launcher / Map Vote / UI
 
 ここは必須。
 
 Vulkan/D3D12でゲーム本体だけ描画できても、Launcher・Pause・Map Voteが動かなければbackend完成ではない。
 
-## 19.1 現行フレーム順を維持
+## 21.1 現行フレーム順を維持
 
 ゲーム中:
 
@@ -1510,7 +2175,7 @@ Present
 
 Launcher単独時のUI-only pathも維持する。
 
-## 19.2 cross-API compositor禁止
+## 21.2 cross-API compositor禁止
 
 禁止:
 
@@ -1528,7 +2193,7 @@ UI = hidden OpenGL context
 
 同一フレームを別APIへ無理に跨がせない。
 
-## 19.3 推奨
+## 21.3 推奨
 
 Skiaが選択backendを直接使用できる構成にする。
 
@@ -1550,7 +2215,15 @@ D3D12:
 Skia D3D12 backend
 ```
 
-選択したSkia build/packageがVulkan/D3D12 backendを含んでいない場合、
+Metal:
+
+```text
+Skia Metal backend
+```
+
+Skia側ではMetal対応backendを使用し、ゲーム本体と同一 `MTLDevice` / command submission系統との所有権を明確にする。
+
+選択したSkia build/packageがVulkan/D3D12/Metal backendを含んでいない場合、
 
 - Skia build optionを修正する
 - またはRHI上へUI描画を移す
@@ -1559,19 +2232,19 @@ Skia D3D12 backend
 
 **CPU full-surface rendererへの退避は禁止。**
 
-## 19.4 OpenGL state snapshot hack
+## 21.4 OpenGL state snapshot hack
 
 現行 `SkiaGpu.cpp` はOpenGL global stateを大量に保存・復元している。
 
 これはOpenGL backend内のinteropとして一時的に残してよい。
 
-Vulkan/D3D12では明示pass / resource state / command recordingに置き換える。
+Vulkan/D3D12/Metalでは明示pass / resource state / command recordingに置き換える。
 
 Skia固有OpenGL state restoreを共通RHI契約へ持ち込まない。
 
 ---
 
-# 20. Backend選択
+# 22. Backend選択
 
 共通enumを作る。
 
@@ -1580,8 +2253,10 @@ Skia固有OpenGL state restoreを共通RHI契約へ持ち込まない。
 ```text
 RendererBackend
     OpenGL
+    OpenGLES
     Vulkan
     D3D12
+    Metal
     Auto
 ```
 
@@ -1603,7 +2278,7 @@ validation/debug mode
 
 ---
 
-# 21. 実行中Backend切替
+# 23. 実行中Backend切替
 
 これはVulkan/D3D12の基本描画とUIが安定した後に実装する。
 
@@ -1634,7 +2309,7 @@ OpenGL / Vulkan / D3D12
 5. Swapchain破棄
 6. backend device破棄
 7. 新backend生成
-8. Swapchain生成
+8. Swapchain/CAMetalLayer presentation resource生成
 9. shader/pipeline再生成
 10. texture/mesh GPU cache再構築
 11. UI GPU resource再生成
@@ -1645,7 +2320,7 @@ OpenGL / Vulkan / D3D12
 
 ---
 
-# 22. CMake再設計
+# 24. CMake再設計
 
 現行はdesktop C++共通ライブラリが直接、
 
@@ -1664,6 +2339,11 @@ target_link_libraries(fruity_mphread_native PUBLIC OpenGL::GL)
 FRUITY_RENDERER_OPENGL
 FRUITY_RENDERER_VULKAN
 FRUITY_RENDERER_D3D12
+FRUITY_RENDERER_METAL
+
+# Android
+FRUITY_ANDROID_RENDERER_GLES
+FRUITY_ANDROID_RENDERER_VULKAN
 ```
 
 推奨target概念:
@@ -1673,6 +2353,7 @@ fruity_rhi
 fruity_rhi_opengl
 fruity_rhi_vulkan
 fruity_rhi_d3d12
+fruity_rhi_metal
 ```
 
 OpenGL依存を共通RHIへPUBLIC伝播させない。
@@ -1695,7 +2376,52 @@ dxguid
 
 等をbackend targetへPRIVATE linkする。
 
-## 22.1 Windows toolchain
+Metal:
+
+Apple toolchainでのみ有効化し、backend targetへ必要なframeworkをPRIVATE linkする。
+
+例:
+
+```text
+Metal
+QuartzCore
+Foundation
+AppKit
+```
+
+必要に応じてMetalKitを追加する。
+
+Objective-C++ `.mm` をMetal backend targetへ限定し、共通C++ target全体をObjective-C++化しない。
+
+
+Android Vulkan:
+
+Androidでは既存の、
+
+```text
+android
+log
+EGL
+GLESv3
+```
+
+に加えてVulkanをbackend optionに応じてlinkする。
+
+概念:
+
+```cmake
+if(ANDROID AND FRUITY_ANDROID_RENDERER_VULKAN)
+    find_library(FRUITY_ANDROID_VULKAN_LIBRARY vulkan REQUIRED)
+    target_link_libraries(fruity_rhi_vulkan PRIVATE
+        "${FRUITY_ANDROID_VULKAN_LIBRARY}")
+endif()
+```
+
+GLESしか選ばれていないAndroid buildへVulkanを必須化しない。
+
+逆にVulkan-only compile testではEGL/GLES rendererへ不要依存しない構成を目指す。
+
+## 23.1 Windows toolchain
 
 MSVC / MinGWの双方を必要とする場合、D3D12 header/library availabilityを実際にcompile probeする。
 
@@ -1705,7 +2431,7 @@ MSVC / MinGWの双方を必要とする場合、D3D12 header/library availabilit
 
 ---
 
-# 23. Render Graph
+# 25. Render Graph
 
 RHIが安定する前に巨大Render Graphを作らない。
 
@@ -1719,7 +2445,7 @@ ResourceStateTracker
 明示Pass
 ```
 
-でOpenGL/Vulkan/D3D12を完成させる。
+でOpenGL/Vulkan/D3D12/Metalを完成させる。
 
 その後必要なら、
 
@@ -1746,7 +2472,7 @@ Render Graphの目的:
 
 ---
 
-# 24. 実装フェーズ
+# 26. 実装フェーズ
 
 ---
 
@@ -1955,7 +2681,110 @@ Vulkanと同じRenderer Frontend / RHI契約を使う。
 
 ---
 
-## Phase 10: Backend切替
+## Phase 10: Metal bring-up
+
+OpenGL/Vulkan/D3D12と同じRenderer Frontend / RHI契約を使う。
+
+- [ ] `MTLDevice` 選択
+- [ ] command queue
+- [ ] `CAMetalLayer`
+- [ ] drawable取得 / present
+- [ ] FrameContext
+- [ ] command buffer
+- [ ] render encoder
+- [ ] blit encoder
+- [ ] Buffer
+- [ ] Texture
+- [ ] Sampler
+- [ ] shader library
+- [ ] pipeline state
+- [ ] depth/stencil state
+- [ ] main scene
+- [ ] stencil/translucent passes
+- [ ] cel
+- [ ] post process
+- [ ] HUD
+- [ ] readback
+- [ ] resize
+- [ ] Retina backing scale
+- [ ] fullscreen
+- [ ] minimize/restore
+- [ ] deferred destruction
+- [ ] Metal API Validation clean
+
+---
+
+## Phase 11: Metal UI統合
+
+- [ ] Launcher
+- [ ] Pause Menu
+- [ ] Map Vote
+- [ ] End Screen
+- [ ] Settings
+- [ ] UiOverlay
+- [ ] LauncherHunter
+- [ ] Skia Metal integrationまたはRHI UI path
+- [ ] Game → UI → Present順序確認
+- [ ] hidden OpenGL sidecar contextが存在しないことを確認
+- [ ] CPU full-surface fallbackが存在しないことを確認
+
+---
+
+## Phase 12: Android Vulkan bring-up
+
+Desktop VulkanのRHI Vulkan実装を再利用し、Android platform surface/lifecycleを接続する。
+
+- [ ] Android Vulkan loader/link
+- [ ] instance extensions
+- [ ] physical device
+- [ ] graphics/present queue
+- [ ] `ANativeWindow`
+- [ ] `VkSurfaceKHR`
+- [ ] swapchain
+- [ ] FrameContext
+- [ ] command pool/buffer
+- [ ] fence/semaphore
+- [ ] Buffer
+- [ ] Texture/Image
+- [ ] Sampler
+- [ ] Descriptor
+- [ ] Pipeline
+- [ ] SceneColor
+- [ ] DepthStencil
+- [ ] main scene
+- [ ] stencil/translucent passes
+- [ ] cel
+- [ ] post process
+- [ ] HUD
+- [ ] readback
+- [ ] Android UI integration
+- [ ] orientation change
+- [ ] density/backing size
+- [ ] pause/resume
+- [ ] surface destroy/recreate
+- [ ] app background/foreground
+- [ ] validation clean
+
+---
+
+## Phase 13: Android GLES/Vulkan parity
+
+- [ ] 同一端末でGLES/Vulkan描画比較
+- [ ] texture orientation一致
+- [ ] depth/stencil一致
+- [ ] alpha/translucent一致
+- [ ] HUD一致
+- [ ] touch coordinate一致
+- [ ] Map Vote一致
+- [ ] pause/resume一致
+- [ ] orientation change一致
+- [ ] repeated surface recreationでleakなし
+- [ ] Vulkan選択時にhidden GLES contextなし
+- [ ] GLES選択時にVulkan不要依存なし
+
+---
+
+## Phase 14: Backend切替
 
 - [ ] OpenGL → Vulkan
 - [ ] Vulkan → OpenGL
@@ -1963,6 +2792,12 @@ Vulkanと同じRenderer Frontend / RHI契約を使う。
 - [ ] D3D12 → OpenGL
 - [ ] Vulkan → D3D12
 - [ ] D3D12 → Vulkan
+- [ ] OpenGL → Metal
+- [ ] Metal → OpenGL
+- [ ] Vulkan → Metal
+- [ ] Metal → Vulkan
+- [ ] D3D12 → Metal（対応プラットフォーム上で両方が存在する将来構成のみ）
+- [ ] Metal → D3D12（同上）
 - [ ] scene state維持
 - [ ] network session維持
 - [ ] GPU resources正常再構築
@@ -1970,11 +2805,13 @@ Vulkanと同じRenderer Frontend / RHI契約を使う。
 - [ ] resource leakなし
 - [ ] crashなし
 
-このPhaseを実装しない場合でも、startup backend選択は必須。
+Desktop runtime hot switchingをこのPhaseで実装しない場合でも、startup backend選択は必須。
+
+AndroidについてはActivity/Surface lifecycleとの複雑性があるため、**startup時のGLES/Vulkan選択を必須**とし、実行中hot switchingは後回しにしてよい。
 
 ---
 
-# 25. 描画一致テスト
+# 27. 描画一致テスト
 
 各backendで同じ固定条件を描画する。
 
@@ -2003,7 +2840,7 @@ HUD disruption
 movie frame
 ```
 
-## 25.1 Golden image
+## 26.1 Golden image
 
 同じ、
 
@@ -2022,9 +2859,13 @@ settings
 比較:
 
 ```text
-OpenGL ↔ Vulkan
-OpenGL ↔ D3D12
+Desktop OpenGL ↔ Vulkan
+Desktop OpenGL ↔ D3D12
+Desktop OpenGL ↔ Metal
 Vulkan ↔ D3D12
+Vulkan ↔ Metal
+D3D12 ↔ Metal（同一環境で実行可能な場合のみ）
+Android OpenGLES ↔ Vulkan
 ```
 
 GPU/API差による数bit差は許容してよいが、
@@ -2045,7 +2886,7 @@ GPU/API差による数bit差は許容してよいが、
 
 ---
 
-# 26. GPU診断
+# 28. GPU診断
 
 ## OpenGL
 
@@ -2064,6 +2905,21 @@ GPU/API差による数bit差は許容してよいが、
 - PIX
 - 必要に応じてGPU-based validation
 
+## Metal
+
+- Metal API Validation
+- Xcode GPU Frame Capture
+- Shader Validation
+- debug labels / debug groups
+
+## Android Vulkan
+
+- Vulkan Validation Layers（Debug）
+- RenderDoc等のGPU capture
+- Android GPU Inspectorを利用可能なら活用
+- surface/swapchain lifecycle logging
+- debug labels / object names
+
 共通:
 
 - backend objectへdebug nameを付与
@@ -2077,7 +2933,7 @@ GPU/API差による数bit差は許容してよいが、
 
 ---
 
-# 27. Resource leak / freeze検証
+# 29. Resource leak / freeze検証
 
 このプロジェクトでは長時間実行時のfreeze調査履歴があるため、backend追加でresource lifetime問題を持ち込まないこと。
 
@@ -2089,6 +2945,9 @@ GPU/API差による数bit差は許容してよいが、
 - [ ] fullscreen切替を繰り返す
 - [ ] resizeを繰り返す
 - [ ] backend再生成を繰り返す
+- [ ] Android surface destroy/recreateを繰り返す
+- [ ] Android pause/resumeを繰り返す
+- [ ] Android orientation changeを繰り返す
 - [ ] GPU memory増加が継続しない
 - [ ] descriptor count増加が継続しない
 - [ ] command allocator/buffer増加が継続しない
@@ -2097,7 +2956,7 @@ GPU/API差による数bit差は許容してよいが、
 
 ---
 
-# 28. CI
+# 30. CI
 
 最低限以下をcompile gateへする。
 
@@ -2122,15 +2981,38 @@ Vulkan
 
 ```text
 OpenGL
+Metal
 ```
 
-MoltenVKによるVulkanは別途有効化してよいが、この初期作業の必須条件にはしない。
+MetalをmacOSの第一級native backendとしてcompile/link gateへ含める。
+
+可能であればApple Silicon runnerでMetal startup smoke testも実施する。
+
+MoltenVKによるVulkanは別途有効化してよい。Vulkan-on-MetalのCIは有用だが、native Metal backendの代替にはしない。
 
 ## Android
 
-既存C++ Android buildを壊さない。
+最低限:
 
-CIで実行できる範囲について、
+```text
+OpenGLES
+Vulkan
+```
+
+を別々のcompile/link gateにする。
+
+可能なら、
+
+```text
+arm64-v8a GLES
+arm64-v8a Vulkan
+x86_64 GLES
+x86_64 Vulkan
+```
+
+を確認する。
+
+CIで実機GPU実行ができない場合でも、
 
 ```text
 configure
@@ -2141,9 +3023,13 @@ native tests
 
 をbackend単位で分ける。
 
+実機検証では少なくとも1台以上のVulkan対応Android端末でstartup、scene描画、UI、pause/resume、surface再生成まで確認する。
+
+GLES buildをVulkan追加のために壊さない。
+
 ---
 
-# 29. 静的監査
+# 31. 静的監査
 
 移行後は直接GL呼び出しの残存を機械的に監査する。
 
@@ -2171,25 +3057,33 @@ E. 不正残存
 ```bash
 rg -n "Vk[A-Z]|vk[A-Z]" src/MphRead.Native
 rg -n "ID3D12|D3D12_|DXGI_" src/MphRead.Native
+rg -n "MTL[A-Z]|CAMetal|<Metal/|<QuartzCore/" src/MphRead.Native
+rg -n "ANativeWindow|VK_KHR_android_surface|VkAndroidSurfaceCreateInfoKHR" src/MphRead.Native src/MphRead.Native.Android
 ```
 
 を行い、backend外へのnative API leakがないことを確認する。
 
+Metal native型は原則として `NativeRuntime/Rhi/Metal/` の `.mm` / private implementationへ閉じ込める。
+
 ---
 
-# 30. 禁止事項
+# 32. 禁止事項
 
 以下を行ってはならない。
 
-- [ ] Scene内へ `if Vulkan` / `if D3D12` 分岐を大量追加する
+- [ ] Scene内へ `if Vulkan` / `if D3D12` / `if Metal` 分岐を大量追加する
 - [ ] OpenGL関数と1対1のRHI wrapperを作る
 - [ ] Vulkan上でOpenGL immediate modeを再現する
 - [ ] D3D12上でOpenGL state machineを再現する
-- [ ] Vulkan/D3D12だけ別Renderer.cppを複製する
+- [ ] Metal上でOpenGL state machineを再現する
+- [ ] Vulkan/D3D12/Metalだけ別Renderer.cppを複製する
 - [ ] backend別にGameplay描画アルゴリズムを変える
 - [ ] backend固有handleをMesh/Material/Entityへ埋め込む
 - [ ] UIだけ隠しOpenGL contextで描画する
-- [ ] Vulkan/D3D12失敗時に黙ってGLへfallbackする
+- [ ] Vulkan/D3D12/Metal失敗時に黙ってGLへfallbackする
+- [ ] Android Vulkan失敗時に黙ってGLESへfallbackする（明示Vulkan選択時）
+- [ ] Android Vulkan専用にRenderer.cppを複製する
+- [ ] Vulkanモードでhidden EGL/GLES contextをUI用に作る
 - [ ] CPU full-frame rendererを復活させる
 - [ ] compileを通すためのdummy backendを作る
 - [ ] Validation errorを無視する
@@ -2199,7 +3093,7 @@ rg -n "ID3D12|D3D12_|DXGI_" src/MphRead.Native
 
 ---
 
-# 31. 完成判定 Definition of Done
+# 33. 完成判定 Definition of Done
 
 この作業は、単にVulkan/D3D12で三角形が表示された時点では完了ではない。
 
@@ -2209,7 +3103,7 @@ rg -n "ID3D12|D3D12_|DXGI_" src/MphRead.Native
 
 - [ ] Renderer FrontendがAPI非依存
 - [ ] RHIがOpenGL APIの単純ラッパーではない
-- [ ] OpenGL/Vulkan/D3D12が同一RHIを実装
+- [ ] OpenGL/OpenGLES/Vulkan/D3D12/Metalが同一RHI契約を使用
 - [ ] WindowとSwapchainが分離
 - [ ] Sceneがraw GPU API handleを所有しない
 - [ ] Resource state/lifetimeが明示されている
@@ -2244,6 +3138,34 @@ rg -n "ID3D12|D3D12_|DXGI_" src/MphRead.Native
 - [ ] fullscreen/resize動作
 - [ ] Debug Layer重大エラーなし
 
+## Metal
+
+- [ ] game scene動作
+- [ ] HUD動作
+- [ ] cel/post process動作
+- [ ] Launcher動作
+- [ ] Pause動作
+- [ ] Map Vote動作
+- [ ] Retina/high-DPI描画一致
+- [ ] fullscreen/resize動作
+- [ ] Metal API Validation重大エラーなし
+- [ ] hidden OpenGL contextなし
+
+## Android Vulkan
+
+- [ ] Android Vulkan起動
+- [ ] game scene動作
+- [ ] HUD動作
+- [ ] cel/post process動作
+- [ ] Map Vote/UI動作
+- [ ] touch input座標一致
+- [ ] orientation change動作
+- [ ] pause/resume動作
+- [ ] surface destroy/recreate動作
+- [ ] Validation重大エラーなし
+- [ ] hidden GLES contextなし
+- [ ] GLES backendも継続動作
+
 ## Parity
 
 - [ ] transparent描画一致
@@ -2264,7 +3186,7 @@ rg -n "ID3D12|D3D12_|DXGI_" src/MphRead.Native
 
 ---
 
-# 32. 推奨コミット分割
+# 34. 推奨コミット分割
 
 巨大1commitへしない。
 
@@ -2286,15 +3208,21 @@ rg -n "ID3D12|D3D12_|DXGI_" src/MphRead.Native
 13. Add D3D12 device and swapchain
 14. Add D3D12 scene rendering
 15. Add D3D12 UI composition
-16. Add backend switching
-17. Add cross-backend parity tests and CI
+16. Add Metal device and CAMetalLayer presentation
+17. Add Metal scene rendering
+18. Add Metal UI composition
+19. Add Android Vulkan surface and lifecycle integration
+20. Add Android Vulkan scene/UI rendering
+21. Add Android GLES/Vulkan parity tests
+22. Add backend switching
+23. Add cross-backend parity tests and CI
 ```
 
 各commitで可能な限りbuildableな状態を維持する。
 
 ---
 
-# 33. Git運用
+# 35. Git運用
 
 `develop2` を唯一の作業基準とする。
 
@@ -2318,7 +3246,7 @@ rg -n "ID3D12|D3D12_|DXGI_" src/MphRead.Native
 
 ---
 
-# 34. 実装担当への最終指示
+# 36. 実装担当への最終指示
 
 この作業で最優先するものは、VulkanやD3D12のAPIコード量ではない。
 
@@ -2329,17 +3257,20 @@ rg -n "ID3D12|D3D12_|DXGI_" src/MphRead.Native
 2. OpenGL依存をRendererから分離
 3. Immediate Mode / Display ListをGPU buffer modelへ変換
 4. RHIでOpenGLを完全再現
-5. 同じRHIへVulkanを実装
+5. 同じRHIへDesktop Vulkanを実装
 6. 同じRHIへD3D12を実装
-7. Skia/UIを各backendへ正しく統合
-8. parity / validation / lifetimeを閉じる
-9. 必要ならbackend hot switching
-10. その後に最適化
+7. 同じRHIへMetalを実装
+8. 同じVulkan backendをAndroid surface/lifecycleへ接続
+9. Android GLES/Vulkanを並存させる
+10. Skia/UIを各backendへ正しく統合
+11. parity / validation / lifetimeを閉じる
+12. 必要ならbackend hot switching
+13. その後に最適化
 ```
 
 Vulkan/D3D12実装のためにOpenGL版と別の描画ロジックを作らない。
 
-3 backendすべてが、
+全backendが、
 
 ```text
 同じScene
@@ -2368,16 +3299,18 @@ Game / Scene / HUD / Launcher
               │
               ▼
              RHI
-       ┌──────┼───────┐
-       ▼      ▼       ▼
-    OpenGL  Vulkan   D3D12
-       │      │       │
-       └──────┴───────┘
-              │
-              ▼
-             GPU
+    ┌────────┬────────┬────────┬────────┬────────┐
+    ▼        ▼        ▼        ▼        ▼
+ OpenGL   OpenGLES  Vulkan   D3D12    Metal
+ Desktop   Android  Desktop/ Windows   macOS
+                    Android
+    │        │        │        │        │
+    └────────┴────────┴────────┴────────┴────────┘
+                         │
+                         ▼
+                        GPU
 ```
 
 **OpenGLは仕様ではない。**
 
-**Renderer Frontendと描画結果が仕様であり、OpenGL/Vulkan/D3D12はその実装である。**
+**Renderer Frontendと描画結果が仕様であり、OpenGL/OpenGLES/Vulkan/D3D12/Metalはその実装である。**
