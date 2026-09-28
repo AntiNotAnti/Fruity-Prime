@@ -193,7 +193,8 @@ namespace MphRead::Mods::Network
                 _stalePressFrames = Runtime::UncheckedAdd(_stalePressFrames, age);
             }
         }
-        requested = static_cast<std::int32_t>(std::min(Runtime::RoundToEven(depth), static_cast<double>(HistoryFrames)));
+        requested = Runtime::ConvertToInt32Net9(
+            Runtime::MathMin(Runtime::RoundToEven(depth), static_cast<double>(HistoryFrames)));
         if (depth > _maxRewindFrames)
         {
             depth = _maxRewindFrames;
@@ -229,7 +230,7 @@ namespace MphRead::Mods::Network
         {
             _worstRequested = requested;
         }
-        const auto served = static_cast<std::int32_t>(Runtime::RoundToEven(rewind));
+        const std::int32_t served = Runtime::ConvertToInt32Net9(Runtime::RoundToEven(rewind));
         const auto weapon = static_cast<std::size_t>(NetShotDiagnostics::Bucket(shooter.CurrentWeapon()));
         Runtime::IncrementInPlace(NetShotDiagnostics::RewindSamples[weapon]);
         NetShotDiagnostics::RewindFrames[weapon] = Runtime::UncheckedAdd(
@@ -255,7 +256,7 @@ namespace MphRead::Mods::Network
             return;
         }
         _shooter = &shooter;
-        _rewind = static_cast<std::int32_t>(std::ceil(rewind));
+        _rewind = Runtime::ConvertToInt32Net9(std::ceil(rewind));
         Runtime::IncrementInPlace(_shotsCompensated);
         _framesRewound = Runtime::UncheckedAdd(_framesRewound, served);
         if (served > _worstRewind)
