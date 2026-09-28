@@ -7,6 +7,7 @@
 #include "MovingBackdrop.hpp"
 #include "UiMark.hpp"
 #include "../../../NativeRuntime/System/Globalization.hpp"
+#include "../../../NativeRuntime/System/Managed.hpp"
 
 #if !defined(__ANDROID__)
 #include "../../Render/LauncherPhoto.hpp"
@@ -20,30 +21,10 @@
 namespace MphRead::Mods::Launcher::Gui
 {
     using namespace ::MphRead::NativeRuntime::Avalonia;
+    using ::MphRead::NativeRuntime::RoundToEven;
 
     namespace
     {
-        // System.Math.Round(double) uses midpoint-to-even; std::round uses
-        // midpoint-away-from-zero. Layout scale steps must match the C# curve.
-        [[nodiscard]] double RoundToEven(double value)
-        {
-            if (!std::isfinite(value))
-            {
-                return value;
-            }
-            const double lower = std::floor(value);
-            const double fraction = value - lower;
-            if (fraction < 0.5)
-            {
-                return lower;
-            }
-            if (fraction > 0.5)
-            {
-                return lower + 1.0;
-            }
-            return std::fmod(lower, 2.0) == 0.0 ? lower : lower + 1.0;
-        }
-
         // A Grid whose row gap is an em rather than a number, written only
         // when it has moved.
         class GapGrid final : public Controls::Grid
@@ -58,7 +39,7 @@ namespace MphRead::Mods::Launcher::Gui
         protected:
             Size MeasureOverride(Size availableSize) override
             {
-                const double gap = std::round(Deck::GetEm(*this) * _gapEms);
+                const double gap = RoundToEven(Deck::GetEm(*this) * _gapEms);
                 if (std::abs(gap - RowSpacing()) > 0.01)
                 {
                     RowSpacing(gap);
@@ -82,7 +63,7 @@ namespace MphRead::Mods::Launcher::Gui
         protected:
             Size MeasureOverride(Size availableSize) override
             {
-                const double gap = std::round(Deck::GetEm(*this) * _gapEms);
+                const double gap = RoundToEven(Deck::GetEm(*this) * _gapEms);
                 for (const Controls::ControlPtr& child : Children)
                 {
                     const Thickness want = GetDock(*child) == Controls::Dock::Right ? Thickness(gap, 0, 0, 0) : Thickness(0);
@@ -105,7 +86,7 @@ namespace MphRead::Mods::Launcher::Gui
             Size MeasureOverride(Size availableSize) override
             {
                 const double em = Deck::GetEm(*this);
-                const Thickness want(std::round(em * 0.9), std::round(em * 1.1), std::round(em * 0.9), std::round(em * 1.1));
+                const Thickness want(RoundToEven(em * 0.9), RoundToEven(em * 1.1), RoundToEven(em * 0.9), RoundToEven(em * 1.1));
                 if (Padding() != want)
                 {
                     Padding(want);
@@ -131,7 +112,7 @@ namespace MphRead::Mods::Launcher::Gui
 
     Media::Color UiLayout::Void(double alpha)
     {
-        return Media::Color::FromArgb(static_cast<std::uint8_t>(std::round(std::clamp(alpha, 0.0, 1.0) * 255)), 5, 7, 10);
+        return Media::Color::FromArgb(static_cast<std::uint8_t>(RoundToEven(std::clamp(alpha, 0.0, 1.0) * 255)), 5, 7, 10);
     }
 
     std::shared_ptr<Controls::Border> UiLayout::Ground(bool horizontal)
